@@ -1,0 +1,29 @@
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+  test: {
+    server: {
+      deps: {
+        inline: [/@deepseek-ai\/dsh-client-ui-primitives/, /@deepseek-ai\/dsh-client-ui-attachment/, /katex/],
+      },
+    },
+    setupFiles: ['tests/setup.ts'],
+    include: ['tests/**/*.spec.ts', 'tests/**/*.spec.tsx'],
+    restoreMocks: true,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary', 'html'],
+      include: [
+        'src/shared/{codec,config,ids,model-ack,protocol}.ts',
+        'src/host/**/*.ts',
+        'src/client/{controller,highlight,selection,storage}.ts',
+      ],
+      thresholds: {
+        lines: 78,
+        functions: 78,
+        branches: 68,
+        statements: 75,
+      },
+    },
+  },
+})

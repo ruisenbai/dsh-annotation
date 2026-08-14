@@ -1,0 +1,26 @@
+{
+  "protocolVersion": 1,
+  "submissionId": "sub-00000000-0000-4000-8000-000000000001",
+  "sessionId": "example-session-id",
+  "delivery": "queue",
+  "createdAt": 1786716000000,
+  "overallRequirement": "Revise the complete proposal using these notes.",
+  "annotations": [
+    {
+      "annotationId": "ann-00000000-0000-4000-8000-000000000001",
+      "ordinal": 1,
+      "messageId": "example-assistant-message-id",
+      "messageSeq": 42,
+      "responseVersion": "example-assistant-message-id",
+      "quote": {
+        "exact": "This assumption needs evidence.",
+        "prefix": "Earlier context. ",
+        "suffix": " Later context.",
+        "start": 125,
+        "end": 156
+      },
+      "comment": "Add a source and explain the boundary conditions.",
+      "createdAt": 1786715900000
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+node_modules/
+lib/
+coverage/
+artifacts/
+dist/
+.verify-home/
+.verify-install/
+*.tgz
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example

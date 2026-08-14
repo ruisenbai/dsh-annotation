@@ -1,0 +1,10 @@
+# Example bundle patch with stricter review-team limits.
+- insert:
+    - id: inline-annotations
+      name: dsh-inline-annotations
+      config:
+        commandName: inline_annotations_submit
+        maxPayloadBytes: 262144
+        maxAnnotationsPerSubmission: 40
+        warnSelectionChars: 8000
+        locateHistoryPages: 30
