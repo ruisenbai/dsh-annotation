@@ -11,7 +11,7 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - Draft, queued, and sent list groups with two-line rows, deletion undo, local-data export, draft clearing, and storage-usage feedback.
 - Official DSH icons and tooltips for all plugin actions, replacing the bundled Lucide dependency.
 - Complete-line marker anchoring, an overflow-safe mobile gutter, ascending same-row order, and animation-frame-coalesced measurement.
-- Exact marker-line centering in the active scroll viewport during source navigation.
+- Exact marker-line centering in the active scroll viewport during source navigation, with reduced-motion behavior and a stale-selector marker fallback.
 - Unit and real Chromium coverage for compact editing, autosave, mobile and zoom layout, dark mode, reasoning disclosure, and source location.
 - GitHub-ready repository metadata and CI.
 

@@ -110,8 +110,20 @@ function scrollContainer(element: HTMLElement): HTMLElement | null {
   return null
 }
 
+function preferredScrollBehavior(): ScrollBehavior {
+  return typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ? 'auto'
+    : 'smooth'
+}
+
+function visualLineFromRect(rect: DOMRect): VisualLine {
+  return { top: rect.top, right: rect.right, bottom: rect.bottom, height: rect.height }
+}
+
 function centerVisualLine(element: HTMLElement, line: VisualLine): void {
   const lineCenter = (line.top + line.bottom) / 2
+  const behavior = preferredScrollBehavior()
   const container = scrollContainer(element)
   if (container !== null) {
     const bounds = container.getBoundingClientRect()
@@ -121,12 +133,12 @@ function centerVisualLine(element: HTMLElement, line: VisualLine): void {
     const visibleBottom = Math.min(bounds.bottom, viewportBottom)
     const visualDelta = lineCenter - (visibleTop + visibleBottom) / 2
     const scale = container.offsetHeight > 0 ? bounds.height / container.offsetHeight : 1
-    container.scrollBy({ top: visualDelta / (scale > 0 ? scale : 1), behavior: 'smooth' })
+    container.scrollBy({ top: visualDelta / (scale > 0 ? scale : 1), behavior })
     return
   }
   const viewportTop = window.visualViewport?.offsetTop ?? 0
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight
-  window.scrollBy({ top: lineCenter - (viewportTop + viewportHeight / 2), behavior: 'smooth' })
+  window.scrollBy({ top: lineCenter - (viewportTop + viewportHeight / 2), behavior })
 }
 
 /** Full replacement renderer required because DSH exposes no slot inside assistant Markdown. */
@@ -209,8 +221,15 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       if (root === null || body === null) return
       const annotation = annotations.find((item) => item.annotationId === annotationId)
       const range = annotation === undefined ? null : rangeFromSelector(body, annotation.quote)
-      const line = range === null ? null : completeFinalLine(selectableTextNodes(body), range)
-      if (line === null) root.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      const rangeLine = range === null ? null : completeFinalLine(selectableTextNodes(body), range)
+      const marker = Array.from(root.querySelectorAll<HTMLElement>('.dia-marker')).find(
+        (candidate) => candidate.dataset.annotationId === annotationId,
+      )
+      const markerRect = marker?.getBoundingClientRect()
+      const line =
+        rangeLine ??
+        (markerRect === undefined || markerRect.height <= 0 ? null : visualLineFromRect(markerRect))
+      if (line === null) root.scrollIntoView({ behavior: preferredScrollBehavior(), block: 'center' })
       else centerVisualLine(root, line)
       activateHighlight(messageId as MessageIdentity, range)
       setFlash(false)
@@ -297,7 +316,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         else groups.push({ anchor: marker.line, markers: [marker] })
       }
 
-      const widestGroup = Math.max(1, ...groups.map((group) => group.markers.length))
+      const widestGroup = Math.max(1, unresolved.length, ...groups.map((group) => group.markers.length))
       const requiredGutter = Math.min(widestGroup, maxColumns) * 26 + 7
       if (markerGutter > maxAllowedGutter || markerGutter < requiredGutter) {
         setMarkerGutterState({
@@ -344,12 +363,17 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         })
       }
 
+      const unresolvedColumns = Math.min(Math.max(1, unresolved.length), maxColumns)
+      const unresolvedLeft = Math.max(
+        minLeft,
+        Math.min(rootWidth - markerGutter + 5, rootRight - (unresolvedColumns - 1) * 26),
+      )
       unresolved
         .sort((left, right) => left.annotation.ordinal - right.annotation.ordinal)
         .forEach(({ annotation }, index) => {
           const position = Object.freeze({
-            top: Math.floor(index / maxColumns) * 30,
-            left: Math.max(minLeft, rootWidth - markerGutter + 5 + (index % maxColumns) * 26),
+            top: Math.floor(index / unresolvedColumns) * 30,
+            left: unresolvedLeft + (index % unresolvedColumns) * 26,
           })
           occupied.push(position)
           next.set(annotation.annotationId, position)
@@ -562,6 +586,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
               <button
                 type="button"
                 className="dia-marker"
+                data-annotation-id={annotation.annotationId}
                 data-status={annotation.status}
                 data-active={annotation.annotationId === activeId}
                 style={{

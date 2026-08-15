@@ -535,7 +535,7 @@ describe('annotation presentation', () => {
         removeHighlights: vi.fn(),
         t,
       } as unknown as AssistantAnnotationProps
-      const { container } = render(<AnnotatedAssistantNode {...props} />)
+      const { container, rerender } = render(<AnnotatedAssistantNode {...props} />)
       const markers = annotations.map((annotation) =>
         screen.getByRole('button', { name: `#${annotation.ordinal}: ${annotation.comment}` }),
       )
@@ -550,6 +550,30 @@ describe('annotation presentation', () => {
       expect(Number.parseFloat(markers[4]!.style.top)).toBeGreaterThan(
         Number.parseFloat(markers[0]!.style.top),
       )
+
+      const unresolvedView: AnnotationView = {
+        ...view,
+        annotations: annotations.map((annotation) => ({
+          ...annotation,
+          quote: {
+            exact: `missing source ${annotation.ordinal}`,
+            prefix: '',
+            suffix: '',
+            start: 1_000 + annotation.ordinal * 20,
+            end: 1_010 + annotation.ordinal * 20,
+          },
+        })),
+      }
+      rerender(
+        <AnnotatedAssistantNode
+          {...props}
+          useAnnotations={(selector) => selector(unresolvedView) as never}
+        />,
+      )
+      await waitFor(() => expect(markers[0]).toHaveStyle({ top: '0px' }))
+      const unresolvedLefts = markers.map((marker) => Number.parseFloat(marker.style.left))
+      expect(Math.max(...unresolvedLefts) + 24).toBeLessThanOrEqual(320)
+      expect(markers[4]).toHaveStyle({ left: `${unresolvedLefts[0]}px`, top: '30px' })
     } finally {
       if (rangeRects === undefined) Reflect.deleteProperty(Range.prototype, 'getClientRects')
       else Object.defineProperty(Range.prototype, 'getClientRects', rangeRects)
@@ -644,6 +668,14 @@ describe('annotation presentation', () => {
       act(() => endpoint?.reveal(annotation.annotationId))
       expect(scrollBy).toHaveBeenCalledWith({ top: 70, behavior: 'smooth' })
       expect(activateHighlight).toHaveBeenCalledWith(annotation.messageId, expect.any(Range))
+
+      vi.stubGlobal(
+        'matchMedia',
+        vi.fn(() => ({ matches: true })),
+      )
+      scrollBy.mockClear()
+      act(() => endpoint?.reveal(annotation.annotationId))
+      expect(scrollBy).toHaveBeenCalledWith({ top: 70, behavior: 'auto' })
     } finally {
       if (rangeRects === undefined) Reflect.deleteProperty(Range.prototype, 'getClientRects')
       else Object.defineProperty(Range.prototype, 'getClientRects', rangeRects)
