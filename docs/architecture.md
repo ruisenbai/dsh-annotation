@@ -101,7 +101,7 @@ DSH currently has no additive slot inside `AssistantMarkdown`. The Client uses s
 
 Lower priority wins in DSH keyed slots. The replacements use public `MarkdownText`, `JsonBlock`, `MessageText`, and attachment primitives. Additive entries are used where available:
 
-- `conversation.input.dock` for the batch summary, selection-positioned editor, desktop annotation panel, and mobile bottom sheet;
+- `conversation.input.dock` for the task-style collapsible annotation list and selection-positioned editor;
 - `conversation.chat.assistant-actions` for a keyboard-accessible whole-reply annotation action;
 - `conversation.chat.commandview:<commandName>` to suppress the transport command's redundant timeline card.
 

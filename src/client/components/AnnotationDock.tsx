@@ -1,14 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   AlertCircle,
   Archive,
-  BadgeCheck,
+  ChevronDown,
   ChevronUp,
-  CircleCheck,
-  Clock3,
-  FileText,
   LockKeyhole,
   MapPin,
   MessageSquarePlus,
@@ -25,13 +22,6 @@ import type { AnnotationView, EditorState } from '../controller.ts'
 
 function statusLabel(status: AnnotationStatus, t: InputAnnotationProps['t']): string {
   return t(`status.${status}`)
-}
-
-function StatusIcon({ status }: { status: AnnotationStatus }) {
-  if (status === 'queued') return <Clock3 aria-hidden="true" size={12} strokeWidth={2} />
-  if (status === 'sent') return <CircleCheck aria-hidden="true" size={12} strokeWidth={2} />
-  if (status === 'processed') return <BadgeCheck aria-hidden="true" size={12} strokeWidth={2} />
-  return <FileText aria-hidden="true" size={12} strokeWidth={2} />
 }
 
 function editorQuote(view: AnnotationView): string {
@@ -227,72 +217,62 @@ function AnnotationRow({
 } & Omit<AnnotationBoundProps, 'useAnnotations'>) {
   const item = view.annotations.find((candidate) => candidate.annotationId === annotationId)
   if (item === undefined) return null
+  const editLabel = item.status === 'draft' ? t('list.edit') : t('editor.supplement')
   return (
-    <article
+    <div
+      role="listitem"
+      aria-label={`#${item.ordinal} · ${statusLabel(item.status, t)} · ${item.quote.exact} · ${item.comment}`}
       className={`dia-item${view.activeAnnotationId === item.annotationId ? ' is-active' : ''}`}
       data-status={item.status}
     >
-      <button
-        type="button"
-        className="dia-item__main"
-        onClick={() => void actions.navigate(item.annotationId)}
-      >
+      <div className="dia-item__main">
         <span className="dia-item__index" aria-hidden="true">
           {item.ordinal}
         </span>
         <span className="dia-item__copy">
-          <q>{item.quote.exact}</q>
-          <span>{item.comment}</span>
-          <code>{item.annotationId}</code>
+          <q title={item.quote.exact}>{item.quote.exact}</q>
+          <span title={item.comment}>{item.comment}</span>
         </span>
-      </button>
-      <footer className="dia-item__footer">
-        <span className="dia-status" data-status={item.status}>
-          <StatusIcon status={item.status} />
-          {statusLabel(item.status, t)}
-        </span>
+      </div>
+      <div className="dia-item__actions">
         <button
           type="button"
-          className="dia-text-button"
+          className="dia-row-action"
           aria-label={t('list.locate')}
+          title={t('list.locate')}
           onClick={() => void actions.navigate(item.annotationId)}
         >
-          <MapPin aria-hidden="true" size={12} strokeWidth={1.8} />
-          {t('list.locate')}
+          <MapPin aria-hidden="true" size={14} strokeWidth={1.8} />
         </button>
-        {item.status === 'draft' && (
-          <>
-            <button
-              type="button"
-              className="dia-text-button"
-              onClick={() => actions.openAnnotation(item.annotationId)}
-            >
-              <Pencil aria-hidden="true" size={12} strokeWidth={1.8} />
-              {t('list.edit')}
-            </button>
-            <button
-              type="button"
-              className="dia-text-button"
-              data-danger="true"
-              onClick={() => actions.deleteDraft(item.annotationId)}
-            >
-              <Trash2 aria-hidden="true" size={12} strokeWidth={1.8} />
-              {t('list.delete')}
-            </button>
-          </>
-        )}
-        {(item.status === 'sent' || item.status === 'processed') && (
+        {item.status !== 'queued' && (
           <button
             type="button"
-            className="dia-text-button"
+            className="dia-row-action"
+            aria-label={editLabel}
+            title={editLabel}
             onClick={() => actions.openAnnotation(item.annotationId)}
           >
-            <MessageSquarePlus aria-hidden="true" size={12} strokeWidth={1.8} />
-            {t('editor.supplement')}
+            {item.status === 'draft' ? (
+              <Pencil aria-hidden="true" size={14} strokeWidth={1.8} />
+            ) : (
+              <MessageSquarePlus aria-hidden="true" size={14} strokeWidth={1.8} />
+            )}
           </button>
         )}
-      </footer>
-    </article>
+        {item.status === 'draft' && (
+          <button
+            type="button"
+            className="dia-row-action"
+            data-danger="true"
+            aria-label={t('list.delete')}
+            title={t('list.delete')}
+            onClick={() => actions.deleteDraft(item.annotationId)}
+          >
+            <Trash2 aria-hidden="true" size={14} strokeWidth={1.8} />
+          </button>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -337,6 +317,8 @@ function AnnotationPanel({
 } & Omit<AnnotationBoundProps, 'useAnnotations'>) {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(false)
+  const listId = useId()
+  const overallId = `${listId}-overall`
   const disposition = sendDisposition(session, archived)
   const retry = view.outbox.find((item) => item.status === 'failed')
   const drafts = view.annotations.filter((item) => item.status === 'draft')
@@ -367,126 +349,128 @@ function AnnotationPanel({
     }
   }
 
-  if (!view.panelOpen) return null
   return (
-    <Portal>
-      <button
-        type="button"
-        className="dia-panel-scrim"
-        aria-label={t('action.close')}
-        onClick={() => actions.setPanelOpen(false)}
-      />
-      <aside className="dia-panel" role="dialog" aria-modal="false" aria-labelledby="dia-panel-title">
-        <header className="dia-panel__head">
-          <span className="dia-panel__title-icon" aria-hidden="true">
-            <MessagesSquare size={17} strokeWidth={1.8} />
+    <section className="dia-dock-shell" aria-label={t('list.title')}>
+      <div className="dia-dock-body">
+        <button
+          type="button"
+          className="dia-dock"
+          aria-controls={listId}
+          aria-expanded={view.panelOpen}
+          onClick={() => actions.setPanelOpen(!view.panelOpen)}
+        >
+          <span className="dia-dock__icon" aria-hidden="true">
+            <MessagesSquare size={14} strokeWidth={1.8} />
           </span>
-          <div>
-            <strong id="dia-panel-title">{t('list.title')}</strong>
-            <span>{panelSummary(view, retry !== undefined, t)}</span>
-          </div>
-          <button
-            type="button"
-            className="dia-icon-button"
-            aria-label={t('action.close')}
-            onClick={() => actions.setPanelOpen(false)}
-          >
-            <X aria-hidden="true" size={17} strokeWidth={1.8} />
-          </button>
-        </header>
+          <span className="dia-dock__title">{t('list.title')}</span>
+          <span className="dia-dock__summary">{panelSummary(view, retry !== undefined, t)}</span>
+          <span className="dia-dock__chevron" aria-hidden="true">
+            {view.panelOpen ? (
+              <ChevronDown size={14} strokeWidth={1.8} />
+            ) : (
+              <ChevronUp size={14} strokeWidth={1.8} />
+            )}
+          </span>
+        </button>
 
-        <div className="dia-panel__body">
-          {archived && (
-            <div className="dia-inline-notice" data-tone="neutral">
-              <Archive aria-hidden="true" size={16} strokeWidth={1.8} />
-              <p>{t('archived.copyNotice')}</p>
+        {view.panelOpen && (
+          <div id={listId} className="dia-inline-panel">
+            {archived && (
+              <div className="dia-inline-notice" data-tone="neutral">
+                <Archive aria-hidden="true" size={16} strokeWidth={1.8} />
+                <p>{t('archived.copyNotice')}</p>
+              </div>
+            )}
+            {retry !== undefined && (
+              <div className="dia-inline-notice" data-tone="error">
+                <AlertCircle aria-hidden="true" size={16} strokeWidth={1.8} />
+                <div>
+                  <p>{t('error.send')}</p>
+                  <code>{retry.payload.submissionId}</code>
+                </div>
+              </div>
+            )}
+            {view.notice !== null && (
+              <p className={view.notice.level === 'error' ? 'dia-error' : 'dia-warning'} role="status">
+                {noticeText(view.notice.text, t)}
+              </p>
+            )}
+            {submitError && (
+              <p className="dia-error" role="alert">
+                {t('error.send')}
+              </p>
+            )}
+            <div className="dia-list" role={view.annotations.length > 0 ? 'list' : undefined}>
+              {view.annotations.length === 0 && <p className="dia-list__empty">{t('list.empty')}</p>}
+              {view.annotations.map((item) => (
+                <AnnotationRow
+                  key={item.annotationId}
+                  annotationId={item.annotationId}
+                  view={view}
+                  t={t}
+                  {...actions}
+                />
+              ))}
             </div>
-          )}
-          {retry !== undefined && (
-            <div className="dia-inline-notice" data-tone="error">
-              <AlertCircle aria-hidden="true" size={16} strokeWidth={1.8} />
-              <div>
-                <p>{t('error.send')}</p>
-                <code>{retry.payload.submissionId}</code>
+
+            <div className="dia-inline-panel__footer">
+              {immutable && (
+                <p className="dia-immutable-note">
+                  <LockKeyhole aria-hidden="true" size={13} strokeWidth={1.8} />
+                  {t('list.immutable')}
+                </p>
+              )}
+              <label className="dia-field-label" htmlFor={overallId}>
+                {t('list.overallLabel')}
+              </label>
+              <textarea
+                id={overallId}
+                className="dia-textarea dia-inline-panel__textarea"
+                value={view.overallRequirementDraft}
+                placeholder={t('list.overall')}
+                disabled={retry !== undefined}
+                onChange={(event) => actions.setOverallRequirementDraft(event.target.value)}
+              />
+              <div className="dia-inline-panel__actions">
+                {queuedSubmissions.map((entry) => (
+                  <button
+                    key={entry.payload.submissionId}
+                    type="button"
+                    className="dia-button"
+                    onClick={() => void actions.withdraw(entry.payload.submissionId as SubmissionId)}
+                  >
+                    <RotateCcw aria-hidden="true" size={14} strokeWidth={1.8} />
+                    {t('list.withdraw')}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="dia-button dia-inline-panel__send"
+                  data-primary="true"
+                  disabled={!canSend || submitting}
+                  onClick={() => void submit()}
+                >
+                  {retry === undefined ? (
+                    <Send aria-hidden="true" size={14} strokeWidth={1.8} />
+                  ) : (
+                    <RotateCcw aria-hidden="true" size={14} strokeWidth={1.8} />
+                  )}
+                  {submitting
+                    ? t('send.sending')
+                    : retry === undefined
+                      ? t(disposition.label)
+                      : t('send.retry')}
+                </button>
               </div>
             </div>
-          )}
-          {view.notice !== null && (
-            <p className={view.notice.level === 'error' ? 'dia-error' : 'dia-warning'} role="status">
-              {noticeText(view.notice.text, t)}
-            </p>
-          )}
-          {submitError && (
-            <p className="dia-error" role="alert">
-              {t('error.send')}
-            </p>
-          )}
-          <div className="dia-list">
-            {view.annotations.length === 0 && <p className="dia-list__empty">{t('list.empty')}</p>}
-            {view.annotations.map((item) => (
-              <AnnotationRow
-                key={item.annotationId}
-                annotationId={item.annotationId}
-                view={view}
-                t={t}
-                {...actions}
-              />
-            ))}
           </div>
-        </div>
-
-        <footer className="dia-panel__footer">
-          {immutable && (
-            <p className="dia-immutable-note">
-              <LockKeyhole aria-hidden="true" size={13} strokeWidth={1.8} />
-              {t('list.immutable')}
-            </p>
-          )}
-          <label className="dia-field-label" htmlFor="dia-overall-requirement">
-            {t('list.overallLabel')}
-          </label>
-          <textarea
-            id="dia-overall-requirement"
-            className="dia-textarea dia-panel__textarea"
-            value={view.overallRequirementDraft}
-            placeholder={t('list.overall')}
-            disabled={retry !== undefined}
-            onChange={(event) => actions.setOverallRequirementDraft(event.target.value)}
-          />
-          <div className="dia-panel__actions">
-            {queuedSubmissions.map((entry) => (
-              <button
-                key={entry.payload.submissionId}
-                type="button"
-                className="dia-button"
-                onClick={() => void actions.withdraw(entry.payload.submissionId as SubmissionId)}
-              >
-                <RotateCcw aria-hidden="true" size={14} strokeWidth={1.8} />
-                {t('list.withdraw')}
-              </button>
-            ))}
-            <button
-              type="button"
-              className="dia-button dia-panel__send"
-              data-primary="true"
-              disabled={!canSend || submitting}
-              onClick={() => void submit()}
-            >
-              {retry === undefined ? (
-                <Send aria-hidden="true" size={14} strokeWidth={1.8} />
-              ) : (
-                <RotateCcw aria-hidden="true" size={14} strokeWidth={1.8} />
-              )}
-              {submitting ? t('send.sending') : retry === undefined ? t(disposition.label) : t('send.retry')}
-            </button>
-          </div>
-        </footer>
-      </aside>
-    </Portal>
+        )}
+      </div>
+    </section>
   )
 }
 
-/** Composer dock status button plus the Session-owned editor and annotation panel. */
+/** Composer dock list plus the Session-owned selection editor. */
 export function AnnotationDock({
   useAnnotations,
   useWorkspaces,
@@ -497,43 +481,15 @@ export function AnnotationDock({
 }: InputAnnotationProps) {
   const view = useAnnotations((state) => state)
   const archived = useWorkspaces((state) => state.archivedSessionIds.includes(sessionId))
-  const counts = useMemo(
-    () => ({
-      draft: view.annotations.filter((item) => item.status === 'draft').length,
-      queued: view.annotations.filter((item) => item.status === 'queued').length,
-    }),
-    [view.annotations],
-  )
   const failed = view.outbox.some((item) => item.status === 'failed')
-  const visible = view.annotations.length > 0 || view.editor !== null || failed
-  if (!visible) return null
-  const count = counts.draft > 0 ? counts.draft : counts.queued > 0 ? counts.queued : view.annotations.length
-  const detail = failed
-    ? t('dock.failed')
-    : counts.draft > 0
-      ? t('dock.pendingDetail')
-      : counts.queued > 0
-        ? t('dock.queuedDetail')
-        : t('dock.historyDetail')
+  const dockVisible = view.annotations.length > 0 || failed
+  if (!dockVisible && view.editor === null) return null
   return (
     <>
-      <button
-        type="button"
-        className="dia-dock"
-        aria-expanded={view.panelOpen}
-        onClick={() => actions.setPanelOpen(true)}
-      >
-        <span className="dia-dock__icon" aria-hidden="true">
-          <MessagesSquare size={16} strokeWidth={1.8} />
-        </span>
-        <span className="dia-dock__copy">
-          <strong>{t('dock.count', { count })}</strong>
-          <small>{detail}</small>
-        </span>
-        <ChevronUp aria-hidden="true" size={16} strokeWidth={1.8} />
-      </button>
+      {dockVisible && (
+        <AnnotationPanel view={view} archived={archived} t={t} session={session} {...actions} />
+      )}
       <AnnotationEditor key={editorKey(view.editor)} view={view} t={t} {...actions} />
-      <AnnotationPanel view={view} archived={archived} t={t} session={session} {...actions} />
     </>
   )
 }

@@ -7,7 +7,7 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 ### Added
 
 - A compact selection toolbar with annotation and copy actions.
-- A 320 px annotation popover, composer summary, desktop side panel, and mobile bottom sheet.
+- A 320 px annotation popover and task-style composer list with two-line rows and icon-only source, edit, and delete actions.
 - Lucide status and action icons with distinct queued, sent, processed, and failure treatments.
 - Keyboard-close behavior, viewport-safe editor sizing, 24 px marker targets, complete timeline quotes, and explicit copy-failure feedback.
 - Explicit discard confirmation and final-line marker anchoring that reflows after reasoning disclosure, viewport changes, and browser zoom.

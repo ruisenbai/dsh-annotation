@@ -116,7 +116,7 @@ describe('annotation presentation', () => {
       t,
     } as unknown as InputAnnotationProps
     const { rerender } = render(<AnnotationDock {...props} />)
-    fireEvent.click(screen.getByRole('button', { name: /1 inline annotations/u }))
+    fireEvent.click(screen.getByRole('button', { name: /Inline annotations/u }))
     expect(setPanelOpen).toHaveBeenCalledWith(true)
 
     const emptyProps = {
@@ -127,18 +127,25 @@ describe('annotation presentation', () => {
     expect(screen.queryByRole('button', { name: /inline annotations/u })).not.toBeInTheDocument()
   })
 
-  it('renders the annotation list as a right-side dialog with task actions', () => {
+  it('expands an official-style inline list with two-line rows and icon actions', () => {
     const payload = fixturePayload()
     const annotation = {
       ...payload.annotations[0]!,
       status: 'draft' as const,
       updatedAt: payload.createdAt,
     }
+    const secondAnnotation = {
+      ...annotation,
+      annotationId: 'ann-test-2' as typeof annotation.annotationId,
+      ordinal: 2,
+      quote: { ...annotation.quote, exact: 'second selected source' },
+      comment: 'Use a concrete example here.',
+    }
     const navigate = vi.fn(async () => true)
     const submit = vi.fn(async () => undefined)
     const view: AnnotationView = {
       ...baseView(),
-      annotations: [annotation],
+      annotations: [annotation, secondAnnotation],
       panelOpen: true,
     }
     const props = {
@@ -158,10 +165,28 @@ describe('annotation presentation', () => {
     } as unknown as InputAnnotationProps
     render(<AnnotationDock {...props} />)
 
-    const panel = screen.getByRole('dialog', { name: 'Inline annotations' })
+    const panel = screen.getByRole('region', { name: 'Inline annotations' })
     expect(panel).toBeInTheDocument()
-    expect(within(panel).getByText(annotation.comment)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Inline annotations' })).not.toBeInTheDocument()
+    const rows = panel.querySelectorAll<HTMLElement>('.dia-item')
+    expect(rows).toHaveLength(2)
+    expect(within(panel).getByText(secondAnnotation.comment)).toBeInTheDocument()
+    const firstRow = within(rows[0]!)
+    const comment = firstRow.getByText(annotation.comment)
+    expect(comment.parentElement?.children).toHaveLength(2)
+    expect(within(panel).queryByText(annotation.annotationId)).not.toBeInTheDocument()
     expect(within(panel).getByLabelText('Overall request (optional)')).toBeInTheDocument()
+
+    for (const name of ['Locate source', 'Edit', 'Delete']) {
+      expect(firstRow.getByRole('button', { name })).not.toHaveTextContent(/\S/u)
+    }
+    fireEvent.click(firstRow.getByRole('button', { name: 'Locate source' }))
+    expect(navigate).toHaveBeenCalledWith(annotation.annotationId)
+    fireEvent.click(firstRow.getByRole('button', { name: 'Edit' }))
+    expect(props.openAnnotation).toHaveBeenCalledWith(annotation.annotationId)
+    fireEvent.click(firstRow.getByRole('button', { name: 'Delete' }))
+    expect(props.deleteDraft).toHaveBeenCalledWith(annotation.annotationId)
+
     fireEvent.click(within(panel).getByRole('button', { name: 'Send to task' }))
     expect(submit).toHaveBeenCalledWith(false, 'queue')
     fireEvent.keyDown(document, { key: 'Escape' })
