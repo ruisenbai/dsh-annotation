@@ -6,7 +6,7 @@ import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation
 import { stripModelAcknowledgementMarkers } from '../../shared/model-ack.ts'
 import type { AnnotationDraft, AnnotationId, MessageIdentity } from '../../shared/types.ts'
 import type { AssistantAnnotationProps } from '../contract.ts'
-import { captureSelection, rangeFromSelector, textOffsetAtPoint } from '../selection.ts'
+import { captureSelection, rangeFromSelector, selectableTextNodes, textOffsetAtPoint } from '../selection.ts'
 
 function sameAnnotations(left: readonly AnnotationDraft[], right: readonly AnnotationDraft[]): boolean {
   return left.length === right.length && left.every((item, index) => item === right[index])
@@ -47,6 +47,51 @@ function finalVisibleRect(range: Range): DOMRect | null {
   if (typeof range.getBoundingClientRect !== 'function') return null
   const bounds = range.getBoundingClientRect()
   return bounds.width > 0 && bounds.height > 0 ? bounds : null
+}
+
+interface VisualLine {
+  readonly top: number
+  readonly right: number
+  readonly bottom: number
+  readonly height: number
+}
+
+function sharesVisualLine(rect: VisualLine, line: VisualLine): boolean {
+  const overlap = Math.min(rect.bottom, line.bottom) - Math.max(rect.top, line.top)
+  return overlap > Math.min(rect.height, line.height) / 2
+}
+
+function completeFinalLine(nodes: readonly Text[], range: Range): VisualLine | null {
+  const selected = finalVisibleRect(range)
+  if (selected === null) return null
+  const line: VisualLine = {
+    top: selected.top,
+    right: selected.right,
+    bottom: selected.bottom,
+    height: selected.height,
+  }
+  const endIndex = nodes.findIndex((node) => node === range.endContainer)
+  if (endIndex < 0) return line
+
+  let right = line.right
+  for (let index = endIndex; index < nodes.length; index += 1) {
+    const node = nodes[index]!
+    const probe = document.createRange()
+    probe.setStart(node, index === endIndex ? range.endOffset : 0)
+    probe.setEnd(node, node.length)
+    let reachedLaterLine = false
+    for (const rect of Array.from(probe.getClientRects())) {
+      if (rect.width <= 0 || rect.height <= 0) continue
+      if (sharesVisualLine(rect, line)) {
+        right = Math.max(right, rect.right)
+      } else if (rect.top >= line.bottom - 0.5) {
+        reachedLaterLine = true
+        break
+      }
+    }
+    if (reachedLaterLine) break
+  }
+  return { ...line, right }
 }
 
 /** Full replacement renderer required because DSH exposes no slot inside assistant Markdown. */
@@ -164,42 +209,80 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
 
     const measure = () => {
       const rootRect = root.getBoundingClientRect()
-      const viewport = window.visualViewport
-      const viewportLeft = viewport?.offsetLeft ?? 0
-      const viewportRight = viewportLeft + (viewport?.width ?? window.innerWidth)
+      const viewportLeft = window.visualViewport?.offsetLeft ?? 0
       const minLeft = viewportLeft - rootRect.left + 4
-      const maxLeft = Math.max(minLeft, viewportRight - rootRect.left - 28)
       const occupied: MarkerPosition[] = []
       const next = new Map<AnnotationId, MarkerPosition>()
+      const textNodes = selectableTextNodes(body)
+      const measured: Array<{ annotation: AnnotationDraft; line: VisualLine }> = []
+      const unresolved: Array<{ annotation: AnnotationDraft; index: number }> = []
 
       annotations.forEach((annotation, index) => {
         const range = rangeFromSelector(body, annotation.quote)
-        const rect = range === null ? null : finalVisibleRect(range)
-        const baseTop = Math.round(
-          rect === null ? index * 30 : rect.top - rootRect.top + (rect.height - 24) / 2,
-        )
-        const baseLeft = Math.round(
-          rect === null
-            ? Math.min(maxLeft, rootRect.width + 6)
-            : Math.max(minLeft, Math.min(maxLeft, rect.right - rootRect.left + 5)),
-        )
-        let top = baseTop
-        let left = baseLeft
-        let lane = 0
-        while (occupied.some((item) => Math.abs(item.top - top) < 24 && Math.abs(item.left - left) < 24)) {
-          lane += 1
-          const shifted = baseLeft + lane * 26
-          if (shifted <= maxLeft) {
-            left = shifted
-          } else {
-            left = baseLeft
-            top = baseTop + lane * 26
-          }
-        }
-        const position = Object.freeze({ top, left })
-        occupied.push(position)
-        next.set(annotation.annotationId, position)
+        const line = range === null ? null : completeFinalLine(textNodes, range)
+        if (line === null) unresolved.push({ annotation, index })
+        else measured.push({ annotation, line })
       })
+
+      measured.sort((left, right) => {
+        const lineOrder = left.line.top + left.line.bottom - right.line.top - right.line.bottom
+        return lineOrder === 0 ? left.annotation.ordinal - right.annotation.ordinal : lineOrder
+      })
+      const groups: Array<{
+        anchor: VisualLine
+        markers: Array<{ annotation: AnnotationDraft; line: VisualLine }>
+      }> = []
+      for (const marker of measured) {
+        const group = groups.at(-1)
+        if (group !== undefined && sharesVisualLine(marker.line, group.anchor)) {
+          group.markers.push(marker)
+        } else {
+          groups.push({ anchor: marker.line, markers: [marker] })
+        }
+      }
+
+      for (const group of groups) {
+        group.markers.sort((left, right) => left.annotation.ordinal - right.annotation.ordinal)
+        const lineCenter =
+          group.markers.reduce((sum, marker) => sum + (marker.line.top + marker.line.bottom) / 2, 0) /
+          group.markers.length
+        const baseTop = Math.round(lineCenter - rootRect.top - 12)
+        const lineRight = Math.max(...group.markers.map((marker) => marker.line.right))
+        let groupLeft = Math.round(Math.max(minLeft, lineRight - rootRect.left + 5))
+        while (
+          group.markers.some((_, index) =>
+            occupied.some(
+              (position) =>
+                Math.abs(position.top - baseTop) < 24 &&
+                Math.abs(position.left - (groupLeft + index * 26)) < 24,
+            ),
+          )
+        ) {
+          groupLeft += 26
+        }
+        group.markers.forEach((marker, index) => {
+          const position = Object.freeze({ top: baseTop, left: groupLeft + index * 26 })
+          occupied.push(position)
+          next.set(marker.annotation.annotationId, position)
+        })
+      }
+
+      unresolved
+        .sort((left, right) => left.annotation.ordinal - right.annotation.ordinal)
+        .forEach(({ annotation, index }) => {
+          const top = index * 30
+          let left = Math.round(Math.max(minLeft, rootRect.width + 6))
+          while (
+            occupied.some(
+              (position) => Math.abs(position.top - top) < 24 && Math.abs(position.left - left) < 24,
+            )
+          ) {
+            left += 26
+          }
+          const position = Object.freeze({ top, left })
+          occupied.push(position)
+          next.set(annotation.annotationId, position)
+        })
 
       setMarkerPositions((current) => (sameMarkerPositions(current, next) ? current : next))
     }

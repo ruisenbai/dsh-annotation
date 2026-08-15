@@ -87,7 +87,7 @@ Offsets are relative to selectable text nodes inside the plugin-owned assistant 
 
 Mounted messages rebuild `Range` objects from offsets. If the rendered offsets no longer contain the exact quote, the Client relocates the exact text by prefix, suffix, and distance within the same immutable message id. Navigation first uses the mounted endpoint, then loads older history pages up to `locateHistoryPages`. The selected reply scrolls into view and flashes. CSS Custom Highlights aggregate all mounted ranges under one plugin-owned manager; numbered buttons remain the fallback.
 
-Each numbered button anchors to the final visible rectangle of its rebuilt range. Resize observation, viewport events, reasoning disclosure toggles, and font-loading completion recompute positions in CSS pixels, so browser zoom and layout changes preserve the visual association.
+Each numbered button anchors after the complete selectable-text line containing its rebuilt range endpoint, rather than immediately after a mid-line selection. Markers sharing one visual line are grouped by vertical geometry and placed left to right by ordinal. Resize observation, viewport events, reasoning disclosure toggles, and font-loading completion recompute positions in CSS pixels.
 
 ## Slot composition
 

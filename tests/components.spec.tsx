@@ -257,12 +257,25 @@ describe('annotation presentation', () => {
     )
   })
 
-  it('anchors each number to the selected text final line and recomputes after zoom-like resize', () => {
+  it('anchors markers after the complete text line and orders same-line numbers ascending', () => {
     const payload = fixturePayload()
     const annotation = {
       ...payload.annotations[0]!,
       status: 'draft' as const,
       updatedAt: payload.createdAt,
+    }
+    const earlierSelection = {
+      ...annotation,
+      annotationId: 'ann-test-2' as typeof annotation.annotationId,
+      ordinal: 2,
+      quote: {
+        exact: 'before',
+        prefix: '',
+        suffix: ' selected source after',
+        start: 0,
+        end: 6,
+      },
+      comment: 'Clarify the introduction.',
     }
     const rangeRects = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects')
     const elementRect = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'getBoundingClientRect')
@@ -286,9 +299,14 @@ describe('annotation presentation', () => {
         const ignored = this.startContainer.parentElement?.closest(
           '[data-dsh-inline-annotation-ignore="true"]',
         )
-        return (ignored === null
-          ? [rect(finalLineTop - 30, 240, 140), rect(finalLineTop, finalLineRight, 180)]
-          : [rect(105, 140, 80)]) as unknown as DOMRectList
+        if (ignored !== null) return [rect(105, 140, 80)] as unknown as DOMRectList
+        const text = this.toString()
+        if (text === 'selected source') return [rect(finalLineTop, 260, 100)] as unknown as DOMRectList
+        if (text === 'before') return [rect(finalLineTop, 115, 60)] as unknown as DOMRectList
+        if (text === ' after' || text === ' selected source after') {
+          return [rect(finalLineTop, finalLineRight, 100)] as unknown as DOMRectList
+        }
+        return [] as unknown as DOMRectList
       },
     })
     Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
@@ -297,7 +315,7 @@ describe('annotation presentation', () => {
     })
 
     try {
-      const view: AnnotationView = { ...baseView(), annotations: [annotation] }
+      const view: AnnotationView = { ...baseView(), annotations: [annotation, earlierSelection] }
       const props = {
         node: {
           data: {
@@ -325,16 +343,20 @@ describe('annotation presentation', () => {
       } as unknown as AssistantAnnotationProps
       render(<AnnotatedAssistantNode {...props} />)
 
-      const marker = screen.getByRole('button', { name: '#1: Explain this claim.' })
-      expect(marker).toHaveStyle({ top: '48px', left: '315px' })
+      const firstMarker = screen.getByRole('button', { name: '#1: Explain this claim.' })
+      const secondMarker = screen.getByRole('button', { name: '#2: Clarify the introduction.' })
+      expect(firstMarker).toHaveStyle({ top: '48px', left: '315px' })
+      expect(secondMarker).toHaveStyle({ top: '48px', left: '341px' })
 
       finalLineTop = 190
       fireEvent(screen.getByText('assistant.reasoning').closest('details')!, new Event('toggle'))
-      expect(marker).toHaveStyle({ top: '88px', left: '315px' })
+      expect(firstMarker).toHaveStyle({ top: '88px', left: '315px' })
+      expect(secondMarker).toHaveStyle({ top: '88px', left: '341px' })
 
       finalLineRight = 410
       fireEvent(window, new Event('resize'))
-      expect(marker).toHaveStyle({ top: '88px', left: '365px' })
+      expect(firstMarker).toHaveStyle({ top: '88px', left: '365px' })
+      expect(secondMarker).toHaveStyle({ top: '88px', left: '391px' })
     } finally {
       if (rangeRects === undefined) Reflect.deleteProperty(Range.prototype, 'getClientRects')
       else Object.defineProperty(Range.prototype, 'getClientRects', rangeRects)
