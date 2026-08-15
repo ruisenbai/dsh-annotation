@@ -15,6 +15,8 @@ pnpm install
 pnpm typecheck
 pnpm lint
 pnpm test
+pnpm exec playwright install chromium
+pnpm test:browser
 pnpm test:coverage
 pnpm build
 pnpm verify:bundle
@@ -29,7 +31,8 @@ pnpm publint
 - `host-command.spec.ts`: delivery, cross-Session rejection, and idempotency;
 - `controller.spec.ts`: editing, retries, states, overlap, supplementation, recovery, and navigation;
 - `selection.spec.ts` and `highlight.spec.ts`: DOM selectors, relocation, coordinates, and browser highlight fallback;
-- `components.spec.tsx`: user-visible timeline and dock behavior;
+- `components.spec.tsx`: user-visible timeline, compact editor, grouped list, marker geometry, and source centering;
+- `scripts/browser-test.mjs` with `tests/browser/fixture.tsx`: real Chromium coverage for autosave, outside-click decisions, mobile overflow, dark mode, zoom, reasoning disclosure, and source centering;
 - `client-apply.spec.ts`: Client registration, local limits, transport failure, and immutable retry;
 - `submission-flow.spec.ts`: browser payload through Host admission and durable status reconstruction.
 
@@ -55,8 +58,8 @@ Minimum manual matrix:
 
 1. select text with pointer and keyboard;
 2. annotate prose, fenced code, and a table;
-3. create overlapping selections;
-4. refresh with unsent drafts;
+3. create overlapping selections and trigger both empty and dirty outside-click editor behavior;
+4. refresh with unfinished editor text and saved drafts, then test delete undo, export, and draft clearing;
 5. submit while idle, running, and waiting for an interaction;
 6. withdraw a queued batch;
 7. retry after simulating a transport disconnect;

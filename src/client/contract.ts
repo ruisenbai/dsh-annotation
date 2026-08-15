@@ -12,6 +12,10 @@ export interface AnnotationInjected {
   readonly saveEditor: () => AnnotationId
   readonly closeEditor: (force?: boolean) => boolean
   readonly deleteDraft: (annotationId: AnnotationId) => void
+  readonly undoDelete: () => void
+  readonly dismissDeleteUndo: () => void
+  readonly exportLocalData: () => string
+  readonly clearLocalDrafts: () => void
   readonly setPanelOpen: (open: boolean) => void
   readonly setOverallRequirementDraft: (value: string) => void
   readonly submit: (archived: boolean, delivery: DeliveryMode) => Promise<void>

@@ -1,18 +1,19 @@
-import { MessageSquarePlus } from '../icons.ts'
+import { IconListPenOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MessageIdentity } from '../../shared/types.ts'
 import type { AssistantActionAnnotationProps } from '../contract.ts'
 
 /** Keyboard-reachable fallback that opens an editor for the complete reply text. */
 export function AssistantAnnotationAction({ messageId, annotateMessage, t }: AssistantActionAnnotationProps) {
   return (
-    <button
-      type="button"
-      className="dia-action-icon"
-      title={t('action.annotate')}
-      aria-label={t('action.annotate')}
-      onClick={() => annotateMessage(messageId as unknown as MessageIdentity)}
-    >
-      <MessageSquarePlus aria-hidden="true" size={15} strokeWidth={1.8} />
-    </button>
+    <Tooltip label={t('action.annotate')} side="top" delayMs={300}>
+      <button
+        type="button"
+        className="dia-action-icon"
+        aria-label={t('action.annotate')}
+        onClick={() => annotateMessage(messageId as unknown as MessageIdentity)}
+      >
+        <IconListPenOutline16 size={15} />
+      </button>
+    </Tooltip>
   )
 }

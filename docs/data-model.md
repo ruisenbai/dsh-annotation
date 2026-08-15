@@ -62,14 +62,17 @@ The per-Session `localStorage` value is:
 
 ```ts
 interface PersistedSessionState {
-  storageVersion: 1
+  storageVersion: 2
   annotations: readonly AnnotationDraft[]
   outbox: readonly OutboxEntry[]
   overallRequirementDraft: string
+  editorDraft?: PersistedEditorDraft
 }
 ```
 
-An outbox entry contains the immutable payload, target Session id, deterministic message id, attempt count, and status. Corrupt or unsupported storage is not partially trusted; the Client starts with an empty state and shows a storage warning.
+`editorDraft` contains the serializable selection capture, current text, long-selection decision, and optional supplemental target. The controller writes nonblank editor text after 400 ms and removes it when Cancel or Save closes the editor. The `localStorage` key retains its `v1` prefix; version-one values migrate to this value format when read.
+
+An outbox entry contains the immutable payload, target Session id, deterministic message id, attempt count, and status. An invalid optional `editorDraft` is omitted so valid drafts and immutable retry records can still recover. Invalid core arrays, provenance, or unsupported versions are not partially trusted; the Client starts with an empty state and shows a storage warning.
 
 ## Annotation state transitions
 
@@ -88,7 +91,7 @@ An outbox entry contains the immutable payload, target Session id, deterministic
                                     processed
 ```
 
-- `draft` content may be edited or deleted.
+- `draft` content may be edited or deleted. The most recent deletion remains undoable in memory for 4.5 seconds; it is not persisted as a second draft.
 - `queued` content is frozen. Withdrawal creates a new editable draft state from the same annotation.
 - `sent` and `processed` history is never edited.
 - Opening a sent annotation creates a new draft with `supplementalTo`; it does not mutate the earlier record.

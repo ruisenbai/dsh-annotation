@@ -1,7 +1,13 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Check, Copy, MessageSquarePlus } from '../icons.ts'
 import { ImageGallery } from '@deepseek-ai/dsh-client-ui-attachment'
-import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  IconCheckOutline14,
+  IconCopyOutline16,
+  IconListPenOutline16,
+  JsonBlock,
+  MarkdownText,
+  Tooltip,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { stripModelAcknowledgementMarkers } from '../../shared/model-ack.ts'
 import type { AnnotationDraft, AnnotationId, MessageIdentity } from '../../shared/types.ts'
@@ -94,6 +100,35 @@ function completeFinalLine(nodes: readonly Text[], range: Range): VisualLine | n
   return { ...line, right }
 }
 
+function scrollContainer(element: HTMLElement): HTMLElement | null {
+  let current = element.parentElement
+  while (current !== null && current !== document.body && current !== document.documentElement) {
+    const overflowY = window.getComputedStyle(current).overflowY
+    if (/(auto|scroll|overlay)/.test(overflowY) && current.scrollHeight > current.clientHeight) return current
+    current = current.parentElement
+  }
+  return null
+}
+
+function centerVisualLine(element: HTMLElement, line: VisualLine): void {
+  const lineCenter = (line.top + line.bottom) / 2
+  const container = scrollContainer(element)
+  if (container !== null) {
+    const bounds = container.getBoundingClientRect()
+    const viewportTop = window.visualViewport?.offsetTop ?? 0
+    const viewportBottom = viewportTop + (window.visualViewport?.height ?? window.innerHeight)
+    const visibleTop = Math.max(bounds.top, viewportTop)
+    const visibleBottom = Math.min(bounds.bottom, viewportBottom)
+    const visualDelta = lineCenter - (visibleTop + visibleBottom) / 2
+    const scale = container.offsetHeight > 0 ? bounds.height / container.offsetHeight : 1
+    container.scrollBy({ top: visualDelta / (scale > 0 ? scale : 1), behavior: 'smooth' })
+    return
+  }
+  const viewportTop = window.visualViewport?.offsetTop ?? 0
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight
+  window.scrollBy({ top: lineCenter - (viewportTop + viewportHeight / 2), behavior: 'smooth' })
+}
+
 /** Full replacement renderer required because DSH exposes no slot inside assistant Markdown. */
 export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   node,
@@ -117,6 +152,10 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   const [markerPositions, setMarkerPositions] = useState<ReadonlyMap<AnnotationId, MarkerPosition>>(
     () => new Map(),
   )
+  const [markerGutterState, setMarkerGutterState] = useState<{ key: string; width: number }>({
+    key: '',
+    width: 0,
+  })
   const [flash, setFlash] = useState(false)
   const [hover, setHover] = useState<{ annotation: AnnotationDraft; x: number; y: number } | null>(null)
   const data = node.data
@@ -128,6 +167,17 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     sameAnnotations,
   )
   const activeId = useAnnotations((view) => view.activeAnnotationId)
+  const geometryKey = useMemo(
+    () =>
+      annotations
+        .map(
+          (item) =>
+            `${item.annotationId}:${item.ordinal}:${item.quote.start}:${item.quote.end}:${item.quote.exact}`,
+        )
+        .join('|'),
+    [annotations],
+  )
+  const markerGutter = markerGutterState.key === geometryKey ? markerGutterState.width : 0
   const tail = useTurnData('turn-tail')
   const turn = node.location.kind === 'turn' || node.location.kind === 'step' ? node.location.turn : undefined
   const mentionOwner = useMemo<TurnTailOwnerProps | undefined>(() => {
@@ -157,9 +207,11 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       const root = rootRef.current
       const body = bodyRef.current
       if (root === null || body === null) return
-      root.scrollIntoView({ behavior: 'smooth', block: 'center' })
       const annotation = annotations.find((item) => item.annotationId === annotationId)
       const range = annotation === undefined ? null : rangeFromSelector(body, annotation.quote)
+      const line = range === null ? null : completeFinalLine(selectableTextNodes(body), range)
+      if (line === null) root.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      else centerVisualLine(root, line)
       activateHighlight(messageId as MessageIdentity, range)
       setFlash(false)
       requestAnimationFrame(() => setFlash(true))
@@ -207,13 +259,20 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       return undefined
     }
 
+    const textNodes = selectableTextNodes(body)
+    let frame: number | null = null
     const measure = () => {
       const rootRect = root.getBoundingClientRect()
       const viewportLeft = window.visualViewport?.offsetLeft ?? 0
-      const minLeft = viewportLeft - rootRect.left + 4
+      const viewportWidth = window.visualViewport?.width ?? window.innerWidth
+      const rootWidth = root.offsetWidth > 0 ? root.offsetWidth : rootRect.width
+      const scaleX = root.offsetWidth > 0 && rootRect.width > 0 ? rootRect.width / root.offsetWidth : 1
+      const scaleY = root.offsetHeight > 0 && rootRect.height > 0 ? rootRect.height / root.offsetHeight : 1
+      const minLeft = (viewportLeft - rootRect.left) / scaleX + 4
+      const maxColumns = Math.max(1, Math.min(4, Math.floor(Math.max(26, rootWidth * 0.34) / 26)))
+      const maxAllowedGutter = maxColumns * 26 + 7
       const occupied: MarkerPosition[] = []
       const next = new Map<AnnotationId, MarkerPosition>()
-      const textNodes = selectableTextNodes(body)
       const measured: Array<{ annotation: AnnotationDraft; line: VisualLine }> = []
       const unresolved: Array<{ annotation: AnnotationDraft; index: number }> = []
 
@@ -234,34 +293,52 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       }> = []
       for (const marker of measured) {
         const group = groups.at(-1)
-        if (group !== undefined && sharesVisualLine(marker.line, group.anchor)) {
-          group.markers.push(marker)
-        } else {
-          groups.push({ anchor: marker.line, markers: [marker] })
-        }
+        if (group !== undefined && sharesVisualLine(marker.line, group.anchor)) group.markers.push(marker)
+        else groups.push({ anchor: marker.line, markers: [marker] })
       }
 
+      const widestGroup = Math.max(1, ...groups.map((group) => group.markers.length))
+      const requiredGutter = Math.min(widestGroup, maxColumns) * 26 + 7
+      if (markerGutter > maxAllowedGutter || markerGutter < requiredGutter) {
+        setMarkerGutterState({
+          key: geometryKey,
+          width: markerGutter > maxAllowedGutter ? maxAllowedGutter : requiredGutter,
+        })
+        return
+      }
+
+      const rootRight = Math.min(rootWidth - 28, (viewportLeft + viewportWidth - rootRect.left) / scaleX - 28)
       for (const group of groups) {
         group.markers.sort((left, right) => left.annotation.ordinal - right.annotation.ordinal)
+        const columns = Math.min(group.markers.length, maxColumns)
         const lineCenter =
           group.markers.reduce((sum, marker) => sum + (marker.line.top + marker.line.bottom) / 2, 0) /
           group.markers.length
-        const baseTop = Math.round(lineCenter - rootRect.top - 12)
+        const baseTop = Math.round((lineCenter - rootRect.top) / scaleY - 12)
         const lineRight = Math.max(...group.markers.map((marker) => marker.line.right))
-        let groupLeft = Math.round(Math.max(minLeft, lineRight - rootRect.left + 5))
+        const groupWidth = (columns - 1) * 26 + 24
+        let groupLeft = Math.round(
+          Math.max(minLeft, Math.min((lineRight - rootRect.left) / scaleX + 5, rootRight - groupWidth + 24)),
+        )
         while (
-          group.markers.some((_, index) =>
-            occupied.some(
+          group.markers.some((_, index) => {
+            const row = Math.floor(index / columns)
+            const column = index % columns
+            return occupied.some(
               (position) =>
-                Math.abs(position.top - baseTop) < 24 &&
-                Math.abs(position.left - (groupLeft + index * 26)) < 24,
-            ),
-          )
+                Math.abs(position.top - (baseTop + row * 26)) < 24 &&
+                Math.abs(position.left - (groupLeft + column * 26)) < 24,
+            )
+          }) &&
+          groupLeft + groupWidth + 26 <= rootRight + 24
         ) {
           groupLeft += 26
         }
         group.markers.forEach((marker, index) => {
-          const position = Object.freeze({ top: baseTop, left: groupLeft + index * 26 })
+          const position = Object.freeze({
+            top: baseTop + Math.floor(index / columns) * 26,
+            left: groupLeft + (index % columns) * 26,
+          })
           occupied.push(position)
           next.set(marker.annotation.annotationId, position)
         })
@@ -269,45 +346,42 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
 
       unresolved
         .sort((left, right) => left.annotation.ordinal - right.annotation.ordinal)
-        .forEach(({ annotation, index }) => {
-          const top = index * 30
-          let left = Math.round(Math.max(minLeft, rootRect.width + 6))
-          while (
-            occupied.some(
-              (position) => Math.abs(position.top - top) < 24 && Math.abs(position.left - left) < 24,
-            )
-          ) {
-            left += 26
-          }
-          const position = Object.freeze({ top, left })
+        .forEach(({ annotation }, index) => {
+          const position = Object.freeze({
+            top: Math.floor(index / maxColumns) * 30,
+            left: Math.max(minLeft, rootWidth - markerGutter + 5 + (index % maxColumns) * 26),
+          })
           occupied.push(position)
           next.set(annotation.annotationId, position)
         })
 
       setMarkerPositions((current) => (sameMarkerPositions(current, next) ? current : next))
     }
+    const scheduleMeasure = () => {
+      if (frame !== null) return
+      frame = requestAnimationFrame(() => {
+        frame = null
+        measure()
+      })
+    }
 
     measure()
-    const resizeObserver =
-      typeof ResizeObserver === 'undefined'
-        ? null
-        : new ResizeObserver(() => {
-            measure()
-          })
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleMeasure)
     resizeObserver?.observe(root)
     resizeObserver?.observe(body)
-    window.addEventListener('resize', measure)
-    window.visualViewport?.addEventListener('resize', measure)
-    document.addEventListener('toggle', measure, true)
-    document.fonts?.addEventListener('loadingdone', measure)
+    window.addEventListener('resize', scheduleMeasure)
+    window.visualViewport?.addEventListener('resize', scheduleMeasure)
+    document.addEventListener('toggle', scheduleMeasure, true)
+    document.fonts?.addEventListener('loadingdone', scheduleMeasure)
     return () => {
+      if (frame !== null) cancelAnimationFrame(frame)
       resizeObserver?.disconnect()
-      window.removeEventListener('resize', measure)
-      window.visualViewport?.removeEventListener('resize', measure)
-      document.removeEventListener('toggle', measure, true)
-      document.fonts?.removeEventListener('loadingdone', measure)
+      window.removeEventListener('resize', scheduleMeasure)
+      window.visualViewport?.removeEventListener('resize', scheduleMeasure)
+      document.removeEventListener('toggle', scheduleMeasure, true)
+      document.fonts?.removeEventListener('loadingdone', scheduleMeasure)
     }
-  }, [annotations])
+  }, [data.blocks, geometryKey, markerGutter])
 
   useEffect(() => {
     const body = bodyRef.current
@@ -383,6 +457,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       <div
         ref={bodyRef}
         className="dia-assistant__body"
+        style={markerGutter === 0 ? undefined : { paddingRight: markerGutter }}
         onPointerMove={(event) => {
           const annotation = inspectPoint(event.clientX, event.clientY)
           setHover(
@@ -458,46 +533,47 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
               window.getSelection()?.removeAllRanges()
             }}
           >
-            <MessageSquarePlus aria-hidden="true" size={14} strokeWidth={1.8} />
+            <IconListPenOutline16 size={14} />
             {t('selection.add')}
           </button>
           <span className="dia-selection-divider" aria-hidden="true" />
-          <button
-            type="button"
-            className="dia-selection-action dia-selection-action--icon"
-            data-copy-status={selectionCopyStatus}
-            aria-label={selectionCopyLabel}
-            title={selectionCopyLabel}
-            aria-live="polite"
-            onClick={() => void copySelection()}
-          >
-            {selectionCopyStatus === 'copied' ? (
-              <Check aria-hidden="true" size={14} strokeWidth={1.8} />
-            ) : (
-              <Copy aria-hidden="true" size={14} strokeWidth={1.8} />
-            )}
-          </button>
+          <Tooltip label={selectionCopyLabel} side="top" delayMs={300}>
+            <button
+              type="button"
+              className="dia-selection-action dia-selection-action--icon"
+              data-copy-status={selectionCopyStatus}
+              aria-label={selectionCopyLabel}
+              aria-live="polite"
+              onClick={() => void copySelection()}
+            >
+              {selectionCopyStatus === 'copied' ? (
+                <IconCheckOutline14 size={14} />
+              ) : (
+                <IconCopyOutline16 size={14} />
+              )}
+            </button>
+          </Tooltip>
         </div>
       )}
       {annotations.length > 0 && (
         <nav className="dia-markers" aria-label={t('list.title')}>
           {annotations.map((annotation) => (
-            <button
-              key={annotation.annotationId}
-              type="button"
-              className="dia-marker"
-              data-status={annotation.status}
-              data-active={annotation.annotationId === activeId}
-              style={{
-                top: markerPositions.get(annotation.annotationId)?.top ?? (annotation.ordinal - 1) * 30,
-                left: markerPositions.get(annotation.annotationId)?.left ?? 'calc(100% + 6px)',
-              }}
-              title={annotation.comment}
-              aria-label={`#${annotation.ordinal}: ${annotation.comment}`}
-              onClick={() => openAnnotation(annotation.annotationId)}
-            >
-              <span>{annotation.ordinal}</span>
-            </button>
+            <Tooltip key={annotation.annotationId} label={annotation.comment} side="top" delayMs={300}>
+              <button
+                type="button"
+                className="dia-marker"
+                data-status={annotation.status}
+                data-active={annotation.annotationId === activeId}
+                style={{
+                  top: markerPositions.get(annotation.annotationId)?.top ?? (annotation.ordinal - 1) * 30,
+                  left: markerPositions.get(annotation.annotationId)?.left ?? 'calc(100% + 6px)',
+                }}
+                aria-label={`#${annotation.ordinal}: ${annotation.comment}`}
+                onClick={() => openAnnotation(annotation.annotationId)}
+              >
+                <span>{annotation.ordinal}</span>
+              </button>
+            </Tooltip>
           ))}
         </nav>
       )}

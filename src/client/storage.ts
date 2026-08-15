@@ -1,10 +1,18 @@
 import { submissionMessageId } from '../shared/ids.ts'
-import { parseSubmissionPayload, parseSubmittedAnnotation } from '../shared/protocol.ts'
+import {
+  parseStructuredSelection,
+  parseSubmissionPayload,
+  parseSubmittedAnnotation,
+  parseTextQuoteSelector,
+} from '../shared/protocol.ts'
 import type {
   AnnotationDraft,
+  AnnotationSelectionCapture,
   AnnotationStatus,
+  MessageIdentity,
   OutboxEntry,
   OutboxStatus,
+  PersistedEditorDraft,
   PersistedSessionState,
   SessionIdentity,
   SubmissionId,
@@ -21,9 +29,13 @@ const PREFIX = 'dsh-inline-annotations:v1:'
 const ANNOTATION_STATUSES: readonly AnnotationStatus[] = ['draft', 'queued', 'sent', 'processed']
 const OUTBOX_STATUSES: readonly OutboxStatus[] = ['ready', 'sending', 'queued', 'sent', 'failed', 'withdrawn']
 
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength
+}
+
 export function emptyPersistedState(): PersistedSessionState {
   return Object.freeze({
-    storageVersion: 1,
+    storageVersion: 2,
     annotations: Object.freeze([]),
     outbox: Object.freeze([]),
     overallRequirementDraft: '',
@@ -85,11 +97,103 @@ function parseOutbox(value: unknown): OutboxEntry {
   })
 }
 
+function object(value: unknown, field: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${field} must be an object`)
+  }
+  return value as Record<string, unknown>
+}
+
+function persistedId<T extends string>(value: unknown, field: string): T {
+  if (typeof value !== 'string' || value.trim() === '' || value.length > 256) {
+    throw new Error(`${field} must be a non-blank id`)
+  }
+  return value as T
+}
+
+function parseCapture(value: unknown, field: string): AnnotationSelectionCapture {
+  const source = object(value, field)
+  const messageId = persistedId<MessageIdentity>(source.messageId, `${field}.messageId`)
+  const responseVersion = persistedId<MessageIdentity>(source.responseVersion, `${field}.responseVersion`)
+  if (responseVersion !== messageId) throw new Error(`${field}.responseVersion must match messageId`)
+  if (!Number.isSafeInteger(source.messageSeq) || (source.messageSeq as number) < 0) {
+    throw new Error(`${field}.messageSeq must be a non-negative safe integer`)
+  }
+  const rectSource = object(source.rect, `${field}.rect`)
+  const coordinates = ['top', 'left', 'bottom', 'right'] as const
+  if (coordinates.some((coordinate) => !Number.isFinite(rectSource[coordinate]))) {
+    throw new Error(`${field}.rect must contain finite coordinates`)
+  }
+  const parsedStructure = parseStructuredSelection(source.structure, `${field}.structure`)
+  return Object.freeze({
+    messageId,
+    messageSeq: source.messageSeq as number,
+    responseVersion,
+    quote: parseTextQuoteSelector(source.quote, `${field}.quote`),
+    ...(parsedStructure === undefined ? {} : { structure: parsedStructure }),
+    rect: Object.freeze({
+      top: rectSource.top as number,
+      left: rectSource.left as number,
+      bottom: rectSource.bottom as number,
+      right: rectSource.right as number,
+    }),
+  })
+}
+
+function parseEditorDraft(value: unknown): PersistedEditorDraft | undefined {
+  if (value === undefined) return undefined
+  const source = object(value, 'editorDraft')
+  if (typeof source.text !== 'string') throw new Error('editorDraft.text must be a string')
+  if (source.kind === 'new') {
+    if (typeof source.longSelectionConfirmed !== 'boolean') {
+      throw new Error('editorDraft.longSelectionConfirmed must be a boolean')
+    }
+    const supplementalTo =
+      source.supplementalTo === undefined
+        ? undefined
+        : persistedId<AnnotationId>(source.supplementalTo, 'editorDraft.supplementalTo')
+    return Object.freeze({
+      kind: 'new',
+      capture: parseCapture(source.capture, 'editorDraft.capture'),
+      text: source.text,
+      longSelectionConfirmed: source.longSelectionConfirmed,
+      ...(supplementalTo === undefined ? {} : { supplementalTo }),
+    })
+  }
+  if (source.kind === 'edit') {
+    const expandedCapture =
+      source.expandedCapture === undefined
+        ? undefined
+        : parseCapture(source.expandedCapture, 'editorDraft.expandedCapture')
+    return Object.freeze({
+      kind: 'edit',
+      annotationId: persistedId<AnnotationId>(source.annotationId, 'editorDraft.annotationId'),
+      text: source.text,
+      ...(expandedCapture === undefined ? {} : { expandedCapture }),
+    })
+  }
+  throw new Error('editorDraft.kind must be new or edit')
+}
+
+function parseRecoverableEditorDraft(value: unknown): PersistedEditorDraft | undefined {
+  try {
+    return parseEditorDraft(value)
+  } catch {
+    // An optional recovery buffer must not invalidate submitted records or immutable retry state.
+    return undefined
+  }
+}
+
 function parseState(value: unknown): PersistedSessionState {
   if (typeof value !== 'object' || value === null || Array.isArray(value))
     throw new Error('state must be an object')
   const source = value as Record<string, unknown>
-  if (source.storageVersion !== 1 || !Array.isArray(source.annotations) || !Array.isArray(source.outbox)) {
+  const version = source.storageVersion
+  if (
+    (version !== 1 && version !== 2) ||
+    !Array.isArray(source.annotations) ||
+    !Array.isArray(source.outbox)
+  ) {
     throw new Error('unsupported storage state')
   }
   if (typeof source.overallRequirementDraft !== 'string') throw new Error('invalid overall requirement draft')
@@ -104,11 +208,21 @@ function parseState(value: unknown): PersistedSessionState {
   if (new Set(outbox.map((item) => item.payload.submissionId)).size !== outbox.length) {
     throw new Error('persisted outbox submission ids must be unique')
   }
+  const candidateEditor = version === 2 ? parseRecoverableEditorDraft(source.editorDraft) : undefined
+  const editorDraft =
+    candidateEditor?.kind === 'edit' &&
+    !annotations.some(
+      (annotation) =>
+        annotation.annotationId === candidateEditor.annotationId && annotation.status === 'draft',
+    )
+      ? undefined
+      : candidateEditor
   return Object.freeze({
-    storageVersion: 1,
+    storageVersion: 2,
     annotations: Object.freeze(annotations),
     outbox: Object.freeze(outbox),
     overallRequirementDraft: source.overallRequirementDraft,
+    ...(editorDraft === undefined ? {} : { editorDraft }),
   })
 }
 
@@ -116,6 +230,7 @@ function parseState(value: unknown): PersistedSessionState {
 export class AnnotationStorage {
   readonly key: string
   private error: string | null = null
+  private bytes = 0
 
   constructor(
     private readonly storage: StorageLike,
@@ -127,6 +242,7 @@ export class AnnotationStorage {
   load(): PersistedSessionState {
     try {
       const raw = this.storage.getItem(this.key)
+      this.bytes = raw === null ? 0 : byteLength(raw)
       if (raw === null) return emptyPersistedState()
       const parsed = parseState(JSON.parse(raw))
       this.error = null
@@ -139,7 +255,9 @@ export class AnnotationStorage {
 
   save(state: PersistedSessionState): boolean {
     try {
-      this.storage.setItem(this.key, JSON.stringify(state))
+      const serialized = JSON.stringify(state)
+      this.storage.setItem(this.key, serialized)
+      this.bytes = byteLength(serialized)
       this.error = null
       return true
     } catch (error: unknown) {
@@ -150,7 +268,12 @@ export class AnnotationStorage {
 
   clear(): void {
     this.storage.removeItem(this.key)
+    this.bytes = 0
     this.error = null
+  }
+
+  usageBytes(): number {
+    return this.bytes
   }
 
   lastError(): string | null {

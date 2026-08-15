@@ -2,7 +2,7 @@
 
 ## Data retained before submission
 
-For each DSH Session, the browser stores selected reply text, comments, selectors, source ids, drafts, and immutable retry records under `dsh-inline-annotations:v1:<session-id>` in the origin's `localStorage`.
+For each DSH Session, the browser stores selected reply text, comments, selectors, source ids, unfinished editor text, drafts, and immutable retry records under `dsh-inline-annotations:v1:<session-id>` in the origin's `localStorage`. Editor input is written after 400 ms of inactivity; Cancel removes the unfinished editor record.
 
 Before explicit submission, the plugin does not send this data to the DSH Host, the model provider, analytics, or another network service. Anyone with access to the browser profile or origin storage may be able to read it.
 
@@ -24,7 +24,7 @@ Assistant Markdown is rendered by DSH's untrusted Markdown primitive. Model ackn
 
 ## Clearing local drafts
 
-Delete individual draft annotations in the plugin UI. To clear all plugin-local data for a Session or site, use the browser's site-data controls. Clearing browser data does not delete already submitted DSH Session history.
+Delete one draft and use the temporary Undo action when needed. The composer list can export the current Session's local recovery JSON or clear its unfinished editor, unsubmitted annotations, and overall-requirement draft. Browser site-data controls remain the way to clear every plugin-local record for the origin. None of these actions deletes already submitted DSH Session history.
 
 ## Reporting a vulnerability
 

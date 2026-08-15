@@ -1,18 +1,11 @@
-import type { MessageIdentity, StructuredSelection, TextQuoteSelector } from '../shared/types.ts'
+import type {
+  AnnotationSelectionCapture,
+  MessageIdentity,
+  StructuredSelection,
+  TextQuoteSelector,
+} from '../shared/types.ts'
 
-export interface SelectionCapture {
-  readonly messageId: MessageIdentity
-  readonly messageSeq: number
-  readonly responseVersion: MessageIdentity
-  readonly quote: TextQuoteSelector
-  readonly structure?: StructuredSelection
-  readonly rect: {
-    readonly top: number
-    readonly left: number
-    readonly bottom: number
-    readonly right: number
-  }
-}
+export type SelectionCapture = AnnotationSelectionCapture
 
 function acceptedTextNode(node: Node, root: HTMLElement): node is Text {
   if (node.nodeType !== Node.TEXT_NODE || node.textContent === null) return false

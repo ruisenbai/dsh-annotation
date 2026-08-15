@@ -12,6 +12,7 @@ import type {
   DeliveryMode,
   MessageIdentity,
   OutboxEntry,
+  PersistedEditorDraft,
   PersistedSessionState,
   SessionIdentity,
   SubmissionId,
@@ -21,30 +22,21 @@ import { AnnotationStorage } from './storage.ts'
 import type { SelectionCapture } from './selection.ts'
 import { rangesOverlap } from './selection.ts'
 
-export type EditorState =
-  | {
-      readonly kind: 'new'
-      readonly capture: SelectionCapture
-      readonly text: string
-      readonly longSelectionConfirmed: boolean
-    }
-  | {
-      readonly kind: 'edit'
-      readonly annotationId: AnnotationId
-      readonly text: string
-      readonly expandedCapture?: SelectionCapture
-    }
+export type EditorState = PersistedEditorDraft
 
 export interface AnnotationView {
   readonly annotations: readonly AnnotationDraft[]
   readonly outbox: readonly OutboxEntry[]
   readonly overallRequirementDraft: string
   readonly editor: EditorState | null
+  readonly editorSaveStatus: 'idle' | 'saving' | 'saved' | 'error'
+  readonly deletedDraft: AnnotationDraft | null
   readonly panelOpen: boolean
   readonly notice: { readonly level: 'info' | 'error'; readonly text: string } | null
   readonly activeAnnotationId: AnnotationId | null
   readonly latestAssistantMessageId: MessageIdentity | null
   readonly storageAvailable: boolean
+  readonly storageBytes: number
 }
 
 export interface AnnotationNavigationSession {
@@ -58,6 +50,7 @@ export interface AnnotationEndpoint {
 }
 
 const STATUS_RANK: Record<AnnotationStatus, number> = { draft: 0, queued: 1, sent: 2, processed: 3 }
+const EDITOR_AUTOSAVE_MS = 400
 
 function sortAnnotations(values: readonly AnnotationDraft[]): AnnotationDraft[] {
   return [...values].sort(
@@ -79,11 +72,13 @@ function statusAtLeast(current: AnnotationStatus, candidate: AnnotationStatus): 
 }
 
 function cloneState(view: AnnotationView): PersistedSessionState {
+  const editorDraft = view.editor === null || view.editor.text.trim() === '' ? undefined : view.editor
   return Object.freeze({
-    storageVersion: 1,
+    storageVersion: 2,
     annotations: view.annotations,
     outbox: view.outbox,
     overallRequirementDraft: view.overallRequirementDraft,
+    ...(editorDraft === undefined ? {} : { editorDraft }),
   })
 }
 
@@ -133,6 +128,7 @@ export class AnnotationController {
   private readonly listeners = new Set<() => void>()
   private readonly endpoints = new Map<MessageIdentity, AnnotationEndpoint>()
   private pendingNavigation: { messageId: MessageIdentity; annotationId: AnnotationId } | null = null
+  private persistTimer: ReturnType<typeof setTimeout> | null = null
   private disposed = false
 
   constructor(
@@ -143,14 +139,22 @@ export class AnnotationController {
     private readonly now: () => number = Date.now,
   ) {
     const persisted = storage.load()
+    const editor = persisted.editorDraft ?? null
+    const activeAnnotationId =
+      editor === null ? null : editor.kind === 'edit' ? editor.annotationId : (editor.supplementalTo ?? null)
     this.view = Object.freeze({
-      ...persisted,
-      editor: null,
+      annotations: persisted.annotations,
+      outbox: persisted.outbox,
+      overallRequirementDraft: persisted.overallRequirementDraft,
+      editor,
+      editorSaveStatus: editor === null ? 'idle' : 'saved',
+      deletedDraft: null,
       panelOpen: false,
       notice: storage.lastError() === null ? null : { level: 'error' as const, text: 'storage' },
-      activeAnnotationId: null,
+      activeAnnotationId,
       latestAssistantMessageId: null,
       storageAvailable: storage.lastError() === null,
+      storageBytes: storage.usageBytes(),
     })
   }
 
@@ -165,6 +169,12 @@ export class AnnotationController {
   }
 
   dispose(): void {
+    if (this.disposed) return
+    if (this.persistTimer !== null) {
+      clearTimeout(this.persistTimer)
+      this.persistTimer = null
+      this.storage.save(cloneState(this.view))
+    }
     this.disposed = true
     this.listeners.clear()
     this.endpoints.clear()
@@ -175,41 +185,44 @@ export class AnnotationController {
       (item) => item.messageId === capture.messageId && rangesOverlap(item.quote, capture.quote),
     )
     if (overlap?.status === 'draft') {
-      this.publish(
-        {
-          ...this.view,
-          editor: Object.freeze({
-            kind: 'edit',
-            annotationId: overlap.annotationId,
-            text: overlap.comment,
-            expandedCapture: capture,
-          }),
-          activeAnnotationId: overlap.annotationId,
-        },
-        false,
-      )
-      return
-    }
-    this.publish(
-      {
+      this.publish({
         ...this.view,
         editor: Object.freeze({
-          kind: 'new',
-          capture,
-          text: '',
-          longSelectionConfirmed: capture.quote.exact.length <= this.config.warnSelectionChars,
+          kind: 'edit',
+          annotationId: overlap.annotationId,
+          text: overlap.comment,
+          expandedCapture: capture,
         }),
-        activeAnnotationId: overlap?.annotationId ?? null,
-      },
-      false,
-    )
+        editorSaveStatus: 'idle',
+        activeAnnotationId: overlap.annotationId,
+      })
+      return
+    }
+    this.publish({
+      ...this.view,
+      editor: Object.freeze({
+        kind: 'new',
+        capture,
+        text: '',
+        longSelectionConfirmed: capture.quote.exact.length <= this.config.warnSelectionChars,
+        ...(overlap === undefined ? {} : { supplementalTo: overlap.annotationId }),
+      }),
+      editorSaveStatus: 'idle',
+      activeAnnotationId: overlap?.annotationId ?? null,
+    })
   }
 
   openAnnotation(annotationId: AnnotationId): void {
     const item = this.view.annotations.find((candidate) => candidate.annotationId === annotationId)
     if (item === undefined) return
     if (item.status === 'queued') {
-      this.publish({ ...this.view, editor: null, panelOpen: true, activeAnnotationId: annotationId }, false)
+      this.publish({
+        ...this.view,
+        editor: null,
+        editorSaveStatus: 'idle',
+        panelOpen: true,
+        activeAnnotationId: annotationId,
+      })
       return
     }
     if (item.status === 'sent' || item.status === 'processed') {
@@ -221,40 +234,48 @@ export class AnnotationController {
         ...(item.structure === undefined ? {} : { structure: item.structure }),
         rect: { top: 0, left: 0, bottom: 0, right: 0 },
       }
-      this.publish(
-        {
-          ...this.view,
-          editor: Object.freeze({ kind: 'new', capture, text: '', longSelectionConfirmed: true }),
-          activeAnnotationId: annotationId,
-        },
-        false,
-      )
+      this.publish({
+        ...this.view,
+        editor: Object.freeze({
+          kind: 'new',
+          capture,
+          text: '',
+          longSelectionConfirmed: true,
+          supplementalTo: annotationId,
+        }),
+        editorSaveStatus: 'idle',
+        activeAnnotationId: annotationId,
+      })
       return
     }
-    this.publish(
-      {
-        ...this.view,
-        editor: Object.freeze({ kind: 'edit', annotationId, text: item.comment }),
-        activeAnnotationId: annotationId,
-      },
-      false,
-    )
+    this.publish({
+      ...this.view,
+      editor: Object.freeze({ kind: 'edit', annotationId, text: item.comment }),
+      editorSaveStatus: 'idle',
+      activeAnnotationId: annotationId,
+    })
   }
 
   updateEditorText(text: string): void {
     if (this.view.editor === null) return
-    this.publish({ ...this.view, editor: Object.freeze({ ...this.view.editor, text }) }, false)
+    this.publish(
+      {
+        ...this.view,
+        editor: Object.freeze({ ...this.view.editor, text }),
+        editorSaveStatus: 'saving',
+      },
+      false,
+    )
+    this.schedulePersist()
   }
 
   confirmLongSelection(): void {
     if (this.view.editor?.kind !== 'new') return
-    this.publish(
-      {
-        ...this.view,
-        editor: Object.freeze({ ...this.view.editor, longSelectionConfirmed: true }),
-      },
-      false,
-    )
+    this.publish({
+      ...this.view,
+      editor: Object.freeze({ ...this.view.editor, longSelectionConfirmed: true }),
+      editorSaveStatus: 'saved',
+    })
   }
 
   saveEditor(): AnnotationId {
@@ -268,7 +289,7 @@ export class AnnotationController {
     if (editor.kind === 'new') {
       if (!editor.longSelectionConfirmed) throw new Error('long selection is not confirmed')
       savedId = createAnnotationId()
-      const supplementalTo = this.view.activeAnnotationId
+      const supplementalTo = editor.supplementalTo
       annotations = withOrdinals([
         ...this.view.annotations,
         Object.freeze({
@@ -283,7 +304,7 @@ export class AnnotationController {
           createdAt: time,
           updatedAt: time,
           status: 'draft',
-          ...(supplementalTo === null ? {} : { supplementalTo }),
+          ...(supplementalTo === undefined ? {} : { supplementalTo }),
         }),
       ])
     } else {
@@ -307,7 +328,13 @@ export class AnnotationController {
         }),
       )
     }
-    this.publish({ ...this.view, annotations, editor: null, activeAnnotationId: savedId })
+    this.publish({
+      ...this.view,
+      annotations,
+      editor: null,
+      editorSaveStatus: 'idle',
+      activeAnnotationId: savedId,
+    })
     return savedId
   }
 
@@ -321,7 +348,12 @@ export class AnnotationController {
           this.view.annotations.find((item) => item.annotationId === editor.annotationId)?.comment !==
             editor.text
     if (!force && dirty) return false
-    this.publish({ ...this.view, editor: null, activeAnnotationId: null }, false)
+    this.publish({
+      ...this.view,
+      editor: null,
+      editorSaveStatus: 'idle',
+      activeAnnotationId: null,
+    })
     return true
   }
 
@@ -329,11 +361,37 @@ export class AnnotationController {
     const target = this.view.annotations.find((item) => item.annotationId === annotationId)
     if (target === undefined) return
     if (target.status !== 'draft') throw new Error('only draft annotations can be deleted')
+    const closesEditor =
+      (this.view.editor?.kind === 'edit' && this.view.editor.annotationId === annotationId) ||
+      (this.view.editor?.kind === 'new' && this.view.editor.supplementalTo === annotationId)
     this.publish({
       ...this.view,
       annotations: withOrdinals(this.view.annotations.filter((item) => item.annotationId !== annotationId)),
+      editor: closesEditor ? null : this.view.editor,
+      editorSaveStatus: closesEditor ? 'idle' : this.view.editorSaveStatus,
+      deletedDraft: target,
       activeAnnotationId: this.view.activeAnnotationId === annotationId ? null : this.view.activeAnnotationId,
     })
+  }
+
+  undoDelete(): void {
+    const deleted = this.view.deletedDraft
+    if (deleted === null) return
+    if (this.view.annotations.some((item) => item.annotationId === deleted.annotationId)) {
+      this.publish({ ...this.view, deletedDraft: null }, false)
+      return
+    }
+    this.publish({
+      ...this.view,
+      annotations: withOrdinals([...this.view.annotations, deleted]),
+      deletedDraft: null,
+      activeAnnotationId: deleted.annotationId,
+    })
+  }
+
+  dismissDeleteUndo(): void {
+    if (this.view.deletedDraft === null) return
+    this.publish({ ...this.view, deletedDraft: null }, false)
   }
 
   setPanelOpen(panelOpen: boolean): void {
@@ -342,6 +400,28 @@ export class AnnotationController {
 
   setOverallRequirementDraft(overallRequirementDraft: string): void {
     this.publish({ ...this.view, overallRequirementDraft })
+  }
+
+  exportLocalData(): string {
+    return JSON.stringify(cloneState(this.view), null, 2)
+  }
+
+  clearLocalDrafts(): void {
+    const draftIds = new Set(
+      this.view.annotations.filter((item) => item.status === 'draft').map((item) => item.annotationId),
+    )
+    this.publish({
+      ...this.view,
+      annotations: withOrdinals(this.view.annotations.filter((item) => item.status !== 'draft')),
+      overallRequirementDraft: '',
+      editor: null,
+      editorSaveStatus: 'idle',
+      deletedDraft: null,
+      activeAnnotationId:
+        this.view.activeAnnotationId !== null && draftIds.has(this.view.activeAnnotationId)
+          ? null
+          : this.view.activeAnnotationId,
+    })
   }
 
   setNotice(level: 'info' | 'error', text: string): void {
@@ -612,17 +692,42 @@ export class AnnotationController {
     })
   }
 
+  private schedulePersist(): void {
+    if (this.persistTimer !== null) clearTimeout(this.persistTimer)
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null
+      if (this.disposed) return
+      this.publish({
+        ...this.view,
+        editorSaveStatus: this.view.editor === null ? 'idle' : 'saved',
+      })
+    }, EDITOR_AUTOSAVE_MS)
+  }
+
   private publish(next: AnnotationView, persist = true): void {
     if (this.disposed) return
+    if (persist && this.persistTimer !== null) {
+      clearTimeout(this.persistTimer)
+      this.persistTimer = null
+    }
     this.view = Object.freeze(next)
     if (persist) {
       const saved = this.storage.save(cloneState(this.view))
-      if (!saved)
-        this.view = Object.freeze({
-          ...this.view,
-          storageAvailable: false,
-          notice: { level: 'error' as const, text: 'storage' },
-        })
+      this.view = saved
+        ? Object.freeze({
+            ...this.view,
+            editorSaveStatus: this.view.editorSaveStatus === 'saving' ? 'saved' : this.view.editorSaveStatus,
+            storageAvailable: true,
+            storageBytes: this.storage.usageBytes(),
+            notice: this.view.notice?.text === 'storage' ? null : this.view.notice,
+          })
+        : Object.freeze({
+            ...this.view,
+            editorSaveStatus: this.view.editor === null ? 'idle' : 'error',
+            storageAvailable: false,
+            storageBytes: this.storage.usageBytes(),
+            notice: { level: 'error' as const, text: 'storage' },
+          })
     }
     for (const listener of this.listeners) {
       try {

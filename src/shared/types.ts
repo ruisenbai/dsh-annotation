@@ -41,6 +41,37 @@ export interface TableSelection {
 
 export type StructuredSelection = CodeSelection | TableSelection
 
+/** Browser selection data retained while a compact annotation editor is unfinished. */
+export interface AnnotationSelectionCapture {
+  readonly messageId: MessageIdentity
+  readonly messageSeq: number
+  readonly responseVersion: MessageIdentity
+  readonly quote: TextQuoteSelector
+  readonly structure?: StructuredSelection
+  readonly rect: {
+    readonly top: number
+    readonly left: number
+    readonly bottom: number
+    readonly right: number
+  }
+}
+
+/** Browser-local editor recovery state; it never crosses the Host submission protocol. */
+export type PersistedEditorDraft =
+  | {
+      readonly kind: 'new'
+      readonly capture: AnnotationSelectionCapture
+      readonly text: string
+      readonly longSelectionConfirmed: boolean
+      readonly supplementalTo?: AnnotationId
+    }
+  | {
+      readonly kind: 'edit'
+      readonly annotationId: AnnotationId
+      readonly text: string
+      readonly expandedCapture?: AnnotationSelectionCapture
+    }
+
 /** One annotation as transported to the Host and embedded in durable message provenance. */
 export interface SubmittedAnnotation {
   readonly annotationId: AnnotationId
@@ -91,10 +122,11 @@ export interface OutboxEntry {
 }
 
 export interface PersistedSessionState {
-  readonly storageVersion: 1
+  readonly storageVersion: 2
   readonly annotations: readonly AnnotationDraft[]
   readonly outbox: readonly OutboxEntry[]
   readonly overallRequirementDraft: string
+  readonly editorDraft?: PersistedEditorDraft
 }
 
 export interface ModelAcknowledgement {

@@ -98,6 +98,55 @@ describe('annotation controller', () => {
     expect(controller.getSnapshot().editor).toBeNull()
   })
 
+  it('autosaves unfinished editor text after 400ms and restores it', () => {
+    vi.useFakeTimers()
+    const { controller, memory } = harness()
+    try {
+      controller.beginSelection(capture())
+      controller.updateEditorText('Recovered after refresh')
+      expect(controller.getSnapshot().editorSaveStatus).toBe('saving')
+      expect([...memory.values.values()].join('')).not.toContain('Recovered after refresh')
+
+      vi.advanceTimersByTime(399)
+      expect([...memory.values.values()].join('')).not.toContain('Recovered after refresh')
+      vi.advanceTimersByTime(1)
+      expect(controller.getSnapshot()).toMatchObject({
+        editorSaveStatus: 'saved',
+        storageAvailable: true,
+      })
+      expect(controller.getSnapshot().storageBytes).toBeGreaterThan(0)
+
+      const restored = harness(memory).controller
+      expect(restored.getSnapshot().editor).toMatchObject({
+        kind: 'new',
+        text: 'Recovered after refresh',
+      })
+      restored.dispose()
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('flushes pending editor text when its Session controller disposes', () => {
+    vi.useFakeTimers()
+    const { controller, memory } = harness()
+    try {
+      controller.beginSelection(capture())
+      controller.updateEditorText('Saved during Session switch')
+      controller.dispose()
+
+      const restored = harness(memory).controller
+      expect(restored.getSnapshot().editor).toMatchObject({
+        kind: 'new',
+        text: 'Saved during Session switch',
+      })
+      restored.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('freezes one retry payload and preserves its submission id', () => {
     const { controller } = harness()
     saveDraft(controller)
@@ -149,30 +198,41 @@ describe('annotation controller', () => {
     expect(controller.getSnapshot().annotations[0]?.quote).toMatchObject({ start: 3, end: 15 })
   })
 
-  it('creates a supplemental draft instead of mutating sent history', () => {
-    const { controller } = harness()
-    const id = saveDraft(controller)
-    const outbox = controller.createOutbox('queue', 'session-test' as SessionIdentity)
-    controller.reconcile(
-      snapshot([
-        {
-          kind: 'user',
-          data: { source: { kind: 'user', inlineAnnotations: outbox.payload } },
-        },
-      ]),
-    )
-    controller.openAnnotation(id)
-    controller.updateEditorText('One more requirement.')
-    const supplementalId = controller.saveEditor()
-    expect(supplementalId).not.toBe(id)
-    expect(controller.getSnapshot().annotations).toHaveLength(2)
-    expect(controller.getSnapshot().annotations.find((item) => item.annotationId === id)?.comment).toBe(
-      'Please revise this sentence.',
-    )
-    expect(
-      controller.getSnapshot().annotations.find((item) => item.annotationId === supplementalId)
-        ?.supplementalTo,
-    ).toBe(id)
+  it('restores a supplemental editor without mutating sent history', () => {
+    vi.useFakeTimers()
+    const { controller, memory } = harness()
+    try {
+      const id = saveDraft(controller)
+      const outbox = controller.createOutbox('queue', 'session-test' as SessionIdentity)
+      controller.reconcile(
+        snapshot([
+          {
+            kind: 'user',
+            data: { source: { kind: 'user', inlineAnnotations: outbox.payload } },
+          },
+        ]),
+      )
+      controller.openAnnotation(id)
+      controller.updateEditorText('One more requirement.')
+      vi.advanceTimersByTime(400)
+
+      const restored = harness(memory).controller
+      expect(restored.getSnapshot().editor).toMatchObject({ kind: 'new', supplementalTo: id })
+      const supplementalId = restored.saveEditor()
+      expect(supplementalId).not.toBe(id)
+      expect(restored.getSnapshot().annotations).toHaveLength(2)
+      expect(restored.getSnapshot().annotations.find((item) => item.annotationId === id)?.comment).toBe(
+        'Please revise this sentence.',
+      )
+      expect(
+        restored.getSnapshot().annotations.find((item) => item.annotationId === supplementalId)
+          ?.supplementalTo,
+      ).toBe(id)
+      restored.dispose()
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
   })
 
   it('turns an overlapping submitted selection into a supplement instead of an edit', () => {
@@ -260,6 +320,40 @@ describe('annotation controller', () => {
       missing.navigation.state.hasMore = false
     })
     await expect(missing.controller.navigate(missingId)).resolves.toBe(true)
+  })
+
+  it('offers one-step undo after deleting a draft', () => {
+    const { controller } = harness()
+    const id = saveDraft(controller)
+    controller.deleteDraft(id)
+    expect(controller.getSnapshot().annotations).toHaveLength(0)
+    expect(controller.getSnapshot().deletedDraft?.annotationId).toBe(id)
+
+    controller.undoDelete()
+    expect(controller.getSnapshot().annotations[0]?.annotationId).toBe(id)
+    expect(controller.getSnapshot().deletedDraft).toBeNull()
+
+    controller.deleteDraft(id)
+    controller.dismissDeleteUndo()
+    expect(controller.getSnapshot().deletedDraft).toBeNull()
+  })
+
+  it('exports local recovery state and clears only unsubmitted drafts', () => {
+    const { controller } = harness()
+    saveDraft(controller)
+    controller.setOverallRequirementDraft('Rewrite all examples.')
+    const exported = JSON.parse(controller.exportLocalData()) as Record<string, unknown>
+    expect(exported).toMatchObject({ storageVersion: 2, overallRequirementDraft: 'Rewrite all examples.' })
+    expect(exported.annotations).toHaveLength(1)
+
+    controller.clearLocalDrafts()
+    expect(controller.getSnapshot()).toMatchObject({
+      annotations: [],
+      overallRequirementDraft: '',
+      editor: null,
+      deletedDraft: null,
+    })
+    expect(controller.getSnapshot().storageBytes).toBeGreaterThan(0)
   })
 
   it('withdraws queued work back to editable drafts', () => {

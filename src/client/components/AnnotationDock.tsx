@@ -1,34 +1,30 @@
+import {
+  IconArchiveOutline20,
+  IconCheckOutline16,
+  IconChevronDownOutline14,
+  IconChevronUpOutline14,
+  IconCloseOutline16,
+  IconDataOutline16,
+  IconDownloadOutline16,
+  IconEditOutline16,
+  IconListPenOutline16,
+  IconPlusOutline16,
+  IconRefreshOutline14,
+  IconRightUpOutline16,
+  IconSendOutline14,
+  IconTrashOutline16,
+  IconWarningOutline16,
+  Tooltip,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import {
-  AlertCircle,
-  Archive,
-  ChevronDown,
-  ChevronUp,
-  LockKeyhole,
-  MapPin,
-  MessageSquarePlus,
-  MessagesSquare,
-  Pencil,
-  RotateCcw,
-  Send,
-  Trash2,
-  X,
-} from '../icons.ts'
 import type { AnnotationId, AnnotationStatus, DeliveryMode, SubmissionId } from '../../shared/types.ts'
 import type { AnnotationBoundProps, InputAnnotationProps } from '../contract.ts'
 import type { AnnotationView, EditorState } from '../controller.ts'
 
 function statusLabel(status: AnnotationStatus, t: InputAnnotationProps['t']): string {
   return t(`status.${status}`)
-}
-
-function editorQuote(view: AnnotationView): string {
-  const editor = view.editor
-  if (editor === null) return ''
-  if (editor.kind === 'new') return editor.capture.quote.exact
-  return view.annotations.find((item) => item.annotationId === editor.annotationId)?.quote.exact ?? ''
 }
 
 function editorKey(editor: EditorState | null): string {
@@ -43,15 +39,69 @@ function editorPosition(editor: EditorState): { top?: number; left?: number; rig
   if (rect === undefined || (rect.top === 0 && rect.left === 0 && rect.bottom === 0 && rect.right === 0)) {
     return { top: 82, right: 24 }
   }
-  const width = Math.min(320, window.innerWidth - 24)
+  const width = Math.min(420, window.innerWidth - 24)
+  const estimatedHeight = 116
+  const below = rect.bottom + 8
+  const top =
+    below + estimatedHeight <= window.innerHeight - 12 ? below : Math.max(12, rect.top - estimatedHeight - 8)
   return {
-    top: Math.max(12, Math.min(window.innerHeight - 360, rect.bottom + 10)),
+    top,
     left: Math.max(12, Math.min(window.innerWidth - width - 12, rect.left)),
   }
 }
 
 function Portal({ children }: { children: ReactNode }) {
   return createPortal(children, document.body)
+}
+
+function TooltipIconAction({
+  label,
+  className,
+  side,
+  children,
+  onActivate,
+  disabled = false,
+  primary = false,
+  danger = false,
+}: {
+  label: string
+  className: string
+  side: 'top' | 'bottom' | 'right'
+  children: ReactNode
+  onActivate: () => void
+  disabled?: boolean
+  primary?: boolean
+  danger?: boolean
+}) {
+  return (
+    <Tooltip label={label} side={side} delayMs={300} disabled={disabled}>
+      <button
+        type="button"
+        className={className}
+        data-primary={primary ? 'true' : undefined}
+        data-danger={danger ? 'true' : undefined}
+        aria-label={label}
+        disabled={disabled}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return
+          event.preventDefault()
+          onActivate()
+        }}
+        onClick={(event) => {
+          if (event.detail === 0) onActivate()
+        }}
+      >
+        {children}
+      </button>
+    </Tooltip>
+  )
+}
+
+function EditorSaveState({ view, t }: { view: AnnotationView; t: InputAnnotationProps['t'] }) {
+  if (view.editorSaveStatus === 'saving') return <span>{t('editor.autosaving')}</span>
+  if (view.editorSaveStatus === 'saved') return <span>{t('editor.autosaved')}</span>
+  if (view.editorSaveStatus === 'error') return <span data-tone="error">{t('editor.autosaveFailed')}</span>
+  return <span>{t('editor.shortcut')}</span>
 }
 
 function AnnotationEditor({
@@ -63,35 +113,28 @@ function AnnotationEditor({
   t: InputAnnotationProps['t']
 } & Omit<AnnotationBoundProps, 'useAnnotations'>) {
   const [error, setError] = useState<string | null>(null)
-  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const [decisionRequired, setDecisionRequired] = useState(false)
+  const [shakeVersion, setShakeVersion] = useState(0)
+  const editorRef = useRef<HTMLElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const editor = view.editor
 
-  const resetTransientState = () => {
-    setConfirmDiscard(false)
-    setError(null)
-  }
-  const requestClose = () => {
-    if (actions.closeEditor()) {
-      resetTransientState()
-    } else {
-      setConfirmDiscard(true)
-    }
-  }
-  const discard = () => {
-    actions.closeEditor(true)
-    resetTransientState()
-  }
-  const continueEditing = () => {
-    setConfirmDiscard(false)
+  const requireDecision = () => {
+    setDecisionRequired(true)
+    setShakeVersion((value) => value + 1)
     textareaRef.current?.focus()
+  }
+  const cancel = () => {
+    actions.closeEditor(true)
+    setError(null)
   }
   const save = () => {
     try {
       actions.saveEditor()
-      resetTransientState()
+      setError(null)
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : String(cause))
+      requireDecision()
     }
   }
 
@@ -100,105 +143,102 @@ function AnnotationEditor({
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       event.preventDefault()
-      requestClose()
+      if (!actions.closeEditor()) requireDecision()
+    }
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target
+      const editorElement = editorRef.current
+      if (
+        !(target instanceof Node) ||
+        (editorElement !== null &&
+          (editorElement.contains(target) || event.composedPath().includes(editorElement)))
+      ) {
+        return
+      }
+      if (actions.closeEditor()) return
+      event.preventDefault()
+      event.stopPropagation()
+      requireDecision()
     }
     document.addEventListener('keydown', closeOnEscape)
-    return () => document.removeEventListener('keydown', closeOnEscape)
-  })
+    document.addEventListener('pointerdown', closeOnOutsidePointer, true)
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape)
+      document.removeEventListener('pointerdown', closeOnOutsidePointer, true)
+    }
+  }, [actions.closeEditor, editor])
 
   if (editor === null) return null
   const longSelection = editor.kind === 'new' && !editor.longSelectionConfirmed
+  const expanded = editor.kind === 'edit' && editor.expandedCapture !== undefined
   return (
     <Portal>
       <section
+        ref={editorRef}
         className="dia-editor"
         style={editorPosition(editor)}
         role="dialog"
         aria-modal="false"
-        aria-labelledby="dia-editor-title"
+        aria-label={editor.kind === 'edit' ? t('editor.editTitle') : t('editor.title')}
+        data-decision-required={decisionRequired ? 'true' : undefined}
+        data-shake={decisionRequired ? String(shakeVersion % 2) : undefined}
       >
-        <header className="dia-editor__head">
-          <div>
-            <MessageSquarePlus aria-hidden="true" size={15} strokeWidth={1.8} />
-            <strong id="dia-editor-title">
-              {editor.kind === 'edit' ? t('editor.editTitle') : t('editor.title')}
-            </strong>
+        <div className="dia-editor__row">
+          <textarea
+            ref={textareaRef}
+            autoFocus
+            rows={1}
+            className="dia-editor__input"
+            value={editor.text}
+            aria-label={t('editor.commentLabel')}
+            aria-invalid={decisionRequired || error !== null}
+            placeholder={t('editor.placeholder')}
+            onChange={(event) => actions.updateEditorText(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                event.preventDefault()
+                save()
+              }
+            }}
+          />
+          <div className="dia-editor__actions">
+            <TooltipIconAction
+              label={t('editor.cancel')}
+              side="bottom"
+              className="dia-icon-button"
+              onActivate={cancel}
+            >
+              <IconCloseOutline16 size={16} />
+            </TooltipIconAction>
+            <TooltipIconAction
+              label={t('editor.save')}
+              side="bottom"
+              className="dia-icon-button"
+              primary
+              disabled={editor.text.trim().length === 0 || longSelection}
+              onActivate={save}
+            >
+              <IconCheckOutline16 size={16} />
+            </TooltipIconAction>
           </div>
-          <button
-            type="button"
-            className="dia-icon-button"
-            aria-label={t('action.close')}
-            onClick={requestClose}
-          >
-            <X aria-hidden="true" size={16} strokeWidth={1.8} />
-          </button>
-        </header>
-        <blockquote className="dia-quote">“{editorQuote(view)}”</blockquote>
-        {editor.kind === 'edit' && editor.expandedCapture !== undefined && (
-          <p className="dia-warning">{t('editor.expand')}</p>
-        )}
+        </div>
+        <div className="dia-editor__meta" aria-live="polite">
+          <EditorSaveState view={view} t={t} />
+          {decisionRequired && <span data-tone="error">{t('editor.chooseAction')}</span>}
+        </div>
+        {expanded && <p className="dia-editor__notice">{t('editor.expand')}</p>}
         {longSelection && (
-          <div className="dia-inline-notice" data-tone="warning">
-            <AlertCircle aria-hidden="true" size={15} strokeWidth={1.8} />
-            <div>
-              <p>{t('selection.tooLong')}</p>
-              <button type="button" className="dia-text-button" onClick={actions.confirmLongSelection}>
-                {t('editor.confirmLong')}
-              </button>
-            </div>
+          <div className="dia-editor__notice" data-tone="warning">
+            <span>{t('selection.tooLong')}</span>
+            <button type="button" className="dia-text-button" onClick={actions.confirmLongSelection}>
+              {t('editor.confirmLong')}
+            </button>
           </div>
         )}
-        <label className="dia-field-label" htmlFor="dia-annotation-comment">
-          {t('editor.commentLabel')}
-        </label>
-        <textarea
-          ref={textareaRef}
-          id="dia-annotation-comment"
-          autoFocus
-          className="dia-textarea dia-editor__textarea"
-          value={editor.text}
-          placeholder={t('editor.placeholder')}
-          onChange={(event) => actions.updateEditorText(event.target.value)}
-          onKeyDown={(event) => {
-            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-              event.preventDefault()
-              save()
-            }
-          }}
-        />
         {error !== null && (
           <p className="dia-error" role="alert">
             {error}
           </p>
-        )}
-        {confirmDiscard ? (
-          <div className="dia-discard-confirm">
-            <p role="alert">{t('editor.discard')}</p>
-            <div>
-              <button type="button" className="dia-button" autoFocus onClick={continueEditing}>
-                {t('editor.keepEditing')}
-              </button>
-              <button type="button" className="dia-button" data-danger="true" onClick={discard}>
-                {t('editor.confirmDiscard')}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <footer className="dia-editor__footer">
-            <span>{t('editor.shortcut')}</span>
-            <button type="button" className="dia-button" onClick={requestClose}>
-              {t('editor.cancel')}
-            </button>
-            <button
-              type="button"
-              className="dia-button"
-              data-primary="true"
-              disabled={editor.text.trim().length === 0 || longSelection}
-              onClick={save}
-            >
-              {t('editor.save')}
-            </button>
-          </footer>
         )}
       </section>
     </Portal>
@@ -230,46 +270,39 @@ function AnnotationRow({
           {item.ordinal}
         </span>
         <span className="dia-item__copy">
-          <q title={item.quote.exact}>{item.quote.exact}</q>
-          <span title={item.comment}>{item.comment}</span>
+          <q>{item.quote.exact}</q>
+          <span>{item.comment}</span>
         </span>
       </div>
       <div className="dia-item__actions">
-        <button
-          type="button"
+        <TooltipIconAction
+          label={t('list.locate')}
+          side="top"
           className="dia-row-action"
-          aria-label={t('list.locate')}
-          title={t('list.locate')}
-          onClick={() => void actions.navigate(item.annotationId)}
+          onActivate={() => void actions.navigate(item.annotationId)}
         >
-          <MapPin aria-hidden="true" size={14} strokeWidth={1.8} />
-        </button>
+          <IconRightUpOutline16 size={14} />
+        </TooltipIconAction>
         {item.status !== 'queued' && (
-          <button
-            type="button"
+          <TooltipIconAction
+            label={editLabel}
+            side="top"
             className="dia-row-action"
-            aria-label={editLabel}
-            title={editLabel}
-            onClick={() => actions.openAnnotation(item.annotationId)}
+            onActivate={() => actions.openAnnotation(item.annotationId)}
           >
-            {item.status === 'draft' ? (
-              <Pencil aria-hidden="true" size={14} strokeWidth={1.8} />
-            ) : (
-              <MessageSquarePlus aria-hidden="true" size={14} strokeWidth={1.8} />
-            )}
-          </button>
+            {item.status === 'draft' ? <IconEditOutline16 size={14} /> : <IconPlusOutline16 size={14} />}
+          </TooltipIconAction>
         )}
         {item.status === 'draft' && (
-          <button
-            type="button"
+          <TooltipIconAction
+            label={t('list.delete')}
+            side="top"
             className="dia-row-action"
-            data-danger="true"
-            aria-label={t('list.delete')}
-            title={t('list.delete')}
-            onClick={() => actions.deleteDraft(item.annotationId)}
+            danger
+            onActivate={() => actions.deleteDraft(item.annotationId)}
           >
-            <Trash2 aria-hidden="true" size={14} strokeWidth={1.8} />
-          </button>
+            <IconTrashOutline16 size={14} />
+          </TooltipIconAction>
         )}
       </div>
     </div>
@@ -303,6 +336,79 @@ function panelSummary(view: AnnotationView, failed: boolean, t: InputAnnotationP
   return t('panel.history', { count: view.annotations.length })
 }
 
+function bytesLabel(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function downloadLocalData(serialized: string): void {
+  const blob = new Blob([serialized], { type: 'application/json;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `dsh-inline-annotations-${new Date().toISOString().slice(0, 10)}.json`
+  document.body.append(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
+function AnnotationGroup({
+  title,
+  items,
+  view,
+  t,
+  actions,
+  collapsible = false,
+  initiallyOpen = true,
+}: {
+  title: string
+  items: readonly AnnotationView['annotations'][number][]
+  view: AnnotationView
+  t: InputAnnotationProps['t']
+  actions: Omit<AnnotationBoundProps, 'useAnnotations'>
+  collapsible?: boolean
+  initiallyOpen?: boolean
+}) {
+  const [open, setOpen] = useState(initiallyOpen)
+  if (items.length === 0) return null
+  return (
+    <section className="dia-group" aria-label={title}>
+      {collapsible ? (
+        <button
+          type="button"
+          className="dia-group__heading"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          <span>{title}</span>
+          <span>{items.length}</span>
+          {open ? <IconChevronDownOutline14 size={13} /> : <IconChevronUpOutline14 size={13} />}
+        </button>
+      ) : (
+        <div className="dia-group__heading">
+          <span>{title}</span>
+          <span>{items.length}</span>
+        </div>
+      )}
+      {(!collapsible || open) && (
+        <div role="list">
+          {items.map((item) => (
+            <AnnotationRow
+              key={item.annotationId}
+              annotationId={item.annotationId}
+              view={view}
+              t={t}
+              {...actions}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function AnnotationPanel({
   view,
   archived,
@@ -317,14 +423,22 @@ function AnnotationPanel({
 } & Omit<AnnotationBoundProps, 'useAnnotations'>) {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [exportState, setExportState] = useState<'idle' | 'done' | 'failed'>('idle')
   const listId = useId()
   const overallId = `${listId}-overall`
   const disposition = sendDisposition(session, archived)
   const retry = view.outbox.find((item) => item.status === 'failed')
   const drafts = view.annotations.filter((item) => item.status === 'draft')
+  const queued = view.annotations.filter((item) => item.status === 'queued')
+  const history = view.annotations.filter((item) => item.status === 'sent' || item.status === 'processed')
   const canSend = drafts.length > 0 || retry !== undefined
   const queuedSubmissions = view.outbox.filter((item) => item.status === 'queued')
-  const immutable = view.annotations.some((item) => item.status === 'sent' || item.status === 'processed')
+  const immutable = history.length > 0
+  const hasLocalDrafts =
+    drafts.length > 0 ||
+    (view.editor !== null && view.editor.text.trim() !== '') ||
+    view.overallRequirementDraft.trim() !== ''
 
   useEffect(() => {
     if (!view.panelOpen) return undefined
@@ -337,6 +451,12 @@ function AnnotationPanel({
     return () => document.removeEventListener('keydown', closeOnEscape)
   }, [actions.setPanelOpen, view.editor, view.panelOpen])
 
+  useEffect(() => {
+    if (view.deletedDraft === null) return undefined
+    const timer = setTimeout(actions.dismissDeleteUndo, 4500)
+    return () => clearTimeout(timer)
+  }, [actions.dismissDeleteUndo, view.deletedDraft])
+
   const submit = async () => {
     setSubmitting(true)
     setSubmitError(false)
@@ -346,6 +466,14 @@ function AnnotationPanel({
       setSubmitError(true)
     } finally {
       setSubmitting(false)
+    }
+  }
+  const exportData = () => {
+    try {
+      downloadLocalData(actions.exportLocalData())
+      setExportState('done')
+    } catch {
+      setExportState('failed')
     }
   }
 
@@ -360,16 +488,12 @@ function AnnotationPanel({
           onClick={() => actions.setPanelOpen(!view.panelOpen)}
         >
           <span className="dia-dock__icon" aria-hidden="true">
-            <MessagesSquare size={14} strokeWidth={1.8} />
+            <IconListPenOutline16 size={14} />
           </span>
           <span className="dia-dock__title">{t('list.title')}</span>
           <span className="dia-dock__summary">{panelSummary(view, retry !== undefined, t)}</span>
           <span className="dia-dock__chevron" aria-hidden="true">
-            {view.panelOpen ? (
-              <ChevronDown size={14} strokeWidth={1.8} />
-            ) : (
-              <ChevronUp size={14} strokeWidth={1.8} />
-            )}
+            {view.panelOpen ? <IconChevronDownOutline14 size={14} /> : <IconChevronUpOutline14 size={14} />}
           </span>
         </button>
 
@@ -377,13 +501,13 @@ function AnnotationPanel({
           <div id={listId} className="dia-inline-panel">
             {archived && (
               <div className="dia-inline-notice" data-tone="neutral">
-                <Archive aria-hidden="true" size={16} strokeWidth={1.8} />
+                <IconArchiveOutline20 size={16} />
                 <p>{t('archived.copyNotice')}</p>
               </div>
             )}
             {retry !== undefined && (
               <div className="dia-inline-notice" data-tone="error">
-                <AlertCircle aria-hidden="true" size={16} strokeWidth={1.8} />
+                <IconWarningOutline16 size={16} />
                 <div>
                   <p>{t('error.send')}</p>
                   <code>{retry.payload.submissionId}</code>
@@ -400,23 +524,49 @@ function AnnotationPanel({
                 {t('error.send')}
               </p>
             )}
-            <div className="dia-list" role={view.annotations.length > 0 ? 'list' : undefined}>
-              {view.annotations.length === 0 && <p className="dia-list__empty">{t('list.empty')}</p>}
-              {view.annotations.map((item) => (
-                <AnnotationRow
-                  key={item.annotationId}
-                  annotationId={item.annotationId}
+            {view.annotations.length === 0 ? (
+              <p className="dia-list__empty">{t('list.empty')}</p>
+            ) : (
+              <div className="dia-list">
+                <AnnotationGroup
+                  title={t('group.drafts')}
+                  items={drafts}
                   view={view}
                   t={t}
-                  {...actions}
+                  actions={actions}
                 />
-              ))}
-            </div>
+                <AnnotationGroup
+                  title={t('group.queued')}
+                  items={queued}
+                  view={view}
+                  t={t}
+                  actions={actions}
+                />
+                <AnnotationGroup
+                  title={t('group.history')}
+                  items={history}
+                  view={view}
+                  t={t}
+                  actions={actions}
+                  collapsible
+                  initiallyOpen={drafts.length === 0 && queued.length === 0}
+                />
+              </div>
+            )}
+
+            {view.deletedDraft !== null && (
+              <div className="dia-undo" role="status">
+                <span>{t('list.deleted')}</span>
+                <button type="button" className="dia-text-button" onClick={actions.undoDelete}>
+                  {t('list.undo')}
+                </button>
+              </div>
+            )}
 
             <div className="dia-inline-panel__footer">
               {immutable && (
                 <p className="dia-immutable-note">
-                  <LockKeyhole aria-hidden="true" size={13} strokeWidth={1.8} />
+                  <IconDataOutline16 size={13} />
                   {t('list.immutable')}
                 </p>
               )}
@@ -431,6 +581,60 @@ function AnnotationPanel({
                 disabled={retry !== undefined}
                 onChange={(event) => actions.setOverallRequirementDraft(event.target.value)}
               />
+              <div className="dia-local-data">
+                <span>
+                  <IconDataOutline16 size={14} />
+                  {t('local.usage', { size: bytesLabel(view.storageBytes) })}
+                </span>
+                <div>
+                  <Tooltip label={t('local.export')} side="top" delayMs={300}>
+                    <button
+                      type="button"
+                      className="dia-row-action"
+                      aria-label={t('local.export')}
+                      onClick={exportData}
+                    >
+                      <IconDownloadOutline16 size={14} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip label={t('local.clear')} side="top" delayMs={300}>
+                    <button
+                      type="button"
+                      className="dia-row-action"
+                      data-danger="true"
+                      aria-label={t('local.clear')}
+                      disabled={!hasLocalDrafts}
+                      onClick={() => setConfirmClear(true)}
+                    >
+                      <IconTrashOutline16 size={14} />
+                    </button>
+                  </Tooltip>
+                </div>
+              </div>
+              {exportState !== 'idle' && (
+                <p className={exportState === 'failed' ? 'dia-error' : 'dia-local-status'} role="status">
+                  {exportState === 'done' ? t('local.exported') : t('local.exportFailed')}
+                </p>
+              )}
+              {confirmClear && (
+                <div className="dia-clear-confirm" role="alert">
+                  <span>{t('local.confirmClear')}</span>
+                  <button type="button" className="dia-text-button" onClick={() => setConfirmClear(false)}>
+                    {t('local.keep')}
+                  </button>
+                  <button
+                    type="button"
+                    className="dia-text-button"
+                    data-danger="true"
+                    onClick={() => {
+                      actions.clearLocalDrafts()
+                      setConfirmClear(false)
+                    }}
+                  >
+                    {t('local.confirm')}
+                  </button>
+                </div>
+              )}
               <div className="dia-inline-panel__actions">
                 {queuedSubmissions.map((entry) => (
                   <button
@@ -439,7 +643,7 @@ function AnnotationPanel({
                     className="dia-button"
                     onClick={() => void actions.withdraw(entry.payload.submissionId as SubmissionId)}
                   >
-                    <RotateCcw aria-hidden="true" size={14} strokeWidth={1.8} />
+                    <IconRefreshOutline14 size={14} />
                     {t('list.withdraw')}
                   </button>
                 ))}
@@ -450,11 +654,7 @@ function AnnotationPanel({
                   disabled={!canSend || submitting}
                   onClick={() => void submit()}
                 >
-                  {retry === undefined ? (
-                    <Send aria-hidden="true" size={14} strokeWidth={1.8} />
-                  ) : (
-                    <RotateCcw aria-hidden="true" size={14} strokeWidth={1.8} />
-                  )}
+                  {retry === undefined ? <IconSendOutline14 size={14} /> : <IconRefreshOutline14 size={14} />}
                   {submitting
                     ? t('send.sending')
                     : retry === undefined
@@ -482,7 +682,7 @@ export function AnnotationDock({
   const view = useAnnotations((state) => state)
   const archived = useWorkspaces((state) => state.archivedSessionIds.includes(sessionId))
   const failed = view.outbox.some((item) => item.status === 'failed')
-  const dockVisible = view.annotations.length > 0 || failed
+  const dockVisible = view.annotations.length > 0 || failed || view.deletedDraft !== null
   if (!dockVisible && view.editor === null) return null
   return (
     <>

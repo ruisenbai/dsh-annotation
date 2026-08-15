@@ -55,7 +55,7 @@ function id<T extends string>(value: unknown, field: string): T {
   return parsed as T
 }
 
-function quote(value: unknown, field: string): TextQuoteSelector {
+export function parseTextQuoteSelector(value: unknown, field: string): TextQuoteSelector {
   const source = record(value, field)
   const start = integer(source.start, `${field}.start`)
   const end = integer(source.end, `${field}.end`)
@@ -70,7 +70,7 @@ function quote(value: unknown, field: string): TextQuoteSelector {
   return Object.freeze({ exact, prefix, suffix, start, end })
 }
 
-function structure(value: unknown, field: string): StructuredSelection | undefined {
+export function parseStructuredSelection(value: unknown, field: string): StructuredSelection | undefined {
   if (value === undefined) return undefined
   const source = record(value, field)
   if (source.kind === 'code') {
@@ -105,14 +105,14 @@ function structure(value: unknown, field: string): StructuredSelection | undefin
 export function parseSubmittedAnnotation(value: unknown, index: number): SubmittedAnnotation {
   const field = `annotations[${index}]`
   const source = record(value, field)
-  const parsedStructure = structure(source.structure, `${field}.structure`)
+  const parsedStructure = parseStructuredSelection(source.structure, `${field}.structure`)
   const parsed: SubmittedAnnotation = {
     annotationId: id<AnnotationId>(source.annotationId, `${field}.annotationId`),
     ordinal: integer(source.ordinal, `${field}.ordinal`, 1),
     messageId: id<MessageIdentity>(source.messageId, `${field}.messageId`),
     messageSeq: integer(source.messageSeq, `${field}.messageSeq`),
     responseVersion: id<MessageIdentity>(source.responseVersion, `${field}.responseVersion`),
-    quote: quote(source.quote, `${field}.quote`),
+    quote: parseTextQuoteSelector(source.quote, `${field}.quote`),
     comment: string(source.comment, `${field}.comment`),
     createdAt: integer(source.createdAt, `${field}.createdAt`),
     ...(parsedStructure === undefined ? {} : { structure: parsedStructure }),

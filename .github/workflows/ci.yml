@@ -31,6 +31,12 @@ jobs:
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm test
+      - name: Install Chromium
+        if: matrix.node == '24.x'
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run browser regressions
+        if: matrix.node == '24.x'
+        run: pnpm test:browser
       - run: pnpm build
       - run: pnpm verify:bundle
       - run: pnpm publint

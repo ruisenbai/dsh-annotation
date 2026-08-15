@@ -9,16 +9,19 @@ A GitHub-ready DeepSeek Harness plugin for reviewing assistant replies in place.
 ## Features
 
 - Select text inside one finalized assistant reply, then annotate or copy it from a 36 px floating toolbar.
-- Edit in a 320 px popover and expand a task-style annotation list above the composer, with two-line previews and icon-only locate, edit, and delete actions.
-- Keep multiple local drafts editable until an explicit batch submission.
+- Type directly in a compact selection-positioned input with icon-only Cancel and Save actions. An empty outside click closes it; a dirty outside click keeps it open, turns the input red, and shakes it until one action is chosen.
+- Autosave unfinished editor text after 400 ms, display its local-save state, and restore it after a refresh without treating it as a submitted annotation.
+- Group two-line rows into ready, queued, and sent sections; use official DSH icons and tooltips for locate, edit, supplement, delete, export, and clear actions.
+- Undo one draft deletion, export current-Session recovery JSON, clear unsubmitted drafts, and inspect local storage usage from the composer list.
 - Preserve the exact quote, prefix/suffix selector, assistant message id, event sequence, annotation id, and submission id.
 - Capture language and line coordinates for code, or row/column coordinates for tables.
 - Merge overlapping selections into the existing draft instead of stacking ambiguous highlights.
 - Route an idle submission to the next turn, inject into a running task at its next safe step, or queue behind a blocking confirmation.
 - Copy archived-session context into a new task before submitting.
 - Render submitted annotation batches as collapsed timeline cards with source navigation.
-- Navigate in both directions; markers sit after the complete text line containing each quote endpoint, order same-line markers by number, and reflow across reasoning disclosure, viewport changes, and browser zoom.
-- Persist unsent drafts and immutable retry records in browser `localStorage`.
+- Place numbered markers after the complete endpoint line, reserve an overflow-safe gutter, retain ascending order, and coalesce layout updates across reasoning disclosure, viewport, font, and zoom changes.
+- Center the exact numbered-marker line in the conversation viewport when locating source text.
+- Persist unsent drafts, unfinished editor text, and immutable retry records in browser `localStorage`.
 - Deduplicate retries across transport failures with a stable submission-derived message id.
 - Advance `sent` to `processed` only when the model explicitly returns annotation ids in the requested acknowledgement marker.
 - Fall back to numbered markers when the CSS Custom Highlight API is unavailable.
@@ -42,7 +45,7 @@ dsh plugin --profile web add .
 dsh web --profile web
 ```
 
-Open the DSH Web URL, select text in a finalized assistant reply, and choose **Add annotation**. Drafts appear in the composer dock. Review the list, optionally add an overall requirement, then send the batch.
+Open the DSH Web URL, select text in a finalized assistant reply, and choose **Add annotation**. Type in the compact input and use its check icon to create the draft. Drafts appear in the composer dock; review the grouped list, optionally add an overall requirement, then send the batch.
 
 ### Install a GitHub release
 
@@ -97,7 +100,7 @@ Changing `commandName` must change the same dual-face row used by Host and Clien
 
 ## Privacy and persistence
 
-Unsent text and comments stay in `localStorage` under `dsh-inline-annotations:v1:<session-id>`. They are not sent to the Host or model until the user submits. Submitted quotes and comments become part of the current Session log and model context. The plugin has no analytics, telemetry, or external network client. See [Privacy](docs/privacy.md).
+Unsent quotes, comments, unfinished editor text, and retry records stay in `localStorage` under `dsh-inline-annotations:v1:<session-id>`. The visible key remains `v1` while its validated value uses `storageVersion: 2`; version-one values migrate on read. Local data is not sent to the Host or model until the user submits. Submitted quotes and comments become part of the current Session log and model context. The plugin has no analytics, telemetry, or external network client. See [Privacy](docs/privacy.md).
 
 ## Model experience
 
@@ -113,6 +116,8 @@ Unsent text and comments stay in `localStorage` under `dsh-inline-annotations:v1
 pnpm typecheck
 pnpm lint
 pnpm test
+pnpm exec playwright install chromium
+pnpm test:browser
 pnpm test:coverage
 pnpm build
 pnpm verify:bundle
@@ -120,7 +125,7 @@ pnpm publint
 pnpm pack
 ```
 
-The CI workflow runs type checking, linting, tests, a production bundle, artifact verification, and package creation on Node 22 and 24. See [Development](docs/development.md), [Architecture](docs/architecture.md), and [Data model](docs/data-model.md).
+The CI workflow runs type checking, linting, unit tests, a real Chromium regression on Node 24, a production bundle, artifact verification, and package creation on Node 22 and 24. See [Development](docs/development.md), [Architecture](docs/architecture.md), and [Data model](docs/data-model.md).
 
 ## Known limitations and deferred work
 

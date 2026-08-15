@@ -1,16 +1,21 @@
 import { useMemo } from 'react'
 import { ImageGallery } from '@deepseek-ai/dsh-client-ui-attachment'
-import { MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  IconCheckOutline14,
+  IconChevronDownOutline14,
+  IconListPenOutline16,
+  IconQueueOutline14,
+  IconRightUpOutline14,
+  MessageText,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import { parseInlineAnnotationSource } from '../../shared/protocol.ts'
 import type { AnnotationId, AnnotationStatus } from '../../shared/types.ts'
 import type { UserAnnotationProps } from '../contract.ts'
-import { BadgeCheck, ChevronDown, CircleCheck, Clock3, FileText, MapPin, MessagesSquare } from '../icons.ts'
 
 function TimelineStatusIcon({ status }: { status: AnnotationStatus }) {
-  if (status === 'queued') return <Clock3 aria-hidden="true" size={12} strokeWidth={2} />
-  if (status === 'processed') return <BadgeCheck aria-hidden="true" size={12} strokeWidth={2} />
-  if (status === 'sent') return <CircleCheck aria-hidden="true" size={12} strokeWidth={2} />
-  return <FileText aria-hidden="true" size={12} strokeWidth={2} />
+  if (status === 'queued') return <IconQueueOutline14 size={12} />
+  if (status === 'processed' || status === 'sent') return <IconCheckOutline14 size={12} />
+  return <IconListPenOutline16 size={12} />
 }
 
 function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
@@ -33,13 +38,13 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
     <details className="dia-timeline">
       <summary>
         <span className="dia-timeline__summary-icon" aria-hidden="true">
-          <MessagesSquare size={16} strokeWidth={1.8} />
+          <IconListPenOutline16 size={16} />
         </span>
         <span className="dia-timeline__summary-copy">
           <strong>{t('timeline.summary', { count: payload.annotations.length })}</strong>
           <small>{previousVersion ? t('timeline.previousVersion') : payload.submissionId}</small>
         </span>
-        <ChevronDown aria-hidden="true" size={16} strokeWidth={1.8} />
+        <IconChevronDownOutline14 size={16} />
       </summary>
       <div className="dia-timeline__body">
         {payload.overallRequirement !== undefined && payload.overallRequirement.trim() !== '' && (
@@ -71,7 +76,7 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
                   className="dia-text-button dia-timeline-item__locate"
                   onClick={() => void navigate(item.annotationId as AnnotationId)}
                 >
-                  <MapPin aria-hidden="true" size={12} strokeWidth={1.8} />
+                  <IconRightUpOutline14 size={12} />
                   {t('list.locate')}
                 </button>
               </article>

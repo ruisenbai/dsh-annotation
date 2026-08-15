@@ -35,7 +35,7 @@ export default defineConfig([
     entry: { client: 'lib/types/client/index.js' },
     format: ['cjs'],
     platform: 'browser',
-    deps: { neverBundle: platformModules, alwaysBundle: [/^lucide-react\//], onlyBundle: false },
+    deps: { neverBundle: platformModules, onlyBundle: false },
     outputOptions: {
       entryFileNames: 'client.js',
       banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(packageId)}, factory: (require) => {`,

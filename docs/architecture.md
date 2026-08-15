@@ -72,7 +72,7 @@ The controller combines three sources:
 - `ConversationSnapshot.queue` for authoritative pending placement;
 - replayed Chat nodes for sent submissions and model acknowledgements.
 
-Each state change publishes one frozen snapshot and then writes the persisted fields. A storage failure leaves the in-memory snapshot usable and presents a warning.
+Durable state changes publish one frozen snapshot and write the persisted fields immediately. Editor keystrokes publish immediately and coalesce `localStorage` writes behind a 400 ms timer; another durable change or Session-controller disposal flushes the same editor state first. A storage failure leaves the in-memory snapshot usable and presents a warning.
 
 ## Selection anchoring
 
@@ -85,9 +85,9 @@ A selector stores:
 
 Offsets are relative to selectable text nodes inside the plugin-owned assistant body. Buttons, scripts, styles, `aria-hidden` content, and reasoning disclosures are excluded. The assistant message id is the reply version identity; highlights are never transferred silently to another reply version.
 
-Mounted messages rebuild `Range` objects from offsets. If the rendered offsets no longer contain the exact quote, the Client relocates the exact text by prefix, suffix, and distance within the same immutable message id. Navigation first uses the mounted endpoint, then loads older history pages up to `locateHistoryPages`. The selected reply scrolls into view and flashes. CSS Custom Highlights aggregate all mounted ranges under one plugin-owned manager; numbered buttons remain the fallback.
+Mounted messages rebuild `Range` objects from offsets. If the rendered offsets no longer contain the exact quote, the Client relocates the exact text by prefix, suffix, and distance within the same immutable message id. Navigation first uses the mounted endpoint, then loads older history pages up to `locateHistoryPages`. It finds the nearest vertical scroll container and scrolls by the difference between the numbered line center and the visible container center; the reply then flashes without changing keyboard focus through another scroll. CSS Custom Highlights aggregate all mounted ranges under one plugin-owned manager; numbered buttons remain the fallback.
 
-Each numbered button anchors after the complete selectable-text line containing its rebuilt range endpoint, rather than immediately after a mid-line selection. Markers sharing one visual line are grouped by vertical geometry and placed left to right by ordinal. Resize observation, viewport events, reasoning disclosure toggles, and font-loading completion recompute positions in CSS pixels.
+Each numbered button anchors after the complete selectable-text line containing its rebuilt range endpoint, rather than immediately after a mid-line selection. Markers sharing one visual line are grouped by vertical geometry and placed left to right by ordinal. The assistant body reserves a gutter of up to four marker columns; larger groups continue row-major inside that gutter instead of covering text or leaving the viewport. Resize observation, viewport events, reasoning disclosure toggles, and font-loading completion schedule at most one measurement per animation frame.
 
 ## Slot composition
 
@@ -101,7 +101,7 @@ DSH currently has no additive slot inside `AssistantMarkdown`. The Client uses s
 
 Lower priority wins in DSH keyed slots. The replacements use public `MarkdownText`, `JsonBlock`, `MessageText`, and attachment primitives. Additive entries are used where available:
 
-- `conversation.input.dock` for the task-style collapsible annotation list and selection-positioned editor;
+- `conversation.input.dock` for the grouped task-style annotation list, local-data controls, and compact selection-positioned editor;
 - `conversation.chat.assistant-actions` for a keyboard-accessible whole-reply annotation action;
 - `conversation.chat.commandview:<commandName>` to suppress the transport command's redundant timeline card.
 

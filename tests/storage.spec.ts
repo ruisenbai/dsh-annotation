@@ -28,7 +28,7 @@ describe('draft storage', () => {
       submissionId: payload.submissionId,
     }
     const state = {
-      storageVersion: 1 as const,
+      storageVersion: 2 as const,
       annotations: [annotation],
       outbox: [
         {
@@ -43,6 +43,52 @@ describe('draft storage', () => {
     }
     expect(storage.save(state)).toBe(true)
     expect(storage.load()).toEqual(state)
+    expect(storage.lastError()).toBeNull()
+    expect(storage.usageBytes()).toBeGreaterThan(0)
+    storage.clear()
+    expect(storage.usageBytes()).toBe(0)
+  })
+
+  it('restores an unfinished compact editor from version-two storage', () => {
+    const memory = new MemoryStorage()
+    const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+    const source = fixturePayload().annotations[0]!
+    const editorDraft = {
+      kind: 'new' as const,
+      capture: {
+        messageId: source.messageId,
+        messageSeq: source.messageSeq,
+        responseVersion: source.responseVersion,
+        quote: source.quote,
+        rect: { top: 10, left: 20, bottom: 30, right: 80 },
+      },
+      text: 'Work in progress',
+      longSelectionConfirmed: true,
+    }
+    const state = { ...emptyPersistedState(), editorDraft }
+    expect(storage.save(state)).toBe(true)
+    expect(storage.load().editorDraft).toEqual(editorDraft)
+  })
+
+  it('drops a corrupt optional editor without losing valid recovery records', () => {
+    const memory = new MemoryStorage()
+    const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+    const source = fixturePayload().annotations[0]!
+    memory.values.set(
+      storage.key,
+      JSON.stringify({
+        storageVersion: 2,
+        annotations: [{ ...source, status: 'draft', updatedAt: source.createdAt }],
+        outbox: [],
+        overallRequirementDraft: 'Keep this request',
+        editorDraft: { kind: 'new', text: 42 },
+      }),
+    )
+
+    const restored = storage.load()
+    expect(restored.annotations).toHaveLength(1)
+    expect(restored.overallRequirementDraft).toBe('Keep this request')
+    expect(restored.editorDraft).toBeUndefined()
     expect(storage.lastError()).toBeNull()
   })
 
@@ -74,7 +120,9 @@ describe('draft storage', () => {
         overallRequirementDraft: '',
       }),
     )
-    expect(storage.load().outbox[0]).toMatchObject({
+    const restored = storage.load()
+    expect(restored.storageVersion).toBe(2)
+    expect(restored.outbox[0]).toMatchObject({
       status: 'failed',
       attempts: 1,
       messageId: 'dsh-inline-annotations:sub-test',
@@ -112,7 +160,7 @@ describe('draft storage', () => {
     memory.values.set(storage.key, '{bad')
     expect(storage.load()).toEqual(emptyPersistedState())
     expect(storage.lastError()).not.toBeNull()
-    memory.values.set(storage.key, JSON.stringify({ storageVersion: 2 }))
+    memory.values.set(storage.key, JSON.stringify({ storageVersion: 99 }))
     expect(storage.load()).toEqual(emptyPersistedState())
   })
 

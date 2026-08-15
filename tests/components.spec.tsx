@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AnnotatedAssistantNode } from '../src/client/components/AnnotatedAssistantNode.tsx'
 import { AnnotatedUserNode } from '../src/client/components/AnnotatedUserNode.tsx'
@@ -15,7 +15,11 @@ import type { InlineAnnotationLocaleKey } from '../src/client/locales.ts'
 import { styles } from '../src/client/styles.ts'
 import { fixturePayload } from './fixtures.ts'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
 
 const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => {
   const values: Partial<Record<InlineAnnotationLocaleKey, string>> = {
@@ -27,14 +31,30 @@ const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => 
     'dock.pendingDetail': 'Ready to send · Open list',
     'panel.pending': `${String(params?.count)} ready to send`,
     'list.title': 'Inline annotations',
+    'group.drafts': 'Ready to send',
+    'group.queued': 'Queued',
+    'group.history': 'Sent',
     'list.overallLabel': 'Overall request (optional)',
     'list.overall': 'Add an overall request',
     'list.edit': 'Edit',
     'list.delete': 'Delete',
+    'list.deleted': 'Draft annotation deleted',
+    'list.undo': 'Undo',
+    'local.usage': `Local data · ${String(params?.size)}`,
+    'local.export': 'Export local data',
+    'local.clear': 'Clear drafts',
+    'local.exported': 'Local data exported',
+    'local.exportFailed': 'Local data export failed',
+    'local.confirmClear': 'Clear every draft?',
+    'local.keep': 'Keep',
+    'local.confirm': 'Clear drafts now',
     'send.idle': 'Send to task',
     'editor.title': 'Add annotation',
     'editor.commentLabel': 'Your comment',
     'editor.shortcut': 'Ctrl/⌘ ↵ to save',
+    'editor.autosaving': 'Saving locally…',
+    'editor.autosaved': 'Automatically saved locally',
+    'editor.chooseAction': 'Use Cancel or Save on the right',
     'editor.cancel': 'Cancel',
     'editor.discard': 'Discard the unsaved changes?',
     'editor.keepEditing': 'Keep editing',
@@ -57,11 +77,14 @@ function baseView(): AnnotationView {
     outbox: [],
     overallRequirementDraft: '',
     editor: null,
+    editorSaveStatus: 'idle',
+    deletedDraft: null,
     panelOpen: false,
     notice: null,
     activeAnnotationId: null,
     latestAssistantMessageId: null,
     storageAvailable: true,
+    storageBytes: 0,
   }
 }
 
@@ -193,6 +216,84 @@ describe('annotation presentation', () => {
     expect(props.setPanelOpen).toHaveBeenCalledWith(false)
   })
 
+  it('groups statuses, offers delete undo, and manages local recovery data', () => {
+    const payload = fixturePayload()
+    const draft = {
+      ...payload.annotations[0]!,
+      status: 'draft' as const,
+      updatedAt: payload.createdAt,
+    }
+    const queued = {
+      ...draft,
+      annotationId: 'ann-queued' as typeof draft.annotationId,
+      ordinal: 2,
+      status: 'queued' as const,
+      submissionId: payload.submissionId,
+      comment: 'Queued note',
+    }
+    const sent = {
+      ...draft,
+      annotationId: 'ann-sent' as typeof draft.annotationId,
+      ordinal: 3,
+      status: 'sent' as const,
+      submissionId: payload.submissionId,
+      comment: 'Sent note',
+    }
+    const undoDelete = vi.fn()
+    const clearLocalDrafts = vi.fn()
+    const exportLocalData = vi.fn(() => '{"storageVersion":2}')
+    const view: AnnotationView = {
+      ...baseView(),
+      annotations: [draft, queued, sent],
+      deletedDraft: { ...draft, annotationId: 'ann-deleted' as typeof draft.annotationId },
+      panelOpen: true,
+      storageBytes: 1536,
+    }
+    const props = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      setPanelOpen: vi.fn(),
+      setOverallRequirementDraft: vi.fn(),
+      openAnnotation: vi.fn(),
+      deleteDraft: vi.fn(),
+      undoDelete,
+      dismissDeleteUndo: vi.fn(),
+      exportLocalData,
+      clearLocalDrafts,
+      navigate: vi.fn(async () => true),
+      submit: vi.fn(async () => undefined),
+      withdraw: vi.fn(),
+      t,
+    } as unknown as InputAnnotationProps
+    const createObjectURL = vi.fn(() => 'blob:test')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL })
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+    render(<AnnotationDock {...props} />)
+
+    expect(screen.getByText('Ready to send')).toBeInTheDocument()
+    expect(screen.getByText('Queued')).toBeInTheDocument()
+    expect(screen.queryByText('Sent note')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Sent/u }))
+    expect(screen.getByText('Sent note')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(undoDelete).toHaveBeenCalledOnce()
+    expect(screen.getByText('Local data · 1.5 KB')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Export local data' }))
+    expect(exportLocalData).toHaveBeenCalledOnce()
+    expect(createObjectURL).toHaveBeenCalledOnce()
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:test')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear drafts' }))
+    expect(screen.getByText('Clear every draft?')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear drafts now' }))
+    expect(clearLocalDrafts).toHaveBeenCalledOnce()
+  })
+
   it('shows add and copy actions next to an assistant text selection', async () => {
     const beginSelection = vi.fn()
     const writeText = vi.fn(async () => undefined)
@@ -257,7 +358,7 @@ describe('annotation presentation', () => {
     )
   })
 
-  it('anchors markers after the complete text line and orders same-line numbers ascending', () => {
+  it('anchors markers after the complete text line and orders same-line numbers ascending', async () => {
     const payload = fixturePayload()
     const annotation = {
       ...payload.annotations[0]!,
@@ -345,18 +446,27 @@ describe('annotation presentation', () => {
 
       const firstMarker = screen.getByRole('button', { name: '#1: Explain this claim.' })
       const secondMarker = screen.getByRole('button', { name: '#2: Clarify the introduction.' })
-      expect(firstMarker).toHaveStyle({ top: '48px', left: '315px' })
-      expect(secondMarker).toHaveStyle({ top: '48px', left: '341px' })
+      await waitFor(() => {
+        expect(firstMarker).toHaveStyle({ top: '48px', left: '315px' })
+        expect(secondMarker).toHaveStyle({ top: '48px', left: '341px' })
+      })
 
       finalLineTop = 190
       fireEvent(screen.getByText('assistant.reasoning').closest('details')!, new Event('toggle'))
-      expect(firstMarker).toHaveStyle({ top: '88px', left: '315px' })
-      expect(secondMarker).toHaveStyle({ top: '88px', left: '341px' })
+      await waitFor(() => {
+        expect(firstMarker).toHaveStyle({ top: '88px', left: '315px' })
+        expect(secondMarker).toHaveStyle({ top: '88px', left: '341px' })
+      })
 
+      const requestFrame = vi.spyOn(window, 'requestAnimationFrame')
       finalLineRight = 410
       fireEvent(window, new Event('resize'))
-      expect(firstMarker).toHaveStyle({ top: '88px', left: '365px' })
-      expect(secondMarker).toHaveStyle({ top: '88px', left: '391px' })
+      fireEvent(window, new Event('resize'))
+      expect(requestFrame).toHaveBeenCalledTimes(1)
+      await waitFor(() => {
+        expect(firstMarker).toHaveStyle({ top: '88px', left: '365px' })
+        expect(secondMarker).toHaveStyle({ top: '88px', left: '391px' })
+      })
     } finally {
       if (rangeRects === undefined) Reflect.deleteProperty(Range.prototype, 'getClientRects')
       else Object.defineProperty(Range.prototype, 'getClientRects', rangeRects)
@@ -365,18 +475,254 @@ describe('annotation presentation', () => {
     }
   })
 
-  it('offers explicit actions before discarding unsaved editor changes', () => {
+  it('reserves a mobile gutter and wraps excess same-line markers without overflow', async () => {
+    const payload = fixturePayload()
+    const base = {
+      ...payload.annotations[0]!,
+      status: 'draft' as const,
+      updatedAt: payload.createdAt,
+    }
+    const annotations = Array.from({ length: 5 }, (_, index) => ({
+      ...base,
+      annotationId: `ann-mobile-${index + 1}` as typeof base.annotationId,
+      ordinal: index + 1,
+      comment: `Mobile note ${index + 1}`,
+    }))
+    const rangeRects = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects')
+    const elementRect = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'getBoundingClientRect')
+    const rect = (top: number, right: number, width: number): DOMRect =>
+      ({
+        x: right - width,
+        y: top,
+        top,
+        right,
+        bottom: top + 20,
+        left: right - width,
+        width,
+        height: 20,
+        toJSON: () => ({}),
+      }) as DOMRect
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [rect(150, 280, 80)] as unknown as DOMRectList,
+    })
+    Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => rect(100, 320, 320),
+    })
+
+    try {
+      const view: AnnotationView = { ...baseView(), annotations }
+      const props = {
+        node: {
+          data: {
+            status: 'closed',
+            blocks: [{ kind: 'text', text: 'before selected source after' }],
+            finalNode: { messageId: base.messageId, seq: base.messageSeq },
+          },
+          location: { kind: 'root' },
+        },
+        useTurnData: () => undefined,
+        openFile: vi.fn(),
+        loadImage: vi.fn(),
+        fileMentions: vi.fn(),
+        useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+        beginSelection: vi.fn(),
+        openAnnotation: vi.fn(),
+        registerEndpoint: vi.fn(() => () => undefined),
+        updateHighlightRanges: vi.fn(),
+        activateHighlight: vi.fn(),
+        removeHighlights: vi.fn(),
+        t,
+      } as unknown as AssistantAnnotationProps
+      const { container } = render(<AnnotatedAssistantNode {...props} />)
+      const markers = annotations.map((annotation) =>
+        screen.getByRole('button', { name: `#${annotation.ordinal}: ${annotation.comment}` }),
+      )
+
+      await waitFor(() =>
+        expect(container.querySelector('.dia-assistant__body')).toHaveStyle({ paddingRight: '111px' }),
+      )
+      const lefts = markers.map((marker) => Number.parseFloat(marker.style.left))
+      expect(lefts.slice(0, 4)).toEqual([...lefts.slice(0, 4)].sort((left, right) => left - right))
+      expect(Math.max(...lefts) + 24).toBeLessThanOrEqual(320)
+      expect(markers[4]).toHaveStyle({ left: `${lefts[0]}px` })
+      expect(Number.parseFloat(markers[4]!.style.top)).toBeGreaterThan(
+        Number.parseFloat(markers[0]!.style.top),
+      )
+    } finally {
+      if (rangeRects === undefined) Reflect.deleteProperty(Range.prototype, 'getClientRects')
+      else Object.defineProperty(Range.prototype, 'getClientRects', rangeRects)
+      if (elementRect === undefined) Reflect.deleteProperty(HTMLElement.prototype, 'getBoundingClientRect')
+      else Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', elementRect)
+    }
+  })
+
+  it('centers the numbered marker line in the actual scroll viewport when locating source', () => {
     const payload = fixturePayload()
     const annotation = {
       ...payload.annotations[0]!,
       status: 'draft' as const,
       updatedAt: payload.createdAt,
     }
+    const view: AnnotationView = { ...baseView(), annotations: [annotation] }
+    const rangeRects = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects')
+    const rect = (top: number, right: number, width: number): DOMRect =>
+      ({
+        x: right - width,
+        y: top,
+        top,
+        right,
+        bottom: top + 20,
+        left: right - width,
+        width,
+        height: 20,
+        toJSON: () => ({}),
+      }) as DOMRect
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value(this: Range) {
+        return [
+          this.toString() === 'selected source' ? rect(360, 250, 100) : rect(360, 360, 100),
+        ] as unknown as DOMRectList
+      },
+    })
+    let endpoint: { reveal(annotationId: typeof annotation.annotationId): void } | undefined
+    const activateHighlight = vi.fn()
+    const props = {
+      node: {
+        data: {
+          status: 'closed',
+          blocks: [{ kind: 'text', text: 'before selected source after' }],
+          finalNode: { messageId: annotation.messageId, seq: annotation.messageSeq },
+        },
+        location: { kind: 'root' },
+      },
+      useTurnData: () => undefined,
+      openFile: vi.fn(),
+      loadImage: vi.fn(),
+      fileMentions: vi.fn(),
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      beginSelection: vi.fn(),
+      openAnnotation: vi.fn(),
+      registerEndpoint: vi.fn((_messageId, candidate) => {
+        endpoint = candidate
+        return () => undefined
+      }),
+      updateHighlightRanges: vi.fn(),
+      activateHighlight,
+      removeHighlights: vi.fn(),
+      t,
+    } as unknown as AssistantAnnotationProps
+
+    try {
+      const { getByTestId } = render(
+        <div data-testid="conversation-scroll" style={{ overflowY: 'auto' }}>
+          <AnnotatedAssistantNode {...props} />
+        </div>,
+      )
+      const scroller = getByTestId('conversation-scroll')
+      Object.defineProperties(scroller, {
+        clientHeight: { configurable: true, value: 400 },
+        scrollHeight: { configurable: true, value: 1200 },
+      })
+      scroller.getBoundingClientRect = () =>
+        ({
+          x: 0,
+          y: 100,
+          top: 100,
+          right: 600,
+          bottom: 500,
+          left: 0,
+          width: 600,
+          height: 400,
+          toJSON: () => ({}),
+        }) as DOMRect
+      const scrollBy = vi.fn()
+      Object.defineProperty(scroller, 'scrollBy', { configurable: true, value: scrollBy })
+
+      act(() => endpoint?.reveal(annotation.annotationId))
+      expect(scrollBy).toHaveBeenCalledWith({ top: 70, behavior: 'smooth' })
+      expect(activateHighlight).toHaveBeenCalledWith(annotation.messageId, expect.any(Range))
+    } finally {
+      if (rangeRects === undefined) Reflect.deleteProperty(Range.prototype, 'getClientRects')
+      else Object.defineProperty(Range.prototype, 'getClientRects', rangeRects)
+    }
+  })
+
+  it('keeps dirty input open with a red shake until an icon action decides it', () => {
+    const payload = fixturePayload()
     const closeEditor = vi.fn((force = false) => force)
+    const saveEditor = vi.fn()
     const view: AnnotationView = {
       ...baseView(),
-      annotations: [annotation],
-      editor: { kind: 'edit', annotationId: annotation.annotationId, text: 'Unsaved change' },
+      editor: {
+        kind: 'new',
+        capture: {
+          messageId: payload.annotations[0]!.messageId,
+          messageSeq: payload.annotations[0]!.messageSeq,
+          responseVersion: payload.annotations[0]!.responseVersion,
+          quote: payload.annotations[0]!.quote,
+          rect: { top: 40, left: 80, right: 180, bottom: 64 },
+        },
+        text: 'Unsaved change',
+        longSelectionConfirmed: true,
+      },
+      editorSaveStatus: 'saved',
+    }
+    const props = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      closeEditor,
+      saveEditor,
+      updateEditorText: vi.fn(),
+      confirmLongSelection: vi.fn(),
+      t,
+    } as unknown as InputAnnotationProps
+    render(
+      <>
+        <style>{styles}</style>
+        <AnnotationDock {...props} />
+      </>,
+    )
+
+    const input = screen.getByLabelText('Your comment')
+    fireEvent.pointerDown(document.body)
+    expect(closeEditor).toHaveBeenCalledWith()
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByText('Use Cancel or Save on the right')).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toHaveAttribute('data-decision-required', 'true')
+    expect(styles).toContain(".dia-editor[data-shake='1'] .dia-editor__input")
+
+    for (const name of ['Cancel', 'Save annotation']) {
+      expect(screen.getByRole('button', { name })).not.toHaveTextContent(/\S/u)
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Save annotation' }))
+    expect(saveEditor).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(closeEditor).toHaveBeenLastCalledWith(true)
+  })
+
+  it('dismisses an empty selection editor on an outside click', () => {
+    const payload = fixturePayload()
+    const closeEditor = vi.fn(() => true)
+    const view: AnnotationView = {
+      ...baseView(),
+      editor: {
+        kind: 'new',
+        capture: {
+          messageId: payload.annotations[0]!.messageId,
+          messageSeq: payload.annotations[0]!.messageSeq,
+          responseVersion: payload.annotations[0]!.responseVersion,
+          quote: payload.annotations[0]!.quote,
+          rect: { top: 20, left: 30, right: 80, bottom: 40 },
+        },
+        text: '',
+        longSelectionConfirmed: true,
+      },
     }
     const props = {
       sessionId: payload.sessionId,
@@ -390,17 +736,12 @@ describe('annotation presentation', () => {
       confirmLongSelection: vi.fn(),
       t,
     } as unknown as InputAnnotationProps
-    render(<AnnotationDock {...props} />)
+    const { rerender } = render(<AnnotationDock {...props} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(screen.getByRole('alert')).toHaveTextContent('Discard the unsaved changes?')
-    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Your comment')).toHaveFocus()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
-    expect(closeEditor).toHaveBeenLastCalledWith(true)
+    fireEvent.pointerDown(document.body)
+    expect(closeEditor).toHaveBeenCalledWith()
+    rerender(<AnnotationDock {...props} useAnnotations={(selector) => selector(baseView()) as never} />)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('uses a selection-positioned editor and saves with the keyboard shortcut', () => {
@@ -445,7 +786,7 @@ describe('annotation presentation', () => {
     )
 
     const editor = screen.getByRole('dialog', { name: 'Add annotation' })
-    expect(editor).toHaveStyle({ top: '74px', left: '80px' })
+    expect(editor).toHaveStyle({ top: '72px', left: '80px' })
     expect(window.getComputedStyle(editor).boxSizing).toBe('border-box')
     fireEvent.keyDown(screen.getByLabelText('Your comment'), { key: 'Enter', ctrlKey: true })
     expect(saveEditor).toHaveBeenCalledOnce()
