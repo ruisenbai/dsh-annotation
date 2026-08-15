@@ -8,7 +8,8 @@ A GitHub-ready DeepSeek Harness plugin for reviewing assistant replies in place.
 
 ## Features
 
-- Select text inside one finalized assistant reply and open an accessible annotation editor.
+- Select text inside one finalized assistant reply, then annotate or copy it from a 36 px floating toolbar.
+- Edit in a 320 px popover and open a 320 px annotation rail from the composer summary; the rail becomes a bottom sheet on mobile.
 - Keep multiple local drafts editable until an explicit batch submission.
 - Preserve the exact quote, prefix/suffix selector, assistant message id, event sequence, annotation id, and submission id.
 - Capture language and line coordinates for code, or row/column coordinates for tables.

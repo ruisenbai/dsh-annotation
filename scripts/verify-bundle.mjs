@@ -19,6 +19,9 @@ if (
 ) {
   throw new Error('client bundle does not register with the DSH module loader')
 }
+if (client.includes('require("lucide-react')) {
+  throw new Error('client bundle leaves lucide-react external to the DSH module loader')
+}
 const patch = await readFile(new URL('cordis.patch.yml', root), 'utf8')
 if (!patch.includes(`name: ${manifest.name}`)) {
   throw new Error('cordis.patch.yml does not insert this package')

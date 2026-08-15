@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Check, Copy, MessageSquarePlus } from '../icons.ts'
 import { ImageGallery } from '@deepseek-ai/dsh-client-ui-attachment'
 import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -38,6 +39,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   const rootRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState<ReturnType<typeof captureSelection> | null>(null)
+  const [selectionCopied, setSelectionCopied] = useState(false)
   const [flash, setFlash] = useState(false)
   const [hover, setHover] = useState<{ annotation: AnnotationDraft; x: number; y: number } | null>(null)
   const data = node.data
@@ -134,6 +136,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       }
       try {
         setSelection(captureSelection(body, range, messageId, messageSeq))
+        setSelectionCopied(false)
       } catch {
         setSelection(null)
       }
@@ -145,6 +148,24 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       body.removeEventListener('keyup', capture)
     }
   }, [messageId, messageSeq])
+
+  const copySelection = useCallback(async () => {
+    if (selection === null) return
+    try {
+      await navigator.clipboard.writeText(selection.quote.exact)
+    } catch {
+      const helper = document.createElement('textarea')
+      helper.value = selection.quote.exact
+      helper.setAttribute('readonly', '')
+      helper.style.position = 'fixed'
+      helper.style.opacity = '0'
+      document.body.append(helper)
+      helper.select()
+      document.execCommand('copy')
+      helper.remove()
+    }
+    setSelectionCopied(true)
+  }, [selection])
 
   const inspectPoint = (x: number, y: number): AnnotationDraft | undefined => {
     const body = bodyRef.current
@@ -209,22 +230,43 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         {data.status === 'interrupted' && <p className="dia-warning">{t('assistant.interrupted')}</p>}
       </div>
       {selection !== null && (
-        <button
-          type="button"
-          className="dia-selection-button"
+        <div
+          className="dia-selection-toolbar"
+          role="toolbar"
+          aria-label={t('selection.actions')}
           style={{
             top: Math.min(window.innerHeight - 48, selection.rect.bottom + 7),
-            left: selection.rect.left,
+            left: Math.max(8, Math.min(window.innerWidth - 168, selection.rect.left)),
           }}
           onPointerDown={(event) => event.preventDefault()}
-          onClick={() => {
-            beginSelection(selection)
-            setSelection(null)
-            window.getSelection()?.removeAllRanges()
-          }}
         >
-          {t('selection.add')}
-        </button>
+          <button
+            type="button"
+            className="dia-selection-action"
+            onClick={() => {
+              beginSelection(selection)
+              setSelection(null)
+              window.getSelection()?.removeAllRanges()
+            }}
+          >
+            <MessageSquarePlus aria-hidden="true" size={14} strokeWidth={1.8} />
+            {t('selection.add')}
+          </button>
+          <span className="dia-selection-divider" aria-hidden="true" />
+          <button
+            type="button"
+            className="dia-selection-action dia-selection-action--icon"
+            aria-label={selectionCopied ? t('selection.copied') : t('action.copy')}
+            title={selectionCopied ? t('selection.copied') : t('action.copy')}
+            onClick={() => void copySelection()}
+          >
+            {selectionCopied ? (
+              <Check aria-hidden="true" size={14} strokeWidth={1.8} />
+            ) : (
+              <Copy aria-hidden="true" size={14} strokeWidth={1.8} />
+            )}
+          </button>
+        </div>
       )}
       {annotations.length > 0 && (
         <nav className="dia-markers" aria-label={t('list.title')}>
@@ -233,6 +275,8 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
               key={annotation.annotationId}
               type="button"
               className="dia-marker"
+              data-status={annotation.status}
+              data-active={annotation.annotationId === activeId}
               title={annotation.comment}
               aria-label={`#${annotation.ordinal}: ${annotation.comment}`}
               onClick={() => openAnnotation(annotation.annotationId)}

@@ -6,6 +6,9 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ### Added
 
+- A compact selection toolbar with annotation and copy actions.
+- A 320 px annotation popover, composer summary, desktop side panel, and mobile bottom sheet.
+- Lucide status and action icons with distinct queued, sent, processed, and failure treatments.
 - GitHub-ready repository metadata and CI.
 
 ## [0.1.0] - 2026-08-14

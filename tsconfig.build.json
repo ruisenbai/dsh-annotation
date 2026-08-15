@@ -6,6 +6,7 @@
     "noEmit": false,
     "declaration": true,
     "declarationMap": false,
+    "stripInternal": true,
     "sourceMap": false,
     "allowImportingTsExtensions": false,
     "rewriteRelativeImportExtensions": true,

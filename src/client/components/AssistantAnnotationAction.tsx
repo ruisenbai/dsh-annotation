@@ -1,3 +1,4 @@
+import { MessageSquarePlus } from '../icons.ts'
 import type { MessageIdentity } from '../../shared/types.ts'
 import type { AssistantActionAnnotationProps } from '../contract.ts'
 
@@ -11,7 +12,7 @@ export function AssistantAnnotationAction({ messageId, annotateMessage, t }: Ass
       aria-label={t('action.annotate')}
       onClick={() => annotateMessage(messageId as unknown as MessageIdentity)}
     >
-      <span aria-hidden="true">✎</span>
+      <MessageSquarePlus aria-hidden="true" size={15} strokeWidth={1.8} />
     </button>
   )
 }

@@ -2,8 +2,16 @@ import { useMemo } from 'react'
 import { ImageGallery } from '@deepseek-ai/dsh-client-ui-attachment'
 import { MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { parseInlineAnnotationSource } from '../../shared/protocol.ts'
-import type { AnnotationId } from '../../shared/types.ts'
+import type { AnnotationId, AnnotationStatus } from '../../shared/types.ts'
 import type { UserAnnotationProps } from '../contract.ts'
+import { BadgeCheck, ChevronDown, CircleCheck, Clock3, FileText, MapPin, MessagesSquare } from '../icons.ts'
+
+function TimelineStatusIcon({ status }: { status: AnnotationStatus }) {
+  if (status === 'queued') return <Clock3 aria-hidden="true" size={12} strokeWidth={2} />
+  if (status === 'processed') return <BadgeCheck aria-hidden="true" size={12} strokeWidth={2} />
+  if (status === 'sent') return <CircleCheck aria-hidden="true" size={12} strokeWidth={2} />
+  return <FileText aria-hidden="true" size={12} strokeWidth={2} />
+}
 
 function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
   payload,
@@ -23,38 +31,49 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
     payload.annotations.some((item) => item.messageId !== view.latestAssistantMessageId)
   return (
     <details className="dia-timeline">
-      <summary>{t('timeline.summary', { count: payload.annotations.length })}</summary>
+      <summary>
+        <span className="dia-timeline__summary-icon" aria-hidden="true">
+          <MessagesSquare size={16} strokeWidth={1.8} />
+        </span>
+        <span className="dia-timeline__summary-copy">
+          <strong>{t('timeline.summary', { count: payload.annotations.length })}</strong>
+          <small>{previousVersion ? t('timeline.previousVersion') : payload.submissionId}</small>
+        </span>
+        <ChevronDown aria-hidden="true" size={16} strokeWidth={1.8} />
+      </summary>
       <div className="dia-timeline__body">
-        {previousVersion && <p className="dia-warning">{t('timeline.previousVersion')}</p>}
         {payload.overallRequirement !== undefined && payload.overallRequirement.trim() !== '' && (
-          <section>
+          <section className="dia-timeline__overall">
             <strong>{t('timeline.overall')}</strong>
-            <p className="dia-item__comment">{payload.overallRequirement}</p>
+            <p>{payload.overallRequirement}</p>
           </section>
         )}
-        <div className="dia-list">
+        <div className="dia-timeline__list">
           {payload.annotations.map((item) => {
             const local = byId.get(item.annotationId)
             const status = local?.status ?? 'sent'
             return (
-              <article key={item.annotationId} className="dia-item" data-status={status}>
-                <div className="dia-item__head">
-                  <span>
-                    #{item.ordinal} · {t(`status.${status}`)}
+              <article key={item.annotationId} className="dia-timeline-item" data-status={status}>
+                <header className="dia-timeline-item__head">
+                  <span className="dia-timeline-item__index" aria-hidden="true">
+                    {item.ordinal}
                   </span>
-                  <span>{item.annotationId}</span>
-                </div>
-                <p className="dia-item__quote">“{item.quote.exact}”</p>
-                <p className="dia-item__comment">{item.comment}</p>
-                <div className="dia-actions">
-                  <button
-                    type="button"
-                    className="dia-button"
-                    onClick={() => void navigate(item.annotationId as AnnotationId)}
-                  >
-                    {t('list.locate')}
-                  </button>
-                </div>
+                  <span className="dia-status" data-status={status}>
+                    <TimelineStatusIcon status={status} />
+                    {t(`status.${status}`)}
+                  </span>
+                  <code>{item.annotationId}</code>
+                </header>
+                <q>{item.quote.exact}</q>
+                <p>{item.comment}</p>
+                <button
+                  type="button"
+                  className="dia-text-button dia-timeline-item__locate"
+                  onClick={() => void navigate(item.annotationId as AnnotationId)}
+                >
+                  <MapPin aria-hidden="true" size={12} strokeWidth={1.8} />
+                  {t('list.locate')}
+                </button>
               </article>
             )
           })}
