@@ -60,7 +60,7 @@ The stable inbox/message id is `dsh-inline-annotations:<submissionId>`. Before a
 
 A match returns success without another enqueue. This is plugin-owned idempotency; DSH's generic prompt path does not provide an idempotency key. The Client freezes the complete payload after its first attempt. A transport retry reuses both payload and submission id.
 
-A queued item may be withdrawn through `SessionFace.updateQueue(messageId, { kind: 'remove' })`. Withdrawal returns its annotations to editable drafts. Sent history is immutable; later clarification creates a new annotation with `supplementalTo`.
+An item observed in `ConversationSnapshot.queue` may be withdrawn through `SessionFace.updateQueue(messageId, { kind: 'remove' })`. Withdrawal returns its annotations to editable drafts. A successful command response remains internally `accepted` until queue or durable history confirms its actual placement. For an archived-source submission, only the fork target may mirror an authoritative queue state back to the source; either side may mirror durable sent/processed state. Sent history is immutable; later clarification creates a new annotation with `supplementalTo`.
 
 ## Client state owner
 
@@ -73,6 +73,8 @@ The controller combines three sources:
 - replayed Chat nodes for sent submissions and model acknowledgements.
 
 Durable state changes publish one frozen snapshot and write the persisted fields immediately. Editor keystrokes publish immediately and coalesce `localStorage` writes behind a 400 ms timer; another durable change or Session-controller disposal flushes the same editor state first. A storage failure leaves the in-memory snapshot usable and presents a warning.
+
+The composer compares live outbox snapshots only after its initial baseline. A confirmed queue transition shows an official queued Toast and keeps withdrawal available, a durable transition shows sent and removes withdrawal, and a failed transition names the immutable submission id for retry. Reloaded recovery state does not replay stale Toasts.
 
 ## Selection anchoring
 

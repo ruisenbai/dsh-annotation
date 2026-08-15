@@ -383,49 +383,6 @@ export const styles: string = `
   overflow-wrap: anywhere;
 }
 
-.dia-button {
-  display: inline-flex;
-  min-height: 32px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-label-primary);
-  padding: 6px 10px;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.dia-button:hover {
-  background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 78%, var(--dsw-alias-label-primary));
-}
-
-.dia-button[data-primary='true'] {
-  border-color: var(--dia-accent);
-  background: var(--dia-accent);
-  color: var(--dia-accent-text);
-  font-weight: 600;
-}
-
-.dia-button[data-primary='true']:hover {
-  border-color: var(--dia-accent-strong);
-  background: var(--dia-accent-strong);
-}
-
-.dia-button[data-danger='true'] {
-  border-color: var(--dia-danger);
-  background: var(--dia-danger);
-  color: var(--dia-accent-text);
-  font-weight: 600;
-}
-
-.dia-button[data-danger='true']:hover {
-  background: color-mix(in srgb, var(--dia-danger) 84%, var(--dsw-alias-label-primary));
-}
-
-.dia-button:disabled,
 .dia-textarea:disabled {
   cursor: not-allowed;
   opacity: 0.5;
@@ -601,7 +558,14 @@ button.dia-group__heading {
   cursor: pointer;
 }
 
-.dia-group__heading > span:nth-child(2) {
+.dia-group__title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.dia-group__count {
   margin-left: auto;
   color: var(--dsw-alias-label-tertiary);
   font-weight: 400;
@@ -829,15 +793,41 @@ button.dia-group__heading {
   margin-right: auto;
 }
 
+.dia-send-block {
+  display: grid;
+  gap: 8px;
+}
+
+.dia-send-destination {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.dia-send-destination > svg {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-state-warn-primary);
+}
+
 .dia-inline-panel__actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 12px;
 }
 
 .dia-inline-panel__send {
-  min-width: 132px;
+  min-width: 176px;
+  background: var(--dsw-alias-button-info-fill);
+  color: #fff;
+}
+
+.dia-inline-panel__send:hover:not(:disabled) {
+  background: var(--dsw-alias-button-info-hover);
 }
 
 .dia-timeline {
@@ -1050,6 +1040,14 @@ button.dia-group__heading {
   }
 
   .dia-status {
+    width: 100%;
+  }
+
+  .dia-inline-panel__actions {
+    display: grid;
+  }
+
+  .dia-inline-panel__actions > button {
     width: 100%;
   }
 }

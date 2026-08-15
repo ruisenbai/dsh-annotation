@@ -2,6 +2,9 @@
 
 [简体中文](README.zh-CN.md)
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-%5E22.19%20%7C%7C%20%3E%3D24-43853d.svg)](package.json)
+
 A GitHub-ready DeepSeek Harness plugin for reviewing assistant replies in place. Select exact reply text, attach comments or requirements, keep several annotations as editable drafts, and submit one idempotent batch to the current task.
 
 > **Compatibility:** this project targets DeepSeek Harness `0.1.0-rc.5` and `0.1.0-rc.6`. DSH is pre-release software. The plugin must shadow three shipped conversation renderers because DSH does not yet expose an inline assistant-body slot. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
@@ -11,12 +14,14 @@ A GitHub-ready DeepSeek Harness plugin for reviewing assistant replies in place.
 - Select text inside one finalized assistant reply, then annotate or copy it from a 36 px floating toolbar.
 - Type directly in a compact selection-positioned input with icon-only Cancel and Save actions. An empty outside click closes it; a dirty outside click keeps it open, turns the input red, and shakes it until one action is chosen.
 - Autosave unfinished editor text after 400 ms, display its local-save state, and restore it after a refresh without treating it as a submitted annotation.
-- Group two-line rows into ready, queued, and sent sections; use official DSH icons and tooltips for locate, edit, supplement, delete, export, and clear actions.
+- Group two-line rows into ready, delivery-outcome/retry, authoritatively queued, and sent sections; use official DSH buttons, state dots, icons, tooltips, and Toasts.
 - Undo one draft deletion, export current-Session recovery JSON, clear unsubmitted drafts, and inspect local storage usage from the composer list.
 - Preserve the exact quote, prefix/suffix selector, assistant message id, event sequence, annotation id, and submission id.
 - Capture language and line coordinates for code, or row/column coordinates for tables.
 - Merge overlapping selections into the existing draft instead of stacking ambiguous highlights.
 - Route an idle submission to the next turn, inject into a running task at its next safe step, or queue behind a blocking confirmation.
+- Show the batch size in the submission action and explain its destination beside the button for idle, running, waiting, archived, and retry states.
+- Report authoritative queue, durable send, and retryable failure outcomes through distinct DSH Toasts; withdrawal appears only while the batch remains in the observed queue.
 - Copy archived-session context into a new task before submitting.
 - Render submitted annotation batches as collapsed timeline cards with source navigation.
 - Place numbered markers after the complete endpoint line, reserve an overflow-safe gutter, retain ascending order, and coalesce layout updates across reasoning disclosure, viewport, font, and zoom changes.
@@ -66,14 +71,16 @@ Replace `YOUR_ORG` in this README and `package.json` before publishing your fork
 
 ## Delivery behavior
 
-| Session state                 | Button                   | Host action                                                         |
-| ----------------------------- | ------------------------ | ------------------------------------------------------------------- |
-| Idle                          | Send to task             | `Agent.followup()` starts the next turn                             |
-| Running                       | Join current task        | `Agent.steer()` admits the batch at the next safe step              |
-| Waiting for approval/question | Queue after confirmation | `Agent.followup()` waits for the next turn                          |
-| Archived                      | Copy to new task         | `ISessions.fork()` creates and opens a child, then queues the batch |
+| Session state                 | Counted action                         | Destination notice                      | Host action                                                         |
+| ----------------------------- | -------------------------------------- | --------------------------------------- | ------------------------------------------------------------------- |
+| Idle                          | Send N annotations to task             | Sending starts the task                 | `Agent.followup()` starts the next turn                             |
+| Running                       | Send N annotations to current task     | Enters at the next safe execution point | `Agent.steer()` admits the batch at the next safe step              |
+| Waiting for approval/question | Queue N annotations after confirmation | Queues after confirmation completes     | `Agent.followup()` waits for the next turn                          |
+| Archived                      | Copy and send N annotations            | Copies into a new task                  | `ISessions.fork()` creates and opens a child, then queues the batch |
 
-A network error leaves the immutable payload and submission id available for retry; a page reload during an uncertain send restores the same batch as retryable. A queued payload can be withdrawn while it is still in the authoritative DSH queue. Once the standard `user/message` event exists, its history is not edited; a later clarification becomes a new draft linked to the earlier annotation.
+Transport acceptance is not presented as queue admission. The queued Toast appears only after `ConversationSnapshot.queue` contains the stable message id, and its withdrawal control remains available only in that state. A durable `user/message` changes the result to sent and removes withdrawal. A failed Toast retains and names the original immutable submission id for retry.
+
+A network error leaves the immutable payload and submission id available for retry; a page reload during an uncertain send restores the same batch as retryable. Once the standard `user/message` event exists, its history is not edited; a later clarification becomes a new draft linked to the earlier annotation.
 
 ## States
 
@@ -143,6 +150,7 @@ The CI workflow runs type checking, linting, unit tests, a real Chromium regress
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security policy](SECURITY.md)
 - [Support](SUPPORT.md)
+- [Release guide](RELEASING.md)
 - [Changelog](CHANGELOG.md)
 
 Released under the [MIT License](LICENSE).

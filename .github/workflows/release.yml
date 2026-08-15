@@ -25,6 +25,10 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Verify tag matches package version
         run: test "v$(node -p \"require('./package.json').version\")" = "${GITHUB_REF_NAME}"
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run browser regressions
+        run: pnpm test:browser
       - run: pnpm test:coverage
       - run: mkdir -p artifacts && pnpm pack --pack-destination artifacts
       - name: Create GitHub release

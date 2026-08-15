@@ -193,6 +193,25 @@ try {
   assert(background === 'rgb(21, 25, 30)', `dark-mode fixture must use dark tokens, received ${background}`)
 
   await page.locator('.dia-dock').click()
+  const countedSend = page.getByRole('button', { name: 'Send 5 annotations to task' })
+  await countedSend.waitFor()
+  await page.getByText('Task idle: sending starts the task').waitFor()
+  assert(
+    (await countedSend.locator(':scope > span > svg').count()) === 1,
+    'the official DSH button must own the send icon slot',
+  )
+  const sendColors = await countedSend.evaluate((element) => ({
+    background: getComputedStyle(element).backgroundColor,
+    color: getComputedStyle(element).color,
+  }))
+  assert(
+    sendColors.background === 'rgb(77, 107, 254)' && sendColors.color === 'rgb(255, 255, 255)',
+    `send action must match the official composer colors, received ${JSON.stringify(sendColors)}`,
+  )
+  assert(
+    (await page.locator('.dia-group__title [data-state="warning"]').count()) > 0,
+    'annotation groups must use official DSH state dots',
+  )
   await page.locator('.dia-item').first().getByRole('button', { name: 'Locate source' }).click()
   await page.waitForTimeout(1200)
   const centering = await page.evaluate(() => {
@@ -206,9 +225,36 @@ try {
     `located marker line must be vertically centered (delta ${String(centering)})`,
   )
 
+  await page.locator('.dia-dock').click()
+  await page.getByRole('button', { name: 'Send 5 annotations to task' }).click()
+  await page
+    .getByRole('alert')
+    .filter({ hasText: '5 annotations queued; withdraw remains available in the list' })
+    .waitFor()
+  assert(
+    (await page.getByRole('button', { name: 'Withdraw queued batch' }).count()) === 1,
+    'an authoritatively queued batch must remain withdrawable',
+  )
+  await page.getByTestId('settle-sent').click()
+  await page
+    .getByRole('alert')
+    .filter({ hasText: '5 annotations sent; durable history cannot be withdrawn' })
+    .waitFor()
+  assert(
+    (await page.getByRole('button', { name: 'Withdraw queued batch' }).count()) === 0,
+    'a durable sent batch must not expose withdrawal',
+  )
+  await page.getByTestId('seed-failed').click()
+  await page
+    .getByRole('alert')
+    .filter({ hasText: 'Send failed; retry with the original submission id sub-' })
+    .waitFor()
+  await page.getByRole('button', { name: 'Retry 1 annotations with the same submission id' }).waitFor()
+  await page.getByText('Retry reuses the original submission id and destination').waitFor()
+
   assert(failures.length === 0, `browser console errors:\n${failures.join('\n')}`)
   console.log(
-    'browser regression passed: compact editor, autosave, mobile markers, dark mode, zoom, reasoning, locate',
+    'browser regression passed: compact editor, autosave, mobile markers, dark mode, zoom, reasoning, official send UI, queued/sent/failed Toasts, locate',
   )
   await context.close()
 } finally {

@@ -47,6 +47,12 @@
     "README.md",
     "README.zh-CN.md",
     "CHANGELOG.md",
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "RELEASING.md",
+    "SECURITY.md",
+    "SUPPORT.md",
+    "docs/**/*.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md"
   ],

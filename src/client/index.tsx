@@ -85,8 +85,8 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       submissions.set(submissionId, group)
       mirrorGroups.set(controller, submissions)
     }
-    first.syncSubmissionState(second.getSnapshot(), submissionId)
-    second.syncSubmissionState(first.getSnapshot(), submissionId)
+    first.syncSubmissionState(second.getSnapshot(), submissionId, second.sessionId)
+    second.syncSubmissionState(first.getSnapshot(), submissionId, first.sessionId)
   }
   const syncMirrors = (source: AnnotationController) => {
     const submissions = mirrorGroups.get(source)
@@ -94,7 +94,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     const snapshot = source.getSnapshot()
     for (const [submissionId, group] of submissions) {
       for (const target of group) {
-        if (target !== source) target.syncSubmissionState(snapshot, submissionId)
+        if (target !== source) target.syncSubmissionState(snapshot, submissionId, source.sessionId)
       }
     }
   }
@@ -209,11 +209,17 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
           .annotations.filter((item) => item.status === 'draft')
           .map((item) => item.messageSeq)
         const atSeq = draftSeqs.length === 0 ? undefined : Math.max(...draftSeqs)
-        targetId = await sessions.fork({
-          sessionId: targetId,
-          ...(atSeq === undefined ? {} : { atSeq }),
-          increaseTitle: true,
-        })
+        try {
+          targetId = await sessions.fork({
+            sessionId: targetId,
+            ...(atSeq === undefined ? {} : { atSeq }),
+            increaseTitle: true,
+          })
+        } catch (cause: unknown) {
+          const message = failureMessage(cause)
+          origin.setNotice('error', message)
+          throw cause instanceof Error ? cause : new Error(message)
+        }
       }
     }
     const entry = origin.createOutbox(delivery, targetId as unknown as SessionIdentity)
@@ -236,7 +242,12 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       rejectLocal('payload', `annotation payload exceeds ${config.maxPayloadBytes} bytes`)
     }
     const binding = sessions.binding(targetId)
-    if (binding === undefined) throw new Error(`Target Session ${String(targetId)} is unavailable`)
+    if (binding === undefined) {
+      const message = `Target Session ${String(targetId)} is unavailable`
+      origin.markFailed(entry.payload.submissionId, message)
+      if (target !== origin) target.markFailed(entry.payload.submissionId, message)
+      throw new Error(message)
+    }
     if (archived) sessions.open(targetId)
     origin.markSending(entry.payload.submissionId)
     if (target !== origin) target.markSending(entry.payload.submissionId)
@@ -271,12 +282,22 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     const result = await binding.session.updateQueue(entry.messageId as unknown as MessageId, {
       kind: 'remove',
     })
+    const target =
+      targetId === (origin.sessionId as unknown as SessionId) ? origin : controllers.get(targetId)?.controller
     if (!result.ok) {
+      if (result.error.code === 'queue-item-not-found') {
+        target?.reconcile(binding.session.getSnapshot())
+        if (target !== undefined && target !== origin) {
+          origin.syncSubmissionState(target.getSnapshot(), submissionId, target.sessionId)
+        }
+        origin.markQueueClaimed(submissionId)
+        if (target !== undefined && target !== origin) target.markQueueClaimed(submissionId)
+        return
+      }
       origin.setNotice('error', transportMessage(result))
       return
     }
     origin.markWithdrawn(submissionId)
-    const target = controllers.get(targetId)?.controller
     if (target !== undefined && target !== origin) target.markWithdrawn(submissionId)
   }
 

@@ -11,7 +11,7 @@ export type MessageIdentity = string & { readonly __messageIdentity: unique symb
 
 export type DeliveryMode = 'queue' | 'steer'
 export type AnnotationStatus = 'draft' | 'queued' | 'sent' | 'processed'
-export type OutboxStatus = 'ready' | 'sending' | 'queued' | 'sent' | 'failed' | 'withdrawn'
+export type OutboxStatus = 'ready' | 'sending' | 'accepted' | 'queued' | 'sent' | 'failed' | 'withdrawn'
 
 /** Rendered-text selector retained beside the exact human-visible quote. */
 export interface TextQuoteSelector {

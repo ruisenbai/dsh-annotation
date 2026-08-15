@@ -26,18 +26,23 @@ const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => 
     'timeline.summary': `Added ${String(params?.count)} inline annotations`,
     'list.locate': 'Locate source',
     'status.draft': 'Ready to send',
+    'status.submitted': 'Submitted; awaiting confirmation',
     'status.sent': 'Sent',
     'dock.count': `${String(params?.count)} inline annotations`,
     'dock.pendingDetail': 'Ready to send · Open list',
     'panel.pending': `${String(params?.count)} ready to send`,
+    'panel.submitted': `${String(params?.count)} awaiting delivery outcome`,
     'list.title': 'Inline annotations',
     'group.drafts': 'Ready to send',
+    'group.submitted': 'Confirming delivery outcome',
+    'group.retry': 'Send failed · Retry available',
     'group.queued': 'Queued',
     'group.history': 'Sent',
     'list.overallLabel': 'Overall request (optional)',
     'list.overall': 'Add an overall request',
     'list.edit': 'Edit',
     'list.delete': 'Delete',
+    'list.withdraw': 'Withdraw queued batch',
     'list.deleted': 'Draft annotation deleted',
     'list.undo': 'Undo',
     'local.usage': `Local data · ${String(params?.size)}`,
@@ -48,7 +53,20 @@ const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => 
     'local.confirmClear': 'Clear every draft?',
     'local.keep': 'Keep',
     'local.confirm': 'Clear drafts now',
-    'send.idle': 'Send to task',
+    'send.idle': `Send ${String(params?.count)} annotations to task`,
+    'send.running': `Send ${String(params?.count)} annotations to current task`,
+    'send.approval': `Queue ${String(params?.count)} annotations after confirmation`,
+    'send.archived': `Copy and send ${String(params?.count)} annotations`,
+    'send.retry': `Retry ${String(params?.count)} annotations with the same submission id`,
+    'send.sending': `Sending ${String(params?.count)} annotations…`,
+    'send.destination.idle': 'Task idle: sending starts the task',
+    'send.destination.running': 'Task running: enters at the next safe execution point',
+    'send.destination.approval': 'Awaiting confirmation: queues after confirmation completes',
+    'send.destination.archived': 'Task archived: copies into a new task',
+    'send.destination.retry': 'Retry reuses the original submission id and destination',
+    'toast.queued': `${String(params?.count)} annotations queued; withdrawal is available`,
+    'toast.sent': `${String(params?.count)} annotations sent; history cannot be withdrawn`,
+    'toast.failed': `Send failed; retry submission ${String(params?.id)}`,
     'editor.title': 'Add annotation',
     'editor.commentLabel': 'Your comment',
     'editor.shortcut': 'Ctrl/⌘ ↵ to save',
@@ -210,10 +228,208 @@ describe('annotation presentation', () => {
     fireEvent.click(firstRow.getByRole('button', { name: 'Delete' }))
     expect(props.deleteDraft).toHaveBeenCalledWith(annotation.annotationId)
 
-    fireEvent.click(within(panel).getByRole('button', { name: 'Send to task' }))
+    expect(within(panel).getByText('Task idle: sending starts the task')).toBeInTheDocument()
+    fireEvent.click(within(panel).getByRole('button', { name: 'Send 2 annotations to task' }))
     expect(submit).toHaveBeenCalledWith(false, 'queue')
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(props.setPanelOpen).toHaveBeenCalledWith(false)
+  })
+
+  it.each([
+    {
+      name: 'running',
+      session: { pending: [], running: true },
+      archived: false,
+      button: 'Send 1 annotations to current task',
+      detail: 'Task running: enters at the next safe execution point',
+    },
+    {
+      name: 'awaiting confirmation',
+      session: { pending: [{}], running: true },
+      archived: false,
+      button: 'Queue 1 annotations after confirmation',
+      detail: 'Awaiting confirmation: queues after confirmation completes',
+    },
+    {
+      name: 'archived',
+      session: { pending: [], running: false },
+      archived: true,
+      button: 'Copy and send 1 annotations',
+      detail: 'Task archived: copies into a new task',
+    },
+  ])(
+    'explains the $name submission destination beside the counted action',
+    ({ session, archived, button, detail }) => {
+      const payload = fixturePayload()
+      const view: AnnotationView = {
+        ...baseView(),
+        annotations: [
+          {
+            ...payload.annotations[0]!,
+            status: 'draft',
+            updatedAt: payload.createdAt,
+          },
+        ],
+        panelOpen: true,
+      }
+      const props = {
+        sessionId: payload.sessionId,
+        session,
+        useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+        useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+          selector({ archivedSessionIds: archived ? [payload.sessionId] : [] }),
+        setPanelOpen: vi.fn(),
+        setOverallRequirementDraft: vi.fn(),
+        openAnnotation: vi.fn(),
+        deleteDraft: vi.fn(),
+        navigate: vi.fn(async () => true),
+        submit: vi.fn(async () => undefined),
+        withdraw: vi.fn(async () => undefined),
+        t,
+      } as unknown as InputAnnotationProps
+      render(<AnnotationDock {...props} />)
+      expect(screen.getByRole('button', { name: button })).toBeInTheDocument()
+      expect(screen.getByText(detail)).toBeInTheDocument()
+    },
+  )
+
+  it('shows authoritative queued and durable sent Toasts with matching withdrawal rules', async () => {
+    const payload = fixturePayload()
+    const annotation = {
+      ...payload.annotations[0]!,
+      status: 'queued' as const,
+      updatedAt: payload.createdAt,
+      submissionId: payload.submissionId,
+    }
+    const acceptedEntry = {
+      payload,
+      targetSessionId: payload.sessionId,
+      messageId: `dsh-inline-annotations:${payload.submissionId}` as typeof annotation.messageId,
+      status: 'accepted' as const,
+      attempts: 1,
+    }
+    const baseProps = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      setPanelOpen: vi.fn(),
+      setOverallRequirementDraft: vi.fn(),
+      openAnnotation: vi.fn(),
+      deleteDraft: vi.fn(),
+      navigate: vi.fn(async () => true),
+      submit: vi.fn(async () => undefined),
+      withdraw: vi.fn(async () => undefined),
+      t,
+    }
+    const acceptedView: AnnotationView = {
+      ...baseView(),
+      annotations: [annotation],
+      outbox: [acceptedEntry],
+      panelOpen: true,
+    }
+    const { rerender } = render(
+      <AnnotationDock
+        {...(baseProps as unknown as InputAnnotationProps)}
+        useAnnotations={(selector) => selector(acceptedView) as never}
+      />,
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByText('Confirming delivery outcome')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Withdraw queued batch' })).not.toBeInTheDocument()
+
+    const queuedView: AnnotationView = {
+      ...acceptedView,
+      outbox: [{ ...acceptedEntry, status: 'queued' }],
+    }
+    rerender(
+      <AnnotationDock
+        {...(baseProps as unknown as InputAnnotationProps)}
+        useAnnotations={(selector) => selector(queuedView) as never}
+      />,
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '1 annotations queued; withdrawal is available',
+    )
+    expect(screen.getByRole('button', { name: 'Withdraw queued batch' })).toBeInTheDocument()
+
+    const sentView: AnnotationView = {
+      ...queuedView,
+      annotations: [{ ...annotation, status: 'sent' }],
+      outbox: [{ ...acceptedEntry, status: 'sent' }],
+    }
+    rerender(
+      <AnnotationDock
+        {...(baseProps as unknown as InputAnnotationProps)}
+        useAnnotations={(selector) => selector(sentView) as never}
+      />,
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '1 annotations sent; history cannot be withdrawn',
+    )
+    expect(screen.queryByRole('button', { name: 'Withdraw queued batch' })).not.toBeInTheDocument()
+  })
+
+  it('shows the immutable submission id in the failed-send Toast and retry action', async () => {
+    const payload = fixturePayload()
+    const annotation = {
+      ...payload.annotations[0]!,
+      status: 'queued' as const,
+      updatedAt: payload.createdAt,
+      submissionId: payload.submissionId,
+    }
+    const sendingEntry = {
+      payload,
+      targetSessionId: payload.sessionId,
+      messageId: `dsh-inline-annotations:${payload.submissionId}` as typeof annotation.messageId,
+      status: 'sending' as const,
+      attempts: 1,
+    }
+    const baseProps = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      setPanelOpen: vi.fn(),
+      setOverallRequirementDraft: vi.fn(),
+      openAnnotation: vi.fn(),
+      deleteDraft: vi.fn(),
+      navigate: vi.fn(async () => true),
+      submit: vi.fn(async () => undefined),
+      withdraw: vi.fn(async () => undefined),
+      t,
+    }
+    const sendingView: AnnotationView = {
+      ...baseView(),
+      annotations: [annotation],
+      outbox: [sendingEntry],
+      panelOpen: true,
+    }
+    const { rerender } = render(
+      <AnnotationDock
+        {...(baseProps as unknown as InputAnnotationProps)}
+        useAnnotations={(selector) => selector(sendingView) as never}
+      />,
+    )
+    const failedView: AnnotationView = {
+      ...sendingView,
+      outbox: [{ ...sendingEntry, status: 'failed', lastError: 'offline' }],
+    }
+    rerender(
+      <AnnotationDock
+        {...(baseProps as unknown as InputAnnotationProps)}
+        useAnnotations={(selector) => selector(failedView) as never}
+      />,
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      `Send failed; retry submission ${payload.submissionId}`,
+    )
+    expect(
+      screen.getByRole('button', {
+        name: 'Retry 1 annotations with the same submission id',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Retry reuses the original submission id and destination')).toBeInTheDocument()
   })
 
   it('groups statuses, offers delete undo, and manages local recovery data', () => {
@@ -245,6 +461,15 @@ describe('annotation presentation', () => {
     const view: AnnotationView = {
       ...baseView(),
       annotations: [draft, queued, sent],
+      outbox: [
+        {
+          payload: { ...payload, annotations: [queued] },
+          targetSessionId: payload.sessionId,
+          messageId: `dsh-inline-annotations:${payload.submissionId}` as typeof queued.messageId,
+          status: 'queued',
+          attempts: 1,
+        },
+      ],
       deletedDraft: { ...draft, annotationId: 'ann-deleted' as typeof draft.annotationId },
       panelOpen: true,
       storageBytes: 1536,

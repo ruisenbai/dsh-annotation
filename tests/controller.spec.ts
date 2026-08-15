@@ -82,6 +82,39 @@ describe('annotation controller', () => {
     expect(controller.getSnapshot().annotations[0]?.status).toBe('queued')
   })
 
+  it('distinguishes transport acceptance from authoritative queue and durable history', () => {
+    const { controller } = harness()
+    saveDraft(controller)
+    const entry = controller.createOutbox('queue', 'session-test' as SessionIdentity)
+    controller.markSending(entry.payload.submissionId)
+    controller.markAccepted(entry.payload.submissionId)
+    expect(controller.getSnapshot().outbox[0]?.status).toBe('accepted')
+
+    controller.reconcile(snapshot([], [{ messageId: entry.messageId }]))
+    expect(controller.getSnapshot().outbox[0]?.status).toBe('queued')
+    controller.markAccepted(entry.payload.submissionId)
+    controller.markFailed(entry.payload.submissionId, 'late transport failure')
+    expect(controller.getSnapshot().outbox[0]?.status).toBe('queued')
+
+    controller.reconcile(
+      snapshot([{ kind: 'user', data: { source: { kind: 'user', inlineAnnotations: entry.payload } } }]),
+    )
+    expect(controller.getSnapshot().outbox[0]?.status).toBe('sent')
+    controller.markAccepted(entry.payload.submissionId)
+    controller.markFailed(entry.payload.submissionId, 'late transport failure')
+    expect(controller.getSnapshot().outbox[0]?.status).toBe('sent')
+  })
+
+  it('lets authoritative queue observation supersede an ambiguous transport failure', () => {
+    const { controller } = harness()
+    saveDraft(controller)
+    const entry = controller.createOutbox('queue', 'session-test' as SessionIdentity)
+    controller.markSending(entry.payload.submissionId)
+    controller.markFailed(entry.payload.submissionId, 'connection closed')
+    controller.reconcile(snapshot([], [{ messageId: entry.messageId }]))
+    expect(controller.getSnapshot().outbox[0]?.status).toBe('queued')
+  })
+
   it('closes an unchanged edit directly and requires confirmation only after changes', () => {
     const { controller } = harness()
     const id = saveDraft(controller)
@@ -274,13 +307,27 @@ describe('annotation controller', () => {
     expect(controller.getSnapshot().annotations[0]?.status).toBe('queued')
   })
 
-  it('mirrors sent and processed status from an archived fork target', () => {
+  it('mirrors authoritative queue, sent, and processed status from an archived fork target', () => {
     const origin = harness().controller
     const target = harness().controller
     saveDraft(origin)
-    const outbox = origin.createOutbox('queue', 'child-session' as SessionIdentity)
+    const childSessionId = 'child-session' as SessionIdentity
+    const outbox = origin.createOutbox('queue', childSessionId)
     target.adoptOutbox(outbox)
     const annotationId = outbox.payload.annotations[0]!.annotationId
+
+    target.reconcile(snapshot([], [{ messageId: outbox.messageId }]))
+    origin.syncSubmissionState(target.getSnapshot(), outbox.payload.submissionId, childSessionId)
+    expect(origin.getSnapshot().outbox[0]?.status).toBe('queued')
+    const reconnectTarget = harness().controller
+    reconnectTarget.adoptOutbox(outbox)
+    reconnectTarget.syncSubmissionState(
+      origin.getSnapshot(),
+      outbox.payload.submissionId,
+      'session-test' as SessionIdentity,
+    )
+    expect(reconnectTarget.getSnapshot().outbox[0]?.status).toBe('ready')
+
     target.reconcile(
       snapshot([
         { kind: 'user', data: { source: { kind: 'user', inlineAnnotations: outbox.payload } } },
@@ -298,7 +345,7 @@ describe('annotation controller', () => {
         },
       ]),
     )
-    origin.syncSubmissionState(target.getSnapshot(), outbox.payload.submissionId)
+    origin.syncSubmissionState(target.getSnapshot(), outbox.payload.submissionId, childSessionId)
     expect(origin.getSnapshot().annotations[0]?.status).toBe('processed')
     expect(origin.getSnapshot().outbox[0]?.status).toBe('sent')
   })

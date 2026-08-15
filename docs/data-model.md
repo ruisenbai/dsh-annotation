@@ -92,7 +92,7 @@ An outbox entry contains the immutable payload, target Session id, deterministic
 ```
 
 - `draft` content may be edited or deleted. The most recent deletion remains undoable in memory for 4.5 seconds; it is not persisted as a second draft.
-- `queued` content is frozen. Withdrawal creates a new editable draft state from the same annotation.
+- Annotation records use `queued` as the frozen post-submit state. The UI labels them “confirming delivery outcome” or “retry available” until the matching outbox entry is authoritatively queued; successful withdrawal creates a new editable draft state from the same annotation.
 - `sent` and `processed` history is never edited.
 - Opening a sent annotation creates a new draft with `supplementalTo`; it does not mutate the earlier record.
 - State rank is monotonic except the explicit queued withdrawal.
@@ -100,14 +100,18 @@ An outbox entry contains the immutable payload, target Session id, deterministic
 ## Outbox state transitions
 
 ```text
-ready -> sending -> queued -> sent
-            |
-            +----> failed -> sending (same payload and id)
+ready -> sending -> accepted ───────────────> sent
+            |          │ observed queue         ▲
+            |          ▼                        │
+            +----> failed -> sending           queued
 
-ready/queued -> withdrawn (only before a durable user message)
+ready/queued -> withdrawn (only after successful queue removal)
+queued -> accepted (queue was claimed before durable history became visible)
 ```
 
-A client-side item-count or size rejection occurs before any Host call and leaves new annotations as drafts. A transport failure is ambiguous and therefore remains retryable with the same id. Loading a persisted `sending` entry converts it to `failed`, preserving the frozen payload after a refresh or tab crash. Host deduplication resolves a retry that arrived after an unseen successful admission.
+`accepted` records a successful command response without claiming that the authoritative Inbox contains the batch. `queued` requires the stable message id in `ConversationSnapshot.queue`; only this state exposes withdrawal. `sent` requires the durable annotation `user/message`, and neither a late transport success nor a late transport failure can demote either authoritative state. If queue removal reports that the item was already claimed, the Client refreshes durable state and returns to `accepted` while waiting for that event instead of presenting a false withdrawal.
+
+A client-side item-count or size rejection occurs before any Host call and leaves new annotations as drafts. A transport failure is ambiguous and therefore remains retryable with the same id. Loading a persisted `sending` or still-unobserved `accepted` entry converts it to `failed`, preserving the frozen payload after a refresh or tab crash and making the same id retryable. Host deduplication resolves a retry that arrived after an unseen successful admission.
 
 ## Processed marker
 

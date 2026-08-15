@@ -92,42 +92,45 @@ describe('draft storage', () => {
     expect(storage.lastError()).toBeNull()
   })
 
-  it('recovers an interrupted send as an idempotent failed retry', () => {
-    const memory = new MemoryStorage()
-    const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
-    const payload = fixturePayload({ sessionId: 'session-1' as SessionIdentity })
-    memory.values.set(
-      storage.key,
-      JSON.stringify({
-        storageVersion: 1,
-        annotations: [
-          {
-            ...payload.annotations[0],
-            status: 'queued',
-            updatedAt: payload.createdAt,
-            submissionId: payload.submissionId,
-          },
-        ],
-        outbox: [
-          {
-            payload,
-            targetSessionId: payload.sessionId,
-            messageId: 'dsh-inline-annotations:sub-test',
-            status: 'sending',
-            attempts: 1,
-          },
-        ],
-        overallRequirementDraft: '',
-      }),
-    )
-    const restored = storage.load()
-    expect(restored.storageVersion).toBe(2)
-    expect(restored.outbox[0]).toMatchObject({
-      status: 'failed',
-      attempts: 1,
-      messageId: 'dsh-inline-annotations:sub-test',
-    })
-  })
+  it.each(['sending', 'accepted'] as const)(
+    'recovers an unobserved %s send as an idempotent failed retry',
+    (unobservedStatus) => {
+      const memory = new MemoryStorage()
+      const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+      const payload = fixturePayload({ sessionId: 'session-1' as SessionIdentity })
+      memory.values.set(
+        storage.key,
+        JSON.stringify({
+          storageVersion: 1,
+          annotations: [
+            {
+              ...payload.annotations[0],
+              status: 'queued',
+              updatedAt: payload.createdAt,
+              submissionId: payload.submissionId,
+            },
+          ],
+          outbox: [
+            {
+              payload,
+              targetSessionId: payload.sessionId,
+              messageId: 'dsh-inline-annotations:sub-test',
+              status: unobservedStatus,
+              attempts: 1,
+            },
+          ],
+          overallRequirementDraft: '',
+        }),
+      )
+      const restored = storage.load()
+      expect(restored.storageVersion).toBe(2)
+      expect(restored.outbox[0]).toMatchObject({
+        status: 'failed',
+        attempts: 1,
+        messageId: 'dsh-inline-annotations:sub-test',
+      })
+    },
+  )
 
   it('fails closed when outbox provenance does not match its immutable payload', () => {
     const memory = new MemoryStorage()

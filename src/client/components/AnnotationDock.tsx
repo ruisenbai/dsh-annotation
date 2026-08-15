@@ -1,4 +1,5 @@
 import {
+  Button,
   IconArchiveOutline20,
   IconCheckOutline16,
   IconChevronDownOutline14,
@@ -9,17 +10,28 @@ import {
   IconEditOutline16,
   IconListPenOutline16,
   IconPlusOutline16,
+  IconQueueOutline14,
   IconRefreshOutline14,
   IconRightUpOutline16,
   IconSendOutline14,
   IconTrashOutline16,
   IconWarningOutline16,
+  StateDot,
+  Toast,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useEffect, useId, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
-import type { AnnotationId, AnnotationStatus, DeliveryMode, SubmissionId } from '../../shared/types.ts'
+import type {
+  AnnotationId,
+  AnnotationStatus,
+  DeliveryMode,
+  OutboxEntry,
+  OutboxStatus,
+  SubmissionId,
+} from '../../shared/types.ts'
 import type { AnnotationBoundProps, InputAnnotationProps } from '../contract.ts'
 import type { AnnotationView, EditorState } from '../controller.ts'
 
@@ -257,11 +269,14 @@ function AnnotationRow({
 } & Omit<AnnotationBoundProps, 'useAnnotations'>) {
   const item = view.annotations.find((candidate) => candidate.annotationId === annotationId)
   if (item === undefined) return null
+  const awaitingAuthoritativeState =
+    item.status === 'queued' && !authoritativeQueueAnnotationIds(view).has(item.annotationId)
+  const renderedStatus = awaitingAuthoritativeState ? t('status.submitted') : statusLabel(item.status, t)
   const editLabel = item.status === 'draft' ? t('list.edit') : t('editor.supplement')
   return (
     <div
       role="listitem"
-      aria-label={`#${item.ordinal} · ${statusLabel(item.status, t)} · ${item.quote.exact} · ${item.comment}`}
+      aria-label={`#${item.ordinal} · ${renderedStatus} · ${item.quote.exact} · ${item.comment}`}
       className={`dia-item${view.activeAnnotationId === item.annotationId ? ' is-active' : ''}`}
       data-status={item.status}
     >
@@ -309,14 +324,25 @@ function AnnotationRow({
   )
 }
 
-function sendDisposition(
-  session: InputAnnotationProps['session'],
-  archived: boolean,
-): { delivery: DeliveryMode; label: Parameters<InputAnnotationProps['t']>[0] } {
-  if (archived) return { delivery: 'queue', label: 'send.archived' }
-  if (session.pending.length > 0) return { delivery: 'queue', label: 'send.approval' }
-  if (session.running) return { delivery: 'steer', label: 'send.running' }
-  return { delivery: 'queue', label: 'send.idle' }
+type LocaleKey = Parameters<InputAnnotationProps['t']>[0]
+
+interface SendDisposition {
+  readonly delivery: DeliveryMode
+  readonly label: LocaleKey
+  readonly detail: LocaleKey
+}
+
+function sendDisposition(session: InputAnnotationProps['session'], archived: boolean): SendDisposition {
+  if (archived) {
+    return { delivery: 'queue', label: 'send.archived', detail: 'send.destination.archived' }
+  }
+  if (session.pending.length > 0) {
+    return { delivery: 'queue', label: 'send.approval', detail: 'send.destination.approval' }
+  }
+  if (session.running) {
+    return { delivery: 'steer', label: 'send.running', detail: 'send.destination.running' }
+  }
+  return { delivery: 'queue', label: 'send.idle', detail: 'send.destination.idle' }
 }
 
 function noticeText(text: string, t: InputAnnotationProps['t']): string {
@@ -327,11 +353,66 @@ function noticeText(text: string, t: InputAnnotationProps['t']): string {
   return text
 }
 
+type SubmissionToastKind = 'queued' | 'sent' | 'failed'
+
+interface SubmissionToastState {
+  readonly seq: number
+  readonly kind: SubmissionToastKind
+  readonly submissionId: SubmissionId
+  readonly count: number
+}
+
+interface ObservedOutboxState {
+  readonly status: OutboxStatus
+  readonly attempts: number
+}
+
+function observedOutbox(items: readonly OutboxEntry[]): Map<SubmissionId, ObservedOutboxState> {
+  return new Map(
+    items.map((item) => [item.payload.submissionId, { status: item.status, attempts: item.attempts }]),
+  )
+}
+
+function submissionToastTransition(
+  previous: ReadonlyMap<SubmissionId, ObservedOutboxState>,
+  items: readonly OutboxEntry[],
+): Omit<SubmissionToastState, 'seq'> | null {
+  const rank: Record<SubmissionToastKind, number> = { queued: 1, sent: 2, failed: 3 }
+  let selected: Omit<SubmissionToastState, 'seq'> | null = null
+  for (const item of items) {
+    if (item.status !== 'queued' && item.status !== 'sent' && item.status !== 'failed') continue
+    const prior = previous.get(item.payload.submissionId)
+    if (prior?.status === item.status && prior.attempts === item.attempts) continue
+    const candidate = {
+      kind: item.status,
+      submissionId: item.payload.submissionId,
+      count: item.payload.annotations.length,
+    } as const
+    if (selected === null || rank[candidate.kind] >= rank[selected.kind]) selected = candidate
+  }
+  return selected
+}
+
+function authoritativeQueueAnnotationIds(view: AnnotationView): ReadonlySet<AnnotationId> {
+  return new Set(
+    view.outbox
+      .filter((entry) => entry.status === 'queued')
+      .flatMap((entry) => entry.payload.annotations.map((annotation) => annotation.annotationId)),
+  )
+}
+
 function panelSummary(view: AnnotationView, failed: boolean, t: InputAnnotationProps['t']): string {
   if (failed) return t('panel.failed', { count: view.annotations.length })
   const drafts = view.annotations.filter((item) => item.status === 'draft').length
   if (drafts > 0) return t('panel.pending', { count: drafts })
-  const queued = view.annotations.filter((item) => item.status === 'queued').length
+  const queuedIds = authoritativeQueueAnnotationIds(view)
+  const submitted = view.annotations.filter(
+    (item) => item.status === 'queued' && !queuedIds.has(item.annotationId),
+  ).length
+  if (submitted > 0) return t('panel.submitted', { count: submitted })
+  const queued = view.annotations.filter(
+    (item) => item.status === 'queued' && queuedIds.has(item.annotationId),
+  ).length
   if (queued > 0) return t('panel.queued', { count: queued })
   return t('panel.history', { count: view.annotations.length })
 }
@@ -360,6 +441,7 @@ function AnnotationGroup({
   view,
   t,
   actions,
+  state,
   collapsible = false,
   initiallyOpen = true,
 }: {
@@ -368,6 +450,7 @@ function AnnotationGroup({
   view: AnnotationView
   t: InputAnnotationProps['t']
   actions: Omit<AnnotationBoundProps, 'useAnnotations'>
+  state: StateDotState
   collapsible?: boolean
   initiallyOpen?: boolean
 }) {
@@ -382,14 +465,20 @@ function AnnotationGroup({
           aria-expanded={open}
           onClick={() => setOpen(!open)}
         >
-          <span>{title}</span>
-          <span>{items.length}</span>
+          <span className="dia-group__title">
+            <StateDot state={state} />
+            <span>{title}</span>
+          </span>
+          <span className="dia-group__count">{items.length}</span>
           {open ? <IconChevronDownOutline14 size={13} /> : <IconChevronUpOutline14 size={13} />}
         </button>
       ) : (
         <div className="dia-group__heading">
-          <span>{title}</span>
-          <span>{items.length}</span>
+          <span className="dia-group__title">
+            <StateDot state={state} />
+            <span>{title}</span>
+          </span>
+          <span className="dia-group__count">{items.length}</span>
         </div>
       )}
       {(!collapsible || open) && (
@@ -414,15 +503,17 @@ function AnnotationPanel({
   archived,
   t,
   session,
+  shellRef,
   ...actions
 }: {
   view: AnnotationView
   archived: boolean
   t: InputAnnotationProps['t']
   session: InputAnnotationProps['session']
+  shellRef: RefObject<HTMLElement>
 } & Omit<AnnotationBoundProps, 'useAnnotations'>) {
   const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState(false)
+  const [submittingCount, setSubmittingCount] = useState<number | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportState, setExportState] = useState<'idle' | 'done' | 'failed'>('idle')
   const listId = useId()
@@ -430,9 +521,18 @@ function AnnotationPanel({
   const disposition = sendDisposition(session, archived)
   const retry = view.outbox.find((item) => item.status === 'failed')
   const drafts = view.annotations.filter((item) => item.status === 'draft')
-  const queued = view.annotations.filter((item) => item.status === 'queued')
+  const queuedIds = authoritativeQueueAnnotationIds(view)
+  const submitted = view.annotations.filter(
+    (item) => item.status === 'queued' && !queuedIds.has(item.annotationId),
+  )
+  const queued = view.annotations.filter(
+    (item) => item.status === 'queued' && queuedIds.has(item.annotationId),
+  )
   const history = view.annotations.filter((item) => item.status === 'sent' || item.status === 'processed')
   const canSend = drafts.length > 0 || retry !== undefined
+  const sendCount = retry?.payload.annotations.length ?? drafts.length
+  const displayedSendCount = submittingCount ?? sendCount
+  const destinationKey = retry === undefined ? disposition.detail : 'send.destination.retry'
   const queuedSubmissions = view.outbox.filter((item) => item.status === 'queued')
   const immutable = history.length > 0
   const hasLocalDrafts =
@@ -459,13 +559,14 @@ function AnnotationPanel({
 
   const submit = async () => {
     setSubmitting(true)
-    setSubmitError(false)
+    setSubmittingCount(sendCount)
     try {
       await actions.submit(archived, disposition.delivery)
     } catch {
-      setSubmitError(true)
+      // The controller publishes either a retryable outbox failure or a specific validation notice.
     } finally {
       setSubmitting(false)
+      setSubmittingCount(null)
     }
   }
   const exportData = () => {
@@ -478,7 +579,7 @@ function AnnotationPanel({
   }
 
   return (
-    <section className="dia-dock-shell" aria-label={t('list.title')}>
+    <section ref={shellRef} className="dia-dock-shell" aria-label={t('list.title')}>
       <div className="dia-dock-body">
         <button
           type="button"
@@ -519,24 +620,29 @@ function AnnotationPanel({
                 {noticeText(view.notice.text, t)}
               </p>
             )}
-            {submitError && (
-              <p className="dia-error" role="alert">
-                {t('error.send')}
-              </p>
-            )}
             {view.annotations.length === 0 ? (
               <p className="dia-list__empty">{t('list.empty')}</p>
             ) : (
               <div className="dia-list">
                 <AnnotationGroup
                   title={t('group.drafts')}
+                  state="warning"
                   items={drafts}
                   view={view}
                   t={t}
                   actions={actions}
                 />
                 <AnnotationGroup
+                  title={retry === undefined ? t('group.submitted') : t('group.retry')}
+                  state={retry === undefined ? 'ongoing' : 'error'}
+                  items={submitted}
+                  view={view}
+                  t={t}
+                  actions={actions}
+                />
+                <AnnotationGroup
                   title={t('group.queued')}
+                  state="warning"
                   items={queued}
                   view={view}
                   t={t}
@@ -544,12 +650,13 @@ function AnnotationPanel({
                 />
                 <AnnotationGroup
                   title={t('group.history')}
+                  state="done"
                   items={history}
                   view={view}
                   t={t}
                   actions={actions}
                   collapsible
-                  initiallyOpen={drafts.length === 0 && queued.length === 0}
+                  initiallyOpen={drafts.length === 0 && submitted.length === 0 && queued.length === 0}
                 />
               </div>
             )}
@@ -635,32 +742,44 @@ function AnnotationPanel({
                   </button>
                 </div>
               )}
-              <div className="dia-inline-panel__actions">
-                {queuedSubmissions.map((entry) => (
-                  <button
-                    key={entry.payload.submissionId}
-                    type="button"
-                    className="dia-button"
-                    onClick={() => void actions.withdraw(entry.payload.submissionId as SubmissionId)}
+              <div className="dia-send-block">
+                <p className="dia-send-destination">
+                  <IconWarningOutline16 size={14} />
+                  <span>{t(destinationKey)}</span>
+                </p>
+                <div className="dia-inline-panel__actions">
+                  {queuedSubmissions.map((entry) => (
+                    <Button
+                      key={entry.payload.submissionId}
+                      variant="outline"
+                      size="sm"
+                      icon={<IconRefreshOutline14 size={14} />}
+                      onClick={() => void actions.withdraw(entry.payload.submissionId as SubmissionId)}
+                    >
+                      {t('list.withdraw')}
+                    </Button>
+                  ))}
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className="dia-inline-panel__send"
+                    icon={
+                      retry === undefined ? (
+                        <IconSendOutline14 size={14} />
+                      ) : (
+                        <IconRefreshOutline14 size={14} />
+                      )
+                    }
+                    disabled={!canSend || submitting}
+                    onClick={() => void submit()}
                   >
-                    <IconRefreshOutline14 size={14} />
-                    {t('list.withdraw')}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className="dia-button dia-inline-panel__send"
-                  data-primary="true"
-                  disabled={!canSend || submitting}
-                  onClick={() => void submit()}
-                >
-                  {retry === undefined ? <IconSendOutline14 size={14} /> : <IconRefreshOutline14 size={14} />}
-                  {submitting
-                    ? t('send.sending')
-                    : retry === undefined
-                      ? t(disposition.label)
-                      : t('send.retry')}
-                </button>
+                    {submitting
+                      ? t('send.sending', { count: displayedSendCount })
+                      : retry === undefined
+                        ? t(disposition.label, { count: sendCount })
+                        : t('send.retry', { count: sendCount })}
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
@@ -681,15 +800,66 @@ export function AnnotationDock({
 }: InputAnnotationProps) {
   const view = useAnnotations((state) => state)
   const archived = useWorkspaces((state) => state.archivedSessionIds.includes(sessionId))
+  const shellRef = useRef<HTMLElement>(null)
+  const previousOutbox = useRef<Map<SubmissionId, ObservedOutboxState> | null>(null)
+  const toastSeq = useRef(0)
+  const [submissionToast, setSubmissionToast] = useState<SubmissionToastState | null>(null)
   const failed = view.outbox.some((item) => item.status === 'failed')
   const dockVisible = view.annotations.length > 0 || failed || view.deletedDraft !== null
+
+  useEffect(() => {
+    previousOutbox.current = null
+    setSubmissionToast(null)
+  }, [sessionId])
+
+  useEffect(() => {
+    const current = observedOutbox(view.outbox)
+    const previous = previousOutbox.current
+    previousOutbox.current = current
+    if (previous === null) return
+    const transition = submissionToastTransition(previous, view.outbox)
+    if (transition === null) return
+    toastSeq.current += 1
+    setSubmissionToast({ ...transition, seq: toastSeq.current })
+  }, [view.outbox])
+
   if (!dockVisible && view.editor === null) return null
   return (
     <>
       {dockVisible && (
-        <AnnotationPanel view={view} archived={archived} t={t} session={session} {...actions} />
+        <AnnotationPanel
+          view={view}
+          archived={archived}
+          t={t}
+          session={session}
+          shellRef={shellRef}
+          {...actions}
+        />
       )}
       <AnnotationEditor key={editorKey(view.editor)} view={view} t={t} {...actions} />
+      {submissionToast !== null && (
+        <Toast
+          key={submissionToast.seq}
+          text={
+            submissionToast.kind === 'failed'
+              ? t('toast.failed', { id: submissionToast.submissionId })
+              : t(`toast.${submissionToast.kind}`, { count: submissionToast.count })
+          }
+          icon={
+            submissionToast.kind === 'queued' ? (
+              <IconQueueOutline14 size={14} />
+            ) : submissionToast.kind === 'sent' ? (
+              <IconCheckOutline16 size={16} />
+            ) : (
+              <IconWarningOutline16 size={16} />
+            )
+          }
+          anchor={shellRef.current?.closest<HTMLElement>('[data-composer-card]') ?? shellRef.current}
+          onDone={() => {
+            setSubmissionToast((current) => (current?.seq === submissionToast.seq ? null : current))
+          }}
+        />
+      )}
     </>
   )
 }

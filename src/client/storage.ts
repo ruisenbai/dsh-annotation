@@ -27,7 +27,15 @@ export interface StorageLike {
 
 const PREFIX = 'dsh-inline-annotations:v1:'
 const ANNOTATION_STATUSES: readonly AnnotationStatus[] = ['draft', 'queued', 'sent', 'processed']
-const OUTBOX_STATUSES: readonly OutboxStatus[] = ['ready', 'sending', 'queued', 'sent', 'failed', 'withdrawn']
+const OUTBOX_STATUSES: readonly OutboxStatus[] = [
+  'ready',
+  'sending',
+  'accepted',
+  'queued',
+  'sent',
+  'failed',
+  'withdrawn',
+]
 
 function byteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength
@@ -82,7 +90,7 @@ function parseOutbox(value: unknown): OutboxEntry {
     throw new Error('invalid attempts')
   if (source.lastError !== undefined && typeof source.lastError !== 'string')
     throw new Error('invalid lastError')
-  const interrupted = source.status === 'sending'
+  const interrupted = source.status === 'sending' || source.status === 'accepted'
   return Object.freeze({
     payload,
     targetSessionId: source.targetSessionId as SessionIdentity,

@@ -513,13 +513,24 @@ export class AnnotationController {
 
   markAccepted(submissionId: SubmissionId): void {
     this.patchOutbox(submissionId, (item) => {
+      if (item.status === 'queued' || item.status === 'sent') return item
       const { lastError: _lastError, ...rest } = item
-      return Object.freeze({ ...rest, status: 'queued' })
+      return Object.freeze({ ...rest, status: 'accepted' })
+    })
+  }
+
+  markQueueClaimed(submissionId: SubmissionId): void {
+    this.patchOutbox(submissionId, (item) => {
+      if (item.status !== 'queued') return item
+      return Object.freeze({ ...item, status: 'accepted' })
     })
   }
 
   markFailed(submissionId: SubmissionId, error: string): void {
-    this.patchOutbox(submissionId, (item) => Object.freeze({ ...item, status: 'failed', lastError: error }))
+    this.patchOutbox(submissionId, (item) => {
+      if (item.status === 'queued' || item.status === 'sent') return item
+      return Object.freeze({ ...item, status: 'failed', lastError: error })
+    })
   }
 
   markWithdrawn(submissionId: SubmissionId): void {
@@ -593,10 +604,14 @@ export class AnnotationController {
       return status === item.status ? item : Object.freeze({ ...item, status, updatedAt: this.now() })
     })
     const outbox = this.view.outbox.map((item) => {
-      if (submissions.has(item.payload.submissionId))
-        return Object.freeze({ ...item, status: 'sent' as const })
-      if (queued.has(String(item.messageId)) && item.status !== 'failed')
-        return Object.freeze({ ...item, status: 'queued' as const })
+      if (submissions.has(item.payload.submissionId)) {
+        const { lastError: _lastError, ...rest } = item
+        return Object.freeze({ ...rest, status: 'sent' as const })
+      }
+      if (queued.has(String(item.messageId)) && item.status !== 'sent' && item.status !== 'withdrawn') {
+        const { lastError: _lastError, ...rest } = item
+        return Object.freeze({ ...rest, status: 'queued' as const })
+      }
       return item
     })
     this.publish({
@@ -607,8 +622,12 @@ export class AnnotationController {
     })
   }
 
-  /** Mirror durable status only when one archived-source submission is observed in its fork target. */
-  syncSubmissionState(source: AnnotationView, submissionId: SubmissionId): void {
+  /** Mirror an authoritative target queue or durable status for one archived-source submission. */
+  syncSubmissionState(
+    source: AnnotationView,
+    submissionId: SubmissionId,
+    sourceSessionId: SessionIdentity,
+  ): void {
     const sourceAnnotations = new Map(
       source.annotations
         .filter((item) => item.submissionId === submissionId)
@@ -625,16 +644,23 @@ export class AnnotationController {
       return Object.freeze({ ...item, status, updatedAt: this.now() })
     })
     const sourceOutbox = source.outbox.find((item) => item.payload.submissionId === submissionId)
+    const mirroredOutboxStatus =
+      sourceOutbox?.status === 'sent'
+        ? ('sent' as const)
+        : sourceOutbox?.status === 'queued' && sourceOutbox.targetSessionId === sourceSessionId
+          ? ('queued' as const)
+          : null
     const outbox = this.view.outbox.map((item) => {
+      if (item.payload.submissionId !== submissionId || mirroredOutboxStatus === null) return item
       if (
-        item.payload.submissionId !== submissionId ||
-        sourceOutbox?.status !== 'sent' ||
-        item.status === 'sent'
+        item.status === mirroredOutboxStatus ||
+        (mirroredOutboxStatus === 'queued' && (item.status === 'sent' || item.status === 'withdrawn'))
       ) {
         return item
       }
       changed = true
-      return Object.freeze({ ...item, status: 'sent' as const })
+      const { lastError: _lastError, ...rest } = item
+      return Object.freeze({ ...rest, status: mirroredOutboxStatus })
     })
     if (changed) this.publish({ ...this.view, annotations, outbox })
   }

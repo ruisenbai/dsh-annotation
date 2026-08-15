@@ -73,6 +73,7 @@ describe('browser-to-Host submission flow', () => {
 
     controller.markAccepted(entry.payload.submissionId)
     expect(controller.getSnapshot().annotations[0]?.status).toBe('queued')
+    expect(controller.getSnapshot().outbox[0]?.status).toBe('accepted')
     expect(nextTurn).toHaveLength(1)
     const durableUserNode = {
       kind: 'user',
@@ -80,6 +81,7 @@ describe('browser-to-Host submission flow', () => {
     }
     controller.reconcile(snapshot([durableUserNode]))
     expect(controller.getSnapshot().annotations[0]?.status).toBe('sent')
+    expect(controller.getSnapshot().outbox[0]?.status).toBe('sent')
 
     controller.reconcile(
       snapshot([

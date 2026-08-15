@@ -9,7 +9,7 @@ import { en } from '../../src/client/locales.ts'
 import { AnnotationStorage } from '../../src/client/storage.ts'
 import { styles } from '../../src/client/styles.ts'
 import { DEFAULT_CONFIG } from '../../src/shared/config.ts'
-import type { MessageIdentity, SessionIdentity } from '../../src/shared/types.ts'
+import type { DeliveryMode, MessageIdentity, SessionIdentity } from '../../src/shared/types.ts'
 import type { SelectionCapture } from '../../src/client/selection.ts'
 
 const MESSAGE_ID = 'browser-assistant-message' as MessageIdentity
@@ -50,6 +50,13 @@ const fixtureTokens = `
   --dsw-alias-border-l1: #e5e9ed;
   --dsw-alias-border-l2: #ccd4da;
   --dsw-alias-interactive-bg-hover: #edf2f5;
+  --dsw-alias-interactive-bg-active: #e3e9ee;
+  --dsw-alias-button-info-fill: #4d6bfe;
+  --dsw-alias-button-info-hover: #405bd8;
+  --dsw-alias-button-contrast-fill: #24292f;
+  --dsw-alias-label-primary-inverted: #ffffff;
+  --dsw-alias-state-warn-label: #ffd37a;
+  --dsw-static-deepseek-450: #5b79ff;
   --dsw-alias-state-success-primary: #138a62;
   --dsw-alias-state-success-secondary: #0a6b4a;
   --dsw-alias-state-success-tertiary: #d8f2e8;
@@ -123,6 +130,43 @@ function Fixture() {
       controller.saveEditor()
     })
   }
+  const submit = async (_archived: boolean, delivery: DeliveryMode) => {
+    const entry = controller.createOutbox(delivery, SESSION_ID)
+    controller.markSending(entry.payload.submissionId)
+    controller.markAccepted(entry.payload.submissionId)
+    controller.reconcile({
+      chat: { nodes: new Map() },
+      queue: [{ messageId: entry.messageId }],
+      hasMore: false,
+    } as never)
+  }
+  const settleSent = () => {
+    const entry = controller.getSnapshot().outbox.find((item) => item.status === 'queued')
+    if (entry === undefined) return
+    controller.reconcile({
+      chat: {
+        nodes: new Map([
+          [
+            'sent',
+            {
+              kind: 'user',
+              data: { source: { kind: 'user', inlineAnnotations: entry.payload } },
+            },
+          ],
+        ]),
+      },
+      queue: [],
+      hasMore: false,
+    } as never)
+  }
+  const seedFailedSubmission = () => {
+    controller.beginSelection(captureFor('omega'))
+    controller.updateEditorText('Browser retry annotation')
+    controller.saveEditor()
+    const entry = controller.createOutbox('queue', SESSION_ID)
+    controller.markSending(entry.payload.submissionId)
+    controller.markFailed(entry.payload.submissionId, 'fixture transport failure')
+  }
   const registerEndpoint = (messageId: MessageIdentity, endpoint: AnnotationEndpoint) =>
     controller.registerEndpoint(messageId, endpoint)
 
@@ -141,8 +185,10 @@ function Fixture() {
     clearLocalDrafts: controller.clearLocalDrafts.bind(controller),
     setPanelOpen: controller.setPanelOpen.bind(controller),
     setOverallRequirementDraft: controller.setOverallRequirementDraft.bind(controller),
-    submit: async () => undefined,
-    withdraw: async () => undefined,
+    submit,
+    withdraw: async (submissionId: Parameters<AnnotationController['markWithdrawn']>[0]) => {
+      controller.markWithdrawn(submissionId)
+    },
     navigate: controller.navigate.bind(controller),
     annotateMessage: controller.annotateMessage.bind(controller),
     registerEndpoint,
@@ -191,6 +237,12 @@ function Fixture() {
       <div className="browser-controls">
         <button type="button" data-testid="seed-same-line" onClick={seedSameLine}>
           Seed same-line markers
+        </button>
+        <button type="button" data-testid="settle-sent" onClick={settleSent}>
+          Settle durable send
+        </button>
+        <button type="button" data-testid="seed-failed" onClick={seedFailedSubmission}>
+          Seed failed submission
         </button>
       </div>
       <AnnotationDock {...(dockProps as unknown as InputAnnotationProps)} />

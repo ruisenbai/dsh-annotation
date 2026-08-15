@@ -8,8 +8,9 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 - A compact selection toolbar with annotation and copy actions.
 - A direct annotation input with icon-only Cancel and Save actions, 400 ms local autosave, empty outside-click dismissal, and red shake feedback when dirty input requires a decision.
-- Draft, queued, and sent list groups with two-line rows, deletion undo, local-data export, draft clearing, and storage-usage feedback.
-- Official DSH icons and tooltips for all plugin actions, replacing the bundled Lucide dependency.
+- Draft, delivery-outcome/retry, authoritative queue, and sent list groups with official state dots, two-line rows, deletion undo, local-data export, draft clearing, and storage-usage feedback.
+- Official DSH buttons, icons, tooltips, and Toasts for plugin actions and submission results, replacing the bundled Lucide dependency.
+- Counted submission actions, task-state destination notices, and authoritative accepted/queued/sent transitions that expose withdrawal only for an observed queue item.
 - Complete-line marker anchoring, an overflow-safe mobile gutter, ascending same-row order, and animation-frame-coalesced measurement.
 - Exact marker-line centering in the active scroll viewport during source navigation, with reduced-motion behavior and a stale-selector marker fallback.
 - Unit and real Chromium coverage for compact editing, autosave, mobile and zoom layout, dark mode, reasoning disclosure, and source location.

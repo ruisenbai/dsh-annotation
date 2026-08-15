@@ -19,10 +19,19 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
   const disposers: (() => void)[] = []
   const listListeners = new Set<() => void>()
   const unsubscribeSession = vi.fn()
+  const sessionListeners = new Set<() => void>()
+  const fork = vi.fn()
+  let sessionSnapshot = emptySnapshot()
   let listed = true
   const session = {
-    getSnapshot: () => emptySnapshot(),
-    subscribe: () => unsubscribeSession,
+    getSnapshot: () => sessionSnapshot,
+    subscribe(listener: () => void) {
+      sessionListeners.add(listener)
+      return () => {
+        sessionListeners.delete(listener)
+        unsubscribeSession()
+      }
+    },
     loadOlder: async () => undefined,
     command,
     updateQueue: vi.fn(),
@@ -38,7 +47,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
         },
       },
       binding: () => ({ session }),
-      fork: vi.fn(),
+      fork,
       open: vi.fn(),
     },
     slots: {
@@ -63,6 +72,12 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
         throw new Error('dock was not registered')
       return dock.options.inject('session-test' as SessionId) as AnnotationInjected
     },
+    fork,
+    setSnapshot(snapshot: ConversationSnapshot, notify = true) {
+      sessionSnapshot = snapshot
+      if (notify) for (const listener of sessionListeners) listener()
+    },
+    session,
     removeSession() {
       listed = false
       for (const listener of listListeners) listener()
@@ -107,7 +122,77 @@ describe('Client plugin submission lifecycle', () => {
     expect(retried.payload).toBe(failed.payload)
     expect(retried.payload.submissionId).toBe(failed.payload.submissionId)
     expect(retried.payload.delivery).toBe('queue')
-    expect(retried).toMatchObject({ status: 'queued', attempts: 2 })
+    expect(retried).toMatchObject({ status: 'accepted', attempts: 2 })
+    fixture.dispose()
+  })
+
+  it('converges a stale withdrawal to durable sent history without removing provenance', async () => {
+    const command = vi.fn().mockResolvedValue({ ok: true, value: { matched: true } })
+    const fixture = fixtureContext(command)
+    fixture.session.updateQueue.mockResolvedValue({
+      ok: false,
+      error: { code: 'queue-item-not-found', message: 'already claimed', details: {} },
+    })
+    apply(fixture.ctx)
+    const face = fixture.face()
+    face.beginSelection(capture(0, 'first'))
+    face.updateEditorText('Revise this.')
+    face.saveEditor()
+    await face.submit(false, 'queue')
+    const accepted = face.hooks.annotations.getSnapshot().outbox[0]!
+    expect(accepted.status).toBe('accepted')
+
+    fixture.setSnapshot({
+      ...emptySnapshot(),
+      queue: [{ messageId: accepted.messageId }],
+    } as unknown as ConversationSnapshot)
+    expect(face.hooks.annotations.getSnapshot().outbox[0]?.status).toBe('queued')
+
+    fixture.setSnapshot(
+      {
+        ...emptySnapshot(),
+        chat: {
+          nodes: new Map([
+            [
+              'user',
+              {
+                kind: 'user',
+                data: {
+                  source: { kind: 'user', inlineAnnotations: accepted.payload },
+                },
+              },
+            ],
+          ]),
+        },
+      } as unknown as ConversationSnapshot,
+      false,
+    )
+    await face.withdraw(accepted.payload.submissionId)
+
+    const settled = face.hooks.annotations.getSnapshot()
+    expect(settled.outbox[0]?.status).toBe('sent')
+    expect(settled.annotations[0]).toMatchObject({
+      status: 'sent',
+      submissionId: accepted.payload.submissionId,
+    })
+    fixture.dispose()
+  })
+
+  it('publishes an archived-fork failure before any immutable batch is created', async () => {
+    const fixture = fixtureContext(vi.fn())
+    fixture.fork.mockRejectedValue(new Error('fork unavailable'))
+    apply(fixture.ctx)
+    const face = fixture.face()
+    face.beginSelection(capture(0, 'first'))
+    face.updateEditorText('Revise this.')
+    face.saveEditor()
+
+    await expect(face.submit(true, 'queue')).rejects.toThrow('fork unavailable')
+    expect(face.hooks.annotations.getSnapshot()).toMatchObject({
+      annotations: [{ status: 'draft' }],
+      outbox: [],
+      notice: { level: 'error', text: 'fork unavailable' },
+    })
     fixture.dispose()
   })
 
