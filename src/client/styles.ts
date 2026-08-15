@@ -188,6 +188,7 @@ export const styles: string = `
 .dia-editor {
   position: fixed;
   z-index: 120;
+  box-sizing: border-box;
   width: min(320px, calc(100vw - 24px));
   max-height: min(620px, calc(100vh - 24px));
   overflow: auto;

@@ -12,6 +12,7 @@ import type {
   UserAnnotationProps,
 } from '../src/client/contract.ts'
 import type { InlineAnnotationLocaleKey } from '../src/client/locales.ts'
+import { styles } from '../src/client/styles.ts'
 import { fixturePayload } from './fixtures.ts'
 
 const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => {
@@ -260,9 +261,16 @@ describe('annotation presentation', () => {
       confirmLongSelection: vi.fn(),
       t,
     } as unknown as InputAnnotationProps
-    render(<AnnotationDock {...props} />)
+    render(
+      <>
+        <style>{styles}</style>
+        <AnnotationDock {...props} />
+      </>,
+    )
 
-    expect(screen.getByRole('dialog', { name: 'Add annotation' })).toHaveStyle({ top: '74px', left: '80px' })
+    const editor = screen.getByRole('dialog', { name: 'Add annotation' })
+    expect(editor).toHaveStyle({ top: '74px', left: '80px' })
+    expect(window.getComputedStyle(editor).boxSizing).toBe('border-box')
     fireEvent.keyDown(screen.getByLabelText('Your comment'), { key: 'Enter', ctrlKey: true })
     expect(saveEditor).toHaveBeenCalledOnce()
     fireEvent.keyDown(document, { key: 'Escape' })
