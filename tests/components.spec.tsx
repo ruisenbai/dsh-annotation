@@ -74,12 +74,8 @@ const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => 
     'editor.autosaved': 'Automatically saved locally',
     'editor.chooseAction': 'Use Cancel or Save on the right',
     'editor.cancel': 'Cancel',
-    'editor.discard': 'Discard the unsaved changes?',
-    'editor.keepEditing': 'Keep editing',
-    'editor.confirmDiscard': 'Discard changes',
     'editor.save': 'Save annotation',
     'editor.placeholder': 'Explain what to change',
-    'action.close': 'Close',
     'action.copy': 'Copy',
     'selection.actions': 'Selected text actions',
     'selection.copied': 'Selected text copied',
@@ -901,6 +897,43 @@ describe('annotation presentation', () => {
       scrollBy.mockClear()
       act(() => endpoint?.reveal(annotation.annotationId))
       expect(scrollBy).toHaveBeenCalledWith({ top: 70, behavior: 'auto' })
+
+      scroller.style.overflowY = 'visible'
+      const root = document.documentElement
+      const rootWidth = Object.getOwnPropertyDescriptor(root, 'offsetWidth')
+      const rootRect = Object.getOwnPropertyDescriptor(root, 'getBoundingClientRect')
+      try {
+        Object.defineProperty(root, 'offsetWidth', { configurable: true, value: 800 })
+        Object.defineProperty(root, 'getBoundingClientRect', {
+          configurable: true,
+          value: () => ({
+            x: 0,
+            y: 0,
+            top: 0,
+            right: 1000,
+            bottom: 800,
+            left: 0,
+            width: 1000,
+            height: 800,
+            toJSON: () => ({}),
+          }),
+        })
+        const windowScrollBy = vi.fn()
+        vi.stubGlobal('visualViewport', {
+          offsetTop: 100,
+          height: 400,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        })
+        vi.stubGlobal('scrollBy', windowScrollBy)
+        act(() => endpoint?.reveal(annotation.annotationId))
+        expect(windowScrollBy).toHaveBeenCalledWith({ top: 56, behavior: 'auto' })
+      } finally {
+        if (rootWidth === undefined) Reflect.deleteProperty(root, 'offsetWidth')
+        else Object.defineProperty(root, 'offsetWidth', rootWidth)
+        if (rootRect === undefined) Reflect.deleteProperty(root, 'getBoundingClientRect')
+        else Object.defineProperty(root, 'getBoundingClientRect', rootRect)
+      }
     } finally {
       if (rangeRects === undefined) Reflect.deleteProperty(Range.prototype, 'getClientRects')
       else Object.defineProperty(Range.prototype, 'getClientRects', rangeRects)

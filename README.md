@@ -25,7 +25,7 @@ A GitHub-ready DeepSeek Harness plugin for reviewing assistant replies in place.
 - Copy archived-session context into a new task before submitting.
 - Render submitted annotation batches as collapsed timeline cards with source navigation.
 - Place numbered markers after the complete endpoint line, reserve an overflow-safe gutter, retain ascending order, and coalesce layout updates across reasoning disclosure, viewport, font, and zoom changes.
-- Center the exact numbered-marker line in the conversation viewport when locating source text.
+- Center the exact numbered-marker line in the active conversation or window viewport when locating source text, including CSS zoom correction.
 - Persist unsent drafts, unfinished editor text, and immutable retry records in browser `localStorage`.
 - Deduplicate retries across transport failures with a stable submission-derived message id.
 - Advance `sent` to `processed` only when the model explicitly returns annotation ids in the requested acknowledgement marker.

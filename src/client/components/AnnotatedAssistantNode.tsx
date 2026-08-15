@@ -138,7 +138,11 @@ function centerVisualLine(element: HTMLElement, line: VisualLine): void {
   }
   const viewportTop = window.visualViewport?.offsetTop ?? 0
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight
-  window.scrollBy({ top: lineCenter - (viewportTop + viewportHeight / 2), behavior })
+  const root = document.documentElement
+  const rootBounds = root.getBoundingClientRect()
+  const scale = root.offsetWidth > 0 ? rootBounds.width / root.offsetWidth : 1
+  const visualDelta = lineCenter - (viewportTop + viewportHeight / 2)
+  window.scrollBy({ top: visualDelta / (scale > 0 ? scale : 1), behavior })
 }
 
 /** Full replacement renderer required because DSH exposes no slot inside assistant Markdown. */
