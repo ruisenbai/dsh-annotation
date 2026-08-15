@@ -38,6 +38,9 @@ const CAPTURE = captureFor(EXACT)
 const fixtureTokens = `
 :root {
   color-scheme: light dark;
+  --dsw-font-family: system-ui, sans-serif;
+  --ds-font-family-code: ui-monospace, SFMono-Regular, Consolas;
+  --dsw-static-neutral-bluish-00: #ffffff;
   --dsw-alias-bg-base: #ffffff;
   --dsw-alias-bg-layer-1: #ffffff;
   --dsw-alias-bg-layer-2: #f4f6f8;
@@ -47,6 +50,7 @@ const fixtureTokens = `
   --dsw-alias-label-primary-dimmed: #394b5a;
   --dsw-alias-label-secondary: #596b78;
   --dsw-alias-label-tertiary: #758692;
+  --dsw-alias-label-caption: #8c9aa4;
   --dsw-alias-border-l1: #e5e9ed;
   --dsw-alias-border-l2: #ccd4da;
   --dsw-alias-interactive-bg-hover: #edf2f5;
@@ -54,7 +58,10 @@ const fixtureTokens = `
   --dsw-alias-button-info-fill: #4d6bfe;
   --dsw-alias-button-info-hover: #405bd8;
   --dsw-alias-button-contrast-fill: #24292f;
+  --dsw-alias-tooltip-bg: #24292f;
   --dsw-alias-label-primary-inverted: #ffffff;
+  --dsw-alias-state-business-primary: #4d6bfe;
+  --dsw-alias-state-business-tertiary: #e7ecff;
   --dsw-alias-state-warn-label: #ffd37a;
   --dsw-static-deepseek-450: #5b79ff;
   --dsw-alias-state-success-primary: #138a62;
@@ -63,6 +70,11 @@ const fixtureTokens = `
   --dsw-alias-state-warn-primary: #a66a00;
   --dsw-alias-state-warn-tertiary: #fff0c9;
   --dsw-alias-state-error-primary: #d33a3a;
+  --dsw-alias-scrollbar-bg-l2: #c8d0d6;
+  --dsw-alias-scrollbar-hover-l2: #aeb9c1;
+  --dsw-specific-tip: var(--dsw-alias-bg-layer-2);
+  --dsw-specific-menu: var(--dsw-alias-bg-layer-3);
+  --dsw-specific-bubble: var(--dsw-alias-bg-layer-2);
   --dsw-shadow-lv3: 0 10px 34px rgba(23, 33, 43, 0.2);
 }
 @media (prefers-color-scheme: dark) {
@@ -76,9 +88,14 @@ const fixtureTokens = `
     --dsw-alias-label-primary-dimmed: #d2d9df;
     --dsw-alias-label-secondary: #b7c0c8;
     --dsw-alias-label-tertiary: #96a2ad;
+    --dsw-alias-label-caption: #7f8b96;
     --dsw-alias-border-l1: #313942;
     --dsw-alias-border-l2: #44505b;
     --dsw-alias-interactive-bg-hover: #2c353e;
+    --dsw-alias-state-business-primary: #5b79ff;
+    --dsw-alias-state-business-tertiary: #26345f;
+    --dsw-alias-scrollbar-bg-l2: #596570;
+    --dsw-alias-scrollbar-hover-l2: #707c86;
   }
 }
 html, body, #root { min-height: 100%; }

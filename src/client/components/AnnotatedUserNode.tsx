@@ -3,6 +3,7 @@ import { ImageGallery } from '@deepseek-ai/dsh-client-ui-attachment'
 import {
   IconCheckOutline14,
   IconChevronDownOutline14,
+  IconChevronRightOutline14,
   IconListPenOutline16,
   IconQueueOutline14,
   IconRightUpOutline14,
@@ -13,9 +14,9 @@ import type { AnnotationId, AnnotationStatus } from '../../shared/types.ts'
 import type { UserAnnotationProps } from '../contract.ts'
 
 function TimelineStatusIcon({ status }: { status: AnnotationStatus }) {
-  if (status === 'queued') return <IconQueueOutline14 size={12} />
-  if (status === 'processed' || status === 'sent') return <IconCheckOutline14 size={12} />
-  return <IconListPenOutline16 size={12} />
+  if (status === 'queued') return <IconQueueOutline14 size={14} />
+  if (status === 'processed' || status === 'sent') return <IconCheckOutline14 size={14} />
+  return <IconListPenOutline16 size={14} />
 }
 
 function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
@@ -44,7 +45,14 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
           <strong>{t('timeline.summary', { count: payload.annotations.length })}</strong>
           <small>{previousVersion ? t('timeline.previousVersion') : payload.submissionId}</small>
         </span>
-        <IconChevronDownOutline14 size={16} />
+        <span className="dia-timeline__disclosure" aria-hidden="true">
+          <span data-collapsed="true">
+            <IconChevronRightOutline14 size={14} />
+          </span>
+          <span data-expanded="true">
+            <IconChevronDownOutline14 size={14} />
+          </span>
+        </span>
       </summary>
       <div className="dia-timeline__body">
         {payload.overallRequirement !== undefined && payload.overallRequirement.trim() !== '' && (

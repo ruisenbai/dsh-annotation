@@ -15,6 +15,7 @@ A GitHub-ready DeepSeek Harness plugin for reviewing assistant replies in place.
 - Type directly in the compact selection-positioned input with icon-only Cancel and Save actions. An empty outside click closes it; a dirty outside click keeps it open, turns the input red, and shakes it until one action is chosen.
 - Autosave unfinished editor text after 400 ms, display its local-save state, and restore it after a refresh without treating it as a submitted annotation.
 - Group two-line rows into ready, delivery-outcome/retry, authoritatively queued, and sent sections; use official DSH buttons, state dots, icons, tooltips, and Toasts.
+- Match the official Web assistant flow, reasoning disclosure, stopped marker, composer docks, 28 px icon actions with 14 px row glyphs, form typography, semantic colors, floating surfaces, and user-message bubbles while retaining the existing Locate source glyph.
 - Undo one draft deletion, export current-Session recovery JSON, clear unsubmitted drafts, and inspect local storage usage from the composer list.
 - Preserve the exact quote, prefix/suffix selector, assistant message id, event sequence, annotation id, and submission id.
 - Capture language and line coordinates for code, or row/column coordinates for tables.

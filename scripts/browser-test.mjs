@@ -77,6 +77,44 @@ try {
 
   const paragraph = page.locator('.dia-assistant__body p').last()
   await paragraph.scrollIntoViewIfNeeded()
+  const assistantChrome = await page.locator('.dia-assistant').evaluate((element) => {
+    const body = element.querySelector('.dia-assistant__body')
+    const reasoningSummary = element.querySelector('.dia-assistant__reasoning-summary')
+    return {
+      fontSize: getComputedStyle(element).fontSize,
+      lineHeight: getComputedStyle(element).lineHeight,
+      body:
+        body === null
+          ? null
+          : {
+              display: getComputedStyle(body).display,
+              direction: getComputedStyle(body).flexDirection,
+              gap: getComputedStyle(body).gap,
+            },
+      reasoning:
+        reasoningSummary === null
+          ? null
+          : {
+              fontSize: getComputedStyle(reasoningSummary).fontSize,
+              lineHeight: getComputedStyle(reasoningSummary).lineHeight,
+            },
+      legacyPre: element.querySelectorAll('.dia-assistant__reasoning pre').length,
+    }
+  })
+  assert(
+    assistantChrome.fontSize === '16px' &&
+      assistantChrome.lineHeight === '28px' &&
+      assistantChrome.body?.display === 'flex' &&
+      assistantChrome.body.direction === 'column' &&
+      assistantChrome.body.gap === '16px',
+    `assistant body must match official flow metrics, received ${JSON.stringify(assistantChrome)}`,
+  )
+  assert(
+    assistantChrome.reasoning?.fontSize === '14px' &&
+      assistantChrome.reasoning.lineHeight === '24px' &&
+      assistantChrome.legacyPre === 0,
+    `reasoning must use official disclosure typography, received ${JSON.stringify(assistantChrome.reasoning)}`,
+  )
   await selectExact(page, 'selected phrase')
   assert(
     (await page.locator('.dia-selection-toolbar').count()) === 0,
@@ -97,6 +135,47 @@ try {
     assert((await button.locator('svg').count()) === 1, 'editor action must use an icon')
     assert((await button.textContent())?.trim() === '', 'editor icon action must not show text')
   }
+  const editorChrome = await dialog.evaluate((element) => {
+    const buttons = Array.from(element.querySelectorAll('button'))
+    const textarea = element.querySelector('textarea')
+    return {
+      background: getComputedStyle(element).backgroundColor,
+      buttonBoxes: buttons.map((button) => {
+        const rect = button.getBoundingClientRect()
+        const icon = button.querySelector('svg')?.getBoundingClientRect()
+        return { width: rect.width, height: rect.height, iconWidth: icon?.width, iconHeight: icon?.height }
+      }),
+      saveColor: buttons[1] === undefined ? null : getComputedStyle(buttons[1]).color,
+      input:
+        textarea === null
+          ? null
+          : {
+              background: getComputedStyle(textarea).backgroundColor,
+              borderRadius: getComputedStyle(textarea).borderRadius,
+              fontSize: getComputedStyle(textarea).fontSize,
+              lineHeight: getComputedStyle(textarea).lineHeight,
+            },
+    }
+  })
+  assert(editorChrome.background === 'rgb(32, 38, 45)', 'editor must use the official elevated menu surface')
+  assert(
+    editorChrome.buttonBoxes.every(
+      ({ width, height, iconWidth, iconHeight }) =>
+        width === 28 && height === 28 && iconWidth === 14 && iconHeight === 14,
+    ),
+    `editor actions must match official 28/14 icon metrics, received ${JSON.stringify(editorChrome.buttonBoxes)}`,
+  )
+  assert(
+    editorChrome.saveColor === 'rgb(91, 121, 255)',
+    'editor save action must use the official business color',
+  )
+  assert(
+    editorChrome.input?.background === 'rgb(21, 25, 30)' &&
+      editorChrome.input.borderRadius === '8px' &&
+      editorChrome.input.fontSize === '13px' &&
+      editorChrome.input.lineHeight === '20px',
+    `editor input must match official compact input metrics, received ${JSON.stringify(editorChrome.input)}`,
+  )
 
   await page.locator('h1').dispatchEvent('pointerdown')
   await dialog.waitFor({ state: 'detached' })
@@ -122,6 +201,14 @@ try {
   await dialog.getByRole('button', { name: 'Save annotation' }).click()
   await dialog.waitFor({ state: 'detached' })
   await page.locator('.dia-marker').waitFor()
+  const draftMarkerColor = await page
+    .locator('.dia-marker')
+    .first()
+    .evaluate((element) => getComputedStyle(element, '::before').backgroundColor)
+  assert(
+    draftMarkerColor === 'rgb(91, 121, 255)',
+    `draft markers must use the official business color, received ${draftMarkerColor}`,
+  )
 
   const placement = await page.evaluate(() => {
     const marker = document.querySelector('.dia-marker')?.getBoundingClientRect()
@@ -186,7 +273,7 @@ try {
   )
 
   const firstMarkerTop = zoomLayout[0].top
-  await page.locator('.dia-assistant__reasoning summary').click()
+  await page.locator('.dia-assistant__reasoning [data-disclosure-row]').click()
   await page.waitForFunction(
     (before) => (document.querySelector('.dia-marker')?.getBoundingClientRect().top ?? before) > before + 5,
     firstMarkerTop,
@@ -198,6 +285,55 @@ try {
   const countedSend = page.getByRole('button', { name: 'Send 5 annotations to task' })
   await countedSend.waitFor()
   await page.getByText('Task idle: sending starts the task').waitFor()
+  const dockChrome = await page.locator('.dia-dock-shell').evaluate((element) => {
+    const title = element.querySelector('.dia-dock__title')
+    const action = element.querySelector('.dia-row-action')
+    const actionIcon = action?.querySelector('svg')
+    const textarea = element.querySelector('.dia-inline-panel__textarea')
+    return {
+      background: getComputedStyle(element).backgroundColor,
+      borderRadius: getComputedStyle(element).borderRadius,
+      title:
+        title === null
+          ? null
+          : { fontSize: getComputedStyle(title).fontSize, lineHeight: getComputedStyle(title).lineHeight },
+      action:
+        action === null || actionIcon === null
+          ? null
+          : {
+              width: getComputedStyle(action).width,
+              height: getComputedStyle(action).height,
+              iconWidth: getComputedStyle(actionIcon).width,
+              iconHeight: getComputedStyle(actionIcon).height,
+            },
+      textarea:
+        textarea === null
+          ? null
+          : {
+              fontSize: getComputedStyle(textarea).fontSize,
+              lineHeight: getComputedStyle(textarea).lineHeight,
+            },
+    }
+  })
+  assert(
+    dockChrome.background === 'rgb(36, 43, 51)' && dockChrome.borderRadius === '12px',
+    `annotation dock must use the official tip card, received ${JSON.stringify(dockChrome)}`,
+  )
+  assert(
+    dockChrome.title?.fontSize === '13px' && dockChrome.title.lineHeight === '24px',
+    `dock title must match official composer typography, received ${JSON.stringify(dockChrome.title)}`,
+  )
+  assert(
+    dockChrome.action?.width === '28px' &&
+      dockChrome.action.height === '28px' &&
+      dockChrome.action.iconWidth === '14px' &&
+      dockChrome.action.iconHeight === '14px',
+    `row actions must match official 28/14 icon metrics, received ${JSON.stringify(dockChrome.action)}`,
+  )
+  assert(
+    dockChrome.textarea?.fontSize === '13px' && dockChrome.textarea.lineHeight === '20px',
+    `panel text must match official form typography, received ${JSON.stringify(dockChrome.textarea)}`,
+  )
   assert(
     (await countedSend.locator(':scope > span > svg').count()) === 1,
     'the official DSH button must own the send icon slot',

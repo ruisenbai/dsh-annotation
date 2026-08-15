@@ -5,14 +5,14 @@ import type { AssistantActionAnnotationProps } from '../contract.ts'
 /** Keyboard-reachable fallback that opens an editor for the complete reply text. */
 export function AssistantAnnotationAction({ messageId, annotateMessage, t }: AssistantActionAnnotationProps) {
   return (
-    <Tooltip label={t('action.annotate')} side="top" delayMs={300}>
+    <Tooltip label={t('action.annotate')} side="bottom">
       <button
         type="button"
         className="dia-action-icon"
         aria-label={t('action.annotate')}
         onClick={() => annotateMessage(messageId as unknown as MessageIdentity)}
       >
-        <IconListPenOutline16 size={15} />
+        <IconListPenOutline16 size={16} />
       </button>
     </Tooltip>
   )

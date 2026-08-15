@@ -1,6 +1,12 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ImageGallery } from '@deepseek-ai/dsh-client-ui-attachment'
-import { JsonBlock, MarkdownText, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  DisclosureRow,
+  IconThinkOutline14,
+  JsonBlock,
+  MarkdownText,
+  Tooltip,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { stripModelAcknowledgementMarkers } from '../../shared/model-ack.ts'
 import type { AnnotationDraft, AnnotationId, MessageIdentity } from '../../shared/types.ts'
@@ -17,6 +23,78 @@ function annotationAtOffset(
 ): AnnotationDraft | undefined {
   if (offset === null) return undefined
   return annotations.find((item) => item.quote.start <= offset && offset < item.quote.end)
+}
+
+function firstLine(text: string): string {
+  const newline = text.indexOf('\n')
+  return newline === -1 ? text : text.slice(0, newline)
+}
+
+function latestLine(text: string): string {
+  const visible = text.trimEnd()
+  const newline = visible.lastIndexOf('\n')
+  return newline === -1 ? visible : visible.slice(newline + 1)
+}
+
+function AnnotationReasoningRow({
+  text,
+  running,
+  t,
+}: {
+  text: string
+  running: boolean
+  t: AssistantAnnotationProps['t']
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const summaryRef = useRef<HTMLSpanElement>(null)
+  const summary = running ? latestLine(text) : firstLine(text)
+
+  useLayoutEffect(() => {
+    const element = summaryRef.current
+    if (element !== null) element.scrollLeft = running ? element.scrollWidth - element.clientWidth : 0
+  }, [running, summary])
+
+  const toggle = () => {
+    setOpen((value) => !value)
+    rootRef.current?.dispatchEvent(new Event('toggle', { bubbles: true }))
+  }
+
+  return (
+    <div
+      ref={rootRef}
+      className="dia-assistant__reasoning"
+      data-state={running ? 'running' : 'ok'}
+      data-dsh-inline-annotation-ignore="true"
+    >
+      <DisclosureRow
+        rowClassName="dia-assistant__reasoning-row"
+        leadingClassName="dia-assistant__reasoning-leading"
+        titleClassName="dia-assistant__reasoning-title"
+        chevronClassName="dia-assistant__reasoning-chevron"
+        icon={<IconThinkOutline14 size={14} />}
+        title={t('assistant.reasoning')}
+        open={open}
+        expandable
+        expandOnRowClick
+        onToggle={toggle}
+        collapsedContent={
+          <>
+            <span className="dia-assistant__reasoning-separator" aria-hidden="true" />
+            <span
+              ref={summaryRef}
+              className="dia-assistant__reasoning-summary"
+              data-follow-end={running || undefined}
+            >
+              {summary}
+            </span>
+          </>
+        }
+      >
+        <div className="dia-assistant__reasoning-body">{text}</div>
+      </DisclosureRow>
+    </div>
+  )
 }
 
 interface MarkerPosition {
@@ -442,6 +520,13 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         className="dia-assistant__body"
         style={markerGutter === 0 ? undefined : { paddingRight: markerGutter }}
         onPointerMove={(event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest('[data-dsh-inline-annotation-ignore="true"]') !== null
+          ) {
+            setHover(null)
+            return
+          }
           const annotation = inspectPoint(event.clientX, event.clientY)
           setHover(
             annotation === undefined ? null : { annotation, x: event.clientX + 12, y: event.clientY + 12 },
@@ -449,6 +534,12 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         }}
         onPointerLeave={() => setHover(null)}
         onClick={(event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest('[data-dsh-inline-annotation-ignore="true"]') !== null
+          ) {
+            return
+          }
           if (!window.getSelection()?.isCollapsed) return
           const annotation = inspectPoint(event.clientX, event.clientY)
           if (annotation !== undefined) openAnnotation(annotation.annotationId)
@@ -467,14 +558,12 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
             )
           if (block.kind === 'reasoning')
             return (
-              <details
+              <AnnotationReasoningRow
                 key={`reasoning:${index}`}
-                className="dia-assistant__reasoning"
-                data-dsh-inline-annotation-ignore="true"
-              >
-                <summary>{t('assistant.reasoning')}</summary>
-                <pre>{stripModelAcknowledgementMarkers(block.text)}</pre>
-              </details>
+                text={stripModelAcknowledgementMarkers(block.text)}
+                running={data.status === 'running' && index === data.blocks.length - 1}
+                t={t}
+              />
             )
           if (block.kind === 'image')
             return (
@@ -487,13 +576,20 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
               />
             )
           if (block.kind === 'other')
-            return <JsonBlock key={`other:${index}`} label={t('assistant.other')} payload={block.block} />
+            return (
+              <JsonBlock
+                key={`other:${index}`}
+                label={t('assistant.other')}
+                payload={block.block}
+                truncatedLabel={(total) => t('json.truncated', { total })}
+              />
+            )
           return null
         })}
         {data.status === 'interrupted' && (
-          <p className="dia-warning" data-dsh-inline-annotation-ignore="true">
+          <span className="dia-assistant__stopped" data-dsh-inline-annotation-ignore="true">
             {t('assistant.interrupted')}
-          </p>
+          </span>
         )}
       </div>
       {annotations.length > 0 && (

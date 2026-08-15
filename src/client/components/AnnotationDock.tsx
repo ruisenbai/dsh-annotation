@@ -1,8 +1,10 @@
 import {
   Button,
   IconArchiveOutline20,
+  IconCheckOutline14,
   IconCheckOutline16,
   IconChevronDownOutline14,
+  IconChevronRightOutline14,
   IconChevronUpOutline14,
   IconCloseOutline16,
   IconDataOutline16,
@@ -86,7 +88,7 @@ function TooltipIconAction({
   danger?: boolean
 }) {
   return (
-    <Tooltip label={label} side={side} delayMs={300} disabled={disabled}>
+    <Tooltip label={label} side={side} delayMs={500} disabled={disabled}>
       <button
         type="button"
         className={className}
@@ -220,7 +222,7 @@ function AnnotationEditor({
               className="dia-icon-button"
               onActivate={cancel}
             >
-              <IconCloseOutline16 size={16} />
+              <IconCloseOutline16 size={14} />
             </TooltipIconAction>
             <TooltipIconAction
               label={t('editor.save')}
@@ -230,7 +232,7 @@ function AnnotationEditor({
               disabled={editor.text.trim().length === 0 || longSelection}
               onActivate={save}
             >
-              <IconCheckOutline16 size={16} />
+              <IconCheckOutline16 size={14} />
             </TooltipIconAction>
           </div>
         </div>
@@ -292,7 +294,7 @@ function AnnotationRow({
       <div className="dia-item__actions">
         <TooltipIconAction
           label={t('list.locate')}
-          side="top"
+          side="bottom"
           className="dia-row-action"
           onActivate={() => void actions.navigate(item.annotationId)}
         >
@@ -301,7 +303,7 @@ function AnnotationRow({
         {item.status !== 'queued' && (
           <TooltipIconAction
             label={editLabel}
-            side="top"
+            side="bottom"
             className="dia-row-action"
             onActivate={() => actions.openAnnotation(item.annotationId)}
           >
@@ -311,7 +313,7 @@ function AnnotationRow({
         {item.status === 'draft' && (
           <TooltipIconAction
             label={t('list.delete')}
-            side="top"
+            side="bottom"
             className="dia-row-action"
             danger
             onActivate={() => actions.deleteDraft(item.annotationId)}
@@ -470,7 +472,7 @@ function AnnotationGroup({
             <span>{title}</span>
           </span>
           <span className="dia-group__count">{items.length}</span>
-          {open ? <IconChevronDownOutline14 size={13} /> : <IconChevronUpOutline14 size={13} />}
+          {open ? <IconChevronDownOutline14 size={14} /> : <IconChevronRightOutline14 size={14} />}
         </button>
       ) : (
         <div className="dia-group__heading">
@@ -673,7 +675,7 @@ function AnnotationPanel({
             <div className="dia-inline-panel__footer">
               {immutable && (
                 <p className="dia-immutable-note">
-                  <IconDataOutline16 size={13} />
+                  <IconDataOutline16 size={14} />
                   {t('list.immutable')}
                 </p>
               )}
@@ -694,7 +696,7 @@ function AnnotationPanel({
                   {t('local.usage', { size: bytesLabel(view.storageBytes) })}
                 </span>
                 <div>
-                  <Tooltip label={t('local.export')} side="top" delayMs={300}>
+                  <Tooltip label={t('local.export')} side="top" delayMs={500}>
                     <button
                       type="button"
                       className="dia-row-action"
@@ -704,7 +706,7 @@ function AnnotationPanel({
                       <IconDownloadOutline16 size={14} />
                     </button>
                   </Tooltip>
-                  <Tooltip label={t('local.clear')} side="top" delayMs={300}>
+                  <Tooltip label={t('local.clear')} side="top" delayMs={500}>
                     <button
                       type="button"
                       className="dia-row-action"
@@ -849,9 +851,9 @@ export function AnnotationDock({
             submissionToast.kind === 'queued' ? (
               <IconQueueOutline14 size={14} />
             ) : submissionToast.kind === 'sent' ? (
-              <IconCheckOutline16 size={16} />
+              <IconCheckOutline14 size={14} />
             ) : (
-              <IconWarningOutline16 size={16} />
+              <IconWarningOutline16 size={14} />
             )
           }
           anchor={shellRef.current?.closest<HTMLElement>('[data-composer-card]') ?? shellRef.current}

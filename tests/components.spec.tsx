@@ -653,7 +653,10 @@ describe('annotation presentation', () => {
       })
 
       finalLineTop = 190
-      fireEvent(screen.getByText('assistant.reasoning').closest('details')!, new Event('toggle'))
+      fireEvent(
+        screen.getByText('assistant.reasoning').closest('.dia-assistant__reasoning')!,
+        new Event('toggle', { bubbles: true }),
+      )
       await waitFor(() => {
         expect(firstMarker).toHaveStyle({ top: '88px', left: '315px' })
         expect(secondMarker).toHaveStyle({ top: '88px', left: '341px' })
