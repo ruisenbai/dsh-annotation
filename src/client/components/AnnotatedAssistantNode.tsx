@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, MessageSquarePlus } from '../icons.ts'
 import { ImageGallery } from '@deepseek-ai/dsh-client-ui-attachment'
 import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -18,6 +18,35 @@ function annotationAtOffset(
 ): AnnotationDraft | undefined {
   if (offset === null) return undefined
   return annotations.find((item) => item.quote.start <= offset && offset < item.quote.end)
+}
+
+interface MarkerPosition {
+  readonly top: number
+  readonly left: number
+}
+
+function sameMarkerPositions(
+  left: ReadonlyMap<AnnotationId, MarkerPosition>,
+  right: ReadonlyMap<AnnotationId, MarkerPosition>,
+): boolean {
+  if (left.size !== right.size) return false
+  for (const [id, position] of left) {
+    const candidate = right.get(id)
+    if (candidate?.top !== position.top || candidate.left !== position.left) return false
+  }
+  return true
+}
+
+function finalVisibleRect(range: Range): DOMRect | null {
+  const rects =
+    typeof range.getClientRects === 'function'
+      ? Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0)
+      : []
+  const finalLine = rects.at(-1)
+  if (finalLine !== undefined) return finalLine
+  if (typeof range.getBoundingClientRect !== 'function') return null
+  const bounds = range.getBoundingClientRect()
+  return bounds.width > 0 && bounds.height > 0 ? bounds : null
 }
 
 /** Full replacement renderer required because DSH exposes no slot inside assistant Markdown. */
@@ -40,6 +69,9 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   const bodyRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState<ReturnType<typeof captureSelection> | null>(null)
   const [selectionCopyStatus, setSelectionCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [markerPositions, setMarkerPositions] = useState<ReadonlyMap<AnnotationId, MarkerPosition>>(
+    () => new Map(),
+  )
   const [flash, setFlash] = useState(false)
   const [hover, setHover] = useState<{ annotation: AnnotationDraft; x: number; y: number } | null>(null)
   const data = node.data
@@ -121,6 +153,78 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     activateHighlight(messageId, active === undefined ? null : rangeFromSelector(body, active.quote))
     return () => removeHighlights(messageId)
   }, [activeId, activateHighlight, annotations, messageId, removeHighlights, updateHighlightRanges])
+
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    const body = bodyRef.current
+    if (root === null || body === null || annotations.length === 0) {
+      setMarkerPositions((current) => (current.size === 0 ? current : new Map()))
+      return undefined
+    }
+
+    const measure = () => {
+      const rootRect = root.getBoundingClientRect()
+      const viewport = window.visualViewport
+      const viewportLeft = viewport?.offsetLeft ?? 0
+      const viewportRight = viewportLeft + (viewport?.width ?? window.innerWidth)
+      const minLeft = viewportLeft - rootRect.left + 4
+      const maxLeft = Math.max(minLeft, viewportRight - rootRect.left - 28)
+      const occupied: MarkerPosition[] = []
+      const next = new Map<AnnotationId, MarkerPosition>()
+
+      annotations.forEach((annotation, index) => {
+        const range = rangeFromSelector(body, annotation.quote)
+        const rect = range === null ? null : finalVisibleRect(range)
+        const baseTop = Math.round(
+          rect === null ? index * 30 : rect.top - rootRect.top + (rect.height - 24) / 2,
+        )
+        const baseLeft = Math.round(
+          rect === null
+            ? Math.min(maxLeft, rootRect.width + 6)
+            : Math.max(minLeft, Math.min(maxLeft, rect.right - rootRect.left + 5)),
+        )
+        let top = baseTop
+        let left = baseLeft
+        let lane = 0
+        while (occupied.some((item) => Math.abs(item.top - top) < 24 && Math.abs(item.left - left) < 24)) {
+          lane += 1
+          const shifted = baseLeft + lane * 26
+          if (shifted <= maxLeft) {
+            left = shifted
+          } else {
+            left = baseLeft
+            top = baseTop + lane * 26
+          }
+        }
+        const position = Object.freeze({ top, left })
+        occupied.push(position)
+        next.set(annotation.annotationId, position)
+      })
+
+      setMarkerPositions((current) => (sameMarkerPositions(current, next) ? current : next))
+    }
+
+    measure()
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => {
+            measure()
+          })
+    resizeObserver?.observe(root)
+    resizeObserver?.observe(body)
+    window.addEventListener('resize', measure)
+    window.visualViewport?.addEventListener('resize', measure)
+    document.addEventListener('toggle', measure, true)
+    document.fonts?.addEventListener('loadingdone', measure)
+    return () => {
+      resizeObserver?.disconnect()
+      window.removeEventListener('resize', measure)
+      window.visualViewport?.removeEventListener('resize', measure)
+      document.removeEventListener('toggle', measure, true)
+      document.fonts?.removeEventListener('loadingdone', measure)
+    }
+  }, [annotations])
 
   useEffect(() => {
     const body = bodyRef.current
@@ -222,7 +326,11 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
             )
           if (block.kind === 'reasoning')
             return (
-              <details key={`reasoning:${index}`} className="dia-assistant__reasoning">
+              <details
+                key={`reasoning:${index}`}
+                className="dia-assistant__reasoning"
+                data-dsh-inline-annotation-ignore="true"
+              >
                 <summary>{t('assistant.reasoning')}</summary>
                 <pre>{stripModelAcknowledgementMarkers(block.text)}</pre>
               </details>
@@ -241,7 +349,11 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
             return <JsonBlock key={`other:${index}`} label={t('assistant.other')} payload={block.block} />
           return null
         })}
-        {data.status === 'interrupted' && <p className="dia-warning">{t('assistant.interrupted')}</p>}
+        {data.status === 'interrupted' && (
+          <p className="dia-warning" data-dsh-inline-annotation-ignore="true">
+            {t('assistant.interrupted')}
+          </p>
+        )}
       </div>
       {selection !== null && (
         <div
@@ -293,6 +405,10 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
               className="dia-marker"
               data-status={annotation.status}
               data-active={annotation.annotationId === activeId}
+              style={{
+                top: markerPositions.get(annotation.annotationId)?.top ?? (annotation.ordinal - 1) * 30,
+                left: markerPositions.get(annotation.annotationId)?.left ?? 'calc(100% + 6px)',
+              }}
               title={annotation.comment}
               aria-label={`#${annotation.ordinal}: ${annotation.comment}`}
               onClick={() => openAnnotation(annotation.annotationId)}

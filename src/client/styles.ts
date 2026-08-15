@@ -101,14 +101,12 @@ export const styles: string = `
 
 .dia-markers {
   position: absolute;
-  top: 2px;
-  right: -30px;
-  display: grid;
-  gap: 6px;
+  inset: 0;
+  pointer-events: none;
 }
 
 .dia-marker {
-  position: relative;
+  position: absolute;
   display: grid;
   width: 24px;
   height: 24px;
@@ -120,6 +118,7 @@ export const styles: string = `
   padding: 0;
   cursor: pointer;
   font-size: 9px;
+  pointer-events: auto;
   font-weight: 700;
   isolation: isolate;
   line-height: 1;
@@ -291,6 +290,25 @@ export const styles: string = `
   font-size: 10px;
 }
 
+.dia-discard-confirm {
+  margin-top: 10px;
+  border-radius: 9px;
+  background: var(--dia-danger-bg);
+  color: var(--dia-danger);
+  padding: 10px;
+}
+
+.dia-discard-confirm p {
+  margin: 0 0 9px;
+  font-size: 12px;
+}
+
+.dia-discard-confirm > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
 .dia-inline-notice {
   display: flex;
   align-items: flex-start;
@@ -360,6 +378,17 @@ export const styles: string = `
 .dia-button[data-primary='true']:hover {
   border-color: var(--dia-accent-strong);
   background: var(--dia-accent-strong);
+}
+
+.dia-button[data-danger='true'] {
+  border-color: var(--dia-danger);
+  background: var(--dia-danger);
+  color: var(--dia-accent-text);
+  font-weight: 600;
+}
+
+.dia-button[data-danger='true']:hover {
+  background: color-mix(in srgb, var(--dia-danger) 84%, var(--dsw-alias-label-primary));
 }
 
 .dia-button:disabled,
@@ -852,12 +881,6 @@ export const styles: string = `
 }
 
 @media (max-width: 760px) {
-  .dia-markers {
-    position: static;
-    display: flex;
-    margin-top: 6px;
-  }
-
   .dia-user {
     max-width: 92%;
   }

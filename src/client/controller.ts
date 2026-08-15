@@ -312,8 +312,15 @@ export class AnnotationController {
   }
 
   closeEditor(force = false): boolean {
-    if (this.view.editor === null) return true
-    if (!force && this.view.editor.text.trim().length > 0) return false
+    const editor = this.view.editor
+    if (editor === null) return true
+    const dirty =
+      editor.kind === 'new'
+        ? editor.text.trim().length > 0
+        : editor.expandedCapture !== undefined ||
+          this.view.annotations.find((item) => item.annotationId === editor.annotationId)?.comment !==
+            editor.text
+    if (!force && dirty) return false
     this.publish({ ...this.view, editor: null, activeAnnotationId: null }, false)
     return true
   }

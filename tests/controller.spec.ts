@@ -82,6 +82,22 @@ describe('annotation controller', () => {
     expect(controller.getSnapshot().annotations[0]?.status).toBe('queued')
   })
 
+  it('closes an unchanged edit directly and requires confirmation only after changes', () => {
+    const { controller } = harness()
+    const id = saveDraft(controller)
+
+    controller.openAnnotation(id)
+    expect(controller.closeEditor()).toBe(true)
+    expect(controller.getSnapshot().editor).toBeNull()
+
+    controller.openAnnotation(id)
+    controller.updateEditorText('Changed but unsaved')
+    expect(controller.closeEditor()).toBe(false)
+    expect(controller.getSnapshot().editor).not.toBeNull()
+    expect(controller.closeEditor(true)).toBe(true)
+    expect(controller.getSnapshot().editor).toBeNull()
+  })
+
   it('freezes one retry payload and preserves its submission id', () => {
     const { controller } = harness()
     saveDraft(controller)

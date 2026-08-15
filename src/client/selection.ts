@@ -20,7 +20,11 @@ function acceptedTextNode(node: Node, root: HTMLElement): node is Text {
   const parent = text.parentElement
   if (parent === null || !root.contains(parent)) return false
   if (text.data.trim() === '' && parent === root) return false
-  return parent.closest('button, script, style, [aria-hidden="true"]') === null
+  return (
+    parent.closest(
+      'button, script, style, [aria-hidden="true"], [data-dsh-inline-annotation-ignore="true"]',
+    ) === null
+  )
 }
 
 /** Text nodes that define persistent offsets; interactive chrome is deliberately excluded. */

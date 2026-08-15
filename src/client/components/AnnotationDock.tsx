@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -41,6 +41,12 @@ function editorQuote(view: AnnotationView): string {
   return view.annotations.find((item) => item.annotationId === editor.annotationId)?.quote.exact ?? ''
 }
 
+function editorKey(editor: EditorState | null): string {
+  if (editor === null) return 'closed'
+  if (editor.kind === 'edit') return `edit:${editor.annotationId}`
+  return `new:${editor.capture.messageId}:${editor.capture.quote.start}:${editor.capture.quote.end}`
+}
+
 function editorPosition(editor: EditorState): { top?: number; left?: number; right?: number } {
   const capture = editor.kind === 'new' ? editor.capture : editor.expandedCapture
   const rect = capture?.rect
@@ -68,22 +74,32 @@ function AnnotationEditor({
 } & Omit<AnnotationBoundProps, 'useAnnotations'>) {
   const [error, setError] = useState<string | null>(null)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const editor = view.editor
 
+  const resetTransientState = () => {
+    setConfirmDiscard(false)
+    setError(null)
+  }
   const requestClose = () => {
-    if (confirmDiscard || actions.closeEditor()) {
-      actions.closeEditor(true)
-      setConfirmDiscard(false)
-      setError(null)
+    if (actions.closeEditor()) {
+      resetTransientState()
     } else {
       setConfirmDiscard(true)
     }
   }
+  const discard = () => {
+    actions.closeEditor(true)
+    resetTransientState()
+  }
+  const continueEditing = () => {
+    setConfirmDiscard(false)
+    textareaRef.current?.focus()
+  }
   const save = () => {
     try {
       actions.saveEditor()
-      setError(null)
-      setConfirmDiscard(false)
+      resetTransientState()
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -146,6 +162,7 @@ function AnnotationEditor({
           {t('editor.commentLabel')}
         </label>
         <textarea
+          ref={textareaRef}
           id="dia-annotation-comment"
           autoFocus
           className="dia-textarea dia-editor__textarea"
@@ -164,22 +181,35 @@ function AnnotationEditor({
             {error}
           </p>
         )}
-        {confirmDiscard && <p className="dia-warning">{t('editor.discard')}</p>}
-        <footer className="dia-editor__footer">
-          <span>{t('editor.shortcut')}</span>
-          <button type="button" className="dia-button" onClick={requestClose}>
-            {t('editor.cancel')}
-          </button>
-          <button
-            type="button"
-            className="dia-button"
-            data-primary="true"
-            disabled={editor.text.trim().length === 0 || longSelection}
-            onClick={save}
-          >
-            {t('editor.save')}
-          </button>
-        </footer>
+        {confirmDiscard ? (
+          <div className="dia-discard-confirm">
+            <p role="alert">{t('editor.discard')}</p>
+            <div>
+              <button type="button" className="dia-button" autoFocus onClick={continueEditing}>
+                {t('editor.keepEditing')}
+              </button>
+              <button type="button" className="dia-button" data-danger="true" onClick={discard}>
+                {t('editor.confirmDiscard')}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <footer className="dia-editor__footer">
+            <span>{t('editor.shortcut')}</span>
+            <button type="button" className="dia-button" onClick={requestClose}>
+              {t('editor.cancel')}
+            </button>
+            <button
+              type="button"
+              className="dia-button"
+              data-primary="true"
+              disabled={editor.text.trim().length === 0 || longSelection}
+              onClick={save}
+            >
+              {t('editor.save')}
+            </button>
+          </footer>
+        )}
       </section>
     </Portal>
   )
@@ -502,7 +532,7 @@ export function AnnotationDock({
         </span>
         <ChevronUp aria-hidden="true" size={16} strokeWidth={1.8} />
       </button>
-      <AnnotationEditor view={view} t={t} {...actions} />
+      <AnnotationEditor key={editorKey(view.editor)} view={view} t={t} {...actions} />
       <AnnotationPanel view={view} archived={archived} t={t} session={session} {...actions} />
     </>
   )

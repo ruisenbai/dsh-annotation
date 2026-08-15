@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AnnotatedAssistantNode } from '../src/client/components/AnnotatedAssistantNode.tsx'
 import { AnnotatedUserNode } from '../src/client/components/AnnotatedUserNode.tsx'
 import { AnnotationDock } from '../src/client/components/AnnotationDock.tsx'
@@ -14,6 +14,8 @@ import type {
 import type { InlineAnnotationLocaleKey } from '../src/client/locales.ts'
 import { styles } from '../src/client/styles.ts'
 import { fixturePayload } from './fixtures.ts'
+
+afterEach(cleanup)
 
 const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => {
   const values: Partial<Record<InlineAnnotationLocaleKey, string>> = {
@@ -34,6 +36,9 @@ const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => 
     'editor.commentLabel': 'Your comment',
     'editor.shortcut': 'Ctrl/⌘ ↵ to save',
     'editor.cancel': 'Cancel',
+    'editor.discard': 'Discard the unsaved changes?',
+    'editor.keepEditing': 'Keep editing',
+    'editor.confirmDiscard': 'Discard changes',
     'editor.save': 'Save annotation',
     'editor.placeholder': 'Explain what to change',
     'action.close': 'Close',
@@ -225,6 +230,130 @@ describe('annotation presentation', () => {
     expect(beginSelection).toHaveBeenCalledWith(
       expect.objectContaining({ quote: expect.objectContaining({ exact: 'selected text' }) }),
     )
+  })
+
+  it('anchors each number to the selected text final line and recomputes after zoom-like resize', () => {
+    const payload = fixturePayload()
+    const annotation = {
+      ...payload.annotations[0]!,
+      status: 'draft' as const,
+      updatedAt: payload.createdAt,
+    }
+    const rangeRects = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects')
+    const elementRect = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'getBoundingClientRect')
+    let finalLineTop = 150
+    let finalLineRight = 360
+    const rect = (top: number, right: number, width: number): DOMRect =>
+      ({
+        x: right - width,
+        y: top,
+        top,
+        right,
+        bottom: top + 20,
+        left: right - width,
+        width,
+        height: 20,
+        toJSON: () => ({}),
+      }) as DOMRect
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value(this: Range) {
+        const ignored = this.startContainer.parentElement?.closest(
+          '[data-dsh-inline-annotation-ignore="true"]',
+        )
+        return (ignored === null
+          ? [rect(finalLineTop - 30, 240, 140), rect(finalLineTop, finalLineRight, 180)]
+          : [rect(105, 140, 80)]) as unknown as DOMRectList
+      },
+    })
+    Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => rect(100, 550, 500),
+    })
+
+    try {
+      const view: AnnotationView = { ...baseView(), annotations: [annotation] }
+      const props = {
+        node: {
+          data: {
+            status: 'closed',
+            blocks: [
+              { kind: 'reasoning', text: 'before selected source after' },
+              { kind: 'text', text: 'before selected source after' },
+            ],
+            finalNode: { messageId: annotation.messageId, seq: annotation.messageSeq },
+          },
+          location: { kind: 'root' },
+        },
+        useTurnData: () => undefined,
+        openFile: vi.fn(),
+        loadImage: vi.fn(),
+        fileMentions: vi.fn(),
+        useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+        beginSelection: vi.fn(),
+        openAnnotation: vi.fn(),
+        registerEndpoint: vi.fn(() => () => undefined),
+        updateHighlightRanges: vi.fn(),
+        activateHighlight: vi.fn(),
+        removeHighlights: vi.fn(),
+        t,
+      } as unknown as AssistantAnnotationProps
+      render(<AnnotatedAssistantNode {...props} />)
+
+      const marker = screen.getByRole('button', { name: '#1: Explain this claim.' })
+      expect(marker).toHaveStyle({ top: '48px', left: '315px' })
+
+      finalLineTop = 190
+      fireEvent(screen.getByText('assistant.reasoning').closest('details')!, new Event('toggle'))
+      expect(marker).toHaveStyle({ top: '88px', left: '315px' })
+
+      finalLineRight = 410
+      fireEvent(window, new Event('resize'))
+      expect(marker).toHaveStyle({ top: '88px', left: '365px' })
+    } finally {
+      if (rangeRects === undefined) Reflect.deleteProperty(Range.prototype, 'getClientRects')
+      else Object.defineProperty(Range.prototype, 'getClientRects', rangeRects)
+      if (elementRect === undefined) Reflect.deleteProperty(HTMLElement.prototype, 'getBoundingClientRect')
+      else Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', elementRect)
+    }
+  })
+
+  it('offers explicit actions before discarding unsaved editor changes', () => {
+    const payload = fixturePayload()
+    const annotation = {
+      ...payload.annotations[0]!,
+      status: 'draft' as const,
+      updatedAt: payload.createdAt,
+    }
+    const closeEditor = vi.fn((force = false) => force)
+    const view: AnnotationView = {
+      ...baseView(),
+      annotations: [annotation],
+      editor: { kind: 'edit', annotationId: annotation.annotationId, text: 'Unsaved change' },
+    }
+    const props = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      closeEditor,
+      saveEditor: vi.fn(),
+      updateEditorText: vi.fn(),
+      confirmLongSelection: vi.fn(),
+      t,
+    } as unknown as InputAnnotationProps
+    render(<AnnotationDock {...props} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Discard the unsaved changes?')
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Your comment')).toHaveFocus()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    expect(closeEditor).toHaveBeenLastCalledWith(true)
   })
 
   it('uses a selection-positioned editor and saves with the keyboard shortcut', () => {

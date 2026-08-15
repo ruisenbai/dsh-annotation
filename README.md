@@ -17,7 +17,7 @@ A GitHub-ready DeepSeek Harness plugin for reviewing assistant replies in place.
 - Route an idle submission to the next turn, inject into a running task at its next safe step, or queue behind a blocking confirmation.
 - Copy archived-session context into a new task before submitting.
 - Render submitted annotation batches as collapsed timeline cards with source navigation.
-- Navigate in both directions: timeline card to quote, and quote marker to its annotation.
+- Navigate in both directions; each numbered marker stays beside the quote's final visual line across reasoning disclosure, viewport changes, and browser zoom.
 - Persist unsent drafts and immutable retry records in browser `localStorage`.
 - Deduplicate retries across transport failures with a stable submission-derived message id.
 - Advance `sent` to `processed` only when the model explicitly returns annotation ids in the requested acknowledgement marker.

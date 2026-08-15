@@ -83,9 +83,11 @@ A selector stores:
 - exact text plus 32-character prefix and suffix;
 - optional code language/line range or table row/column range.
 
-Offsets are relative to selectable text nodes inside the plugin-owned assistant body. Buttons, scripts, styles, and `aria-hidden` content are excluded. The assistant message id is the reply version identity; highlights are never transferred silently to another reply version.
+Offsets are relative to selectable text nodes inside the plugin-owned assistant body. Buttons, scripts, styles, `aria-hidden` content, and reasoning disclosures are excluded. The assistant message id is the reply version identity; highlights are never transferred silently to another reply version.
 
 Mounted messages rebuild `Range` objects from offsets. If the rendered offsets no longer contain the exact quote, the Client relocates the exact text by prefix, suffix, and distance within the same immutable message id. Navigation first uses the mounted endpoint, then loads older history pages up to `locateHistoryPages`. The selected reply scrolls into view and flashes. CSS Custom Highlights aggregate all mounted ranges under one plugin-owned manager; numbered buttons remain the fallback.
+
+Each numbered button anchors to the final visible rectangle of its rebuilt range. Resize observation, viewport events, reasoning disclosure toggles, and font-loading completion recompute positions in CSS pixels, so browser zoom and layout changes preserve the visual association.
 
 ## Slot composition
 

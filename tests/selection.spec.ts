@@ -23,6 +23,7 @@ describe('DOM selection capture', () => {
   beforeEach(() => {
     document.body.innerHTML = `
       <div id="root">
+        <details data-dsh-inline-annotation-ignore="true"><summary>Reasoning</summary><p>hidden analysis</p></details>
         <p>Hello <strong>world</strong>!</p>
         <button type="button">Copy chrome</button>
         <pre><code class="language-ts">one\ntwo\nthree</code></pre>
@@ -34,7 +35,8 @@ describe('DOM selection capture', () => {
     const root = document.querySelector('#root') as HTMLElement
     const nodes = selectableTextNodes(root)
     expect(nodes.map((node) => node.data).join('')).not.toContain('Copy chrome')
-    const hello = document.querySelector('p')!.firstChild!
+    expect(nodes.map((node) => node.data).join('')).not.toContain('hidden analysis')
+    const hello = document.querySelector('#root > p')!.firstChild!
     const world = document.querySelector('strong')!.firstChild!
     const range = withRect(document.createRange())
     range.setStart(hello, 1)
@@ -47,7 +49,7 @@ describe('DOM selection capture', () => {
 
   it('maps nested element boundaries without extending into later reply blocks', () => {
     const root = document.querySelector('#root') as HTMLElement
-    const paragraph = document.querySelector('p')!
+    const paragraph = document.querySelector('#root > p')!
     const full = withRect(document.createRange())
     full.setStart(paragraph, 0)
     full.setEnd(paragraph, paragraph.childNodes.length)
@@ -103,7 +105,7 @@ describe('DOM selection capture', () => {
     outside.textContent = 'outside'
     document.body.append(outside)
     const range = withRect(document.createRange())
-    range.setStart(root.querySelector('p')!.firstChild!, 0)
+    range.setStart(root.querySelector(':scope > p')!.firstChild!, 0)
     range.setEnd(outside.firstChild!, 3)
     expect(() => captureSelection(root, range, 'message-1' as MessageIdentity, 7)).toThrow(
       'one assistant reply',
