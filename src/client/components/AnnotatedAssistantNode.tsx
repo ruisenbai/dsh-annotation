@@ -39,7 +39,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   const rootRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState<ReturnType<typeof captureSelection> | null>(null)
-  const [selectionCopied, setSelectionCopied] = useState(false)
+  const [selectionCopyStatus, setSelectionCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [flash, setFlash] = useState(false)
   const [hover, setHover] = useState<{ annotation: AnnotationDraft; x: number; y: number } | null>(null)
   const data = node.data
@@ -136,7 +136,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       }
       try {
         setSelection(captureSelection(body, range, messageId, messageSeq))
-        setSelectionCopied(false)
+        setSelectionCopyStatus('idle')
       } catch {
         setSelection(null)
       }
@@ -151,8 +151,10 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
 
   const copySelection = useCallback(async () => {
     if (selection === null) return
+    let copied = false
     try {
       await navigator.clipboard.writeText(selection.quote.exact)
+      copied = true
     } catch {
       const helper = document.createElement('textarea')
       helper.value = selection.quote.exact
@@ -161,11 +163,23 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       helper.style.opacity = '0'
       document.body.append(helper)
       helper.select()
-      document.execCommand('copy')
-      helper.remove()
+      try {
+        copied = document.execCommand('copy')
+      } catch {
+        copied = false
+      } finally {
+        helper.remove()
+      }
     }
-    setSelectionCopied(true)
+    setSelectionCopyStatus(copied ? 'copied' : 'failed')
   }, [selection])
+
+  const selectionCopyLabel =
+    selectionCopyStatus === 'copied'
+      ? t('selection.copied')
+      : selectionCopyStatus === 'failed'
+        ? t('selection.copyFailed')
+        : t('action.copy')
 
   const inspectPoint = (x: number, y: number): AnnotationDraft | undefined => {
     const body = bodyRef.current
@@ -256,11 +270,13 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
           <button
             type="button"
             className="dia-selection-action dia-selection-action--icon"
-            aria-label={selectionCopied ? t('selection.copied') : t('action.copy')}
-            title={selectionCopied ? t('selection.copied') : t('action.copy')}
+            data-copy-status={selectionCopyStatus}
+            aria-label={selectionCopyLabel}
+            title={selectionCopyLabel}
+            aria-live="polite"
             onClick={() => void copySelection()}
           >
-            {selectionCopied ? (
+            {selectionCopyStatus === 'copied' ? (
               <Check aria-hidden="true" size={14} strokeWidth={1.8} />
             ) : (
               <Copy aria-hidden="true" size={14} strokeWidth={1.8} />
@@ -281,7 +297,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
               aria-label={`#${annotation.ordinal}: ${annotation.comment}`}
               onClick={() => openAnnotation(annotation.annotationId)}
             >
-              {annotation.ordinal}
+              <span>{annotation.ordinal}</span>
             </button>
           ))}
         </nav>

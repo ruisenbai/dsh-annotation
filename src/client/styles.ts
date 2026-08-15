@@ -89,6 +89,10 @@ export const styles: string = `
   padding: 0;
 }
 
+.dia-selection-action--icon[data-copy-status='failed'] {
+  color: var(--dia-danger);
+}
+
 .dia-selection-divider {
   width: 1px;
   height: 18px;
@@ -106,28 +110,44 @@ export const styles: string = `
 .dia-marker {
   position: relative;
   display: grid;
-  width: 16px;
-  height: 16px;
+  width: 24px;
+  height: 24px;
   place-items: center;
   border: 0;
   border-radius: 50%;
-  background: var(--dia-accent);
-  box-shadow: 0 0 0 2px var(--dsw-alias-bg-layer-1);
+  background: transparent;
   color: var(--dia-accent-text);
   padding: 0;
   cursor: pointer;
   font-size: 9px;
   font-weight: 700;
+  isolation: isolate;
+  line-height: 1;
 }
 
-.dia-marker[data-status='queued'] {
+.dia-marker::before {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: var(--dia-accent);
+  box-shadow: 0 0 0 2px var(--dsw-alias-bg-layer-1);
+  content: '';
+  z-index: 0;
+}
+
+.dia-marker > span {
+  position: relative;
+  z-index: 1;
+}
+
+.dia-marker[data-status='queued']::before {
   background: var(--dia-queued);
 }
 
 .dia-marker[data-status='processed']::after {
   position: absolute;
-  right: -3px;
-  bottom: -3px;
+  right: 0;
+  bottom: 0;
   display: grid;
   width: 9px;
   height: 9px;
@@ -138,9 +158,10 @@ export const styles: string = `
   color: var(--dia-accent-text);
   content: '✓';
   font-size: 6px;
+  z-index: 2;
 }
 
-.dia-marker[data-active='true'] {
+.dia-marker[data-active='true']::before {
   box-shadow:
     0 0 0 2px var(--dsw-alias-bg-layer-1),
     0 0 0 4px color-mix(in srgb, var(--dia-accent) 48%, transparent);
@@ -770,12 +791,11 @@ export const styles: string = `
 
 .dia-timeline-item > q {
   display: block;
-  overflow: hidden;
   margin-top: 8px;
   color: var(--dsw-alias-label-secondary);
   font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .dia-timeline-item > p {

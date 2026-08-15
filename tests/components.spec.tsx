@@ -39,6 +39,7 @@ const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => 
     'action.copy': 'Copy',
     'selection.actions': 'Selected text actions',
     'selection.copied': 'Selected text copied',
+    'selection.copyFailed': 'Copy failed; copy the selection manually',
     'selection.add': 'Add annotation',
   }
   return values[key] ?? key
@@ -207,6 +208,18 @@ describe('annotation presentation', () => {
     const toolbar = await screen.findByRole('toolbar', { name: 'Selected text actions' })
     fireEvent.click(within(toolbar).getByRole('button', { name: 'Copy' }))
     expect(writeText).toHaveBeenCalledWith('selected text')
+    expect(await within(toolbar).findByRole('button', { name: 'Selected text copied' })).toBeInTheDocument()
+
+    writeText.mockRejectedValueOnce(new Error('clipboard denied'))
+    const execCommand = vi.fn(() => false)
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand })
+    fireEvent.pointerUp(paragraph)
+    fireEvent.click(await within(toolbar).findByRole('button', { name: 'Copy' }))
+    expect(
+      await within(toolbar).findByRole('button', { name: 'Copy failed; copy the selection manually' }),
+    ).toBeInTheDocument()
+    expect(execCommand).toHaveBeenCalledWith('copy')
+
     fireEvent.click(within(toolbar).getByRole('button', { name: 'Add annotation' }))
     expect(beginSelection).toHaveBeenCalledWith(
       expect.objectContaining({ quote: expect.objectContaining({ exact: 'selected text' }) }),
