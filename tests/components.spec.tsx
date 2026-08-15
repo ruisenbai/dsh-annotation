@@ -76,11 +76,6 @@ const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => 
     'editor.cancel': 'Cancel',
     'editor.save': 'Save annotation',
     'editor.placeholder': 'Explain what to change',
-    'action.copy': 'Copy',
-    'selection.actions': 'Selected text actions',
-    'selection.copied': 'Selected text copied',
-    'selection.copyFailed': 'Copy failed; copy the selection manually',
-    'selection.add': 'Add annotation',
   }
   return values[key] ?? key
 }
@@ -515,10 +510,8 @@ describe('annotation presentation', () => {
     expect(clearLocalDrafts).toHaveBeenCalledOnce()
   })
 
-  it('shows add and copy actions next to an assistant text selection', async () => {
+  it('starts annotation editing directly from an assistant text selection', () => {
     const beginSelection = vi.fn()
-    const writeText = vi.fn(async () => undefined)
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
     Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
       configurable: true,
       value: () => ({ top: 20, left: 40, right: 150, bottom: 42, width: 110, height: 22 }),
@@ -529,7 +522,7 @@ describe('annotation presentation', () => {
         data: {
           status: 'closed',
           blocks: [{ kind: 'text', text: 'Alpha selected text omega' }],
-          finalNode: { messageId: 'assistant-toolbar-test', seq: 9 },
+          finalNode: { messageId: 'assistant-direct-input-test', seq: 9 },
         },
         location: { kind: 'root' },
       },
@@ -558,25 +551,12 @@ describe('annotation presentation', () => {
     selection.addRange(range)
     fireEvent.pointerUp(paragraph)
 
-    const toolbar = await screen.findByRole('toolbar', { name: 'Selected text actions' })
-    fireEvent.click(within(toolbar).getByRole('button', { name: 'Copy' }))
-    expect(writeText).toHaveBeenCalledWith('selected text')
-    expect(await within(toolbar).findByRole('button', { name: 'Selected text copied' })).toBeInTheDocument()
-
-    writeText.mockRejectedValueOnce(new Error('clipboard denied'))
-    const execCommand = vi.fn(() => false)
-    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand })
-    fireEvent.pointerUp(paragraph)
-    fireEvent.click(await within(toolbar).findByRole('button', { name: 'Copy' }))
-    expect(
-      await within(toolbar).findByRole('button', { name: 'Copy failed; copy the selection manually' }),
-    ).toBeInTheDocument()
-    expect(execCommand).toHaveBeenCalledWith('copy')
-
-    fireEvent.click(within(toolbar).getByRole('button', { name: 'Add annotation' }))
+    expect(beginSelection).toHaveBeenCalledOnce()
     expect(beginSelection).toHaveBeenCalledWith(
       expect.objectContaining({ quote: expect.objectContaining({ exact: 'selected text' }) }),
     )
+    expect(selection.isCollapsed).toBe(true)
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument()
   })
 
   it('anchors markers after the complete text line and orders same-line numbers ascending', async () => {

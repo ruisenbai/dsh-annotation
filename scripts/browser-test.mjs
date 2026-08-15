@@ -78,7 +78,10 @@ try {
   const paragraph = page.locator('.dia-assistant__body p').last()
   await paragraph.scrollIntoViewIfNeeded()
   await selectExact(page, 'selected phrase')
-  await page.getByRole('button', { name: 'Add annotation' }).click()
+  assert(
+    (await page.locator('.dia-selection-toolbar').count()) === 0,
+    'selection must open the input directly',
+  )
 
   let dialog = page.getByRole('dialog', { name: 'Add annotation' })
   await dialog.waitFor()
@@ -99,7 +102,6 @@ try {
   await dialog.waitFor({ state: 'detached' })
 
   await selectExact(page, 'selected phrase')
-  await page.getByRole('button', { name: 'Add annotation' }).click()
   dialog = page.getByRole('dialog', { name: 'Add annotation' })
   const input = dialog.getByRole('textbox', { name: 'Your comment' })
   await input.fill('Needs a concrete explanation.')
@@ -254,7 +256,7 @@ try {
 
   assert(failures.length === 0, `browser console errors:\n${failures.join('\n')}`)
   console.log(
-    'browser regression passed: compact editor, autosave, mobile markers, dark mode, zoom, reasoning, official send UI, queued/sent/failed Toasts, locate',
+    'browser regression passed: direct selection input, compact editor, autosave, mobile markers, dark mode, zoom, reasoning, official send UI, queued/sent/failed Toasts, locate',
   )
   await context.close()
 } finally {

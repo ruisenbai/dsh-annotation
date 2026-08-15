@@ -1,7 +1,6 @@
 /** @internal */
 export const styles: string = `
 .dia-assistant,
-.dia-selection-toolbar,
 .dia-editor,
 .dia-dock-shell,
 .dia-dock,
@@ -49,55 +48,6 @@ export const styles: string = `
   padding-left: 16px;
   font: inherit;
   white-space: pre-wrap;
-}
-
-.dia-selection-toolbar {
-  position: fixed;
-  z-index: 80;
-  display: flex;
-  height: 36px;
-  align-items: center;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 9px;
-  background: var(--dsw-alias-bg-layer-3);
-  box-shadow: var(--dsw-shadow-lv3);
-  color: var(--dsw-alias-label-primary);
-  padding: 3px;
-  pointer-events: auto;
-}
-
-.dia-selection-action {
-  display: inline-flex;
-  height: 28px;
-  align-items: center;
-  gap: 6px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  padding: 0 8px;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.dia-selection-action:hover {
-  background: var(--dsw-alias-bg-layer-2);
-}
-
-.dia-selection-action--icon {
-  width: 28px;
-  justify-content: center;
-  padding: 0;
-}
-
-.dia-selection-action--icon[data-copy-status='failed'] {
-  color: var(--dia-danger);
-}
-
-.dia-selection-divider {
-  width: 1px;
-  height: 18px;
-  background: var(--dsw-alias-border-l2);
 }
 
 .dia-markers {
@@ -1035,10 +985,6 @@ button.dia-group__heading {
 }
 
 @media (max-width: 430px) {
-  .dia-selection-toolbar {
-    max-width: calc(100vw - 16px);
-  }
-
   .dia-status {
     width: 100%;
   }

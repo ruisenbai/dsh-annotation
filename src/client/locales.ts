@@ -1,9 +1,4 @@
 export const zh = {
-  'selection.add': '添加注解',
-  'selection.actions': '选中文本操作',
-  'selection.copied': '已复制选中文本',
-  'selection.copyFailed': '复制失败，请手动复制',
-  'selection.crossMessage': '一次只能标注一条消息',
   'selection.tooLong': '选区较长，建议缩小范围；也可以继续完整保存。',
   'editor.title': '添加注解',
   'editor.editTitle': '编辑注解',
@@ -85,7 +80,6 @@ export const zh = {
   'error.payload': '注解内容超过当前部署允许的提交大小。',
   'error.items': '注解数量超过当前部署允许的单批上限。',
   'action.annotate': '注解这条回复',
-  'action.copy': '复制',
   'image.label': '图片',
   'image.open': '查看原图',
   'image.openNamed': '查看图片：{name}',
@@ -109,11 +103,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 export const en = {
-  'selection.add': 'Add annotation',
-  'selection.actions': 'Selected text actions',
-  'selection.copied': 'Selected text copied',
-  'selection.copyFailed': 'Copy failed; copy the selection manually',
-  'selection.crossMessage': 'Select text from one message at a time',
   'selection.tooLong': 'This selection is long. Narrow it, or continue and keep the full text.',
   'editor.title': 'Add annotation',
   'editor.editTitle': 'Edit annotation',
@@ -196,7 +185,6 @@ export const en = {
   'error.payload': 'The annotations exceed this deployment’s submission-size limit.',
   'error.items': 'The annotation count exceeds this deployment’s per-batch limit.',
   'action.annotate': 'Annotate this reply',
-  'action.copy': 'Copy',
   'image.label': 'Image',
   'image.open': 'Open original image',
   'image.openNamed': 'Open image: {name}',

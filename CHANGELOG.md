@@ -6,7 +6,7 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ### Added
 
-- A compact selection toolbar with annotation and copy actions.
+- Immediate annotation-input opening after selecting assistant reply text, without an intermediate action menu.
 - A direct annotation input with icon-only Cancel and Save actions, 400 ms local autosave, empty outside-click dismissal, and red shake feedback when dirty input requires a decision.
 - Draft, delivery-outcome/retry, authoritative queue, and sent list groups with official state dots, two-line rows, deletion undo, local-data export, draft clearing, and storage-usage feedback.
 - Official DSH buttons, icons, tooltips, and Toasts for plugin actions and submission results, replacing the bundled Lucide dependency.

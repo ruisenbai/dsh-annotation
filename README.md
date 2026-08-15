@@ -11,8 +11,8 @@ A GitHub-ready DeepSeek Harness plugin for reviewing assistant replies in place.
 
 ## Features
 
-- Select text inside one finalized assistant reply, then annotate or copy it from a 36 px floating toolbar.
-- Type directly in a compact selection-positioned input with icon-only Cancel and Save actions. An empty outside click closes it; a dirty outside click keeps it open, turns the input red, and shakes it until one action is chosen.
+- Select text inside one finalized assistant reply to open the annotation input immediately, without an intermediate action menu or click.
+- Type directly in the compact selection-positioned input with icon-only Cancel and Save actions. An empty outside click closes it; a dirty outside click keeps it open, turns the input red, and shakes it until one action is chosen.
 - Autosave unfinished editor text after 400 ms, display its local-save state, and restore it after a refresh without treating it as a submitted annotation.
 - Group two-line rows into ready, delivery-outcome/retry, authoritatively queued, and sent sections; use official DSH buttons, state dots, icons, tooltips, and Toasts.
 - Undo one draft deletion, export current-Session recovery JSON, clear unsubmitted drafts, and inspect local storage usage from the composer list.
@@ -50,7 +50,7 @@ dsh plugin --profile web add .
 dsh web --profile web
 ```
 
-Open the DSH Web URL, select text in a finalized assistant reply, and choose **Add annotation**. Type in the compact input and use its check icon to create the draft. Drafts appear in the composer dock; review the grouped list, optionally add an overall requirement, then send the batch.
+Open the DSH Web URL and select text in a finalized assistant reply. The compact input opens immediately; type the comment and use its check icon to create the draft, or use X to cancel. Drafts appear in the composer dock; review the grouped list, optionally add an overall requirement, then send the batch.
 
 ### Install a GitHub release
 

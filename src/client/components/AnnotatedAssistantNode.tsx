@@ -1,13 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ImageGallery } from '@deepseek-ai/dsh-client-ui-attachment'
-import {
-  IconCheckOutline14,
-  IconCopyOutline16,
-  IconListPenOutline16,
-  JsonBlock,
-  MarkdownText,
-  Tooltip,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { JsonBlock, MarkdownText, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { stripModelAcknowledgementMarkers } from '../../shared/model-ack.ts'
 import type { AnnotationDraft, AnnotationId, MessageIdentity } from '../../shared/types.ts'
@@ -163,8 +156,6 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
 }: AssistantAnnotationProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
-  const [selection, setSelection] = useState<ReturnType<typeof captureSelection> | null>(null)
-  const [selectionCopyStatus, setSelectionCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [markerPositions, setMarkerPositions] = useState<ReadonlyMap<AnnotationId, MarkerPosition>>(
     () => new Map(),
   )
@@ -418,16 +409,12 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       const selected = window.getSelection()
       if (selected === null || selected.rangeCount === 0 || selected.isCollapsed) return
       const range = selected.getRangeAt(0)
-      if (!body.contains(range.startContainer)) return
-      if (!body.contains(range.endContainer)) {
-        setSelection(null)
-        return
-      }
+      if (!body.contains(range.startContainer) || !body.contains(range.endContainer)) return
       try {
-        setSelection(captureSelection(body, range, messageId, messageSeq))
-        setSelectionCopyStatus('idle')
+        beginSelection(captureSelection(body, range, messageId, messageSeq))
+        selected.removeAllRanges()
       } catch {
-        setSelection(null)
+        // Selections crossing ignored or non-text content do not create an editor.
       }
     }
     body.addEventListener('pointerup', capture)
@@ -436,39 +423,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       body.removeEventListener('pointerup', capture)
       body.removeEventListener('keyup', capture)
     }
-  }, [messageId, messageSeq])
-
-  const copySelection = useCallback(async () => {
-    if (selection === null) return
-    let copied = false
-    try {
-      await navigator.clipboard.writeText(selection.quote.exact)
-      copied = true
-    } catch {
-      const helper = document.createElement('textarea')
-      helper.value = selection.quote.exact
-      helper.setAttribute('readonly', '')
-      helper.style.position = 'fixed'
-      helper.style.opacity = '0'
-      document.body.append(helper)
-      helper.select()
-      try {
-        copied = document.execCommand('copy')
-      } catch {
-        copied = false
-      } finally {
-        helper.remove()
-      }
-    }
-    setSelectionCopyStatus(copied ? 'copied' : 'failed')
-  }, [selection])
-
-  const selectionCopyLabel =
-    selectionCopyStatus === 'copied'
-      ? t('selection.copied')
-      : selectionCopyStatus === 'failed'
-        ? t('selection.copyFailed')
-        : t('action.copy')
+  }, [beginSelection, messageId, messageSeq])
 
   const inspectPoint = (x: number, y: number): AnnotationDraft | undefined => {
     const body = bodyRef.current
@@ -541,48 +496,6 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
           </p>
         )}
       </div>
-      {selection !== null && (
-        <div
-          className="dia-selection-toolbar"
-          role="toolbar"
-          aria-label={t('selection.actions')}
-          style={{
-            top: Math.min(window.innerHeight - 48, selection.rect.bottom + 7),
-            left: Math.max(8, Math.min(window.innerWidth - 168, selection.rect.left)),
-          }}
-          onPointerDown={(event) => event.preventDefault()}
-        >
-          <button
-            type="button"
-            className="dia-selection-action"
-            onClick={() => {
-              beginSelection(selection)
-              setSelection(null)
-              window.getSelection()?.removeAllRanges()
-            }}
-          >
-            <IconListPenOutline16 size={14} />
-            {t('selection.add')}
-          </button>
-          <span className="dia-selection-divider" aria-hidden="true" />
-          <Tooltip label={selectionCopyLabel} side="top" delayMs={300}>
-            <button
-              type="button"
-              className="dia-selection-action dia-selection-action--icon"
-              data-copy-status={selectionCopyStatus}
-              aria-label={selectionCopyLabel}
-              aria-live="polite"
-              onClick={() => void copySelection()}
-            >
-              {selectionCopyStatus === 'copied' ? (
-                <IconCheckOutline14 size={14} />
-              ) : (
-                <IconCopyOutline16 size={14} />
-              )}
-            </button>
-          </Tooltip>
-        </div>
-      )}
       {annotations.length > 0 && (
         <nav className="dia-markers" aria-label={t('list.title')}>
           {annotations.map((annotation) => (
