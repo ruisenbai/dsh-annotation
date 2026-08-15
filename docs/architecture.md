@@ -60,7 +60,7 @@ The stable inbox/message id is `dsh-inline-annotations:<submissionId>`. Before a
 
 A match returns success without another enqueue. This is plugin-owned idempotency; DSH's generic prompt path does not provide an idempotency key. The Client freezes the complete payload after its first attempt. A transport retry reuses both payload and submission id.
 
-An item observed in `ConversationSnapshot.queue` may be withdrawn through `SessionFace.updateQueue(messageId, { kind: 'remove' })`. Withdrawal returns its annotations to editable drafts. A successful command response remains internally `accepted` until queue or durable history confirms its actual placement. For an archived-source submission, only the fork target may mirror an authoritative queue state back to the source; either side may mirror durable sent/processed state. Sent history is immutable; later clarification creates a new annotation with `supplementalTo`.
+An item observed in `ConversationSnapshot.queue` may be withdrawn through `SessionFace.updateQueue(messageId, { kind: 'remove' })`. Withdrawal returns its annotations to editable drafts. A successful command response remains internally `accepted` until queue or durable history confirms its actual placement. When a target snapshot stops listing an observed queue item before its durable message appears, its outbox returns to `accepted` so withdrawal disappears during the claim-to-history window. Archived-source mirrors follow the target's queue placement and departure; either side may mirror durable sent/processed state. Sent history is immutable; later clarification creates a new annotation with `supplementalTo`.
 
 ## Client state owner
 

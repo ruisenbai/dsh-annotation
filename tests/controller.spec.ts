@@ -38,7 +38,7 @@ function snapshot(nodes: unknown[] = [], queue: unknown[] = [], hasMore = false)
   } as unknown as ConversationSnapshot
 }
 
-function harness(memory = new MemoryStorage()) {
+function harness(memory = new MemoryStorage(), sessionId = 'session-test' as SessionIdentity) {
   const navigation = {
     state: { hasMore: false },
     getSnapshot() {
@@ -47,8 +47,8 @@ function harness(memory = new MemoryStorage()) {
     loadOlder: vi.fn(async () => undefined),
   }
   const controller = new AnnotationController(
-    'session-test' as SessionIdentity,
-    new AnnotationStorage(memory, 'session-test' as SessionIdentity),
+    sessionId,
+    new AnnotationStorage(memory, sessionId),
     navigation,
     DEFAULT_CONFIG,
     () => 1_700_000_000_000,
@@ -94,6 +94,12 @@ describe('annotation controller', () => {
     expect(controller.getSnapshot().outbox[0]?.status).toBe('queued')
     controller.markAccepted(entry.payload.submissionId)
     controller.markFailed(entry.payload.submissionId, 'late transport failure')
+    expect(controller.getSnapshot().outbox[0]?.status).toBe('queued')
+
+    controller.reconcile(snapshot([]))
+    expect(controller.getSnapshot().outbox[0]?.status).toBe('accepted')
+    expect(controller.getSnapshot().annotations[0]?.status).toBe('queued')
+    controller.reconcile(snapshot([], [{ messageId: entry.messageId }]))
     expect(controller.getSnapshot().outbox[0]?.status).toBe('queued')
 
     controller.reconcile(
@@ -307,11 +313,11 @@ describe('annotation controller', () => {
     expect(controller.getSnapshot().annotations[0]?.status).toBe('queued')
   })
 
-  it('mirrors authoritative queue, sent, and processed status from an archived fork target', () => {
-    const origin = harness().controller
-    const target = harness().controller
-    saveDraft(origin)
+  it('mirrors queue placement, departure, and durable status from an archived fork target', () => {
     const childSessionId = 'child-session' as SessionIdentity
+    const origin = harness().controller
+    const target = harness(new MemoryStorage(), childSessionId).controller
+    saveDraft(origin)
     const outbox = origin.createOutbox('queue', childSessionId)
     target.adoptOutbox(outbox)
     const annotationId = outbox.payload.annotations[0]!.annotationId
@@ -319,7 +325,7 @@ describe('annotation controller', () => {
     target.reconcile(snapshot([], [{ messageId: outbox.messageId }]))
     origin.syncSubmissionState(target.getSnapshot(), outbox.payload.submissionId, childSessionId)
     expect(origin.getSnapshot().outbox[0]?.status).toBe('queued')
-    const reconnectTarget = harness().controller
+    const reconnectTarget = harness(new MemoryStorage(), childSessionId).controller
     reconnectTarget.adoptOutbox(outbox)
     reconnectTarget.syncSubmissionState(
       origin.getSnapshot(),
@@ -327,6 +333,11 @@ describe('annotation controller', () => {
       'session-test' as SessionIdentity,
     )
     expect(reconnectTarget.getSnapshot().outbox[0]?.status).toBe('ready')
+
+    target.reconcile(snapshot([]))
+    expect(target.getSnapshot().outbox[0]?.status).toBe('accepted')
+    origin.syncSubmissionState(target.getSnapshot(), outbox.payload.submissionId, childSessionId)
+    expect(origin.getSnapshot().outbox[0]?.status).toBe('accepted')
 
     target.reconcile(
       snapshot([

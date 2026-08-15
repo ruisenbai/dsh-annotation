@@ -612,6 +612,9 @@ export class AnnotationController {
         const { lastError: _lastError, ...rest } = item
         return Object.freeze({ ...rest, status: 'queued' as const })
       }
+      if (item.status === 'queued' && item.targetSessionId === this.sessionId) {
+        return Object.freeze({ ...item, status: 'accepted' as const })
+      }
       return item
     })
     this.publish({
@@ -622,7 +625,7 @@ export class AnnotationController {
     })
   }
 
-  /** Mirror an authoritative target queue or durable status for one archived-source submission. */
+  /** Mirror target-owned queue placement or departure, plus durable status, for an archived submission. */
   syncSubmissionState(
     source: AnnotationView,
     submissionId: SubmissionId,
@@ -644,17 +647,21 @@ export class AnnotationController {
       return Object.freeze({ ...item, status, updatedAt: this.now() })
     })
     const sourceOutbox = source.outbox.find((item) => item.payload.submissionId === submissionId)
+    const sourceOwnsTarget = sourceOutbox?.targetSessionId === sourceSessionId
     const mirroredOutboxStatus =
       sourceOutbox?.status === 'sent'
         ? ('sent' as const)
-        : sourceOutbox?.status === 'queued' && sourceOutbox.targetSessionId === sourceSessionId
+        : sourceOutbox?.status === 'queued' && sourceOwnsTarget
           ? ('queued' as const)
-          : null
+          : sourceOutbox?.status === 'accepted' && sourceOwnsTarget
+            ? ('accepted' as const)
+            : null
     const outbox = this.view.outbox.map((item) => {
       if (item.payload.submissionId !== submissionId || mirroredOutboxStatus === null) return item
       if (
         item.status === mirroredOutboxStatus ||
-        (mirroredOutboxStatus === 'queued' && (item.status === 'sent' || item.status === 'withdrawn'))
+        (mirroredOutboxStatus === 'queued' && (item.status === 'sent' || item.status === 'withdrawn')) ||
+        (mirroredOutboxStatus === 'accepted' && item.status !== 'queued')
       ) {
         return item
       }
