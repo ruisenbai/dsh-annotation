@@ -6,16 +6,29 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ### Added
 
+- A paperclip toggle in the annotation header that arms the current Session's official composer without expanding the list or sending. Armed annotations follow the live unsent set until the official submit.
+- One official composer submission containing ordinary text plus structured annotations, driven by the official Enter key and Send button. Annotation-only submission is allowed when the composer text is empty.
+- One-time migration of the removed plugin-owned overall-request text into the official composer on the first successful attachment.
+- Explicit refusal of mixed image and annotation drafts because DSH command claims do not carry composer image ids.
 - Immediate annotation-input opening after selecting assistant reply text, without an intermediate action menu.
 - A direct annotation input with icon-only Cancel and Save actions, 400 ms local autosave, empty outside-click dismissal, and red shake feedback when dirty input requires a decision.
-- Draft, delivery-outcome/retry, authoritative queue, and sent list groups with official state dots, two-line rows, deletion undo, local-data export, draft clearing, and storage-usage feedback.
+- Draft, attachable, delivery-outcome/retry, authoritative queue, and sent list groups with official state dots, two-line rows, deletion undo, local-data export, draft clearing, and storage-usage feedback.
 - Official DSH buttons, icons, tooltips, and Toasts for plugin actions and submission results, with the original Lucide MapPin retained for Locate source.
 - Web-native assistant flow, reasoning disclosure, stopped marker, composer geometry, 28 px icon-action targets, semantic colors, form typography, floating surfaces, and user-message bubbles while preserving the established Locate source glyph.
-- Counted submission actions, task-state destination notices, and authoritative accepted/queued/sent transitions that expose withdrawal only for an observed queue item.
 - Complete-line marker anchoring, an overflow-safe mobile gutter, ascending same-row order, and animation-frame-coalesced measurement.
 - Exact marker-line centering in the active container or window viewport during source navigation, including CSS zoom correction, reduced-motion behavior, and a stale-selector marker fallback.
-- Unit and real Chromium coverage for compact editing, autosave, mobile and zoom layout, dark mode, reasoning disclosure, and source location.
+- Unit and real Chromium coverage for compact editing, autosave, mobile and zoom layout, dark mode, reasoning disclosure, attach toggle, official composer submission, and source location.
 - GitHub-ready repository metadata and CI.
+
+### Changed
+
+- The plugin no longer renders an overall-requirement textarea, destination notices, or its own send/retry button. The official composer is the only task input and submit surface.
+- `overallRequirement` now carries the official composer text at submit time; submitted history renders it as the ordinary user-message text above the folded annotation card.
+- Attachment retry reuses the immutable submission id and payload through the official composer.
+
+### Removed
+
+- Archived-session fork-on-send behavior: archived tasks have no active composer and cannot arm annotations.
 
 ### Fixed
 

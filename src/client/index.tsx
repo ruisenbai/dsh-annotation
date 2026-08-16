@@ -1,18 +1,25 @@
 /** Browser half: selection capture, durable provenance cards, and local draft recovery. */
 
 import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {
+  CommandClaim,
+  InputTriggerServiceContract,
+  SubmitOutcome,
+} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
-import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { resolveConfig } from '../shared/config.ts'
 import { encodeSubmissionCommand } from '../shared/codec.ts'
-import type {
-  AnnotationConfig,
-  DeliveryMode,
-  MessageIdentity,
-  SessionIdentity,
-  SubmissionId,
-} from '../shared/types.ts'
+import type { AnnotationConfig, MessageIdentity, SessionIdentity, SubmissionId } from '../shared/types.ts'
+import {
+  attachComposer,
+  COMPOSER_ATTACHMENT_TOKEN,
+  detachComposer,
+  hasComposerAttachment,
+  mergeLegacyRequirement,
+  serializeComposerRequirement,
+} from './composer-attachment.ts'
 import { AnnotationController } from './controller.ts'
 import type { AnnotationInjected, UserAnnotationProps } from './contract.ts'
 import { HighlightManager } from './highlight.ts'
@@ -27,7 +34,7 @@ import { AssistantAnnotationAction } from './components/AssistantAnnotationActio
 import { HiddenCommandRow } from './components/HiddenCommandRow.tsx'
 
 const NS = 'inlineAnnotations'
-export const inject = ['slots', 'sessions', 'locale']
+export const inject = ['slots', 'sessions', 'locale', 'conversation', 'inputTriggers']
 
 function UserNode(props: UserAnnotationProps<'user'>) {
   return <AnnotatedUserNode {...props} />
@@ -62,6 +69,8 @@ function transportMessage(result: unknown): string {
 export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): void {
   const config = resolveConfig(input)
   const sessions = ctx.sessions as unknown as ISessions
+  const conversation = ctx.conversation as unknown as IConversation
+  const inputTriggers = ctx.inputTriggers as unknown as InputTriggerServiceContract
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-inline-annotations: dictionaries')
   ctx.effect(() => {
     const style = document.createElement('style')
@@ -187,42 +196,16 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     return controller
   }
 
-  const send = async (
-    origin: AnnotationController,
-    archived: boolean,
-    delivery: DeliveryMode,
-  ): Promise<void> => {
-    const retry = origin
-      .getSnapshot()
-      .outbox.find((item) => item.status === 'failed' || item.status === 'ready')
-    const draftCount = origin.getSnapshot().annotations.filter((item) => item.status === 'draft').length
+  const submitAttached = async (origin: AnnotationController, overallRequirement: string): Promise<void> => {
+    const snapshot = origin.getSnapshot()
+    const retry = snapshot.outbox.find((item) => item.status === 'failed' || item.status === 'ready')
+    const draftCount = snapshot.annotations.filter((item) => item.status === 'draft').length
     if (retry === undefined && draftCount > config.maxAnnotationsPerSubmission) {
       origin.setNotice('error', 'items')
       throw new Error(`annotation batch exceeds ${config.maxAnnotationsPerSubmission} annotations`)
     }
-    let targetId = retry?.targetSessionId as unknown as SessionId | undefined
-    if (targetId === undefined) {
-      targetId = origin.sessionId as unknown as SessionId
-      if (archived) {
-        const draftSeqs = origin
-          .getSnapshot()
-          .annotations.filter((item) => item.status === 'draft')
-          .map((item) => item.messageSeq)
-        const atSeq = draftSeqs.length === 0 ? undefined : Math.max(...draftSeqs)
-        try {
-          targetId = await sessions.fork({
-            sessionId: targetId,
-            ...(atSeq === undefined ? {} : { atSeq }),
-            increaseTitle: true,
-          })
-        } catch (cause: unknown) {
-          const message = failureMessage(cause)
-          origin.setNotice('error', message)
-          throw cause instanceof Error ? cause : new Error(message)
-        }
-      }
-    }
-    const entry = origin.createOutbox(delivery, targetId as unknown as SessionIdentity)
+    const targetId = (retry?.targetSessionId ?? origin.sessionId) as unknown as SessionId
+    const entry = origin.createOutbox('queue', targetId as unknown as SessionIdentity, overallRequirement)
     const target = targetId === (origin.sessionId as unknown as SessionId) ? origin : controllerFor(targetId)
     if (target !== origin) {
       target.adoptOutbox(entry)
@@ -248,7 +231,6 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       if (target !== origin) target.markFailed(entry.payload.submissionId, message)
       throw new Error(message)
     }
-    if (archived) sessions.open(targetId)
     origin.markSending(entry.payload.submissionId)
     if (target !== origin) target.markSending(entry.payload.submissionId)
     let result: Awaited<ReturnType<typeof binding.session.command>>
@@ -301,6 +283,74 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     if (target !== undefined && target !== origin) target.markWithdrawn(submissionId)
   }
 
+  const claimFor = (sessionId: SessionId, imageError: string): CommandClaim =>
+    Object.freeze({
+      token: COMPOSER_ATTACHMENT_TOKEN,
+      async submit(_args: string, actx: ClientContext): Promise<SubmitOutcome> {
+        if (sessions.scopeOf(actx) !== sessionId) {
+          return { kind: 'error', text: 'Annotation attachment belongs to another Session.' }
+        }
+        const input = conversation.input.for(actx)
+        const state = input.state.getSnapshot()
+        if (state.imageIds.length > 0) return { kind: 'error', text: imageError }
+        const serialization = new AbortController()
+        try {
+          const overallRequirement = await serializeComposerRequirement(
+            state,
+            inputTriggers.sessionOf(actx),
+            serialization.signal,
+          )
+          await submitAttached(controllerFor(sessionId), overallRequirement)
+          return { kind: 'success' }
+        } catch (cause: unknown) {
+          return { kind: 'error', text: failureMessage(cause) }
+        } finally {
+          serialization.abort()
+        }
+      },
+    })
+
+  const toggleComposerAttachment = (sessionId: SessionId, imageError: string): boolean => {
+    const binding = sessions.binding(sessionId)
+    if (binding === undefined) return false
+    const controller = controllerFor(sessionId)
+    const input = conversation.input.for(binding.ctx)
+    const state = input.state.getSnapshot()
+    if (hasComposerAttachment(state)) return detachComposer(binding.ctx, input)
+    if (state.phase !== 'plain') return false
+    if (state.imageIds.length > 0) {
+      input.notify('error', imageError)
+      return false
+    }
+    const snapshot = controller.getSnapshot()
+    const retry = snapshot.outbox.some((item) => item.status === 'failed' || item.status === 'ready')
+    if (!retry && !snapshot.annotations.some((item) => item.status === 'draft')) return false
+    const legacy = snapshot.overallRequirementDraft
+    if (legacy.trim() !== '') input.setDraft(mergeLegacyRequirement(state.draft, legacy))
+    const attached = attachComposer(binding.ctx, input, claimFor(sessionId, imageError))
+    if (attached && legacy.trim() !== '') controller.setOverallRequirementDraft('')
+    return attached
+  }
+
+  const repairComposerAttachment = (sessionId: SessionId, imageError: string): void => {
+    const binding = sessions.binding(sessionId)
+    if (binding === undefined) return
+    const controller = controllerFor(sessionId)
+    const input = conversation.input.for(binding.ctx)
+    const state = input.state.getSnapshot()
+    const snapshot = controller.getSnapshot()
+    const attachable =
+      snapshot.outbox.some((item) => item.status === 'failed' || item.status === 'ready') ||
+      snapshot.annotations.some((item) => item.status === 'draft')
+    if (!attachable && hasComposerAttachment(state)) {
+      detachComposer(binding.ctx, input)
+      return
+    }
+    if (attachable && state.phase === 'plain' && state.draft.startsWith(COMPOSER_ATTACHMENT_TOKEN)) {
+      attachComposer(binding.ctx, input, claimFor(sessionId, imageError))
+    }
+  }
+
   const faceFor = (sessionId: SessionId): AnnotationInjected => {
     const controller = controllerFor(sessionId)
     return {
@@ -317,8 +367,8 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       exportLocalData: () => controller.exportLocalData(),
       clearLocalDrafts: () => controller.clearLocalDrafts(),
       setPanelOpen: (open) => controller.setPanelOpen(open),
-      setOverallRequirementDraft: (value) => controller.setOverallRequirementDraft(value),
-      submit: (archived, delivery) => send(controller, archived, delivery),
+      toggleComposerAttachment: (imageError) => toggleComposerAttachment(sessionId, imageError),
+      repairComposerAttachment: (imageError) => repairComposerAttachment(sessionId, imageError),
       withdraw: (submissionId) => withdraw(controller, submissionId),
       navigate: (annotationId) => controller.navigate(annotationId),
       annotateMessage: (messageId) => controller.annotateMessage(messageId),

@@ -432,7 +432,11 @@ export class AnnotationController {
     this.publish({ ...this.view, notice: null }, false)
   }
 
-  createOutbox(delivery: DeliveryMode, targetSessionId: SessionIdentity): OutboxEntry {
+  createOutbox(
+    delivery: DeliveryMode,
+    targetSessionId: SessionIdentity,
+    overallRequirement = '',
+  ): OutboxEntry {
     const retry = this.view.outbox.find((item) => item.status === 'failed' || item.status === 'ready')
     if (retry !== undefined) return retry
     const drafts = sortAnnotations(this.view.annotations.filter((item) => item.status === 'draft'))
@@ -451,7 +455,7 @@ export class AnnotationController {
         createdAt: item.createdAt,
       }),
     )
-    const overall = this.view.overallRequirementDraft.trim()
+    const overall = overallRequirement.trim()
     const payload: AnnotationSubmissionPayload = Object.freeze({
       protocolVersion: PROTOCOL_VERSION,
       submissionId,

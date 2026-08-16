@@ -5,25 +5,25 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%5E22.19%20%7C%7C%20%3E%3D24-43853d.svg)](package.json)
 
-A GitHub-ready DeepSeek Harness plugin for reviewing assistant replies in place. Select exact reply text, attach comments or requirements, keep several annotations as editable drafts, and submit one idempotent batch to the current task.
+A standalone DeepSeek Harness plugin for reviewing assistant replies in place. Select exact reply text, keep several comments as editable drafts, attach them to the official composer, and submit one idempotent task containing composer text plus structured annotations.
 
-> **Compatibility:** this project targets DeepSeek Harness `0.1.0-rc.5` and `0.1.0-rc.6`. DSH is pre-release software. The plugin must shadow three shipped conversation renderers because DSH does not yet expose an inline assistant-body slot. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
+> **Compatibility:** this project requires DeepSeek Harness `0.1.0-rc.6` or a later `0.1.x` prerelease. DSH is pre-release software. The plugin must shadow three shipped conversation renderers because DSH does not yet expose an inline assistant-body slot. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
 
 ## Features
 
 - Select text inside one finalized assistant reply to open the annotation input immediately, without an intermediate action menu or click.
 - Type directly in the compact selection-positioned input with icon-only Cancel and Save actions. An empty outside click closes it; a dirty outside click keeps it open, turns the input red, and shakes it until one action is chosen.
 - Autosave unfinished editor text after 400 ms, display its local-save state, and restore it after a refresh without treating it as a submitted annotation.
-- Group two-line rows into ready, delivery-outcome/retry, authoritatively queued, and sent sections; use official DSH buttons, state dots, icons, tooltips, and Toasts.
+- Group two-line rows into ready-to-attach, delivery-outcome/retry, authoritatively queued, and sent sections; use official DSH buttons, state dots, icons, tooltips, and Toasts.
+- Toggle the paperclip in the annotation header without expanding or sending. Armed annotations follow the live draft set until the official composer submits.
+- Use the official composer as the only task input and Send surface. Ordinary text plus annotations, or annotations alone, produce one task and one model execution.
 - Match the official Web assistant flow, reasoning disclosure, stopped marker, composer docks, icon-action geometry, form typography, semantic colors, floating surfaces, and user-message bubbles while retaining the original map-pin glyph for Locate source.
 - Undo one draft deletion, export current-Session recovery JSON, clear unsubmitted drafts, and inspect local storage usage from the composer list.
 - Preserve the exact quote, prefix/suffix selector, assistant message id, event sequence, annotation id, and submission id.
 - Capture language and line coordinates for code, or row/column coordinates for tables.
 - Merge overlapping selections into the existing draft instead of stacking ambiguous highlights.
-- Route an idle submission to the next turn, inject into a running task at its next safe step, or queue behind a blocking confirmation.
-- Show the batch size in the submission action and explain its destination beside the button for idle, running, waiting, archived, and retry states.
+- Preserve the official composer's submission policy; annotation command admission uses one idempotent queued user message.
 - Report authoritative queue, durable send, and retryable failure outcomes through distinct DSH Toasts; withdrawal appears only while the batch remains in the observed queue.
-- Copy archived-session context into a new task before submitting.
 - Render submitted annotation batches as collapsed timeline cards with source navigation.
 - Place numbered markers after the complete endpoint line, reserve an overflow-safe gutter, retain ascending order, and coalesce layout updates across reasoning disclosure, viewport, font, and zoom changes.
 - Center the exact numbered-marker line in the active conversation or window viewport when locating source text, including CSS zoom correction.
@@ -51,7 +51,7 @@ dsh plugin --profile web add .
 dsh web --profile web
 ```
 
-Open the DSH Web URL and select text in a finalized assistant reply. The compact input opens immediately; type the comment and use its check icon to create the draft, or use X to cancel. Drafts appear in the composer dock; review the grouped list, optionally add an overall requirement, then send the batch.
+Open the DSH Web URL and select text in a finalized assistant reply. The compact input opens immediately; type the comment and use its check icon to create the draft, or use X to cancel. Drafts appear above the official composer. Click the paperclip in the annotation header, enter any task text in the official composer, and use its normal Enter key or Send button. The paperclip also enables an annotation-only submission when the composer text is empty.
 
 ### Install a GitHub release
 
@@ -72,16 +72,13 @@ Replace `YOUR_ORG` in this README and `package.json` before publishing your fork
 
 ## Delivery behavior
 
-| Session state                 | Counted action                         | Destination notice                      | Host action                                                         |
-| ----------------------------- | -------------------------------------- | --------------------------------------- | ------------------------------------------------------------------- |
-| Idle                          | Send N annotations to task             | Sending starts the task                 | `Agent.followup()` starts the next turn                             |
-| Running                       | Send N annotations to current task     | Enters at the next safe execution point | `Agent.steer()` admits the batch at the next safe step              |
-| Waiting for approval/question | Queue N annotations after confirmation | Queues after confirmation completes     | `Agent.followup()` waits for the next turn                          |
-| Archived                      | Copy and send N annotations            | Copies into a new task                  | `ISessions.fork()` creates and opens a child, then queues the batch |
+The paperclip has two states. Unarmed annotations remain browser-local and editable. Armed annotations follow the live unsent set: edits, deletions, and new drafts apply until the official composer submits. The submit transaction then freezes one immutable payload, clears the official draft only after command success, and leaves later annotations for the next task. Clicking the paperclip again detaches without changing text, cursor position, or panel expansion.
 
-Transport acceptance is not presented as queue admission. The queued Toast appears only after `ConversationSnapshot.queue` contains the stable message id, and its withdrawal control remains available only in that state. A durable `user/message` changes the result to sent and removes withdrawal. A failed Toast retains and names the original immutable submission id for retry.
+Transport acceptance is not presented as queue admission. The queued Toast appears only after `ConversationSnapshot.queue` contains the stable message id, and its withdrawal control remains available only in that state. A durable `user/message` changes the result to sent and removes withdrawal. A failed transaction retains the official draft, armed state, immutable payload, and submission id for retry.
 
-A network error leaves the immutable payload and submission id available for retry; a page reload during an uncertain send restores the same batch as retryable. Once the standard `user/message` event exists, its history is not edited; a later clarification becomes a new draft linked to the earlier annotation.
+Existing values written into the removed plugin-owned overall-request field migrate into the official composer on the first successful attachment. The value is cleared from plugin storage only after the composer accepts the claim.
+
+The current DSH command submit API does not expose official composer image ids. The plugin therefore refuses attachment while images are present and refuses a mixed submission if images are added after arming. It does not discard either image or annotation drafts.
 
 ## States
 
@@ -108,12 +105,12 @@ Changing `commandName` must change the same dual-face row used by Host and Clien
 
 ## Privacy and persistence
 
-Unsent quotes, comments, unfinished editor text, and retry records stay in `localStorage` under `dsh-inline-annotations:v1:<session-id>`. The visible key remains `v1` while its validated value uses `storageVersion: 2`; version-one values migrate on read. Local data is not sent to the Host or model until the user submits. Submitted quotes and comments become part of the current Session log and model context. The plugin has no analytics, telemetry, or external network client. See [Privacy](docs/privacy.md).
+Unsent quotes, comments, unfinished editor text, and retry records stay in `localStorage` under `dsh-inline-annotations:v1:<session-id>`. The visible key remains `v1` while its validated value uses `storageVersion: 2`; version-one values migrate on read. Local data is not sent to the Host or model until the user submits through the official composer. Submitted quotes and comments become part of the current Session log and model context. The plugin has no analytics, telemetry, or external network client. See [Privacy](docs/privacy.md).
 
 ## Model experience
 
 - **Before submission:** no prompt, token, or KV-cache effect.
-- **On submission:** one standard user message contains the complete batch, stable ids, source quotes, comments, structural coordinates, and optional overall requirement.
+- **On submission:** one standard user message contains the official composer text, complete annotation batch, stable ids, source quotes, comments, and structural coordinates.
 - **Acknowledgement request:** the message asks the model to append one hidden marker listing only annotations it actually handled. The Client strips that marker before rendering while retaining the raw model text for replay.
 - **Tokens:** cost scales with the complete selected text and comments; the plugin does not truncate them. The byte limit rejects oversized batches before admission.
 - **KV cache:** steering or follow-up input changes subsequent model context like any other user message.
@@ -140,7 +137,8 @@ The CI workflow runs type checking, linting, unit tests, a real Chromium regress
 - DSH has no public slot inside assistant Markdown. This plugin replaces the `assistant-step`, `user`, and `steering` keyed renderer cells at priority `-100`; upstream renderer changes require a compatibility review.
 - Browser-local drafts do not synchronize between devices or browser profiles. Sent batches reconstruct from the Session log on any client.
 - The machine acknowledgement is cooperative. If the model omits or corrupts it, annotations remain `sent` rather than being guessed as processed.
-- DSH currently exposes archive as a presentation state without an unarchive operation. The plugin offers the safe supported path: fork to a new task.
+- Archived tasks have no active composer and cannot arm annotations. Create annotations in an editable task.
+- DSH command claims do not carry composer image ids, so images and inline annotations cannot share one submission yet.
 - CSS Custom Highlights are browser-dependent. Numbered markers and timeline navigation remain available without them.
 - A selection must stay within one assistant reply. Cross-message selections are rejected.
 - DSH has no private command-registration flag, so the validated internal transport command may appear in slash-command discovery.

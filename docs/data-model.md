@@ -54,7 +54,7 @@
 }
 ```
 
-`delivery` is `queue` or `steer`. Annotation ordinals must be contiguous from 1, annotation ids must be unique, and the array must not be empty.
+`overallRequirement` carries the official composer text captured at submit time; it is omitted for annotation-only submissions. `delivery` is `queue`. Annotation ordinals must be contiguous from 1, annotation ids must be unique, and the array must not be empty.
 
 ## Browser persistence
 
@@ -70,14 +70,14 @@ interface PersistedSessionState {
 }
 ```
 
-`editorDraft` contains the serializable selection capture, current text, long-selection decision, and optional supplemental target. The controller writes nonblank editor text after 400 ms and removes it when Cancel or Save closes the editor. The `localStorage` key retains its `v1` prefix; version-one values migrate to this value format when read.
+`editorDraft` contains the serializable selection capture, current text, long-selection decision, and optional supplemental target. The controller writes nonblank editor text after 400 ms and removes it when Cancel or Save closes the editor. The `localStorage` key retains its `v1` prefix; version-one values migrate to this value format when read. A legacy plugin-owned `overallRequirementDraft` value migrates once into the official composer on the first successful attachment and is then cleared from plugin storage.
 
 An outbox entry contains the immutable payload, target Session id, deterministic message id, attempt count, and status. An invalid optional `editorDraft` is omitted so valid drafts and immutable retry records can still recover. Invalid core arrays, provenance, or unsupported versions are not partially trusted; the Client starts with an empty state and shows a storage warning.
 
 ## Annotation state transitions
 
 ```text
-                 explicit submit
+             official composer submit
        ┌────────────────────────────────┐
        │                                ▼
      draft ──────────────────────────> queued
@@ -109,9 +109,9 @@ ready/queued -> withdrawn (only after successful queue removal)
 queued -> accepted (queue was claimed before durable history became visible)
 ```
 
-`accepted` records a successful command response without claiming that the authoritative Inbox contains the batch. `queued` requires the stable message id in the target Session's current `ConversationSnapshot.queue`; only this state exposes withdrawal. When that snapshot stops listing the message before durable history becomes visible, the target and any archived-source mirror return to `accepted`. A queue-removal response that reports an already claimed item forces the same reconciliation immediately. `sent` requires the durable annotation `user/message`, and neither a late transport success nor a late transport failure can demote either authoritative state.
+`accepted` records a successful command response without claiming that the authoritative Inbox contains the batch. `queued` requires the stable message id in the target Session's current `ConversationSnapshot.queue`; only this state exposes withdrawal. When that snapshot stops listing the message before durable history becomes visible, the target returns to `accepted`. A queue-removal response that reports an already claimed item forces the same reconciliation immediately. `sent` requires the durable annotation `user/message`, and neither a late transport success nor a late transport failure can demote either authoritative state.
 
-A client-side item-count or size rejection occurs before any Host call and leaves new annotations as drafts. A transport failure is ambiguous and therefore remains retryable with the same id. Loading a persisted `sending` or still-unobserved `accepted` entry converts it to `failed`, preserving the frozen payload after a refresh or tab crash and making the same id retryable. Host deduplication resolves a retry that arrived after an unseen successful admission.
+A client-side item-count or size rejection occurs before any Host call and leaves new annotations as drafts. A transport failure is ambiguous and therefore remains retryable with the same id: the official composer draft and armed attachment stay in place. Loading a persisted `sending` or still-unobserved `accepted` entry converts it to `failed`, preserving the frozen payload after a refresh or tab crash and making the same id retryable. Host deduplication resolves a retry that arrived after an unseen successful admission.
 
 ## Processed marker
 

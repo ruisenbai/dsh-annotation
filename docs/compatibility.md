@@ -4,7 +4,7 @@
 
 | Component                | Supported baseline                                                                  |
 | ------------------------ | ----------------------------------------------------------------------------------- |
-| DeepSeek Harness         | `>=0.1.0-rc.5 <0.2.0`                                                               |
+| DeepSeek Harness         | `>=0.1.0-rc.6 <0.2.0`                                                               |
 | Development declarations | `0.1.0-rc.6`                                                                        |
 | Cordis                   | `^4.0.1`                                                                            |
 | Node.js                  | `^22.19.0` or `>=24`                                                                |
@@ -25,6 +25,8 @@ A DSH upgrade is compatible only if the public owner props, `AssistantChatData`,
 
 The internal command is registered through the public command registry. DSH currently has no non-discoverable command flag, so the transport command can appear in slash-command discovery. Invoking it manually without a valid payload fails validation and does not reach the model.
 
+Composer attachment relies on the `inputTriggers` service and its scoped `slash/input-begin-command` / `slash/input-consume-token` events. An upgrade is compatible only while those bail events keep their current claim-and-span semantics and the input machine keeps accepting a claimed token at draft position zero.
+
 ## Upgrade checklist
 
 1. Update all `@deepseek-ai/dsh-*` development dependencies to one release.
@@ -32,7 +34,7 @@ The internal command is registered through the public command registry. DSH curr
 3. Run `pnpm verify` and `pnpm pack`.
 4. Install the tarball into a disposable DSH Web profile.
 5. Verify finalized Markdown, code, tables, images, reasoning, file mentions, streaming completion, and interruption rendering.
-6. Exercise idle, running, blocking confirmation, withdrawal, transport retry, refresh recovery, and archived-session fork flows.
+6. Exercise idle, running, blocking confirmation, withdrawal, transport retry, refresh recovery, attach/detach, annotation-only submission, and legacy overall-requirement migration.
 7. Confirm the Slot ledger still selects the plugin's three `-100` entries and restores shipped entries after unload.
 8. Record the verified DSH version in this file and the changelog.
 

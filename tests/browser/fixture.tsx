@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AnnotatedAssistantNode } from '../../src/client/components/AnnotatedAssistantNode.tsx'
 import { AnnotationDock } from '../../src/client/components/AnnotationDock.tsx'
@@ -9,7 +9,8 @@ import { en } from '../../src/client/locales.ts'
 import { AnnotationStorage } from '../../src/client/storage.ts'
 import { styles } from '../../src/client/styles.ts'
 import { DEFAULT_CONFIG } from '../../src/shared/config.ts'
-import type { DeliveryMode, MessageIdentity, SessionIdentity } from '../../src/shared/types.ts'
+import type { MessageIdentity, SessionIdentity } from '../../src/shared/types.ts'
+import { COMPOSER_ATTACHMENT_TOKEN } from '../../src/client/composer-attachment.ts'
 import type { SelectionCapture } from '../../src/client/selection.ts'
 
 const MESSAGE_ID = 'browser-assistant-message' as MessageIdentity
@@ -104,6 +105,8 @@ body { margin: 0; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-l
 .browser-scroller { height: 360px; overflow-y: auto; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; padding: 0 14px; }
 .browser-spacer { height: 390px; }
 .browser-controls { display: flex; gap: 8px; margin: 12px 0; }
+.browser-composer { display: flex; gap: 8px; margin-top: 8px; padding: 10px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 14px; background: var(--dsw-alias-bg-layer-1); }
+.browser-composer textarea { min-height: 56px; flex: 1; resize: vertical; border: 0; background: transparent; color: inherit; font: inherit; }
 `
 
 function translate(key: keyof typeof en, params?: Record<string, unknown>): string {
@@ -127,6 +130,8 @@ function Fixture() {
     )
   }, [])
   const view = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
+  const [composerText, setComposerText] = useState('')
+  const [attached, setAttached] = useState(false)
   useEffect(() => () => controller.dispose(), [controller])
 
   const useAnnotations = useCallback(
@@ -147,8 +152,9 @@ function Fixture() {
       controller.saveEditor()
     })
   }
-  const submit = async (_archived: boolean, delivery: DeliveryMode) => {
-    const entry = controller.createOutbox(delivery, SESSION_ID)
+  const submitComposer = () => {
+    if (!attached) return
+    const entry = controller.createOutbox('queue', SESSION_ID, composerText)
     controller.markSending(entry.payload.submissionId)
     controller.markAccepted(entry.payload.submissionId)
     controller.reconcile({
@@ -156,6 +162,8 @@ function Fixture() {
       queue: [{ messageId: entry.messageId }],
       hasMore: false,
     } as never)
+    setAttached(false)
+    setComposerText('')
   }
   const settleSent = () => {
     const entry = controller.getSnapshot().outbox.find((item) => item.status === 'queued')
@@ -180,9 +188,11 @@ function Fixture() {
     controller.beginSelection(captureFor('omega'))
     controller.updateEditorText('Browser retry annotation')
     controller.saveEditor()
-    const entry = controller.createOutbox('queue', SESSION_ID)
+    const entry = controller.createOutbox('queue', SESSION_ID, 'Retry this batch.')
     controller.markSending(entry.payload.submissionId)
     controller.markFailed(entry.payload.submissionId, 'fixture transport failure')
+    setComposerText('Retry this batch.')
+    setAttached(true)
   }
   const registerEndpoint = (messageId: MessageIdentity, endpoint: AnnotationEndpoint) =>
     controller.registerEndpoint(messageId, endpoint)
@@ -201,8 +211,11 @@ function Fixture() {
     exportLocalData: controller.exportLocalData.bind(controller),
     clearLocalDrafts: controller.clearLocalDrafts.bind(controller),
     setPanelOpen: controller.setPanelOpen.bind(controller),
-    setOverallRequirementDraft: controller.setOverallRequirementDraft.bind(controller),
-    submit,
+    toggleComposerAttachment: () => {
+      setAttached((current) => !current)
+      return true
+    },
+    repairComposerAttachment: () => undefined,
     withdraw: async (submissionId: Parameters<AnnotationController['markWithdrawn']>[0]) => {
       controller.markWithdrawn(submissionId)
     },
@@ -238,6 +251,15 @@ function Fixture() {
     ...shared,
     sessionId: SESSION_ID,
     session: { pending: [], running: false },
+    input: {
+      draft: attached ? COMPOSER_ATTACHMENT_TOKEN + composerText : composerText,
+      imageIds: [],
+      draftRev: 1,
+      phase: attached ? 'claimed' : 'plain',
+      ...(attached ? { claim: { token: COMPOSER_ATTACHMENT_TOKEN } } : {}),
+      occurrences: [],
+      queue: [],
+    },
     useWorkspaces,
     t,
   }
@@ -263,6 +285,26 @@ function Fixture() {
         </button>
       </div>
       <AnnotationDock {...(dockProps as unknown as InputAnnotationProps)} />
+      <div className="browser-composer" data-composer-card>
+        <textarea
+          aria-label="Official composer"
+          value={composerText}
+          onChange={(event) => setComposerText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || event.shiftKey) return
+            event.preventDefault()
+            submitComposer()
+          }}
+        />
+        <button
+          type="button"
+          aria-label="Send official task"
+          disabled={!attached && composerText.trim() === ''}
+          onClick={submitComposer}
+        >
+          Send
+        </button>
+      </div>
     </main>
   )
 }

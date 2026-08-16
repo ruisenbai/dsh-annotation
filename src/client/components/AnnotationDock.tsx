@@ -11,10 +11,9 @@ import {
   IconDownloadOutline16,
   IconEditOutline16,
   IconListPenOutline16,
+  IconPaperclipOutline16,
   IconPlusOutline16,
   IconQueueOutline14,
-  IconRefreshOutline14,
-  IconSendOutline14,
   IconTrashOutline16,
   IconWarningOutline16,
   StateDot,
@@ -28,11 +27,11 @@ import { createPortal } from 'react-dom'
 import type {
   AnnotationId,
   AnnotationStatus,
-  DeliveryMode,
   OutboxEntry,
   OutboxStatus,
   SubmissionId,
 } from '../../shared/types.ts'
+import { COMPOSER_ATTACHMENT_TOKEN, hasComposerAttachment } from '../composer-attachment.ts'
 import type { AnnotationBoundProps, InputAnnotationProps } from '../contract.ts'
 import type { AnnotationView, EditorState } from '../controller.ts'
 import { MapPin } from '../icons.ts'
@@ -326,32 +325,12 @@ function AnnotationRow({
   )
 }
 
-type LocaleKey = Parameters<InputAnnotationProps['t']>[0]
-
-interface SendDisposition {
-  readonly delivery: DeliveryMode
-  readonly label: LocaleKey
-  readonly detail: LocaleKey
-}
-
-function sendDisposition(session: InputAnnotationProps['session'], archived: boolean): SendDisposition {
-  if (archived) {
-    return { delivery: 'queue', label: 'send.archived', detail: 'send.destination.archived' }
-  }
-  if (session.pending.length > 0) {
-    return { delivery: 'queue', label: 'send.approval', detail: 'send.destination.approval' }
-  }
-  if (session.running) {
-    return { delivery: 'steer', label: 'send.running', detail: 'send.destination.running' }
-  }
-  return { delivery: 'queue', label: 'send.idle', detail: 'send.destination.idle' }
-}
-
 function noticeText(text: string, t: InputAnnotationProps['t']): string {
   if (text === 'storage') return t('error.storage')
   if (text === 'locate') return t('error.locate')
   if (text === 'payload') return t('error.payload')
   if (text === 'items') return t('error.items')
+  if (text === 'images') return t('error.images')
   return text
 }
 
@@ -503,24 +482,26 @@ function AnnotationGroup({
 function AnnotationPanel({
   view,
   archived,
+  attached,
+  attachmentDisabled,
+  attachmentLabel,
+  onToggleAttachment,
   t,
-  session,
   shellRef,
   ...actions
 }: {
   view: AnnotationView
   archived: boolean
+  attached: boolean
+  attachmentDisabled: boolean
+  attachmentLabel: string
+  onToggleAttachment: () => void
   t: InputAnnotationProps['t']
-  session: InputAnnotationProps['session']
   shellRef: RefObject<HTMLElement>
 } & Omit<AnnotationBoundProps, 'useAnnotations'>) {
-  const [submitting, setSubmitting] = useState(false)
-  const [submittingCount, setSubmittingCount] = useState<number | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportState, setExportState] = useState<'idle' | 'done' | 'failed'>('idle')
   const listId = useId()
-  const overallId = `${listId}-overall`
-  const disposition = sendDisposition(session, archived)
   const retry = view.outbox.find((item) => item.status === 'failed')
   const drafts = view.annotations.filter((item) => item.status === 'draft')
   const queuedIds = authoritativeQueueAnnotationIds(view)
@@ -531,10 +512,6 @@ function AnnotationPanel({
     (item) => item.status === 'queued' && queuedIds.has(item.annotationId),
   )
   const history = view.annotations.filter((item) => item.status === 'sent' || item.status === 'processed')
-  const canSend = drafts.length > 0 || retry !== undefined
-  const sendCount = retry?.payload.annotations.length ?? drafts.length
-  const displayedSendCount = submittingCount ?? sendCount
-  const destinationKey = retry === undefined ? disposition.detail : 'send.destination.retry'
   const queuedSubmissions = view.outbox.filter((item) => item.status === 'queued')
   const immutable = history.length > 0
   const hasLocalDrafts =
@@ -559,18 +536,6 @@ function AnnotationPanel({
     return () => clearTimeout(timer)
   }, [actions.dismissDeleteUndo, view.deletedDraft])
 
-  const submit = async () => {
-    setSubmitting(true)
-    setSubmittingCount(sendCount)
-    try {
-      await actions.submit(archived, disposition.delivery)
-    } catch {
-      // The controller publishes either a retryable outbox failure or a specific validation notice.
-    } finally {
-      setSubmitting(false)
-      setSubmittingCount(null)
-    }
-  }
   const exportData = () => {
     try {
       downloadLocalData(actions.exportLocalData())
@@ -583,22 +548,44 @@ function AnnotationPanel({
   return (
     <section ref={shellRef} className="dia-dock-shell" aria-label={t('list.title')}>
       <div className="dia-dock-body">
-        <button
-          type="button"
-          className="dia-dock"
-          aria-controls={listId}
-          aria-expanded={view.panelOpen}
-          onClick={() => actions.setPanelOpen(!view.panelOpen)}
-        >
-          <span className="dia-dock__icon" aria-hidden="true">
-            <IconListPenOutline16 size={14} />
-          </span>
-          <span className="dia-dock__title">{t('list.title')}</span>
-          <span className="dia-dock__summary">{panelSummary(view, retry !== undefined, t)}</span>
-          <span className="dia-dock__chevron" aria-hidden="true">
+        <div className="dia-dock" data-attached={attached ? 'true' : 'false'}>
+          <button
+            type="button"
+            className="dia-dock__main"
+            aria-controls={listId}
+            aria-expanded={view.panelOpen}
+            onClick={() => actions.setPanelOpen(!view.panelOpen)}
+          >
+            <span className="dia-dock__icon" aria-hidden="true">
+              <IconListPenOutline16 size={14} />
+            </span>
+            <span className="dia-dock__title">{t('list.title')}</span>
+            <span className="dia-dock__summary">{panelSummary(view, retry !== undefined, t)}</span>
+          </button>
+          <Tooltip label={attachmentLabel} side="top" delayMs={400}>
+            <button
+              type="button"
+              className="dia-dock__attach"
+              aria-label={attachmentLabel}
+              aria-pressed={attached}
+              disabled={attachmentDisabled}
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={onToggleAttachment}
+            >
+              <IconPaperclipOutline16 size={15} />
+            </button>
+          </Tooltip>
+          <button
+            type="button"
+            className="dia-dock__fold"
+            aria-label={view.panelOpen ? t('dock.collapse') : t('dock.expand')}
+            aria-controls={listId}
+            aria-expanded={view.panelOpen}
+            onClick={() => actions.setPanelOpen(!view.panelOpen)}
+          >
             {view.panelOpen ? <IconChevronDownOutline14 size={14} /> : <IconChevronUpOutline14 size={14} />}
-          </span>
-        </button>
+          </button>
+        </div>
 
         {view.panelOpen && (
           <div id={listId} className="dia-inline-panel">
@@ -679,17 +666,6 @@ function AnnotationPanel({
                   {t('list.immutable')}
                 </p>
               )}
-              <label className="dia-field-label" htmlFor={overallId}>
-                {t('list.overallLabel')}
-              </label>
-              <textarea
-                id={overallId}
-                className="dia-textarea dia-inline-panel__textarea"
-                value={view.overallRequirementDraft}
-                placeholder={t('list.overall')}
-                disabled={retry !== undefined}
-                onChange={(event) => actions.setOverallRequirementDraft(event.target.value)}
-              />
               <div className="dia-local-data">
                 <span>
                   <IconDataOutline16 size={14} />
@@ -744,45 +720,21 @@ function AnnotationPanel({
                   </button>
                 </div>
               )}
-              <div className="dia-send-block">
-                <p className="dia-send-destination">
-                  <IconWarningOutline16 size={14} />
-                  <span>{t(destinationKey)}</span>
-                </p>
+              {queuedSubmissions.length > 0 && (
                 <div className="dia-inline-panel__actions">
                   {queuedSubmissions.map((entry) => (
                     <Button
                       key={entry.payload.submissionId}
                       variant="outline"
                       size="sm"
-                      icon={<IconRefreshOutline14 size={14} />}
+                      icon={<IconCloseOutline16 size={14} />}
                       onClick={() => void actions.withdraw(entry.payload.submissionId as SubmissionId)}
                     >
                       {t('list.withdraw')}
                     </Button>
                   ))}
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    className="dia-inline-panel__send"
-                    icon={
-                      retry === undefined ? (
-                        <IconSendOutline14 size={14} />
-                      ) : (
-                        <IconRefreshOutline14 size={14} />
-                      )
-                    }
-                    disabled={!canSend || submitting}
-                    onClick={() => void submit()}
-                  >
-                    {submitting
-                      ? t('send.sending', { count: displayedSendCount })
-                      : retry === undefined
-                        ? t(disposition.label, { count: sendCount })
-                        : t('send.retry', { count: sendCount })}
-                  </Button>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         )}
@@ -796,7 +748,7 @@ export function AnnotationDock({
   useAnnotations,
   useWorkspaces,
   sessionId,
-  session,
+  input,
   t,
   ...actions
 }: InputAnnotationProps) {
@@ -808,6 +760,29 @@ export function AnnotationDock({
   const [submissionToast, setSubmissionToast] = useState<SubmissionToastState | null>(null)
   const failed = view.outbox.some((item) => item.status === 'failed')
   const dockVisible = view.annotations.length > 0 || failed || view.deletedDraft !== null
+  const retry = view.outbox.find((item) => item.status === 'failed' || item.status === 'ready')
+  const draftCount = view.annotations.filter((item) => item.status === 'draft').length
+  const attachmentCount = retry?.payload.annotations.length ?? draftCount
+  const attached = hasComposerAttachment(input)
+  const attachmentDisabled =
+    input.phase === 'submitting' ||
+    (!attached && (archived || input.phase !== 'plain' || input.imageIds.length > 0 || attachmentCount === 0))
+  const attachmentLabel = attached
+    ? t('attach.remove', { count: attachmentCount })
+    : archived
+      ? t('attach.archived')
+      : input.imageIds.length > 0
+        ? t('attach.images')
+        : input.phase !== 'plain'
+          ? t('attach.busy')
+          : attachmentCount === 0
+            ? t('attach.empty')
+            : t('attach.add', { count: attachmentCount })
+  const markerPresent = input.draft.startsWith(COMPOSER_ATTACHMENT_TOKEN)
+
+  useEffect(() => {
+    actions.repairComposerAttachment(t('error.images'))
+  }, [actions.repairComposerAttachment, attachmentCount, input.claim?.token, input.phase, markerPresent, t])
 
   useEffect(() => {
     previousOutbox.current = null
@@ -825,6 +800,31 @@ export function AnnotationDock({
     setSubmissionToast({ ...transition, seq: toastSeq.current })
   }, [view.outbox])
 
+  const toggleAttachment = () => {
+    const active = document.activeElement
+    const textarea = active instanceof HTMLTextAreaElement ? active : null
+    const selection =
+      textarea === null
+        ? null
+        : {
+            start: textarea.selectionStart,
+            end: textarea.selectionEnd,
+            direction: textarea.selectionDirection,
+          }
+    if (!actions.toggleComposerAttachment(t('error.images')) || textarea === null || selection === null)
+      return
+    const offset = attached ? -COMPOSER_ATTACHMENT_TOKEN.length : COMPOSER_ATTACHMENT_TOKEN.length
+    requestAnimationFrame(() => {
+      if (!textarea.isConnected) return
+      textarea.focus({ preventScroll: true })
+      textarea.setSelectionRange(
+        Math.max(0, selection.start + offset),
+        Math.max(0, selection.end + offset),
+        selection.direction,
+      )
+    })
+  }
+
   if (!dockVisible && view.editor === null) return null
   return (
     <>
@@ -832,8 +832,11 @@ export function AnnotationDock({
         <AnnotationPanel
           view={view}
           archived={archived}
+          attached={attached}
+          attachmentDisabled={attachmentDisabled}
+          attachmentLabel={attachmentLabel}
+          onToggleAttachment={toggleAttachment}
           t={t}
-          session={session}
           shellRef={shellRef}
           {...actions}
         />

@@ -1,7 +1,7 @@
 import type { PropsLocale, PropsRuntime, InjectFace, HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AnnotationEndpoint, AnnotationView } from './controller.ts'
 import type { SelectionCapture } from './selection.ts'
-import type { AnnotationId, DeliveryMode, MessageIdentity, SubmissionId } from '../shared/types.ts'
+import type { AnnotationId, MessageIdentity, SubmissionId } from '../shared/types.ts'
 
 export interface AnnotationInjected {
   readonly hooks: { readonly annotations: HostObservable<AnnotationView> }
@@ -17,8 +17,8 @@ export interface AnnotationInjected {
   readonly exportLocalData: () => string
   readonly clearLocalDrafts: () => void
   readonly setPanelOpen: (open: boolean) => void
-  readonly setOverallRequirementDraft: (value: string) => void
-  readonly submit: (archived: boolean, delivery: DeliveryMode) => Promise<void>
+  readonly toggleComposerAttachment: (imageError: string) => boolean
+  readonly repairComposerAttachment: (imageError: string) => void
   readonly withdraw: (submissionId: SubmissionId) => Promise<void>
   readonly navigate: (annotationId: AnnotationId) => Promise<boolean>
   readonly annotateMessage: (messageId: MessageIdentity) => boolean

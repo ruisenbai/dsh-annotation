@@ -55,12 +55,6 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
         </span>
       </summary>
       <div className="dia-timeline__body">
-        {payload.overallRequirement !== undefined && payload.overallRequirement.trim() !== '' && (
-          <section className="dia-timeline__overall">
-            <strong>{t('timeline.overall')}</strong>
-            <p>{payload.overallRequirement}</p>
-          </section>
-        )}
         <div className="dia-timeline__list">
           {payload.annotations.map((item) => {
             const local = byId.get(item.annotationId)
@@ -117,8 +111,21 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
     [t],
   )
   if (payload !== null) {
+    const requirement = payload.overallRequirement?.trim() ?? ''
     return (
-      <AnnotationSubmissionRow payload={payload} useAnnotations={useAnnotations} navigate={navigate} t={t} />
+      <div className="dia-user-submission">
+        {requirement !== '' && (
+          <article className="dia-user">
+            <MessageText text={requirement} />
+          </article>
+        )}
+        <AnnotationSubmissionRow
+          payload={payload}
+          useAnnotations={useAnnotations}
+          navigate={navigate}
+          t={t}
+        />
+      </div>
     )
   }
   const texts = node.data.content.flatMap((block) => (block.type === 'text' ? [block.text] : []))

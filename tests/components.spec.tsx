@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AnnotatedAssistantNode } from '../src/client/components/AnnotatedAssistantNode.tsx'
 import { AnnotatedUserNode } from '../src/client/components/AnnotatedUserNode.tsx'
 import { AnnotationDock } from '../src/client/components/AnnotationDock.tsx'
+import { COMPOSER_ATTACHMENT_TOKEN } from '../src/client/composer-attachment.ts'
 import type { AnnotationView } from '../src/client/controller.ts'
 import type {
   AssistantAnnotationProps,
@@ -29,17 +30,23 @@ const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => 
     'status.submitted': 'Submitted; awaiting confirmation',
     'status.sent': 'Sent',
     'dock.count': `${String(params?.count)} inline annotations`,
-    'dock.pendingDetail': 'Ready to send · Open list',
-    'panel.pending': `${String(params?.count)} ready to send`,
+    'dock.pendingDetail': 'Ready to attach · Open list',
+    'dock.expand': 'Expand inline annotations',
+    'dock.collapse': 'Collapse inline annotations',
+    'attach.add': `Attach ${String(params?.count)} annotations to the next send`,
+    'attach.remove': `Detach ${String(params?.count)} annotations`,
+    'attach.archived': 'Archived tasks cannot attach annotations',
+    'attach.images': 'Inline annotations cannot be sent with images',
+    'attach.busy': 'The composer is busy',
+    'attach.empty': 'No annotations are available to attach',
+    'panel.pending': `${String(params?.count)} ready to attach`,
     'panel.submitted': `${String(params?.count)} awaiting delivery outcome`,
     'list.title': 'Inline annotations',
-    'group.drafts': 'Ready to send',
+    'group.drafts': 'Ready to attach',
     'group.submitted': 'Confirming delivery outcome',
-    'group.retry': 'Send failed · Retry available',
+    'group.retry': 'Send failed · Retry from the official composer',
     'group.queued': 'Queued',
     'group.history': 'Sent',
-    'list.overallLabel': 'Overall request (optional)',
-    'list.overall': 'Add an overall request',
     'list.edit': 'Edit',
     'list.delete': 'Delete',
     'list.withdraw': 'Withdraw queued batch',
@@ -53,20 +60,9 @@ const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => 
     'local.confirmClear': 'Clear every draft?',
     'local.keep': 'Keep',
     'local.confirm': 'Clear drafts now',
-    'send.idle': `Send ${String(params?.count)} annotations to task`,
-    'send.running': `Send ${String(params?.count)} annotations to current task`,
-    'send.approval': `Queue ${String(params?.count)} annotations after confirmation`,
-    'send.archived': `Copy and send ${String(params?.count)} annotations`,
-    'send.retry': `Retry ${String(params?.count)} annotations with the same submission id`,
-    'send.sending': `Sending ${String(params?.count)} annotations…`,
-    'send.destination.idle': 'Task idle: sending starts the task',
-    'send.destination.running': 'Task running: enters at the next safe execution point',
-    'send.destination.approval': 'Awaiting confirmation: queues after confirmation completes',
-    'send.destination.archived': 'Task archived: copies into a new task',
-    'send.destination.retry': 'Retry reuses the original submission id and destination',
     'toast.queued': `${String(params?.count)} annotations queued; withdrawal is available`,
     'toast.sent': `${String(params?.count)} annotations sent; history cannot be withdrawn`,
-    'toast.failed': `Send failed; retry submission ${String(params?.id)}`,
+    'toast.failed': `Send failed; annotations remain attached for submission ${String(params?.id)}`,
     'editor.title': 'Add annotation',
     'editor.commentLabel': 'Your comment',
     'editor.shortcut': 'Ctrl/⌘ ↵ to save',
@@ -97,6 +93,33 @@ function baseView(): AnnotationView {
   }
 }
 
+const idleInput = {
+  draft: '',
+  imageIds: [],
+  draftRev: 0,
+  phase: 'plain',
+  occurrences: [],
+  queue: [],
+} as const
+const noAttachmentRepair = () => undefined
+const noAttachmentToggle = () => true
+
+function TestAnnotationDock({
+  input = idleInput as InputAnnotationProps['input'],
+  repairComposerAttachment = noAttachmentRepair,
+  toggleComposerAttachment = noAttachmentToggle,
+  ...props
+}: InputAnnotationProps) {
+  return (
+    <AnnotationDock
+      input={input}
+      repairComposerAttachment={repairComposerAttachment}
+      toggleComposerAttachment={toggleComposerAttachment}
+      {...props}
+    />
+  )
+}
+
 describe('annotation presentation', () => {
   it('folds a durable annotation submission and navigates by id', () => {
     const payload = fixturePayload()
@@ -118,6 +141,7 @@ describe('annotation presentation', () => {
       t,
     } as unknown as UserAnnotationProps<'user'>
     render(<AnnotatedUserNode {...props} />)
+    expect(screen.getByText('Rewrite the proposal coherently.')).toBeInTheDocument()
     expect(screen.getByText('Added 1 inline annotations')).toBeInTheDocument()
     fireEvent.click(screen.getByText('Added 1 inline annotations'))
     expect(screen.getByText('Explain this claim.')).toBeInTheDocument()
@@ -149,7 +173,7 @@ describe('annotation presentation', () => {
       setPanelOpen,
       t,
     } as unknown as InputAnnotationProps
-    const { rerender } = render(<AnnotationDock {...props} />)
+    const { rerender } = render(<TestAnnotationDock {...props} />)
     fireEvent.click(screen.getByRole('button', { name: /Inline annotations/u }))
     expect(setPanelOpen).toHaveBeenCalledWith(true)
 
@@ -157,7 +181,7 @@ describe('annotation presentation', () => {
       ...props,
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(baseView()),
     } as unknown as InputAnnotationProps
-    rerender(<AnnotationDock {...emptyProps} />)
+    rerender(<TestAnnotationDock {...emptyProps} />)
     expect(screen.queryByRole('button', { name: /inline annotations/u })).not.toBeInTheDocument()
   })
 
@@ -176,7 +200,7 @@ describe('annotation presentation', () => {
       comment: 'Use a concrete example here.',
     }
     const navigate = vi.fn(async () => true)
-    const submit = vi.fn(async () => undefined)
+    const toggleComposerAttachment = vi.fn(() => true)
     const view: AnnotationView = {
       ...baseView(),
       annotations: [annotation, secondAnnotation],
@@ -189,15 +213,14 @@ describe('annotation presentation', () => {
       useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
         selector({ archivedSessionIds: [] }),
       setPanelOpen: vi.fn(),
-      setOverallRequirementDraft: vi.fn(),
+      toggleComposerAttachment,
       openAnnotation: vi.fn(),
       deleteDraft: vi.fn(),
       navigate,
-      submit,
       withdraw: vi.fn(),
       t,
     } as unknown as InputAnnotationProps
-    render(<AnnotationDock {...props} />)
+    render(<TestAnnotationDock {...props} />)
 
     const panel = screen.getByRole('region', { name: 'Inline annotations' })
     expect(panel).toBeInTheDocument()
@@ -209,7 +232,8 @@ describe('annotation presentation', () => {
     const comment = firstRow.getByText(annotation.comment)
     expect(comment.parentElement?.children).toHaveLength(2)
     expect(within(panel).queryByText(annotation.annotationId)).not.toBeInTheDocument()
-    expect(within(panel).getByLabelText('Overall request (optional)')).toBeInTheDocument()
+    expect(within(panel).queryByLabelText('Overall request (optional)')).not.toBeInTheDocument()
+    expect(within(panel).queryByRole('button', { name: /Send 2 annotations/u })).not.toBeInTheDocument()
 
     for (const name of ['Locate source', 'Edit', 'Delete']) {
       expect(firstRow.getByRole('button', { name })).not.toHaveTextContent(/\S/u)
@@ -223,70 +247,112 @@ describe('annotation presentation', () => {
     fireEvent.click(firstRow.getByRole('button', { name: 'Delete' }))
     expect(props.deleteDraft).toHaveBeenCalledWith(annotation.annotationId)
 
-    expect(within(panel).getByText('Task idle: sending starts the task')).toBeInTheDocument()
-    fireEvent.click(within(panel).getByRole('button', { name: 'Send 2 annotations to task' }))
-    expect(submit).toHaveBeenCalledWith(false, 'queue')
+    const attach = screen.getByRole('button', { name: 'Attach 2 annotations to the next send' })
+    expect(
+      attach.compareDocumentPosition(screen.getByRole('button', { name: 'Collapse inline annotations' })),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    fireEvent.click(attach)
+    expect(toggleComposerAttachment).toHaveBeenCalledWith('error.images')
+    expect(props.setPanelOpen).not.toHaveBeenCalled()
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(props.setPanelOpen).toHaveBeenCalledWith(false)
   })
 
+  it('shows the armed business state and detaches without folding the list', () => {
+    const payload = fixturePayload()
+    const view: AnnotationView = {
+      ...baseView(),
+      annotations: [
+        {
+          ...payload.annotations[0]!,
+          status: 'draft',
+          updatedAt: payload.createdAt,
+        },
+      ],
+      panelOpen: true,
+    }
+    const toggleComposerAttachment = vi.fn(() => true)
+    const setPanelOpen = vi.fn()
+    const props = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      input: {
+        ...idleInput,
+        draft: `${COMPOSER_ATTACHMENT_TOKEN}Rewrite this.`,
+        draftRev: 2,
+        phase: 'claimed',
+        claim: { token: COMPOSER_ATTACHMENT_TOKEN },
+      },
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      setPanelOpen,
+      toggleComposerAttachment,
+      t,
+    } as unknown as InputAnnotationProps
+    render(<TestAnnotationDock {...props} />)
+
+    const detach = screen.getByRole('button', { name: 'Detach 1 annotations' })
+    expect(detach).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(detach)
+    expect(toggleComposerAttachment).toHaveBeenCalledWith('error.images')
+    expect(setPanelOpen).not.toHaveBeenCalled()
+    expect(screen.getByRole('region', { name: 'Inline annotations' })).toBeInTheDocument()
+  })
+
   it.each([
     {
-      name: 'running',
+      name: 'running task',
       session: { pending: [], running: true },
       archived: false,
-      button: 'Send 1 annotations to current task',
-      detail: 'Task running: enters at the next safe execution point',
+      label: 'Attach 1 annotations to the next send',
+      disabled: false,
     },
     {
       name: 'awaiting confirmation',
       session: { pending: [{}], running: true },
       archived: false,
-      button: 'Queue 1 annotations after confirmation',
-      detail: 'Awaiting confirmation: queues after confirmation completes',
+      label: 'Attach 1 annotations to the next send',
+      disabled: false,
     },
     {
-      name: 'archived',
+      name: 'archived task',
       session: { pending: [], running: false },
       archived: true,
-      button: 'Copy and send 1 annotations',
-      detail: 'Task archived: copies into a new task',
+      label: 'Archived tasks cannot attach annotations',
+      disabled: true,
     },
-  ])(
-    'explains the $name submission destination beside the counted action',
-    ({ session, archived, button, detail }) => {
-      const payload = fixturePayload()
-      const view: AnnotationView = {
-        ...baseView(),
-        annotations: [
-          {
-            ...payload.annotations[0]!,
-            status: 'draft',
-            updatedAt: payload.createdAt,
-          },
-        ],
-        panelOpen: true,
-      }
-      const props = {
-        sessionId: payload.sessionId,
-        session,
-        useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-        useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-          selector({ archivedSessionIds: archived ? [payload.sessionId] : [] }),
-        setPanelOpen: vi.fn(),
-        setOverallRequirementDraft: vi.fn(),
-        openAnnotation: vi.fn(),
-        deleteDraft: vi.fn(),
-        navigate: vi.fn(async () => true),
-        submit: vi.fn(async () => undefined),
-        withdraw: vi.fn(async () => undefined),
-        t,
-      } as unknown as InputAnnotationProps
-      render(<AnnotationDock {...props} />)
-      expect(screen.getByRole('button', { name: button })).toBeInTheDocument()
-      expect(screen.getByText(detail)).toBeInTheDocument()
-    },
-  )
+  ])('offers only the composer attachment action for a $name', ({ session, archived, label, disabled }) => {
+    const payload = fixturePayload()
+    const view: AnnotationView = {
+      ...baseView(),
+      annotations: [
+        {
+          ...payload.annotations[0]!,
+          status: 'draft',
+          updatedAt: payload.createdAt,
+        },
+      ],
+      panelOpen: true,
+    }
+    const props = {
+      sessionId: payload.sessionId,
+      session,
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: archived ? [payload.sessionId] : [] }),
+      setPanelOpen: vi.fn(),
+      openAnnotation: vi.fn(),
+      deleteDraft: vi.fn(),
+      navigate: vi.fn(async () => true),
+      withdraw: vi.fn(async () => undefined),
+      t,
+    } as unknown as InputAnnotationProps
+    render(<TestAnnotationDock {...props} />)
+    const attach = screen.getByRole('button', { name: label })
+    expect(attach).toHaveProperty('disabled', disabled)
+    expect(screen.queryByRole('button', { name: /Send 1 annotations/u })).not.toBeInTheDocument()
+  })
 
   it('shows authoritative queued and durable sent Toasts with matching withdrawal rules', async () => {
     const payload = fixturePayload()
@@ -324,7 +390,7 @@ describe('annotation presentation', () => {
       panelOpen: true,
     }
     const { rerender } = render(
-      <AnnotationDock
+      <TestAnnotationDock
         {...(baseProps as unknown as InputAnnotationProps)}
         useAnnotations={(selector) => selector(acceptedView) as never}
       />,
@@ -338,7 +404,7 @@ describe('annotation presentation', () => {
       outbox: [{ ...acceptedEntry, status: 'queued' }],
     }
     rerender(
-      <AnnotationDock
+      <TestAnnotationDock
         {...(baseProps as unknown as InputAnnotationProps)}
         useAnnotations={(selector) => selector(queuedView) as never}
       />,
@@ -354,7 +420,7 @@ describe('annotation presentation', () => {
       outbox: [{ ...acceptedEntry, status: 'sent' }],
     }
     rerender(
-      <AnnotationDock
+      <TestAnnotationDock
         {...(baseProps as unknown as InputAnnotationProps)}
         useAnnotations={(selector) => selector(sentView) as never}
       />,
@@ -365,7 +431,7 @@ describe('annotation presentation', () => {
     expect(screen.queryByRole('button', { name: 'Withdraw queued batch' })).not.toBeInTheDocument()
   })
 
-  it('shows the immutable submission id in the failed-send Toast and retry action', async () => {
+  it('shows the immutable submission id and leaves retry on the composer attachment action', async () => {
     const payload = fixturePayload()
     const annotation = {
       ...payload.annotations[0]!,
@@ -401,7 +467,7 @@ describe('annotation presentation', () => {
       panelOpen: true,
     }
     const { rerender } = render(
-      <AnnotationDock
+      <TestAnnotationDock
         {...(baseProps as unknown as InputAnnotationProps)}
         useAnnotations={(selector) => selector(sendingView) as never}
       />,
@@ -411,20 +477,19 @@ describe('annotation presentation', () => {
       outbox: [{ ...sendingEntry, status: 'failed', lastError: 'offline' }],
     }
     rerender(
-      <AnnotationDock
+      <TestAnnotationDock
         {...(baseProps as unknown as InputAnnotationProps)}
         useAnnotations={(selector) => selector(failedView) as never}
       />,
     )
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      `Send failed; retry submission ${payload.submissionId}`,
+      `Send failed; annotations remain attached for submission ${payload.submissionId}`,
     )
+    expect(screen.getByRole('button', { name: 'Attach 1 annotations to the next send' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Retry 1 annotations/u })).not.toBeInTheDocument()
     expect(
-      screen.getByRole('button', {
-        name: 'Retry 1 annotations with the same submission id',
-      }),
-    ).toBeInTheDocument()
-    expect(screen.getByText('Retry reuses the original submission id and destination')).toBeInTheDocument()
+      screen.queryByText('Retry reuses the original submission id and destination'),
+    ).not.toBeInTheDocument()
   })
 
   it('groups statuses, offers delete undo, and manages local recovery data', () => {
@@ -492,9 +557,9 @@ describe('annotation presentation', () => {
     const revokeObjectURL = vi.fn()
     vi.stubGlobal('URL', { createObjectURL, revokeObjectURL })
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
-    render(<AnnotationDock {...props} />)
+    render(<TestAnnotationDock {...props} />)
 
-    expect(screen.getByText('Ready to send')).toBeInTheDocument()
+    expect(screen.getByText('Ready to attach')).toBeInTheDocument()
     expect(screen.getByText('Queued')).toBeInTheDocument()
     expect(screen.queryByText('Sent note')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Sent/u }))
@@ -971,7 +1036,7 @@ describe('annotation presentation', () => {
     render(
       <>
         <style>{styles}</style>
-        <AnnotationDock {...props} />
+        <TestAnnotationDock {...props} />
       </>,
     )
 
@@ -1022,11 +1087,11 @@ describe('annotation presentation', () => {
       confirmLongSelection: vi.fn(),
       t,
     } as unknown as InputAnnotationProps
-    const { rerender } = render(<AnnotationDock {...props} />)
+    const { rerender } = render(<TestAnnotationDock {...props} />)
 
     fireEvent.pointerDown(document.body)
     expect(closeEditor).toHaveBeenCalledWith()
-    rerender(<AnnotationDock {...props} useAnnotations={(selector) => selector(baseView()) as never} />)
+    rerender(<TestAnnotationDock {...props} useAnnotations={(selector) => selector(baseView()) as never} />)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
@@ -1067,7 +1132,7 @@ describe('annotation presentation', () => {
     render(
       <>
         <style>{styles}</style>
-        <AnnotationDock {...props} />
+        <TestAnnotationDock {...props} />
       </>,
     )
 

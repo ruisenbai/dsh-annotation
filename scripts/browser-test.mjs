@@ -300,15 +300,30 @@ try {
   const background = await page.evaluate(() => getComputedStyle(document.body).backgroundColor)
   assert(background === 'rgb(21, 25, 30)', `dark-mode fixture must use dark tokens, received ${background}`)
 
-  await page.locator('.dia-dock').click()
-  const countedSend = page.getByRole('button', { name: 'Send 5 annotations to task' })
-  await countedSend.waitFor()
-  await page.getByText('Task idle: sending starts the task').waitFor()
+  const dockMain = page.locator('.dia-dock__main')
+  if ((await dockMain.getAttribute('aria-expanded')) !== 'true') await dockMain.click()
+  const attach = page.getByRole('button', { name: 'Attach 5 annotations to the next send' })
+  const fold = page.getByRole('button', { name: 'Collapse inline annotations' })
+  await attach.waitFor()
+  assert(
+    (await page.locator('.dia-inline-panel textarea').count()) === 0,
+    'annotation list must not own a task textarea',
+  )
+  assert(
+    (await page.locator('.dia-inline-panel__send').count()) === 0,
+    'annotation list must not own a send button',
+  )
+  assert(
+    await attach.evaluate(
+      (element, next) => element.compareDocumentPosition(next) === Node.DOCUMENT_POSITION_FOLLOWING,
+      await fold.elementHandle(),
+    ),
+    'attachment action must sit immediately before the fold action',
+  )
   const dockChrome = await page.locator('.dia-dock-shell').evaluate((element) => {
     const title = element.querySelector('.dia-dock__title')
     const action = element.querySelector('.dia-row-action')
     const actionIcon = action?.querySelector('svg')
-    const textarea = element.querySelector('.dia-inline-panel__textarea')
     return {
       background: getComputedStyle(element).backgroundColor,
       borderRadius: getComputedStyle(element).borderRadius,
@@ -324,13 +339,6 @@ try {
               height: getComputedStyle(action).height,
               iconWidth: getComputedStyle(actionIcon).width,
               iconHeight: getComputedStyle(actionIcon).height,
-            },
-      textarea:
-        textarea === null
-          ? null
-          : {
-              fontSize: getComputedStyle(textarea).fontSize,
-              lineHeight: getComputedStyle(textarea).lineHeight,
             },
     }
   })
@@ -350,25 +358,22 @@ try {
     `Locate source must pair the official 28px action target with the original 12px map pin, received ${JSON.stringify(dockChrome.action)}`,
   )
   assert(
-    dockChrome.textarea?.fontSize === '13px' && dockChrome.textarea.lineHeight === '20px',
-    `panel text must match official form typography, received ${JSON.stringify(dockChrome.textarea)}`,
+    (await page.locator('.dia-group__title [data-state="warning"]').count()) > 0,
+    'annotation groups must use official DSH state dots',
   )
-  assert(
-    (await countedSend.locator(':scope > span > svg').count()) === 1,
-    'the official DSH button must own the send icon slot',
-  )
-  const sendColors = await countedSend.evaluate((element) => ({
+  await attach.click()
+  assert((await fold.getAttribute('aria-expanded')) === 'true', 'attaching must not fold the annotation list')
+  const detach = page.getByRole('button', { name: 'Detach 5 annotations' })
+  await detach.waitFor()
+  const attachColors = await detach.evaluate((element) => ({
     background: getComputedStyle(element).backgroundColor,
     color: getComputedStyle(element).color,
   }))
   assert(
-    sendColors.background === 'rgb(77, 107, 254)' && sendColors.color === 'rgb(255, 255, 255)',
-    `send action must match the official composer colors, received ${JSON.stringify(sendColors)}`,
+    attachColors.color === 'rgb(91, 121, 255)',
+    `armed attachment must use the business color, received ${JSON.stringify(attachColors)}`,
   )
-  assert(
-    (await page.locator('.dia-group__title [data-state="warning"]').count()) > 0,
-    'annotation groups must use official DSH state dots',
-  )
+  await page.getByRole('textbox', { name: 'Official composer' }).fill('Rewrite the proposal coherently.')
   await page.locator('.dia-item').first().getByRole('button', { name: 'Locate source' }).click()
   await page.waitForTimeout(1200)
   const centering = await page.evaluate(() => {
@@ -382,12 +387,16 @@ try {
     `located marker line must be vertically centered (delta ${String(centering)})`,
   )
 
-  await page.locator('.dia-dock').click()
-  await page.getByRole('button', { name: 'Send 5 annotations to task' }).click()
+  await page.getByRole('button', { name: 'Send official task' }).click()
   await page
     .getByRole('alert')
     .filter({ hasText: '5 annotations queued; withdraw remains available in the list' })
     .waitFor()
+  assert(
+    (await page.getByRole('textbox', { name: 'Official composer' }).inputValue()) === '',
+    'one official submission must clear the composer text',
+  )
+  if ((await dockMain.getAttribute('aria-expanded')) !== 'true') await dockMain.click()
   assert(
     (await page.getByRole('button', { name: 'Withdraw queued batch' }).count()) === 1,
     'an authoritatively queued batch must remain withdrawable',
@@ -404,14 +413,20 @@ try {
   await page.getByTestId('seed-failed').click()
   await page
     .getByRole('alert')
-    .filter({ hasText: 'Send failed; retry with the original submission id sub-' })
+    .filter({ hasText: 'Send failed; annotations remain attached and retry with submission id sub-' })
     .waitFor()
-  await page.getByRole('button', { name: 'Retry 1 annotations with the same submission id' }).waitFor()
-  await page.getByText('Retry reuses the original submission id and destination').waitFor()
+  const retryDetach = page.getByRole('button', { name: 'Detach 1 annotations' })
+  await retryDetach.waitFor()
+  await page.getByRole('textbox', { name: 'Official composer' }).fill('')
+  await page.getByRole('button', { name: 'Send official task' }).click()
+  await page
+    .getByRole('alert')
+    .filter({ hasText: '1 annotations queued; withdraw remains available in the list' })
+    .waitFor()
 
   assert(failures.length === 0, `browser console errors:\n${failures.join('\n')}`)
   console.log(
-    'browser regression passed: direct selection input, compact editor, autosave, mobile markers, dark mode, zoom, reasoning, official send UI, queued/sent/failed Toasts, locate',
+    'browser regression passed: direct selection input, compact editor, autosave, mobile markers, dark mode, zoom, reasoning, attach toggle, one official submission, attachment-only retry, authoritative Toasts, locate',
   )
   await context.close()
 } finally {

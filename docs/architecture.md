@@ -4,8 +4,8 @@
 
 `dsh-inline-annotations` is one installable Cordis row with two runtime halves:
 
-- the **Host half** registers the internal `inline_annotations_submit` command, validates a base64url JSON payload, creates one standard user message, deduplicates retries, and calls `Agent.steer()` or `Agent.followup()`;
-- the **Web Client half** owns selection capture, draft persistence, status reconstruction, rendering, queue withdrawal, source navigation, and archived-session forking.
+- the **Host half** registers the internal `inline_annotations_submit` command, validates a base64url JSON payload, creates one standard user message, deduplicates retries, and calls `Agent.followup()`;
+- the **Web Client half** owns selection capture, draft persistence, the official-composer attachment claim, status reconstruction, rendering, queue withdrawal, and source navigation.
 
 The package does not add a custom durable Session event. Every model-visible batch is represented by the existing `user/message` event and therefore survives replay and persistence without extending DSH's closed reload vocabulary.
 
@@ -22,11 +22,13 @@ sequenceDiagram
 
   U->>C: Select reply text and save drafts
   Note over C: localStorage only
-  U->>C: Submit batch
-  C->>C: Freeze payload + submission id
+  U->>C: Toggle paperclip (arm official composer)
+  Note over C: Live draft set follows edits until submit
+  U->>C: Official Enter or Send
+  C->>C: Freeze payload + submission id + composer text
   C->>H: /inline_annotations_submit <base64url JSON>
   H->>H: Validate size, ids, session, schema
-  H->>A: steer() or followup() with deterministic message id
+  H->>A: followup() with deterministic message id
   H-->>C: Command admitted
   A->>L: Standard user/message at claim time
   C->>C: Reconstruct status = sent
@@ -34,6 +36,12 @@ sequenceDiagram
   M->>L: Assistant response + explicit id marker
   C->>C: Parse exact ids; status = processed
 ```
+
+## Composer attachment claim
+
+The header paperclip arms the current Session's official composer through the scoped `slash/input-begin-command` event with a zero-width, non-whitespace claim token. The token keeps the official Send action eligible while the visible composer text is empty, so annotation-only submission needs no second send surface. The official Enter key and Send button submit through the claim; Shift+Enter and the composer's remaining keyboard behavior are unchanged.
+
+The claim rejects mixed image and annotation drafts because the DSH command submit API does not carry composer image ids. Detaching removes the token through the scoped `slash/input-consume-token` event or a plain draft write without touching the remaining text. The header button suppresses its pointerdown default so composer focus and caret survive the toggle.
 
 ## Durable representation
 
@@ -60,7 +68,7 @@ The stable inbox/message id is `dsh-inline-annotations:<submissionId>`. Before a
 
 A match returns success without another enqueue. This is plugin-owned idempotency; DSH's generic prompt path does not provide an idempotency key. The Client freezes the complete payload after its first attempt. A transport retry reuses both payload and submission id.
 
-An item observed in `ConversationSnapshot.queue` may be withdrawn through `SessionFace.updateQueue(messageId, { kind: 'remove' })`. Withdrawal returns its annotations to editable drafts. A successful command response remains internally `accepted` until queue or durable history confirms its actual placement. When a target snapshot stops listing an observed queue item before its durable message appears, its outbox returns to `accepted` so withdrawal disappears during the claim-to-history window. Archived-source mirrors follow the target's queue placement and departure; either side may mirror durable sent/processed state. Sent history is immutable; later clarification creates a new annotation with `supplementalTo`.
+An item observed in `ConversationSnapshot.queue` may be withdrawn through `SessionFace.updateQueue(messageId, { kind: 'remove' })`. Withdrawal returns its annotations to editable drafts. A successful command response remains internally `accepted` until queue or durable history confirms its actual placement. When a target snapshot stops listing an observed queue item before its durable message appears, its outbox returns to `accepted` so withdrawal disappears during the claim-to-history window. Sent history is immutable; later clarification creates a new annotation with `supplementalTo`.
 
 ## Client state owner
 
@@ -103,7 +111,7 @@ DSH currently has no additive slot inside `AssistantMarkdown`. The Client uses s
 
 Lower priority wins in DSH keyed slots. The replacements use public `MarkdownText`, `JsonBlock`, `MessageText`, and attachment primitives. Additive entries are used where available:
 
-- `conversation.input.dock` for the grouped task-style annotation list, local-data controls, and compact selection-positioned editor;
+- `conversation.input.dock` for the grouped task-style annotation list, the header attachment toggle, local-data controls, and the compact selection-positioned editor;
 - `conversation.chat.assistant-actions` for a keyboard-accessible whole-reply annotation action;
 - `conversation.chat.commandview:<commandName>` to suppress the transport command's redundant timeline card.
 
@@ -121,7 +129,7 @@ The Client parses raw assistant block text and validates exact strings. It strip
 
 ## Archived sessions
 
-DSH exposes `ISessions.fork()` but no public unarchive operation. For an archived source, the Client forks at the greatest annotated source sequence, opens the child, transfers the immutable outbox, and submits there. While both Session controllers are live, the child mirrors only durable `sent` and `processed` status back to the archived source; it never rewrites submitted content. A failed fork leaves the source drafts untouched.
+Archived tasks have no active composer, so the paperclip stays disabled and annotations cannot be armed there. Create and attach annotations in an editable task instead.
 
 ## Security properties
 

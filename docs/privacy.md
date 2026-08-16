@@ -24,7 +24,7 @@ Assistant Markdown is rendered by DSH's untrusted Markdown primitive. Model ackn
 
 ## Clearing local drafts
 
-Delete one draft and use the temporary Undo action when needed. The composer list can export the current Session's local recovery JSON or clear its unfinished editor, unsubmitted annotations, and overall-requirement draft. Browser site-data controls remain the way to clear every plugin-local record for the origin. None of these actions deletes already submitted DSH Session history.
+Delete one draft and use the temporary Undo action when needed. The composer list can export the current Session's local recovery JSON or clear its unfinished editor and unsubmitted annotations. Browser site-data controls remain the way to clear every plugin-local record for the origin. None of these actions deletes already submitted DSH Session history.
 
 ## Reporting a vulnerability
 
