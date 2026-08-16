@@ -242,6 +242,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     width: 0,
   })
   const [flash, setFlash] = useState(false)
+  const [revealRequest, setRevealRequest] = useState<{ annotationId: AnnotationId } | null>(null)
   const [hover, setHover] = useState<{ annotation: AnnotationDraft; x: number; y: number } | null>(null)
   const data = node.data
   const messageId = data.finalNode?.messageId as unknown as MessageIdentity | undefined
@@ -287,30 +288,36 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     [t],
   )
 
-  const reveal = useCallback(
-    (annotationId: AnnotationId) => {
-      const root = rootRef.current
-      const body = bodyRef.current
-      if (root === null || body === null) return
-      const annotation = annotations.find((item) => item.annotationId === annotationId)
-      const range = annotation === undefined ? null : rangeFromSelector(body, annotation.quote)
-      const rangeLine = range === null ? null : completeFinalLine(selectableTextNodes(body), range)
-      const marker = Array.from(root.querySelectorAll<HTMLElement>('.dia-marker')).find(
-        (candidate) => candidate.dataset.annotationId === annotationId,
-      )
-      const markerRect = marker?.getBoundingClientRect()
-      const line =
-        rangeLine ??
-        (markerRect === undefined || markerRect.height <= 0 ? null : visualLineFromRect(markerRect))
-      if (line === null) root.scrollIntoView({ behavior: preferredScrollBehavior(), block: 'center' })
-      else centerVisualLine(root, line)
-      activateHighlight(messageId as MessageIdentity, range)
-      setFlash(false)
-      requestAnimationFrame(() => setFlash(true))
-      root.focus({ preventScroll: true })
-    },
-    [activateHighlight, annotations, messageId],
-  )
+  const reveal = useCallback((annotationId: AnnotationId) => {
+    setRevealRequest({ annotationId })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (revealRequest === null) return
+    const root = rootRef.current
+    const body = bodyRef.current
+    if (root === null || body === null || messageId === undefined) {
+      setRevealRequest(null)
+      return
+    }
+    const annotation = annotations.find((item) => item.annotationId === revealRequest.annotationId)
+    const range = annotation === undefined ? null : rangeFromSelector(body, annotation.quote)
+    const rangeLine = range === null ? null : completeFinalLine(selectableTextNodes(body), range)
+    const marker = Array.from(root.querySelectorAll<HTMLElement>('.dia-marker')).find(
+      (candidate) => candidate.dataset.annotationId === revealRequest.annotationId,
+    )
+    const markerRect = marker?.getBoundingClientRect()
+    const line =
+      rangeLine ??
+      (markerRect === undefined || markerRect.height <= 0 ? null : visualLineFromRect(markerRect))
+    if (line === null) root.scrollIntoView({ behavior: preferredScrollBehavior(), block: 'center' })
+    else centerVisualLine(root, line)
+    activateHighlight(messageId, range)
+    setRevealRequest(null)
+    setFlash(false)
+    requestAnimationFrame(() => setFlash(true))
+    root.focus({ preventScroll: true })
+  }, [activateHighlight, annotations, messageId, revealRequest])
 
   const annotateAll = useCallback(() => {
     const body = bodyRef.current

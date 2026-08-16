@@ -200,6 +200,25 @@ try {
   assert(animationName.startsWith('dia-editor-shake-'), 'dirty editor must shake after an outside click')
   await dialog.getByRole('button', { name: 'Save annotation' }).click()
   await dialog.waitFor({ state: 'detached' })
+  await page.locator('.browser-scroller').evaluate((element) => {
+    element.scrollTop = 0
+  })
+  await page.locator('.dia-dock').click()
+  const firstLocate = page.locator('.dia-item').first().getByRole('button', { name: 'Locate source' })
+  assert(
+    (await firstLocate.locator('svg.lucide-map-pin').count()) === 1,
+    'Locate source must retain the original map-pin icon',
+  )
+  await firstLocate.click()
+  await page.waitForFunction(() => {
+    const scroller = document.querySelector('.browser-scroller')?.getBoundingClientRect()
+    const marker = document.querySelector('.dia-marker')?.getBoundingClientRect()
+    return (
+      scroller !== undefined &&
+      marker !== undefined &&
+      Math.abs((marker.top + marker.bottom) / 2 - (scroller.top + scroller.bottom) / 2) < 36
+    )
+  })
   await page.locator('.dia-marker').waitFor()
   const draftMarkerColor = await page
     .locator('.dia-marker')
@@ -326,9 +345,9 @@ try {
   assert(
     dockChrome.action?.width === '28px' &&
       dockChrome.action.height === '28px' &&
-      dockChrome.action.iconWidth === '14px' &&
-      dockChrome.action.iconHeight === '14px',
-    `row actions must match official 28/14 icon metrics, received ${JSON.stringify(dockChrome.action)}`,
+      dockChrome.action.iconWidth === '12px' &&
+      dockChrome.action.iconHeight === '12px',
+    `Locate source must pair the official 28px action target with the original 12px map pin, received ${JSON.stringify(dockChrome.action)}`,
   )
   assert(
     dockChrome.textarea?.fontSize === '13px' && dockChrome.textarea.lineHeight === '20px',

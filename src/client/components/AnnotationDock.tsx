@@ -14,7 +14,6 @@ import {
   IconPlusOutline16,
   IconQueueOutline14,
   IconRefreshOutline14,
-  IconRightUpOutline16,
   IconSendOutline14,
   IconTrashOutline16,
   IconWarningOutline16,
@@ -36,6 +35,7 @@ import type {
 } from '../../shared/types.ts'
 import type { AnnotationBoundProps, InputAnnotationProps } from '../contract.ts'
 import type { AnnotationView, EditorState } from '../controller.ts'
+import { MapPin } from '../icons.ts'
 
 function statusLabel(status: AnnotationStatus, t: InputAnnotationProps['t']): string {
   return t(`status.${status}`)
@@ -298,7 +298,7 @@ function AnnotationRow({
           className="dia-row-action"
           onActivate={() => void actions.navigate(item.annotationId)}
         >
-          <IconRightUpOutline16 size={14} />
+          <MapPin aria-hidden="true" size={12} strokeWidth={1.8} />
         </TooltipIconAction>
         {item.status !== 'queued' && (
           <TooltipIconAction

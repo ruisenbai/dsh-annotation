@@ -121,7 +121,9 @@ describe('annotation presentation', () => {
     expect(screen.getByText('Added 1 inline annotations')).toBeInTheDocument()
     fireEvent.click(screen.getByText('Added 1 inline annotations'))
     expect(screen.getByText('Explain this claim.')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Locate source' }))
+    const locate = screen.getByRole('button', { name: 'Locate source' })
+    expect(locate.querySelector('svg.lucide-map-pin')).toBeInTheDocument()
+    fireEvent.click(locate)
     expect(navigate).toHaveBeenCalledWith(payload.annotations[0]?.annotationId)
   })
 
@@ -212,7 +214,9 @@ describe('annotation presentation', () => {
     for (const name of ['Locate source', 'Edit', 'Delete']) {
       expect(firstRow.getByRole('button', { name })).not.toHaveTextContent(/\S/u)
     }
-    fireEvent.click(firstRow.getByRole('button', { name: 'Locate source' }))
+    const locate = firstRow.getByRole('button', { name: 'Locate source' })
+    expect(locate.querySelector('svg.lucide-map-pin')).toBeInTheDocument()
+    fireEvent.click(locate)
     expect(navigate).toHaveBeenCalledWith(annotation.annotationId)
     fireEvent.click(firstRow.getByRole('button', { name: 'Edit' }))
     expect(props.openAnnotation).toHaveBeenCalledWith(annotation.annotationId)
@@ -786,14 +790,15 @@ describe('annotation presentation', () => {
     }
   })
 
-  it('centers the numbered marker line in the actual scroll viewport when locating source', () => {
+  it('centers the first newly saved annotation through the already-mounted navigation endpoint', () => {
     const payload = fixturePayload()
     const annotation = {
       ...payload.annotations[0]!,
       status: 'draft' as const,
       updatedAt: payload.createdAt,
     }
-    const view: AnnotationView = { ...baseView(), annotations: [annotation] }
+    let view: AnnotationView = baseView()
+    const savedView: AnnotationView = { ...view, annotations: [annotation] }
     const rangeRects = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects')
     const rect = (top: number, right: number, width: number): DOMRect =>
       ({
@@ -844,7 +849,7 @@ describe('annotation presentation', () => {
     } as unknown as AssistantAnnotationProps
 
     try {
-      const { getByTestId } = render(
+      const { getByTestId, rerender } = render(
         <div data-testid="conversation-scroll" style={{ overflowY: 'auto' }}>
           <AnnotatedAssistantNode {...props} />
         </div>,
@@ -868,8 +873,16 @@ describe('annotation presentation', () => {
         }) as DOMRect
       const scrollBy = vi.fn()
       Object.defineProperty(scroller, 'scrollBy', { configurable: true, value: scrollBy })
+      const mountedEndpoint = endpoint
+      expect(mountedEndpoint).toBeDefined()
+      view = savedView
+      rerender(
+        <div data-testid="conversation-scroll" style={{ overflowY: 'auto' }}>
+          <AnnotatedAssistantNode {...props} />
+        </div>,
+      )
 
-      act(() => endpoint?.reveal(annotation.annotationId))
+      act(() => mountedEndpoint?.reveal(annotation.annotationId))
       expect(scrollBy).toHaveBeenCalledWith({ top: 70, behavior: 'smooth' })
       expect(activateHighlight).toHaveBeenCalledWith(annotation.messageId, expect.any(Range))
 

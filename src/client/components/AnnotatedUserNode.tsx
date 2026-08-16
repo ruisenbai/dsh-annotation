@@ -6,12 +6,12 @@ import {
   IconChevronRightOutline14,
   IconListPenOutline16,
   IconQueueOutline14,
-  IconRightUpOutline14,
   MessageText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { parseInlineAnnotationSource } from '../../shared/protocol.ts'
 import type { AnnotationId, AnnotationStatus } from '../../shared/types.ts'
 import type { UserAnnotationProps } from '../contract.ts'
+import { MapPin } from '../icons.ts'
 
 function TimelineStatusIcon({ status }: { status: AnnotationStatus }) {
   if (status === 'queued') return <IconQueueOutline14 size={14} />
@@ -84,7 +84,7 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
                   className="dia-text-button dia-timeline-item__locate"
                   onClick={() => void navigate(item.annotationId as AnnotationId)}
                 >
-                  <IconRightUpOutline14 size={12} />
+                  <MapPin aria-hidden="true" size={12} strokeWidth={1.8} />
                   {t('list.locate')}
                 </button>
               </article>
