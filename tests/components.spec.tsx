@@ -64,6 +64,7 @@ const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => 
     'toast.sent': `${String(params?.count)} annotations sent; history cannot be withdrawn`,
     'toast.failed': `Send failed; annotations remain attached for submission ${String(params?.id)}`,
     'editor.title': 'Add annotation',
+    'editor.editTitle': 'Edit annotation',
     'editor.commentLabel': 'Your comment',
     'editor.shortcut': 'Ctrl/⌘ ↵ to save',
     'editor.autosaving': 'Saving locally…',
@@ -1138,11 +1139,64 @@ describe('annotation presentation', () => {
 
     const editor = screen.getByRole('dialog', { name: 'Add annotation' })
     expect(editor).toHaveStyle({ top: '72px', left: '80px' })
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
     expect(window.getComputedStyle(editor).boxSizing).toBe('border-box')
     fireEvent.keyDown(screen.getByLabelText('Your comment'), { key: 'Enter', ctrlKey: true })
     expect(saveEditor).toHaveBeenCalledOnce()
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(closeEditor).toHaveBeenCalled()
     expect(setPanelOpen).not.toHaveBeenCalled()
+  })
+
+  it('opens a marker-clicked draft editor beside its number with a delete action', () => {
+    const payload = fixturePayload()
+    const annotation = {
+      ...payload.annotations[0]!,
+      status: 'draft' as const,
+      updatedAt: payload.createdAt,
+    }
+    const deleteDraft = vi.fn()
+    const view: AnnotationView = {
+      ...baseView(),
+      annotations: [annotation],
+      editor: { kind: 'edit', annotationId: annotation.annotationId, text: annotation.comment },
+    }
+    const props = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      closeEditor: vi.fn(() => true),
+      saveEditor: vi.fn(),
+      updateEditorText: vi.fn(),
+      confirmLongSelection: vi.fn(),
+      deleteDraft,
+      t,
+    } as unknown as InputAnnotationProps
+    const marker = document.createElement('button')
+    marker.type = 'button'
+    marker.className = 'dia-marker'
+    marker.dataset.annotationId = annotation.annotationId
+    marker.getBoundingClientRect = () => new DOMRect(284, 240, 16, 16)
+    document.body.append(marker)
+    try {
+      render(
+        <>
+          <style>{styles}</style>
+          <TestAnnotationDock {...props} />
+        </>,
+      )
+
+      const editor = screen.getByRole('dialog', { name: 'Edit annotation' })
+      expect(editor).toHaveStyle({ top: '234px', left: '308px' })
+      const deleteButton = screen.getByRole('button', { name: 'Delete' })
+      expect(deleteButton).toHaveAttribute('data-danger', 'true')
+      fireEvent.click(deleteButton)
+      expect(deleteDraft).toHaveBeenCalledOnce()
+      expect(deleteDraft).toHaveBeenCalledWith(annotation.annotationId)
+    } finally {
+      marker.remove()
+    }
   })
 })

@@ -279,6 +279,36 @@ try {
     'same-row marker numbers must ascend from left to right',
   )
 
+  await page.locator('.dia-marker').nth(1).click()
+  const editDialog = page.getByRole('dialog', { name: 'Edit annotation' })
+  await editDialog.waitFor()
+  const editAnchoring = await editDialog.evaluate((element) => ({
+    inlineLeft: element.style.left,
+    inlineRight: element.style.right,
+  }))
+  assert(
+    editAnchoring.inlineLeft !== '' && editAnchoring.inlineRight === '',
+    'a marker-clicked editor must anchor beside its number instead of the top-right corner',
+  )
+  const markerDelete = editDialog.getByRole('button', { name: 'Delete' })
+  assert((await markerDelete.count()) === 1, 'editing a draft from its marker must expose a delete action')
+  const storedComment = await editDialog.getByRole('textbox', { name: 'Your comment' }).inputValue()
+  assert(
+    storedComment === 'Browser marker 2',
+    `the marker editor must load the stored draft comment, received ${storedComment}`,
+  )
+  await markerDelete.click()
+  await editDialog.waitFor({ state: 'detached' })
+  assert(
+    (await page.locator('.dia-marker').count()) === 4,
+    'deleting from the marker editor must remove the marker',
+  )
+  if ((await page.locator('.dia-dock__main').getAttribute('aria-expanded')) !== 'true') {
+    await page.locator('.dia-dock__main').click()
+  }
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.dia-marker').length === 5)
+
   await page.evaluate(() => {
     document.documentElement.style.zoom = '1.25'
     window.dispatchEvent(new Event('resize'))
@@ -426,7 +456,7 @@ try {
 
   assert(failures.length === 0, `browser console errors:\n${failures.join('\n')}`)
   console.log(
-    'browser regression passed: direct selection input, compact editor, autosave, mobile markers, dark mode, zoom, reasoning, attach toggle, one official submission, attachment-only retry, authoritative Toasts, locate',
+    'browser regression passed: direct selection input, compact editor, autosave, marker-anchored editing with delete, mobile markers, dark mode, zoom, reasoning, attach toggle, one official submission, attachment-only retry, authoritative Toasts, locate',
   )
   await context.close()
 } finally {

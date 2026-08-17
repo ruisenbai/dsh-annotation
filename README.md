@@ -26,6 +26,7 @@ A standalone DeepSeek Harness plugin for reviewing assistant replies in place. S
 - Report authoritative queue, durable send, and retryable failure outcomes through distinct DSH Toasts; withdrawal appears only while the batch remains in the observed queue.
 - Render submitted annotation batches as collapsed timeline cards with source navigation.
 - Place numbered markers after the complete endpoint line, reserve an overflow-safe gutter, retain ascending order, and coalesce layout updates across reasoning disclosure, viewport, font, and zoom changes.
+- Open the annotation editor beside the clicked numbered marker — never the top-right corner — and edit an existing draft from its marker with a delete action backed by undo.
 - Center the exact numbered-marker line in the active conversation or window viewport when locating source text, including CSS zoom correction.
 - Persist unsent drafts, unfinished editor text, and immutable retry records in browser `localStorage`.
 - Deduplicate retries across transport failures with a stable submission-derived message id.

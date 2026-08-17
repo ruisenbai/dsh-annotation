@@ -33,6 +33,7 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 ### Fixed
 
 - The first Locate source action after creating an annotation now resolves updated annotation geometry and centers the source immediately.
+- Editing an annotation from its numbered marker now anchors the editor to the right of the marker (flipping left in narrow viewports) instead of the top-right corner, and the edit dialog exposes a delete action for the draft backed by the existing undo.
 
 ## [0.1.0] - 2026-08-14
 

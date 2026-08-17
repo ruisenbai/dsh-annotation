@@ -331,6 +331,10 @@ export const styles: string = `
   color: var(--dsw-alias-state-business-primary);
 }
 
+.dia-icon-button[data-danger='true']:hover:not(:disabled) {
+  color: var(--dia-danger);
+}
+
 .dia-icon-button:focus-visible {
   outline: 2px solid var(--dsw-alias-label-tertiary);
   outline-offset: -2px;

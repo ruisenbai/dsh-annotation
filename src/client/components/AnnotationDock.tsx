@@ -46,21 +46,39 @@ function editorKey(editor: EditorState | null): string {
   return `new:${editor.capture.messageId}:${editor.capture.quote.start}:${editor.capture.quote.end}`
 }
 
+function markerRectFor(editor: EditorState): DOMRect | null {
+  const annotationId = editor.kind === 'edit' ? editor.annotationId : editor.supplementalTo
+  if (annotationId === undefined) return null
+  const marker = Array.from(document.querySelectorAll<HTMLElement>('button.dia-marker')).find(
+    (element) => element.dataset.annotationId === annotationId,
+  )
+  return marker?.getBoundingClientRect() ?? null
+}
+
 function editorPosition(editor: EditorState): { top?: number; left?: number; right?: number } {
   const capture = editor.kind === 'new' ? editor.capture : editor.expandedCapture
   const rect = capture?.rect
-  if (rect === undefined || (rect.top === 0 && rect.left === 0 && rect.bottom === 0 && rect.right === 0)) {
-    return { top: 82, right: 24 }
+  if (rect !== undefined && !(rect.top === 0 && rect.left === 0 && rect.bottom === 0 && rect.right === 0)) {
+    const width = Math.min(420, window.innerWidth - 24)
+    const estimatedHeight = 116
+    const below = rect.bottom + 8
+    const top =
+      below + estimatedHeight <= window.innerHeight - 12
+        ? below
+        : Math.max(12, rect.top - estimatedHeight - 8)
+    return {
+      top,
+      left: Math.max(12, Math.min(window.innerWidth - width - 12, rect.left)),
+    }
   }
+  const marker = markerRectFor(editor)
+  if (marker === null) return { top: 82, right: 24 }
   const width = Math.min(420, window.innerWidth - 24)
   const estimatedHeight = 116
-  const below = rect.bottom + 8
-  const top =
-    below + estimatedHeight <= window.innerHeight - 12 ? below : Math.max(12, rect.top - estimatedHeight - 8)
-  return {
-    top,
-    left: Math.max(12, Math.min(window.innerWidth - width - 12, rect.left)),
-  }
+  const fitsRight = marker.right + 8 + width <= window.innerWidth - 12
+  const left = fitsRight ? marker.right + 8 : Math.max(12, marker.left - width - 8)
+  const top = Math.max(12, Math.min(marker.top - 6, window.innerHeight - estimatedHeight - 12))
+  return { top, left }
 }
 
 function Portal({ children }: { children: ReactNode }) {
@@ -150,6 +168,16 @@ function AnnotationEditor({
       requireDecision()
     }
   }
+  const remove = () => {
+    if (editor?.kind !== 'edit') return
+    try {
+      actions.deleteDraft(editor.annotationId)
+      setError(null)
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+      requireDecision()
+    }
+  }
 
   useEffect(() => {
     if (editor === null) return undefined
@@ -233,6 +261,17 @@ function AnnotationEditor({
             >
               <IconCheckOutline16 size={14} />
             </TooltipIconAction>
+            {editor.kind === 'edit' && (
+              <TooltipIconAction
+                label={t('list.delete')}
+                side="bottom"
+                className="dia-icon-button"
+                danger
+                onActivate={remove}
+              >
+                <IconTrashOutline16 size={14} />
+              </TooltipIconAction>
+            )}
           </div>
         </div>
         <div className="dia-editor__meta" aria-live="polite">
