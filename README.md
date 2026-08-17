@@ -1,69 +1,68 @@
 # DSH Inline Comments
 
-Package name: `dsh-inline-comments`
+包名：`dsh-inline-comments`
 
-[简体中文](README.zh-CN.md)
+[English](README.en.md)
 
 [![CI](https://github.com/ruisenbai/dsh-inline-comments/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ruisenbai/dsh-inline-comments/actions/workflows/ci.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/ruisenbai/dsh-inline-comments)](https://github.com/ruisenbai/dsh-inline-comments/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%5E22.19%20%7C%7C%20%3E%3D24-43853d.svg)](package.json)
 
-Long AI replies are much easier to review when each note can sit beside the exact sentence it belongs to. DSH Inline Comments lets you highlight a passage, write feedback in place, collect several notes, and send them together through DSH's normal composer—without repeatedly copying quotes into a new prompt.
+审阅一段很长的 AI 回复时，最麻烦的往往不是提出意见，而是反复复制原文、解释“我说的是哪一句”。DSH Inline Comments 让每条意见直接留在对应句子旁边：选中原文、就地写下注释、攒齐多条意见，再通过 DSH 官方输入框一次发送。
 
-> **Interaction origin:** this plugin is an independent, unofficial recreation of ChatGPT's inline commenting feature for DeepSeek Harness. It copies the workflow, not OpenAI source code, assets, APIs, or branding, and it is not affiliated with or endorsed by OpenAI.
+> **交互来源说明：**本插件独立、非官方地复刻了 ChatGPT 的正文注释功能，并将这套体验带到 DeepSeek Harness。复制的是使用流程，不是 OpenAI 的源码、素材、API 或品牌；本项目与 OpenAI 无隶属或官方合作关系。
 
-> **Compatibility:** this project requires DeepSeek Harness `0.1.0-rc.6` or a later `0.1.x` prerelease. DSH is pre-release software. The plugin must shadow three shipped conversation renderers because DSH does not yet expose an inline assistant-body slot. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
+> **兼容性提示：**项目要求 DeepSeek Harness `0.1.0-rc.6` 或更高的 `0.1.x` 预发布版本。DSH 仍处于预发布阶段。由于当前没有助手正文内部 Slot，本插件必须覆盖三个内置会话渲染器。升级 DSH 前请阅读[兼容性说明](docs/compatibility.md)。
 
-## Preview
+## 界面预览
 
-The complete workflow stays inside the conversation: select a quote, leave one or more numbered comments, review the drafts, and send them from the familiar DSH composer.
+整个流程都留在对话里：选中原文、添加一条或多条编号注释、检查草稿，再从熟悉的 DSH 输入框发送。
 
-![DSH Inline Comments overview with numbered comments, an inline editor, and the composer draft list](docs/assets/inline-comments-overview.png)
+![DSH Inline Comments 的编号注释、就地编辑器和输入框草稿列表总览](docs/assets/inline-comments-overview.png)
 
-Highlight the exact words you want to discuss; the browser selection remains available for copying.
+选中真正想讨论的文字，浏览器原生选区仍然保留，随时可以复制。
 
-![Selected assistant text with Add comment and Copy actions](docs/assets/inline-comments-selection.png)
+![选中的助手回复原文及添加注释、复制操作](docs/assets/inline-comments-selection.png)
 
-Write the note right beside the quote while its context is still on screen.
+趁上下文还在眼前，直接在原文旁写下意见。
 
-![Inline comment editor beside an assistant reply](docs/assets/inline-comments-editor.png)
+![助手回复旁的正文注释编辑器](docs/assets/inline-comments-editor.png)
 
-Review and adjust all local drafts before attaching them to the official composer.
+发送前可以集中检查和调整所有本地草稿。
 
-![Inline comment draft list with quoted source text](docs/assets/inline-comments-drafts.png)
+![带原文引用的正文注释草稿列表](docs/assets/inline-comments-drafts.png)
 
-Need a break from comments? Turn the feature off from General Settings without deleting your drafts.
+暂时不想使用注释时，可在通用设置中关闭功能，已有草稿不会丢失。
 
-![DSH Inline Comments setting enabled](docs/assets/inline-comments-settings.png)
+![已启用的 DSH Inline Comments 设置项](docs/assets/inline-comments-settings.png)
 
-## Features
+## 功能
 
-- Select text inside one finalized assistant reply to open a small action bar with Add comment and Copy. The blue selection stays alive, so Ctrl+C keeps working until a button is chosen.
-- Type directly in the compact selection-positioned input with icon-only Cancel and Save actions. An empty outside click closes it; a dirty outside click keeps it open, turns the input red, and shakes it until one action is chosen.
-- Autosave unfinished editor text after 400 ms, display its local-save state, and restore it after a refresh without treating it as a submitted comment.
-- Group two-line rows into ready-to-attach, delivery-outcome/retry, authoritatively queued, and sent sections; use official DSH buttons, state dots, icons, tooltips, and Toasts.
-- Toggle the paperclip in the comment header without expanding or sending. Armed comments follow the live draft set until the official composer submits.
-- Use the official composer as the only task input and Send surface. Ordinary text plus comments, or comments alone, produce one task and one model execution.
-- Match the official Web assistant flow, reasoning disclosure, stopped marker, composer docks, icon-action geometry, form typography, semantic colors, floating surfaces, and user-message bubbles while retaining the original map-pin glyph for Locate source.
-- Undo one draft deletion, export current-Session recovery JSON, clear unsubmitted drafts, and inspect local storage usage from the composer list.
-- Preserve the exact quote, prefix/suffix selector, assistant message id, event sequence, comment id, and submission id.
-- Capture language and line coordinates for code, or row/column coordinates for tables.
-- Merge overlapping selections into the existing draft instead of stacking ambiguous highlights.
-- Preserve the official composer's submission policy; comment command admission uses one idempotent queued user message.
-- Report authoritative queue, durable send, and retryable failure outcomes through distinct DSH Toasts; withdrawal appears only while the batch remains in the observed queue.
-- Render submitted comment batches as collapsed timeline cards with source navigation.
-- Place numbered markers after the complete endpoint line, reserve an overflow-safe gutter, retain ascending order, and coalesce layout updates across reasoning disclosure, viewport, font, and zoom changes.
-- Open the comment editor beside the clicked numbered marker — never the top-right corner — and edit an existing draft from its marker with a delete action backed by undo.
-- Center the exact numbered-marker line in the active conversation or window viewport when locating source text, including CSS zoom correction.
-- Persist unsent drafts, unfinished editor text, and immutable retry records in browser `localStorage`.
-- Deduplicate retries across transport failures with a stable submission-derived message id.
-- Advance `sent` to `processed` only when the model explicitly returns comment ids in the requested acknowledgement marker.
-- Fall back to numbered markers when the CSS Custom Highlight API is unavailable.
+- 在一条已完成的助手回复内选中文字后，弹出带“添加注释”和“复制”两个按钮的小浮条。蓝色选区保持不消失，随时可以按 Ctrl+C 复制；点击其它地方或按 Esc 浮条消失。
+- 在选区旁直接显示紧凑输入框，右侧只有取消和保存图标。空内容点击外部会关闭；有内容点击外部会保持打开、显示红边并震动，直到选择一个图标操作。
+- 输入停止 400ms 后自动保存编辑中内容并显示本地保存状态；刷新后可恢复，但不会因此变成已提交注释。
+- 将两行注释记录分成“待附加”“确认结果/待重试”“权威队列”“已发送”四类，并复用 DSH 官方按钮、状态点、图标、Tooltip 和 Toast。
+- 点击注释标题栏中的回形针切换附加状态，不展开也不立即发送；已附加时，未发送集合会随编辑、删除和新增实时变化。
+- 官方输入框是唯一任务输入和发送入口。官方文本加注释，或只有注释，都会形成一条任务和一次模型执行。
+- 对齐官方 Web 的助手正文流、思考过程折叠行、停止标记、输入区 Dock、图标按钮尺寸、表单字号、语义颜色、浮层表面和用户消息气泡，同时为“定位原文”保留最初的地图定位图标。
+- 支持撤销最近一次草稿删除、导出当前 Session 恢复 JSON、清空未提交草稿，并显示本地存储占用。
+- 保存完整原文、前后文选择器、助手消息 ID、事件序号、注释 ID 与提交 ID。
+- 对代码记录语言与起止行；对表格记录起止行列。
+- 选区重叠时合并到原有草稿，避免高亮堆叠歧义。
+- 沿用官方输入框的提交策略；注释命令通过一条可幂等重试的排队用户消息入队。
+- 使用不同的 DSH Toast 提示权威队列、持久发送和可重试失败；只有批次仍在已观测队列中时才显示撤回操作。
+- 编号位于选区结束位置所在完整正文行之后；预留防溢出区域并保持升序，同时合并思考过程展开、视口、字体和缩放触发的布局测量。
+- 点击数字编号后，编辑器出现在编号右侧而不是右上角；编辑已有草稿时提供可撤销的删除操作。
+- 点击定位后，将数字编号所在的正文行垂直居中到真实会话或窗口滚动区域，并校正 CSS 缩放。
+- 使用 `localStorage` 恢复未发送草稿、编辑中内容和不可变重试记录。
+- 用由提交 ID 派生的稳定消息 ID 去重网络中断后的重试。
+- 只有模型明确返回对应注释 ID，状态才从“已发送”变为“已处理”。
+- 浏览器不支持 CSS Custom Highlight API 时，仍保留编号标记和定位能力。
 
-## Quick start
+## 快速开始
 
-### Build from a clone
+### 从源码构建
 
 ```bash
 git clone https://github.com/ruisenbai/dsh-inline-comments.git
@@ -73,82 +72,82 @@ pnpm install
 pnpm verify
 ```
 
-Install the built folder into a Web profile:
+把构建后的目录安装到 Web Profile：
 
 ```bash
 dsh plugin --profile web add .
 dsh web --profile web
 ```
 
-Open the DSH Web URL and select text in a finalized assistant reply. A small action bar appears with Add comment and Copy; the selection stays alive so Ctrl+C also works. Choose Add comment to open the compact input, type the comment, and use its check icon to create the draft, or use X to cancel. Drafts appear above the official composer. Click the paperclip in the comment header, enter any task text in the official composer, and use its normal Enter key or Send button. The paperclip also enables a comment-only submission when the composer text is empty.
+打开 DSH Web 页面，在一条已完成回复中选中文字，会出现带“添加注释”和“复制”的小浮条；选区保持可选，Ctrl+C 也能复制。点击“添加注释”打开紧凑输入框，填写意见后点击对号创建草稿，或点击叉号取消。草稿会出现在官方输入框上方；点击注释标题栏中的回形针，在官方输入框中填写可选任务文本，再使用官方 Enter 或发送按钮。官方文本为空时，也可以只发送已附加注释。
 
-### Install a GitHub release
+### 安装 GitHub Release
 
-Each `v*.*.*` tag builds an installable tarball and attaches it to GitHub Releases. Download it and install the prebuilt package without running repository build scripts:
+每个 `v*.*.*` 标签都会构建可安装 Tarball 并附加到 GitHub Release。下载后可以直接安装预构建包，无需执行仓库构建脚本：
 
 ```bash
 gh release download v0.1.0 --repo ruisenbai/dsh-inline-comments --pattern '*.tgz'
 dsh plugin --profile web add ./dsh-inline-comments-0.1.0.tgz
 ```
 
-A pinned Git dependency also works when the profile explicitly allows this trusted package to run its `prepare` build:
+如果 Profile 明确允许这个可信包执行 `prepare` 构建，也可以安装固定标签的 Git 依赖：
 
 ```bash
 dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comments.git#v0.1.0
 ```
 
-## Settings
+## 设置
 
-General Settings contains a **DSH Inline Comments** switch. It is enabled by default and applies to every Session in the current browser profile. Disabling it restores the official assistant and user renderers, removes the selection action bar, markers, comment list, comment action, hidden transport view, and composer attachment, and preserves visible composer text. Drafts, unfinished editor text, outbox state, and submitted history remain stored and return when the switch is enabled again.
+通用设置中提供 **DSH Inline Comments** 开关。开关默认开启，并对当前浏览器 Profile 中的所有 Session 生效。关闭后恢复官方助手与用户消息渲染器，移除选区操作条、数字标记、注释列表、注释操作、隐藏传输视图和输入框附加状态，同时保留输入框中的可见文本。草稿、编辑中内容、Outbox 状态和已提交历史都不会删除；重新开启后会恢复。
 
-The preference is stored under `dsh.inline-comments.enabled` in the origin's `localStorage`.
+开关值保存在当前 Origin 的 `localStorage` 键 `dsh.inline-comments.enabled` 中。
 
-## Delivery behavior
+## 任务状态与发送方式
 
-The paperclip has two states. Unarmed comments remain browser-local and editable. Armed comments follow the live unsent set: edits, deletions, and new drafts apply until the official composer submits. The submit transaction then freezes one immutable payload, clears the official draft only after command success, and leaves later comments for the next task. Clicking the paperclip again detaches without changing text, cursor position, or panel expansion.
+回形针有两种状态。未附加时，注释保持在浏览器本地并继续可编辑；已附加时，未发送集合会实时跟随编辑、删除和新增，直到官方输入框提交。提交事务会冻结一份不可变提交内容，只有在命令成功后才清空官方输入框，之后新增的注释归属于下一次任务。再次点击回形针会取消附加，不改动文本、光标或列表展开状态。
 
-Transport acceptance is not presented as queue admission. The queued Toast appears only after `ConversationSnapshot.queue` contains the stable message id, and its withdrawal control remains available only in that state. A durable `user/message` changes the result to sent and removes withdrawal. A failed transaction retains the official draft, armed state, immutable payload, and submission id for retry.
+插件不会把传输已接受直接显示成已排队。只有 `ConversationSnapshot.queue` 包含稳定消息 ID 后才显示“已排队”Toast 和撤回操作；持久化 `user/message` 出现后改为“已发送”并移除撤回。失败的事务会保留官方输入框内容、附加状态、不可变提交内容和提交 ID，供稍后安全重试。
 
-Existing values written into the removed plugin-owned overall-request field migrate into the official composer on the first successful attachment. The value is cleared from plugin storage only after the composer accepts the claim.
+移除的插件内“整体要求”已有内容，会在第一次成功附加时一次性迁移进官方输入框；只有官方输入框接受附加后，插件存储中的旧值才会被清除。
 
-The current DSH command submit API does not expose official composer image ids. The plugin therefore refuses attachment while images are present and refuses a mixed submission if images are added after arming. It does not discard either image or comment drafts.
+当前 DSH 命令提交接口不透出官方输入框的图片 ID，因此输入框存在图片时无法附加注释；附加后再添加图片时，混合提交会被拒绝，且不会丢弃图片或注释草稿。
 
-## States
+## 状态定义
 
-- **Draft:** editable and browser-local.
-- **Queued:** admitted to the DSH inbox but not yet present in model history.
-- **Sent:** reconstructed from the durable comment `user/message` event.
-- **Processed:** set only after a model response contains the exact submission and comment ids in the machine acknowledgement.
+- **草稿：**仅在浏览器中，可编辑。
+- **已排队：**已进入 DSH Inbox，尚未写入模型历史。
+- **已发送：**由持久化的注释 `user/message` 事件重建。
+- **已处理：**模型回复明确携带提交 ID 和注释 ID 后才设置。
 
-The plugin never marks a comment processed from elapsed time, turn completion, or UI timing.
+插件不会根据等待时长、轮次结束或界面时序推测“已处理”。
 
-## Configuration
+## 配置
 
-The bundle inserts one `dsh-inline-comments` row. Override its `config` values in the active profile composition if necessary:
+Bundle 会插入一个 `dsh-inline-comments` 行。可在当前 Profile Composition 中覆盖：
 
-| Key                           |                  Default | Purpose                                                            |
-| ----------------------------- | -----------------------: | ------------------------------------------------------------------ |
-| `commandName`                 | `inline_comments_submit` | Internal browser-to-Host transport command name                    |
-| `maxPayloadBytes`             |                 `524288` | Maximum decoded JSON batch size; text is rejected, never truncated |
-| `maxAnnotationsPerSubmission` |                    `100` | Maximum comments in one batch                                      |
-| `warnSelectionChars`          |                  `12000` | Require an extra confirmation for a long quote                     |
-| `locateHistoryPages`          |                     `20` | Maximum older-history pages loaded during source navigation        |
+| 配置项                        |                   默认值 | 作用                                     |
+| ----------------------------- | -----------------------: | ---------------------------------------- |
+| `commandName`                 | `inline_comments_submit` | 浏览器到 Host 的内部传输命令名           |
+| `maxPayloadBytes`             |                 `524288` | 解码后 JSON 批次上限；超限拒绝，绝不截断 |
+| `maxAnnotationsPerSubmission` |                    `100` | 单批注释数上限                           |
+| `warnSelectionChars`          |                  `12000` | 长选区需要额外确认的阈值                 |
+| `locateHistoryPages`          |                     `20` | 定位原文时最多加载的历史页数             |
 
-Changing `commandName` must change the same dual-face row used by Host and Client; the shared Cordis row passes one configuration to both halves.
+Host 与 Client 共享同一个 Cordis 行配置，因此修改 `commandName` 时两端会保持一致。
 
-## Privacy and persistence
+## 隐私与持久化
 
-Unsent quotes, comments, unfinished editor text, and retry records stay in `localStorage` under `dsh-inline-comments:v1:<session-id>`. When the current key is absent, valid data under `dsh-inline-annotations:v1:<session-id>` is copied to the current key and the legacy key is removed. The visible key remains `v1` while its validated value uses `storageVersion: 2`; version-one values migrate on read. Local data is not sent to the Host or model until the user submits through the official composer. Submitted quotes and comments become part of the current Session log and model context. The plugin has no analytics, telemetry, or external network client. See [Privacy](docs/privacy.md).
+未发送原文、评论、编辑中内容和重试记录保存在 `dsh-inline-comments:v1:<session-id>` 对应的 `localStorage` 中。当前键不存在时，会把 `dsh-inline-annotations:v1:<session-id>` 下的有效数据复制到当前键并删除旧键。可见存储键继续使用 `v1`，其中经过校验的数据值采用 `storageVersion: 2`，旧版值会在读取时迁移。用户通过官方输入框提交前不会发送到 Host 或模型。提交后，原文和评论会进入当前 Session 日志和模型上下文。插件不包含分析、遥测或外部网络客户端。详见[隐私说明](docs/privacy.md)。
 
-## Model experience
+## 模型体验
 
-- **Before submission:** no prompt, token, or KV-cache effect.
-- **On submission:** one standard user message contains the official composer text, complete comment batch, stable ids, source quotes, comments, and structural coordinates.
-- **Acknowledgement request:** the message asks the model to append one hidden marker listing only comments it actually handled. The Client strips that marker before rendering while retaining the raw model text for replay.
-- **Tokens:** cost scales with the complete selected text and comments; the plugin does not truncate them. The byte limit rejects oversized batches before admission.
-- **KV cache:** steering or follow-up input changes subsequent model context like any other user message.
+- **提交前：**不产生 Prompt、Token 或 KV Cache 影响。
+- **提交时：**写入一条标准用户消息，包含官方输入框文本、完整批次、稳定 ID、原文、评论和结构坐标。
+- **处理确认：**消息要求模型在确实处理后返回一个列出注释 ID 的机器标记。Client 渲染前隐藏标记，但原始模型文本仍可重放。
+- **Token：**成本随完整选区和评论增长；插件不做静默截断。超出字节限制会在入队前拒绝。
+- **KV Cache：**Steer 或 Follow-up 与普通用户消息一样改变后续模型上下文。
 
-## Development
+## 开发
 
 ```bash
 pnpm typecheck
@@ -163,26 +162,26 @@ pnpm publint
 pnpm pack
 ```
 
-The CI workflow runs type checking, linting, unit tests, a production bundle, artifact verification, and publint on Node 22.19 and 24. The Node 24 job also runs the real Chromium regression and creates the package artifact. See [Development](docs/development.md), [Architecture](docs/architecture.md), and [Data model](docs/data-model.md).
+CI 会在 Node 22.19 与 24 上执行类型检查、Lint、单元测试、生产构建、Bundle 验证和 publint。Node 24 任务还会运行真实 Chromium 回归测试并创建包产物。更多信息见[开发指南](docs/development.md)、[架构](docs/architecture.md)和[数据模型](docs/data-model.md)。
 
-## Known limitations and deferred work
+## 已知限制
 
-- DSH has no public slot inside assistant Markdown. This plugin replaces the `assistant-step`, `user`, and `steering` keyed renderer cells at priority `-100`; upstream renderer changes require a compatibility review.
-- Browser-local drafts do not synchronize between devices or browser profiles. Sent batches reconstruct from the Session log on any client.
-- The machine acknowledgement is cooperative. If the model omits or corrupts it, comments remain `sent` rather than being guessed as processed.
-- Archived tasks have no active composer and cannot arm comments. Create comments in an editable task.
-- DSH command claims do not carry composer image ids, so images and inline comments cannot share one submission yet.
-- CSS Custom Highlights are browser-dependent. Numbered markers and timeline navigation remain available without them.
-- A selection must stay within one assistant reply. Cross-message selections are rejected.
-- DSH has no private command-registration flag, so the validated internal transport command may appear in slash-command discovery.
+- DSH 暂无助手 Markdown 内部 Slot。本插件以优先级 `-100` 覆盖 `assistant-step`、`user` 与 `steering` 渲染单元；上游渲染器变化需要重新兼容验证。
+- 未发送草稿只存在当前浏览器，不会跨设备同步；已发送批次可从 Session 日志恢复。
+- 模型确认属于协作协议。模型遗漏或破坏标记时，状态保持“已发送”，不会猜测为“已处理”。
+- 归档任务没有活跃输入框，无法附加注释；请在可编辑任务中创建注释。
+- DSH 命令 Claim 不携带输入框图片 ID，因此图片与正文注释暂不能合并在一次提交中。
+- CSS Custom Highlight 取决于浏览器支持；不支持时仍可使用编号标记和时间线定位。
+- 一次选区必须位于同一条助手回复内，跨消息选区会被拒绝。
+- DSH 暂无私有命令注册标记，因此经过严格校验的内部传输命令可能出现在斜杠命令目录中。
 
-## Community
+## 社区
 
-- [Contributing](CONTRIBUTING.md)
-- [Code of Conduct](CODE_OF_CONDUCT.md)
-- [Security policy](SECURITY.md)
-- [Support](SUPPORT.md)
-- [Release guide](RELEASING.md)
-- [Changelog](CHANGELOG.md)
+- [贡献指南](CONTRIBUTING.md)
+- [行为准则](CODE_OF_CONDUCT.md)
+- [安全策略](SECURITY.md)
+- [支持渠道](SUPPORT.md)
+- [发布指南](RELEASING.md)
+- [更新日志](CHANGELOG.md)
 
-Released under the [MIT License](LICENSE).
+项目采用 [MIT License](LICENSE)。
