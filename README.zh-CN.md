@@ -156,7 +156,7 @@ pnpm publint
 pnpm pack
 ```
 
-CI 会在 Node 22 与 24 上执行类型检查、Lint、单元测试、生产构建、Bundle 验证和打包，并在 Node 24 上运行真实 Chromium 回归测试。更多信息见[开发指南](docs/development.md)、[架构](docs/architecture.md)和[数据模型](docs/data-model.md)。
+CI 会在 Node 22.19 与 24 上执行类型检查、Lint、单元测试、生产构建、Bundle 验证和 publint。Node 24 任务还会运行真实 Chromium 回归测试并创建包产物。更多信息见[开发指南](docs/development.md)、[架构](docs/architecture.md)和[数据模型](docs/data-model.md)。
 
 ## 已知限制
 
