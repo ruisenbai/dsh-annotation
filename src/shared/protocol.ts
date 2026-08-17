@@ -230,6 +230,6 @@ export function formatSubmissionMessage(payload: AnnotationSubmissionPayload): s
 /** Text shown in the collapsed timeline row. */
 export function submissionSummary(payload: AnnotationSubmissionPayload, locale: 'zh' | 'en' = 'zh'): string {
   return locale === 'zh'
-    ? `基于上一条回复添加了 ${payload.annotations.length} 条正文注解`
+    ? `基于上一条回复添加了 ${payload.annotations.length} 条正文注释`
     : `Added ${payload.annotations.length} inline annotations to an earlier reply`
 }

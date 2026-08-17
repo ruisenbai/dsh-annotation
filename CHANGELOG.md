@@ -22,6 +22,7 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ### Changed
 
+- The Chinese UI term 注解 is renamed to 注释 across the interface, the collapsed timeline summary, and the Chinese README.
 - The plugin no longer renders an overall-requirement textarea, destination notices, or its own send/retry button. The official composer is the only task input and submit surface.
 - `overallRequirement` now carries the official composer text at submit time; submitted history renders it as the ordinary user-message text above the folded annotation card.
 - Attachment retry reuses the immutable submission id and payload through the official composer.
