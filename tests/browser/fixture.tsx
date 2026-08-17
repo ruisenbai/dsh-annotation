@@ -16,7 +16,6 @@ import type { SelectionCapture } from '../../src/client/selection.ts'
 const MESSAGE_ID = 'browser-assistant-message' as MessageIdentity
 const SESSION_ID = 'browser-session' as SessionIdentity
 const TEXT = 'Alpha selected phrase and the rest of this visual line continues until the final word omega.'
-const EXACT = 'selected phrase'
 function captureFor(exact: string): SelectionCapture {
   const start = TEXT.indexOf(exact)
   if (start < 0) throw new Error(`fixture text is missing ${exact}`)
@@ -34,8 +33,6 @@ function captureFor(exact: string): SelectionCapture {
     rect: { top: 0, left: 0, bottom: 0, right: 0 },
   }
 }
-const CAPTURE = captureFor(EXACT)
-
 const fixtureTokens = `
 :root {
   color-scheme: light dark;

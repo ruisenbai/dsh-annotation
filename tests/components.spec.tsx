@@ -962,7 +962,7 @@ describe('inline comment presentation', () => {
         expect(container.querySelector('.dia-assistant__body')).toHaveStyle({ paddingRight: '111px' }),
       )
       const lefts = markers.map((marker) => Number.parseFloat(marker.style.left))
-      expect(lefts.slice(0, 4)).toEqual([...lefts.slice(0, 4)].sort((left, right) => left - right))
+      expect(lefts.slice(0, 4)).toEqual(lefts.slice(0, 4).sort((left, right) => left - right))
       expect(Math.max(...lefts) + 24).toBeLessThanOrEqual(320)
       expect(markers[4]).toHaveStyle({ left: `${lefts[0]}px` })
       expect(Number.parseFloat(markers[4]!.style.top)).toBeGreaterThan(

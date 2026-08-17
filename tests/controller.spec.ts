@@ -362,7 +362,7 @@ describe('annotation controller', () => {
   })
 
   it('locates mounted replies and pages older history when necessary', async () => {
-    const { controller, navigation } = harness()
+    const { controller } = harness()
     const id = saveDraft(controller)
     const reveal = vi.fn()
     const annotateAll = vi.fn()
