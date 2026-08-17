@@ -1,6 +1,7 @@
 /** @internal */
 export const styles: string = `
 .dia-assistant,
+.dia-settings-row,
 .dia-editor,
 .dia-dock-shell,
 .dia-dock,
@@ -17,12 +18,97 @@ export const styles: string = `
   --dia-shadow: var(--dsw-shadow-lv3);
 }
 
-::highlight(dsh-inline-annotation) {
+.dia-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.dia-settings-row__text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: 48px;
+}
+
+.dia-settings-row__title {
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+}
+
+.dia-settings-row__description {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+.dia-settings-row__switch {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  padding: 6px 0 6px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.dia-settings-row__switch:focus-visible {
+  outline: 2px solid var(--dia-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.dia-settings-row__state {
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.dia-settings-row__track {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex: none;
+  border-radius: 10px;
+  background: var(--dsw-alias-border-l2);
+  transition: background-color 120ms var(--ds-ease-in-out);
+}
+
+.dia-settings-row__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--dsw-alias-bg-layer-1);
+  transition: transform 120ms var(--ds-ease-in-out);
+}
+
+.dia-settings-row__track[data-on='true'] {
+  background: var(--dia-accent);
+}
+
+.dia-settings-row__track[data-on='true'] .dia-settings-row__thumb {
+  transform: translateX(16px);
+}
+
+::highlight(dsh-inline-comment) {
   background: var(--dsw-alias-state-business-tertiary);
   text-decoration: underline 2px var(--dsw-alias-state-business-primary);
 }
 
-::highlight(dsh-inline-annotation-active) {
+::highlight(dsh-inline-comment-active) {
   background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 22%, transparent);
   text-decoration: underline 3px var(--dsw-alias-state-business-primary);
 }

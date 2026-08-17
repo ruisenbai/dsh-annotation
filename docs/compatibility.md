@@ -27,6 +27,8 @@ The internal command is registered through the public command registry. DSH curr
 
 Composer attachment relies on the `inputTriggers` service and its scoped `slash/input-begin-command` / `slash/input-consume-token` events. An upgrade is compatible only while those bail events keep their current claim-and-span semantics and the input machine keeps accepting a claimed token at draft position zero.
 
+The enabled preference contributes through `settings.general.item` and persists with Client Runtime's `createSnapshotStore`. It does not use a Host settings namespace because Web configuration clients expose only product-owned allowlisted namespaces.
+
 ## Upgrade checklist
 
 1. Update all `@deepseek-ai/dsh-*` development dependencies to one release.
@@ -34,13 +36,14 @@ Composer attachment relies on the `inputTriggers` service and its scoped `slash/
 3. Run `pnpm verify` and `pnpm pack`.
 4. Install the tarball into a disposable DSH Web profile.
 5. Verify finalized Markdown, code, tables, images, reasoning, file mentions, streaming completion, and interruption rendering.
-6. Exercise idle, running, blocking confirmation, withdrawal, transport retry, refresh recovery, attach/detach, annotation-only submission, and legacy overall-requirement migration.
-7. Confirm the Slot ledger still selects the plugin's three `-100` entries and restores shipped entries after unload.
-8. Record the verified DSH version in this file and the changelog.
+6. Exercise idle, running, blocking confirmation, withdrawal, transport retry, refresh recovery, attach/detach, comment-only submission, and legacy overall-requirement migration.
+7. Turn DSH Inline Comments off in General Settings; confirm official renderers return, controls and highlights disappear, an armed claim detaches without changing visible text, an in-flight submission releases its claim once the transport settles, and drafts return after re-enabling.
+8. Confirm the Slot ledger still selects the plugin's three `-100` entries and restores shipped entries after unload.
+9. Record the verified DSH version in this file and the changelog.
 
 ## Browser behavior
 
-The CSS Custom Highlight API is an enhancement. Without `CSS.highlights` and `Highlight`, drafts and sent annotations remain in the composer list and timeline, numbered source markers remain clickable, and navigation still scrolls and flashes the reply.
+The CSS Custom Highlight API is an enhancement. Without `CSS.highlights` and `Highlight`, drafts and sent comments remain in the composer list and timeline, numbered source markers remain clickable, and navigation still scrolls and flashes the reply.
 
 `localStorage` availability depends on site permissions and privacy mode. Denial is fail-soft: in-memory drafts work until the page closes, and the UI warns that refresh recovery is unavailable.
 

@@ -25,7 +25,8 @@ export interface StorageLike {
   removeItem(key: string): void
 }
 
-const PREFIX = 'dsh-inline-annotations:v1:'
+const PREFIX = 'dsh-inline-comments:v1:'
+const LEGACY_PREFIX = 'dsh-inline-annotations:v1:'
 const ANNOTATION_STATUSES: readonly AnnotationStatus[] = ['draft', 'queued', 'sent', 'processed']
 const OUTBOX_STATUSES: readonly OutboxStatus[] = [
   'ready',
@@ -237,6 +238,7 @@ function parseState(value: unknown): PersistedSessionState {
 /** Browser-local repository for one Session's drafts and immutable retry records. */
 export class AnnotationStorage {
   readonly key: string
+  private readonly legacyKey: string
   private error: string | null = null
   private bytes = 0
 
@@ -245,14 +247,26 @@ export class AnnotationStorage {
     sessionId: SessionIdentity,
   ) {
     this.key = `${PREFIX}${sessionId}`
+    this.legacyKey = `${LEGACY_PREFIX}${sessionId}`
   }
 
   load(): PersistedSessionState {
     try {
-      const raw = this.storage.getItem(this.key)
+      const current = this.storage.getItem(this.key)
+      const fromLegacy = current === null
+      const raw = current ?? this.storage.getItem(this.legacyKey)
       this.bytes = raw === null ? 0 : byteLength(raw)
       if (raw === null) return emptyPersistedState()
       const parsed = parseState(JSON.parse(raw))
+      if (fromLegacy) {
+        try {
+          this.storage.setItem(this.key, raw)
+          this.storage.removeItem(this.legacyKey)
+        } catch (error: unknown) {
+          this.error = error instanceof Error ? error.message : String(error)
+          return parsed
+        }
+      }
       this.error = null
       return parsed
     } catch (error: unknown) {
@@ -265,6 +279,7 @@ export class AnnotationStorage {
     try {
       const serialized = JSON.stringify(state)
       this.storage.setItem(this.key, serialized)
+      this.storage.removeItem(this.legacyKey)
       this.bytes = byteLength(serialized)
       this.error = null
       return true
@@ -276,6 +291,7 @@ export class AnnotationStorage {
 
   clear(): void {
     this.storage.removeItem(this.key)
+    this.storage.removeItem(this.legacyKey)
     this.bytes = 0
     this.error = null
   }

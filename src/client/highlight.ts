@@ -1,5 +1,5 @@
-const BASE_NAME = 'dsh-inline-annotation'
-const ACTIVE_NAME = 'dsh-inline-annotation-active'
+const BASE_NAME = 'dsh-inline-comment'
+const ACTIVE_NAME = 'dsh-inline-comment-active'
 
 interface HighlightRegistry {
   set(name: string, value: unknown): void

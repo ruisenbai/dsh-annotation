@@ -2,6 +2,35 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+
+vi.mock('@deepseek-ai/dsh-client-runtime/client', () => ({
+  createSnapshotStore<T>(initial: T, options?: { persist?: { name: string } }) {
+    const key = options?.persist?.name
+    let value = initial
+    if (key !== undefined) {
+      const stored = localStorage.getItem(key)
+      if (stored !== null) value = JSON.parse(stored) as T
+    }
+    const listeners = new Set<() => void>()
+    const publish = (next: T) => {
+      value = next
+      if (key !== undefined) localStorage.setItem(key, JSON.stringify(next))
+      for (const listener of listeners) listener()
+    }
+    return {
+      getSnapshot: () => value,
+      subscribe(listener: () => void) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      set: publish,
+      update(mutator: (draft: T) => void) {
+        mutator(value)
+        publish(value)
+      },
+    }
+  },
+}))
 import type { CommandClaim, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { apply } from '../src/client/index.tsx'
 import { COMPOSER_ATTACHMENT_TOKEN } from '../src/client/composer-attachment.ts'
@@ -32,6 +61,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
     imageIds: [] as string[],
     draftRev: 0,
     phase: 'plain' as 'plain' | 'claimed' | 'submitting',
+    claim: null as CommandClaim | null,
     occurrences: [] as readonly {
       occurrenceId: number
       source: string
@@ -60,6 +90,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
           draft,
           draftRev: inputState.draftRev + 1,
           phase: 'claimed',
+          claim: nextClaim,
         })
         return true
       }
@@ -76,6 +107,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
           draft,
           draftRev: inputState.draftRev + 1,
           phase: 'plain',
+          claim: null,
         })
         return true
       }
@@ -98,6 +130,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
         draft,
         draftRev: inputState.draftRev + 1,
         phase: keepsClaim ? 'claimed' : 'plain',
+        claim: keepsClaim ? claim : null,
       })
     },
     notify: inputNotice,
@@ -136,11 +169,19 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
     },
     slots: {
       register(options: Record<string, unknown>) {
-        registrations.push({ options })
-        return () => undefined
+        const registration = { options }
+        registrations.push(registration)
+        return () => {
+          const index = registrations.indexOf(registration)
+          if (index >= 0) registrations.splice(index, 1)
+        }
       },
       inject(_name: string, install: () => (() => void) | readonly (() => void)[]) {
-        install()
+        const installed = install()
+        return () => {
+          if (typeof installed === 'function') installed()
+          else for (const dispose of [...installed].reverse()) dispose()
+        }
       },
     },
     effect(install: () => void | (() => void)) {
@@ -155,6 +196,16 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
       if (dock === undefined || typeof dock.options.inject !== 'function')
         throw new Error('dock was not registered')
       return dock.options.inject('session-test' as SessionId) as AnnotationInjected
+    },
+    setPluginEnabled(enabled: boolean) {
+      const setting = registrations.find((entry) => entry.options.name === 'settings.general.item')
+      if (setting === undefined || typeof setting.options.inject !== 'function')
+        throw new Error('settings row was not registered')
+      const face = setting.options.inject() as { setEnabled: (value: boolean) => void }
+      face.setEnabled(enabled)
+    },
+    hasRegistration(name: string) {
+      return registrations.some((entry) => entry.options.name === name)
     },
     inputNotice,
     inputSnapshot: () => inputState,
@@ -174,7 +225,13 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
       const outcome = await current.submit('', actx)
       if (outcome.kind === 'success') {
         claim = null
-        publishInput({ ...inputState, draft: '', draftRev: inputState.draftRev + 1, phase: 'plain' })
+        publishInput({
+          ...inputState,
+          draft: '',
+          draftRev: inputState.draftRev + 1,
+          phase: 'plain',
+          claim: null,
+        })
       } else {
         publishInput({ ...inputState, phase: 'claimed' })
       }
@@ -216,6 +273,80 @@ function saveAnnotation(face: AnnotationInjected, start = 0, exact = 'first', co
 beforeEach(() => localStorage.clear())
 
 describe('Client plugin composer attachment lifecycle', () => {
+  it('disables conversation integrations without discarding drafts and restores them when enabled', () => {
+    const fixture = fixtureContext(vi.fn())
+    apply(fixture.ctx)
+    const face = fixture.face()
+    saveAnnotation(face)
+    expect(face.toggleComposerAttachment('remove images')).toBe(true)
+    fixture.setComposerText('Keep this visible draft.')
+
+    fixture.setPluginEnabled(false)
+
+    expect(fixture.hasRegistration('settings.general.item')).toBe(true)
+    expect(fixture.hasRegistration('conversation.chat.node')).toBe(false)
+    expect(fixture.hasRegistration('conversation.input.dock')).toBe(false)
+    expect(fixture.hasRegistration('conversation.chat.assistant-actions')).toBe(false)
+    expect(fixture.inputSnapshot()).toMatchObject({ draft: 'Keep this visible draft.', phase: 'plain' })
+    expect(face.hooks.annotations.getSnapshot().annotations).toHaveLength(1)
+    expect(localStorage.getItem('dsh.inline-comments.enabled')).toBe('false')
+
+    fixture.setPluginEnabled(true)
+
+    expect(fixture.hasRegistration('conversation.chat.node')).toBe(true)
+    expect(fixture.face().hooks.annotations.getSnapshot().annotations).toHaveLength(1)
+    fixture.dispose()
+  })
+
+  it('releases a submitting attachment when the feature is disabled mid-send', async () => {
+    let rejectCommand!: (cause: Error) => void
+    const command = vi
+      .fn()
+      .mockImplementation(() => new Promise<never>((_resolve, reject) => (rejectCommand = reject)))
+    const fixture = fixtureContext(command)
+    apply(fixture.ctx)
+    const face = fixture.face()
+    saveAnnotation(face)
+    expect(face.toggleComposerAttachment('remove images')).toBe(true)
+    fixture.setComposerText('Keep this draft while sending.')
+
+    const pending = fixture.submitComposer()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(command).toHaveBeenCalledOnce()
+    fixture.setPluginEnabled(false)
+
+    expect(fixture.hasRegistration('conversation.input.dock')).toBe(false)
+    expect(fixture.inputSnapshot().draft.startsWith(COMPOSER_ATTACHMENT_TOKEN)).toBe(true)
+    expect(fixture.inputSnapshot().phase).toBe('submitting')
+
+    rejectCommand(new Error('offline'))
+    await expect(pending).resolves.toEqual({ kind: 'error', text: 'offline' })
+
+    expect(fixture.inputSnapshot()).toMatchObject({
+      draft: 'Keep this draft while sending.',
+      phase: 'plain',
+      claim: null,
+    })
+    expect(fixture.hasRegistration('conversation.input.dock')).toBe(false)
+    expect(face.hooks.annotations.getSnapshot().outbox[0]).toMatchObject({ status: 'failed' })
+    fixture.dispose()
+  })
+
+  it('rehydrates the disabled preference while leaving its Settings row available', () => {
+    localStorage.setItem('dsh.inline-comments.enabled', 'false')
+    const fixture = fixtureContext(vi.fn())
+    apply(fixture.ctx)
+
+    expect(fixture.hasRegistration('settings.general.item')).toBe(true)
+    expect(fixture.hasRegistration('conversation.input.dock')).toBe(false)
+    expect(() => fixture.face()).toThrow('dock was not registered')
+
+    fixture.setPluginEnabled(true)
+    expect(fixture.hasRegistration('conversation.input.dock')).toBe(true)
+    fixture.dispose()
+  })
+
   it('submits official composer text and retries the same immutable batch after transport failure', async () => {
     const command = vi.fn().mockRejectedValueOnce(new Error('offline'))
     const fixture = fixtureContext(command)
@@ -304,6 +435,8 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
 
+    expect(localStorage.getItem('dsh-inline-annotations:v1:session-test')).toBeNull()
+    expect(localStorage.getItem('dsh-inline-comments:v1:session-test')).not.toBeNull()
     expect(face.toggleComposerAttachment('remove images')).toBe(true)
     expect(fixture.inputSnapshot().draft).toBe(
       `${COMPOSER_ATTACHMENT_TOKEN}Rewrite the introduction.\n\nKeep the original structure.`,
@@ -361,7 +494,7 @@ describe('Client plugin composer attachment lifecycle', () => {
               'user',
               {
                 kind: 'user',
-                data: { source: { kind: 'user', inlineAnnotations: accepted.payload } },
+                data: { source: { kind: 'user', inlineComments: accepted.payload } },
               },
             ],
           ]),

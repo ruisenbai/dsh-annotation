@@ -14,9 +14,8 @@ function acceptedTextNode(node: Node, root: HTMLElement): node is Text {
   if (parent === null || !root.contains(parent)) return false
   if (text.data.trim() === '' && parent === root) return false
   return (
-    parent.closest(
-      'button, script, style, [aria-hidden="true"], [data-dsh-inline-annotation-ignore="true"]',
-    ) === null
+    parent.closest('button, script, style, [aria-hidden="true"], [data-dsh-inline-comment-ignore="true"]') ===
+    null
   )
 }
 

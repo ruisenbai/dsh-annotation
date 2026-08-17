@@ -175,7 +175,7 @@ function Fixture() {
             'sent',
             {
               kind: 'user',
-              data: { source: { kind: 'user', inlineAnnotations: entry.payload } },
+              data: { source: { kind: 'user', inlineComments: entry.payload } },
             },
           ],
         ]),
@@ -186,7 +186,7 @@ function Fixture() {
   }
   const seedFailedSubmission = () => {
     controller.beginSelection(captureFor('omega'))
-    controller.updateEditorText('Browser retry annotation')
+    controller.updateEditorText('Browser retry comment')
     controller.saveEditor()
     const entry = controller.createOutbox('queue', SESSION_ID, 'Retry this batch.')
     controller.markSending(entry.payload.submissionId)
@@ -234,7 +234,7 @@ function Fixture() {
       data: {
         status: 'closed',
         blocks: [
-          { kind: 'reasoning', text: 'Reasoning stays outside annotation offsets.' },
+          { kind: 'reasoning', text: 'Reasoning stays outside comment offsets.' },
           { kind: 'text', text: TEXT },
         ],
         finalNode: { messageId: MESSAGE_ID, seq: 42 },
@@ -267,7 +267,7 @@ function Fixture() {
   return (
     <main className="browser-fixture">
       <style>{fixtureTokens + styles}</style>
-      <h1>Inline annotation browser fixture</h1>
+      <h1>Inline comment browser fixture</h1>
       <div className="browser-scroller" data-testid="conversation-scroll">
         <div className="browser-spacer" />
         <AnnotatedAssistantNode {...(assistantProps as unknown as AssistantAnnotationProps)} />

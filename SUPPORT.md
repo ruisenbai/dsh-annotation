@@ -2,7 +2,7 @@
 
 ## Questions and setup help
 
-Open a [GitHub Discussion](https://github.com/YOUR_ORG/dsh-inline-annotations/discussions) with:
+Open a [GitHub Discussion](https://github.com/YOUR_ORG/dsh-inline-comments/discussions) with:
 
 - DSH version and installation method;
 - plugin version or commit;

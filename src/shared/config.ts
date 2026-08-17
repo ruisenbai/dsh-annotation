@@ -1,7 +1,10 @@
 import type { AnnotationConfig } from './types.ts'
 
+/** Command name emitted before the rename; old Sessions still hold durable rows under it. */
+export const LEGACY_COMMAND_NAME = 'inline_annotations_submit'
+
 export const DEFAULT_CONFIG: AnnotationConfig = Object.freeze({
-  commandName: 'inline_annotations_submit',
+  commandName: 'inline_comments_submit',
   maxPayloadBytes: 512 * 1024,
   maxAnnotationsPerSubmission: 100,
   warnSelectionChars: 12_000,

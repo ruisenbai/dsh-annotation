@@ -42,4 +42,4 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-workspace@0.1.0-rc.6'
 
 onlyBuiltDependencies:
-  - dsh-inline-annotations
+  - dsh-inline-comments

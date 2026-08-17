@@ -4,7 +4,8 @@ import type {
   AnnotationId,
   AnnotationSubmissionPayload,
   CodeSelection,
-  InlineAnnotationMessageSource,
+  InlineCommentMessageSource,
+  LegacyInlineAnnotationMessageSource,
   MessageIdentity,
   SessionIdentity,
   StructuredSelection,
@@ -171,12 +172,14 @@ export function validateSubmissionLimits(
   }
 }
 
-/** Read the plugin's metadata from one persisted user-message source. */
-export function parseInlineAnnotationSource(value: unknown): AnnotationSubmissionPayload | null {
+/** Read current or pre-rename metadata from one persisted user-message source. */
+export function parseInlineCommentSource(value: unknown): AnnotationSubmissionPayload | null {
   try {
-    const source = record(value, 'source') as UnknownRecord & Partial<InlineAnnotationMessageSource>
-    if (source.kind !== 'user' || source.inlineAnnotations === undefined) return null
-    return parseSubmissionPayload(source.inlineAnnotations)
+    const source = record(value, 'source') as UnknownRecord &
+      Partial<InlineCommentMessageSource & LegacyInlineAnnotationMessageSource>
+    if (source.kind !== 'user') return null
+    const payload = source.inlineComments ?? source.inlineAnnotations
+    return payload === undefined ? null : parseSubmissionPayload(payload)
   } catch {
     return null
   }
@@ -196,17 +199,17 @@ function structureLabel(value: StructuredSelection | undefined): string | null {
 /** Produce the exact readable text sent to the model and retained in the standard user/message event. */
 export function formatSubmissionMessage(payload: AnnotationSubmissionPayload): string {
   const lines: string[] = [
-    '[DSH inline annotations]',
+    '[DSH inline comments]',
     `Submission ID: ${payload.submissionId}`,
-    `Reply annotations: ${payload.annotations.length}`,
+    `Reply comments: ${payload.annotations.length}`,
     '',
     'Overall requirement:',
-    payload.overallRequirement?.trim() || 'Handle every annotation together and preserve unaffected content.',
+    payload.overallRequirement?.trim() || 'Handle every comment together and preserve unaffected content.',
   ]
   for (const item of payload.annotations) {
     lines.push(
       '',
-      `Annotation ${item.ordinal} (${item.annotationId})`,
+      `Comment ${item.ordinal} (${item.annotationId})`,
       `Reply message: ${item.messageId}`,
       `Reply event seq: ${item.messageSeq}`,
       'Original text:',
@@ -220,9 +223,9 @@ export function formatSubmissionMessage(payload: AnnotationSubmissionPayload): s
   lines.push(
     '',
     'Processing acknowledgement:',
-    'Only for annotations you actually handled, append one hidden HTML comment with their exact IDs:',
-    `<!-- ${MODEL_ACK_PREFIX}{"submissionId":"${payload.submissionId}","processed":["annotation-id"]} -->`,
-    'Do not include an annotation ID in processed unless your answer addresses it.',
+    'Only for comments you actually handled, append one hidden HTML comment with their exact IDs:',
+    `<!-- ${MODEL_ACK_PREFIX}{"submissionId":"${payload.submissionId}","processed":["comment-id"]} -->`,
+    'Do not include a comment ID in processed unless your answer addresses it.',
   )
   return lines.join('\n')
 }
@@ -231,5 +234,5 @@ export function formatSubmissionMessage(payload: AnnotationSubmissionPayload): s
 export function submissionSummary(payload: AnnotationSubmissionPayload, locale: 'zh' | 'en' = 'zh'): string {
   return locale === 'zh'
     ? `基于上一条回复添加了 ${payload.annotations.length} 条正文注释`
-    : `Added ${payload.annotations.length} inline annotations to an earlier reply`
+    : `Added ${payload.annotations.length} inline comments to an earlier reply`
 }

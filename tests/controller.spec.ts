@@ -103,7 +103,7 @@ describe('annotation controller', () => {
     expect(controller.getSnapshot().outbox[0]?.status).toBe('queued')
 
     controller.reconcile(
-      snapshot([{ kind: 'user', data: { source: { kind: 'user', inlineAnnotations: entry.payload } } }]),
+      snapshot([{ kind: 'user', data: { source: { kind: 'user', inlineComments: entry.payload } } }]),
     )
     expect(controller.getSnapshot().outbox[0]?.status).toBe('sent')
     controller.markAccepted(entry.payload.submissionId)
@@ -204,7 +204,7 @@ describe('annotation controller', () => {
     const outbox = controller.createOutbox('queue', 'session-test' as SessionIdentity)
     const user = {
       kind: 'user',
-      data: { source: { kind: 'user', inlineAnnotations: outbox.payload } },
+      data: { source: { kind: 'user', inlineComments: outbox.payload } },
     }
     const assistant = {
       kind: 'assistant-step',
@@ -213,7 +213,7 @@ describe('annotation controller', () => {
         blocks: [
           {
             kind: 'text',
-            text: `done <!-- dsh-inline-annotations:{"submissionId":"${outbox.payload.submissionId}","processed":["${outbox.payload.annotations[0]?.annotationId}"]} -->`,
+            text: `done <!-- dsh-inline-comments:{"submissionId":"${outbox.payload.submissionId}","processed":["${outbox.payload.annotations[0]?.annotationId}"]} -->`,
           },
         ],
       },
@@ -247,7 +247,7 @@ describe('annotation controller', () => {
         snapshot([
           {
             kind: 'user',
-            data: { source: { kind: 'user', inlineAnnotations: outbox.payload } },
+            data: { source: { kind: 'user', inlineComments: outbox.payload } },
           },
         ]),
       )
@@ -279,7 +279,7 @@ describe('annotation controller', () => {
     const id = saveDraft(controller)
     const outbox = controller.createOutbox('queue', 'session-test' as SessionIdentity)
     controller.reconcile(
-      snapshot([{ kind: 'user', data: { source: { kind: 'user', inlineAnnotations: outbox.payload } } }]),
+      snapshot([{ kind: 'user', data: { source: { kind: 'user', inlineComments: outbox.payload } } }]),
     )
     controller.beginSelection(capture(4, 12))
     expect(controller.getSnapshot().editor).toMatchObject({ kind: 'new' })
@@ -303,7 +303,7 @@ describe('annotation controller', () => {
             blocks: [
               {
                 kind: 'text',
-                text: `<!-- dsh-inline-annotations:{"submissionId":"${outbox.payload.submissionId}","processed":["${outbox.payload.annotations[0]?.annotationId}"]} -->`,
+                text: `<!-- dsh-inline-comments:{"submissionId":"${outbox.payload.submissionId}","processed":["${outbox.payload.annotations[0]?.annotationId}"]} -->`,
               },
             ],
           },
@@ -341,7 +341,7 @@ describe('annotation controller', () => {
 
     target.reconcile(
       snapshot([
-        { kind: 'user', data: { source: { kind: 'user', inlineAnnotations: outbox.payload } } },
+        { kind: 'user', data: { source: { kind: 'user', inlineComments: outbox.payload } } },
         {
           kind: 'assistant-step',
           data: {
@@ -349,7 +349,7 @@ describe('annotation controller', () => {
             blocks: [
               {
                 kind: 'text',
-                text: `<!-- dsh-inline-annotations:{"submissionId":"${outbox.payload.submissionId}","processed":["${annotationId}"]} -->`,
+                text: `<!-- dsh-inline-comments:{"submissionId":"${outbox.payload.submissionId}","processed":["${annotationId}"]} -->`,
               },
             ],
           },

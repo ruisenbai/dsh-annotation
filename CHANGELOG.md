@@ -6,6 +6,10 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ### Added
 
+- A browser-wide **DSH Inline Comments** switch in General Settings. It is enabled by default; disabling it restores official conversation renderers and removes comment UI while preserving drafts, outbox state, visible composer text, and history for later re-enabling. Disabling while a submission is in flight releases the composer claim as soon as the transport settles.
+- Automatic migration from `dsh-inline-annotations:v1:<session-id>` to `dsh-inline-comments:v1:<session-id>` without discarding valid Session data.
+- Current `inlineComments` user-message provenance and `dsh-inline-comments:` model acknowledgement output, with readers for durable `inlineAnnotations` provenance and acknowledgement markers.
+- A hidden command-view row for durable rows recorded under the pre-rename `inline_annotations_submit` command, so upgraded Sessions keep them out of the visible timeline.
 - A paperclip toggle in the annotation header that arms the current Session's official composer without expanding the list or sending. Armed annotations follow the live unsent set until the official submit.
 - One official composer submission containing ordinary text plus structured annotations, driven by the official Enter key and Send button. Annotation-only submission is allowed when the composer text is empty.
 - One-time migration of the removed plugin-owned overall-request text into the official composer on the first successful attachment.
@@ -22,6 +26,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ### Changed
 
+- The project and npm package are named **DSH Inline Comments** and `dsh-inline-comments`; the Cordis row, default command, artifact names, documentation, and install examples use the same identity.
+- The English UI uses “comment” instead of “annotation”. The durable `dsh-inline-annotations:<submissionId>` message-id namespace remains unchanged so pre-upgrade retries keep one authoritative queue identity.
 - The Chinese UI term 注解 is renamed to 注释 across the interface, the collapsed timeline summary, and the Chinese README.
 - The plugin no longer renders an overall-requirement textarea, destination notices, or its own send/retry button. The official composer is the only task input and submit surface.
 - `overallRequirement` now carries the official composer text at submit time; submitted history renders it as the ordinary user-message text above the folded annotation card.
@@ -48,5 +54,5 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - Bidirectional source navigation and CSS Custom Highlight support with marker fallback.
 - Host, protocol, controller, DOM selection, component, and cross-plane integration tests.
 
-[Unreleased]: https://github.com/YOUR_ORG/dsh-inline-annotations/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/YOUR_ORG/dsh-inline-annotations/releases/tag/v0.1.0
+[Unreleased]: https://github.com/YOUR_ORG/dsh-inline-comments/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/YOUR_ORG/dsh-inline-comments/releases/tag/v0.1.0

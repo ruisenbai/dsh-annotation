@@ -12,13 +12,15 @@ import { submissionMessageId } from '../shared/ids.ts'
 import type {
   AnnotationConfig,
   AnnotationSubmissionPayload,
-  InlineAnnotationMessageSource,
+  InlineCommentMessageSource,
+  LegacyInlineAnnotationMessageSource,
 } from '../shared/types.ts'
 
 /** Make the plugin's durable user provenance visible to DSH's merge-extensible source union. */
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
-    inlineAnnotations: InlineAnnotationMessageSource
+    inlineComments: InlineCommentMessageSource
+    inlineAnnotations: LegacyInlineAnnotationMessageSource
   }
 }
 
@@ -53,9 +55,9 @@ function hasMessage(agent: Agent, messageId: string): boolean {
 }
 
 function createAnnotationMessage(payload: AnnotationSubmissionPayload): UserMessage {
-  const source: InlineAnnotationMessageSource = Object.freeze({
+  const source: InlineCommentMessageSource = Object.freeze({
     kind: 'user',
-    inlineAnnotations: payload,
+    inlineComments: payload,
   })
   return Object.freeze({
     id: submissionMessageId(payload.submissionId) as unknown as UserMessage['id'],
@@ -85,7 +87,7 @@ export function submitAnnotationPayload(
 export function createAnnotationCommand(config: AnnotationConfig): CommandDefinition {
   return Object.freeze({
     name: config.commandName,
-    description: 'Submit an idempotent batch of inline reply annotations',
+    description: 'Submit an idempotent batch of inline reply comments',
     input: { hint: '<internal-base64url-payload>' },
     recordInput: false,
     handler(invocation: CommandInvocation): CommandResult {
@@ -96,7 +98,7 @@ export function createAnnotationCommand(config: AnnotationConfig): CommandDefini
       const result = submitAnnotationPayload(invocation.agent, payload)
       return Object.freeze({
         kind: 'success',
-        text: result.duplicate ? 'Annotation batch was already accepted.' : 'Annotation batch accepted.',
+        text: result.duplicate ? 'Comment batch was already accepted.' : 'Comment batch accepted.',
       })
     },
   })

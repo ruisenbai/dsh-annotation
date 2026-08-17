@@ -7,7 +7,7 @@ import { createAnnotationCommand } from './host/command.ts'
 import { DEFAULT_CONFIG, resolveConfig } from './shared/config.ts'
 import type { AnnotationConfig } from './shared/types.ts'
 
-export const name = 'inline-annotations'
+export const name = 'inline-comments'
 export const inject = ['commands']
 
 export interface Config extends AnnotationConfig {}
@@ -25,7 +25,7 @@ export function apply(ctx: Context, input: Config): void {
   const config = resolveConfig(input)
   ctx.effect(
     () => ctx.commands.register(createAnnotationCommand(config)),
-    'inline-annotations: internal submission command',
+    'inline-comments: internal submission command',
   )
 }
 

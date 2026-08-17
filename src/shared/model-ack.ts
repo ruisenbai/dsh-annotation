@@ -1,7 +1,7 @@
 import { MODEL_ACK_PREFIX } from './types.ts'
 import type { AnnotationId, ModelAcknowledgement, SubmissionId } from './types.ts'
 
-const MARKER = /<!--\s*dsh-inline-annotations:(\{[\s\S]*?\})\s*-->/gu
+const MARKER = /<!--\s*(?:dsh-inline-comments|dsh-inline-annotations):(\{[\s\S]*?\})\s*-->/gu
 
 /** Parse only explicit, well-formed model acknowledgements; prose guesses never change status. */
 export function parseModelAcknowledgements(text: string): ModelAcknowledgement[] {

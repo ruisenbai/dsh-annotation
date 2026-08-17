@@ -2,9 +2,9 @@
 
 ## Scope
 
-`dsh-inline-annotations` is one installable Cordis row with two runtime halves:
+`dsh-inline-comments` is one installable Cordis row with two runtime halves:
 
-- the **Host half** registers the internal `inline_annotations_submit` command, validates a base64url JSON payload, creates one standard user message, deduplicates retries, and calls `Agent.followup()`;
+- the **Host half** registers the internal `inline_comments_submit` command, validates a base64url JSON payload, creates one standard user message, deduplicates retries, and calls `Agent.followup()`;
 - the **Web Client half** owns selection capture, the selection action bar, draft persistence, the official-composer attachment claim, status reconstruction, rendering, queue withdrawal, and source navigation.
 
 The package does not add a custom durable Session event. Every model-visible batch is represented by the existing `user/message` event and therefore survives replay and persistence without extending DSH's closed reload vocabulary.
@@ -26,13 +26,13 @@ sequenceDiagram
   Note over C: Live draft set follows edits until submit
   U->>C: Official Enter or Send
   C->>C: Freeze payload + submission id + composer text
-  C->>H: /inline_annotations_submit <base64url JSON>
+  C->>H: /inline_comments_submit <base64url JSON>
   H->>H: Validate size, ids, session, schema
   H->>A: followup() with deterministic message id
   H-->>C: Command admitted
   A->>L: Standard user/message at claim time
   C->>C: Reconstruct status = sent
-  L->>M: Complete annotation message
+  L->>M: Complete inline-comment message
   M->>L: Assistant response + explicit id marker
   C->>C: Parse exact ids; status = processed
 ```
@@ -50,17 +50,17 @@ The Host attaches this provenance to the standard user message:
 ```ts
 {
   kind: 'user',
-  inlineAnnotations: AnnotationSubmissionPayload
+  inlineComments: AnnotationSubmissionPayload
 }
 ```
 
-`kind: 'user'` is intentional: every quote and comment comes from an explicit human gesture, and DSH should treat the input with ordinary human authority. The extra field is an owned JSON value preserved by standard message cloning. It contains the exact submitted batch, so a fresh browser can rebuild timeline cards without a plugin sidecar.
+`kind: 'user'` is intentional: every quote and comment comes from an explicit human gesture, and DSH should treat the input with ordinary human authority. The extra field is an owned JSON value preserved by standard message cloning. It contains the exact submitted batch, so a fresh browser can rebuild timeline cards without a plugin sidecar. Replay also accepts `inlineAnnotations` on durable messages that use the legacy provenance field.
 
 The model-visible text is generated from the same payload. It lists the submission id, each annotation id, source message/version id, event sequence, complete quote, comment, structural coordinates, optional overall requirement, and acknowledgement syntax.
 
 ## Idempotency
 
-The stable inbox/message id is `dsh-inline-annotations:<submissionId>`. Before admission, the Host synchronously checks:
+The stable inbox/message id is `dsh-inline-annotations:<submissionId>` for both current and migrated outbox records. This durable protocol namespace preserves retry identity across package-name changes. Before admission, the Host synchronously checks:
 
 1. `agent.inbox.nextTurn`;
 2. `agent.inbox.nextStep`;
@@ -99,6 +99,12 @@ Mounted messages rebuild `Range` objects from offsets. If the rendered offsets n
 
 Each numbered button anchors after the complete selectable-text line containing its rebuilt range endpoint, rather than immediately after a mid-line selection. Markers sharing one visual line are grouped by vertical geometry and placed left to right by ordinal. The assistant body reserves a gutter of up to four marker columns; larger groups and markers with stale selectors continue row-major inside that gutter instead of covering text or leaving the viewport. Resize observation, viewport events, reasoning disclosure toggles, and font-loading completion schedule at most one measurement per animation frame.
 
+## Feature setting lifecycle
+
+The browser-wide enabled preference is an identity-stable `SnapshotStore<boolean>` persisted under `dsh.inline-comments.enabled`. The `settings.general.item` row and per-Session controllers remain mounted for the plugin fiber, while conversation-facing Slot registrations form one dynamic disposer group.
+
+Disabling the feature removes any armed zero-width composer claim while retaining visible draft text, disposes every conversation renderer, dock, action, and command-view registration, and clears CSS Custom Highlights. Controllers, local drafts, editor recovery state, outbox entries, and durable-history reconstruction stay alive. Enabling the feature installs the same contribution group again and reuses the existing controllers. When disable lands while the official composer is submitting, the claim cannot be consumed yet; the Client subscribes to that input and releases the claim as soon as the phase leaves `submitting`, cancelling the subscription if the feature is re-enabled first.
+
 ## Slot composition
 
 DSH currently has no additive slot inside `AssistantMarkdown`. The Client uses supported priority shadowing for three keyed cells:
@@ -106,26 +112,27 @@ DSH currently has no additive slot inside `AssistantMarkdown`. The Client uses s
 | Slot cell                               | Priority | Reason                                                                       |
 | --------------------------------------- | -------: | ---------------------------------------------------------------------------- |
 | `conversation.chat.node:assistant-step` |   `-100` | Own selection roots, the selection action bar, highlights, and quote markers |
-| `conversation.chat.node:user`           |   `-100` | Fold annotation submissions while preserving normal user messages            |
-| `conversation.chat.node:steering`       |   `-100` | Fold annotation batches admitted during a running task                       |
+| `conversation.chat.node:user`           |   `-100` | Fold comment submissions while preserving normal user messages               |
+| `conversation.chat.node:steering`       |   `-100` | Fold comment batches admitted during a running task                          |
 
 Lower priority wins in DSH keyed slots. The replacements use public `MarkdownText`, `JsonBlock`, `MessageText`, and attachment primitives. Additive entries are used where available:
 
-- `conversation.input.dock` for the grouped task-style annotation list, the header attachment toggle, local-data controls, and the compact selection-positioned editor;
-- `conversation.chat.assistant-actions` for a keyboard-accessible whole-reply annotation action;
-- `conversation.chat.commandview:<commandName>` to suppress the transport command's redundant timeline card.
+- `conversation.input.dock` for the grouped task-style comment list, the header attachment toggle, local-data controls, and the compact selection-positioned editor;
+- `conversation.chat.assistant-actions` for a keyboard-accessible whole-reply comment action;
+- `conversation.chat.commandview:<commandName>` to suppress the transport command's redundant timeline card. A second registration under the pre-rename `inline_annotations_submit` name keeps durable rows recorded by earlier versions out of the visible timeline;
+- `settings.general.item` for the always-available enabled preference.
 
-Every registration, locale dictionary, style element, controller, subscription, and highlight is disposed with the Cordis fiber.
+Conversation registrations also dispose when the enabled preference is off. Every registration, locale dictionary, style element, controller, subscription, and highlight is disposed with the Cordis fiber.
 
 ## Processed acknowledgement
 
 The generated user message asks the model to append:
 
 ```html
-<!-- dsh-inline-annotations:{"submissionId":"sub-…","processed":["ann-…"]} -->
+<!-- dsh-inline-comments:{"submissionId":"sub-…","processed":["ann-…"]} -->
 ```
 
-The Client parses raw assistant block text and validates exact strings. It strips matching markers before Markdown rendering. Prose mentions, malformed JSON, unknown ids, elapsed time, and turn completion have no status authority.
+The Client parses raw assistant block text and validates exact strings. It accepts both the current `dsh-inline-comments:` marker and the legacy `dsh-inline-annotations:` marker, then strips matching markers before Markdown rendering. Prose mentions, malformed JSON, unknown ids, elapsed time, and turn completion have no status authority.
 
 ## Archived sessions
 

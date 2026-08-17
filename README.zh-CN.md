@@ -1,4 +1,6 @@
-# dsh-inline-annotations
+# DSH Inline Comments
+
+npm 包：`dsh-inline-comments`
 
 [English](README.md)
 
@@ -37,8 +39,8 @@
 ### 从源码构建
 
 ```bash
-git clone https://github.com/YOUR_ORG/dsh-inline-annotations.git
-cd dsh-inline-annotations
+git clone https://github.com/YOUR_ORG/dsh-inline-comments.git
+cd dsh-inline-comments
 corepack enable
 pnpm install
 pnpm verify
@@ -58,17 +60,23 @@ dsh web --profile web
 每个 `v*.*.*` 标签都会构建可安装 Tarball 并附加到 GitHub Release。下载后可以直接安装预构建包，无需执行仓库构建脚本：
 
 ```bash
-gh release download v0.1.0 --repo YOUR_ORG/dsh-inline-annotations --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-inline-annotations-0.1.0.tgz
+gh release download v0.1.0 --repo YOUR_ORG/dsh-inline-comments --pattern '*.tgz'
+dsh plugin --profile web add ./dsh-inline-comments-0.1.0.tgz
 ```
 
 如果 Profile 明确允许这个可信包执行 `prepare` 构建，也可以安装固定标签的 Git 依赖：
 
 ```bash
-dsh plugin --profile web add git+https://github.com/YOUR_ORG/dsh-inline-annotations.git#v0.1.0
+dsh plugin --profile web add git+https://github.com/YOUR_ORG/dsh-inline-comments.git#v0.1.0
 ```
 
 发布你自己的仓库前，请替换本文和 `package.json` 中的 `YOUR_ORG`。
+
+## 设置
+
+通用设置中提供 **DSH Inline Comments** 开关。开关默认开启，并对当前浏览器 Profile 中的所有 Session 生效。关闭后恢复官方助手与用户消息渲染器，移除选区操作条、数字标记、注释列表、注释操作、隐藏传输视图和输入框附加状态，同时保留输入框中的可见文本。草稿、编辑中内容、Outbox 状态和已提交历史都不会删除；重新开启后会恢复。
+
+开关值保存在当前 Origin 的 `localStorage` 键 `dsh.inline-comments.enabled` 中。
 
 ## 任务状态与发送方式
 
@@ -91,21 +99,21 @@ dsh plugin --profile web add git+https://github.com/YOUR_ORG/dsh-inline-annotati
 
 ## 配置
 
-Bundle 会插入一个 `dsh-inline-annotations` 行。可在当前 Profile Composition 中覆盖：
+Bundle 会插入一个 `dsh-inline-comments` 行。可在当前 Profile Composition 中覆盖：
 
-| 配置项                        |                      默认值 | 作用                                     |
-| ----------------------------- | --------------------------: | ---------------------------------------- |
-| `commandName`                 | `inline_annotations_submit` | 浏览器到 Host 的内部传输命令名           |
-| `maxPayloadBytes`             |                    `524288` | 解码后 JSON 批次上限；超限拒绝，绝不截断 |
-| `maxAnnotationsPerSubmission` |                       `100` | 单批注释数上限                           |
-| `warnSelectionChars`          |                     `12000` | 长选区需要额外确认的阈值                 |
-| `locateHistoryPages`          |                        `20` | 定位原文时最多加载的历史页数             |
+| 配置项                        |                   默认值 | 作用                                     |
+| ----------------------------- | -----------------------: | ---------------------------------------- |
+| `commandName`                 | `inline_comments_submit` | 浏览器到 Host 的内部传输命令名           |
+| `maxPayloadBytes`             |                 `524288` | 解码后 JSON 批次上限；超限拒绝，绝不截断 |
+| `maxAnnotationsPerSubmission` |                    `100` | 单批注释数上限                           |
+| `warnSelectionChars`          |                  `12000` | 长选区需要额外确认的阈值                 |
+| `locateHistoryPages`          |                     `20` | 定位原文时最多加载的历史页数             |
 
 Host 与 Client 共享同一个 Cordis 行配置，因此修改 `commandName` 时两端会保持一致。
 
 ## 隐私与持久化
 
-未发送原文、评论、编辑中内容和重试记录保存在 `dsh-inline-annotations:v1:<session-id>` 对应的 `localStorage` 中。可见存储键继续使用 `v1`，其中经过校验的数据值采用 `storageVersion: 2`，旧版值会在读取时迁移。用户通过官方输入框提交前不会发送到 Host 或模型。提交后，原文和评论会进入当前 Session 日志和模型上下文。插件不包含分析、遥测或外部网络客户端。详见[隐私说明](docs/privacy.md)。
+未发送原文、评论、编辑中内容和重试记录保存在 `dsh-inline-comments:v1:<session-id>` 对应的 `localStorage` 中。当前键不存在时，会把 `dsh-inline-annotations:v1:<session-id>` 下的有效数据复制到当前键并删除旧键。可见存储键继续使用 `v1`，其中经过校验的数据值采用 `storageVersion: 2`，旧版值会在读取时迁移。用户通过官方输入框提交前不会发送到 Host 或模型。提交后，原文和评论会进入当前 Session 日志和模型上下文。插件不包含分析、遥测或外部网络客户端。详见[隐私说明](docs/privacy.md)。
 
 ## 模型体验
 

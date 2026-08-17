@@ -93,7 +93,7 @@ describe('browser-to-Host submission flow', () => {
             blocks: [
               {
                 kind: 'text',
-                text: `Handled. <!-- dsh-inline-annotations:{"submissionId":"${entry.payload.submissionId}","processed":["${annotationId}"]} -->`,
+                text: `Handled. <!-- dsh-inline-comments:{"submissionId":"${entry.payload.submissionId}","processed":["${annotationId}"]} -->`,
               },
             ],
           },

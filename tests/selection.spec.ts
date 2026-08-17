@@ -23,7 +23,7 @@ describe('DOM selection capture', () => {
   beforeEach(() => {
     document.body.innerHTML = `
       <div id="root">
-        <details data-dsh-inline-annotation-ignore="true"><summary>Reasoning</summary><p>hidden analysis</p></details>
+        <details data-dsh-inline-comment-ignore="true"><summary>Reasoning</summary><p>hidden analysis</p></details>
         <p>Hello <strong>world</strong>!</p>
         <button type="button">Copy chrome</button>
         <pre><code class="language-ts">one\ntwo\nthree</code></pre>

@@ -448,7 +448,7 @@ function downloadLocalData(serialized: string): void {
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = `dsh-inline-annotations-${new Date().toISOString().slice(0, 10)}.json`
+  anchor.download = `dsh-inline-comments-${new Date().toISOString().slice(0, 10)}.json`
   document.body.append(anchor)
   anchor.click()
   anchor.remove()

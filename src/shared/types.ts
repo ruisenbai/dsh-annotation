@@ -1,7 +1,9 @@
 /** JSON protocol shared by the Host command bridge and browser client. */
 
 export const PROTOCOL_VERSION = 1 as const
-export const MODEL_ACK_PREFIX = 'dsh-inline-annotations:'
+export const MODEL_ACK_PREFIX = 'dsh-inline-comments:'
+export const LEGACY_MODEL_ACK_PREFIX = 'dsh-inline-annotations:'
+/** Stable across the product rename so failed persisted retries keep their authoritative queue identity. */
 export const MESSAGE_ID_PREFIX = 'dsh-inline-annotations:'
 
 export type AnnotationId = string & { readonly __annotationId: unique symbol }
@@ -97,8 +99,14 @@ export interface AnnotationSubmissionPayload {
   readonly annotations: readonly SubmittedAnnotation[]
 }
 
-/** Extra durable provenance attached to the standard user/message event. */
-export interface InlineAnnotationMessageSource {
+/** Extra durable provenance attached to a new standard user/message event. */
+export interface InlineCommentMessageSource {
+  readonly kind: 'user'
+  readonly inlineComments: AnnotationSubmissionPayload
+}
+
+/** Durable provenance written before the project rename. */
+export interface LegacyInlineAnnotationMessageSource {
   readonly kind: 'user'
   readonly inlineAnnotations: AnnotationSubmissionPayload
 }

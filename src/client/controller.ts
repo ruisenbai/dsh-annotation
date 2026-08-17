@@ -1,7 +1,7 @@
 import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import { createAnnotationId, createSubmissionId, submissionMessageId } from '../shared/ids.ts'
 import { parseModelAcknowledgements } from '../shared/model-ack.ts'
-import { parseInlineAnnotationSource } from '../shared/protocol.ts'
+import { parseInlineCommentSource } from '../shared/protocol.ts'
 import { PROTOCOL_VERSION } from '../shared/types.ts'
 import type {
   AnnotationConfig,
@@ -560,7 +560,7 @@ export class AnnotationController {
     let latestAssistantMessageId: MessageIdentity | null = null
     for (const node of snapshot.chat.nodes.values()) {
       const source = sourceFromInputNode(node)
-      const payload = parseInlineAnnotationSource(source)
+      const payload = parseInlineCommentSource(source)
       if (payload !== null) submissions.set(payload.submissionId, payload)
       const assistantId = finalAssistantId(node)
       if (assistantId !== null) latestAssistantMessageId = assistantId
@@ -770,7 +770,7 @@ export class AnnotationController {
       try {
         listener()
       } catch (error: unknown) {
-        console.error('[dsh-inline-annotations] subscriber failed:', error)
+        console.error('[dsh-inline-comments] subscriber failed:', error)
       }
     }
   }

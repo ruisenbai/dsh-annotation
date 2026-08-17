@@ -1,9 +1,9 @@
 # Install one dual-face row: Host command bridge plus Web Client UI.
 - insert:
-    - id: inline-annotations
-      name: dsh-inline-annotations
+    - id: inline-comments
+      name: dsh-inline-comments
       config:
-        commandName: inline_annotations_submit
+        commandName: inline_comments_submit
         maxPayloadBytes: 524288
         maxAnnotationsPerSubmission: 100
         warnSelectionChars: 12000

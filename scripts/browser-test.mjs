@@ -40,7 +40,7 @@ const server = await createServer({
   server: { host: '127.0.0.1', port: 0, strictPort: false },
   plugins: [
     {
-      name: 'inline-annotation-browser-fixture',
+      name: 'inline-comment-browser-fixture',
       configureServer(viteServer) {
         viteServer.middlewares.use((request, response, next) => {
           const pathname = new URL(request.url ?? '/', 'http://fixture.local').pathname
@@ -120,9 +120,9 @@ try {
   const selectionBar = page.locator('.dia-selection-bar')
   await selectionBar.waitFor()
   assert(
-    (await selectionBar.getByRole('button', { name: 'Add annotation' }).count()) === 1 &&
+    (await selectionBar.getByRole('button', { name: 'Add comment' }).count()) === 1 &&
       (await selectionBar.getByRole('button', { name: 'Copy' }).count()) === 1,
-    'selection must offer add-annotation and copy actions',
+    'selection must offer add-comment and copy actions',
   )
   const liveSelection = await page.evaluate(() => window.getSelection()?.toString() ?? '')
   assert(liveSelection === 'selected phrase', 'selection must stay alive while the action bar is open')
@@ -150,9 +150,9 @@ try {
 
   await selectExact(page, 'selected phrase')
   await selectionBar.waitFor()
-  await selectionBar.getByRole('button', { name: 'Add annotation' }).click()
+  await selectionBar.getByRole('button', { name: 'Add comment' }).click()
 
-  let dialog = page.getByRole('dialog', { name: 'Add annotation' })
+  let dialog = page.getByRole('dialog', { name: 'Add comment' })
   await dialog.waitFor()
   assert((await dialog.locator('textarea').count()) === 1, 'compact editor must expose one direct textarea')
   assert(
@@ -213,12 +213,12 @@ try {
 
   await selectExact(page, 'selected phrase')
   await selectionBar.waitFor()
-  await selectionBar.getByRole('button', { name: 'Add annotation' }).click()
-  dialog = page.getByRole('dialog', { name: 'Add annotation' })
+  await selectionBar.getByRole('button', { name: 'Add comment' }).click()
+  dialog = page.getByRole('dialog', { name: 'Add comment' })
   const input = dialog.getByRole('textbox', { name: 'Your comment' })
   await input.fill('Needs a concrete explanation.')
   await page.getByText('Automatically saved locally').waitFor()
-  const stored = await page.evaluate(() => localStorage.getItem('dsh-inline-annotations:v1:browser-session'))
+  const stored = await page.evaluate(() => localStorage.getItem('dsh-inline-comments:v1:browser-session'))
   assert(stored?.includes('Needs a concrete explanation.') === true, 'unfinished input must be autosaved')
 
   await page.locator('h1').dispatchEvent('pointerdown')
@@ -231,7 +231,7 @@ try {
   assert(borderColor === 'rgb(211, 58, 58)', `dirty editor border must be red, received ${borderColor}`)
   const animationName = await input.evaluate((element) => getComputedStyle(element).animationName)
   assert(animationName.startsWith('dia-editor-shake-'), 'dirty editor must shake after an outside click')
-  await dialog.getByRole('button', { name: 'Save annotation' }).click()
+  await dialog.getByRole('button', { name: 'Save comment' }).click()
   await dialog.waitFor({ state: 'detached' })
   await page.locator('.browser-scroller').evaluate((element) => {
     element.scrollTop = 0
@@ -313,7 +313,7 @@ try {
   )
 
   await page.locator('.dia-marker').nth(1).click()
-  const editDialog = page.getByRole('dialog', { name: 'Edit annotation' })
+  const editDialog = page.getByRole('dialog', { name: 'Edit comment' })
   await editDialog.waitFor()
   const editAnchoring = await editDialog.evaluate((element) => ({
     inlineLeft: element.style.left,
@@ -365,16 +365,16 @@ try {
 
   const dockMain = page.locator('.dia-dock__main')
   if ((await dockMain.getAttribute('aria-expanded')) !== 'true') await dockMain.click()
-  const attach = page.getByRole('button', { name: 'Attach 5 annotations to the next send' })
-  const fold = page.getByRole('button', { name: 'Collapse inline annotations' })
+  const attach = page.getByRole('button', { name: 'Attach 5 comments to the next send' })
+  const fold = page.getByRole('button', { name: 'Collapse inline comments' })
   await attach.waitFor()
   assert(
     (await page.locator('.dia-inline-panel textarea').count()) === 0,
-    'annotation list must not own a task textarea',
+    'comment list must not own a task textarea',
   )
   assert(
     (await page.locator('.dia-inline-panel__send').count()) === 0,
-    'annotation list must not own a send button',
+    'comment list must not own a send button',
   )
   assert(
     await attach.evaluate(
@@ -407,7 +407,7 @@ try {
   })
   assert(
     dockChrome.background === 'rgb(36, 43, 51)' && dockChrome.borderRadius === '12px',
-    `annotation dock must use the official tip card, received ${JSON.stringify(dockChrome)}`,
+    `comment dock must use the official tip card, received ${JSON.stringify(dockChrome)}`,
   )
   assert(
     dockChrome.title?.fontSize === '13px' && dockChrome.title.lineHeight === '24px',
@@ -422,11 +422,11 @@ try {
   )
   assert(
     (await page.locator('.dia-group__title [data-state="warning"]').count()) > 0,
-    'annotation groups must use official DSH state dots',
+    'comment groups must use official DSH state dots',
   )
   await attach.click()
-  assert((await fold.getAttribute('aria-expanded')) === 'true', 'attaching must not fold the annotation list')
-  const detach = page.getByRole('button', { name: 'Detach 5 annotations' })
+  assert((await fold.getAttribute('aria-expanded')) === 'true', 'attaching must not fold the comment list')
+  const detach = page.getByRole('button', { name: 'Detach 5 comments' })
   await detach.waitFor()
   const attachColors = await detach.evaluate((element) => ({
     background: getComputedStyle(element).backgroundColor,
@@ -453,7 +453,7 @@ try {
   await page.getByRole('button', { name: 'Send official task' }).click()
   await page
     .getByRole('alert')
-    .filter({ hasText: '5 annotations queued; withdraw remains available in the list' })
+    .filter({ hasText: '5 comments queued; withdraw remains available in the list' })
     .waitFor()
   assert(
     (await page.getByRole('textbox', { name: 'Official composer' }).inputValue()) === '',
@@ -467,7 +467,7 @@ try {
   await page.getByTestId('settle-sent').click()
   await page
     .getByRole('alert')
-    .filter({ hasText: '5 annotations sent; durable history cannot be withdrawn' })
+    .filter({ hasText: '5 comments sent; durable history cannot be withdrawn' })
     .waitFor()
   assert(
     (await page.getByRole('button', { name: 'Withdraw queued batch' }).count()) === 0,
@@ -476,15 +476,15 @@ try {
   await page.getByTestId('seed-failed').click()
   await page
     .getByRole('alert')
-    .filter({ hasText: 'Send failed; annotations remain attached and retry with submission id sub-' })
+    .filter({ hasText: 'Send failed; comments remain attached and retry with submission id sub-' })
     .waitFor()
-  const retryDetach = page.getByRole('button', { name: 'Detach 1 annotations' })
+  const retryDetach = page.getByRole('button', { name: 'Detach 1 comments' })
   await retryDetach.waitFor()
   await page.getByRole('textbox', { name: 'Official composer' }).fill('')
   await page.getByRole('button', { name: 'Send official task' }).click()
   await page
     .getByRole('alert')
-    .filter({ hasText: '1 annotations queued; withdraw remains available in the list' })
+    .filter({ hasText: '1 comments queued; withdraw remains available in the list' })
     .waitFor()
 
   assert(failures.length === 0, `browser console errors:\n${failures.join('\n')}`)

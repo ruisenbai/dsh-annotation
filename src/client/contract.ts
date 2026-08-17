@@ -31,18 +31,18 @@ export interface AnnotationInjected {
 
 export type AnnotationBoundProps = InjectFace<AnnotationInjected>
 export type AssistantAnnotationProps = PropsRuntime<'conversation.chat.node', 'assistant-step'> &
-  PropsLocale<'inlineAnnotations'> &
+  PropsLocale<'inlineComments'> &
   AnnotationBoundProps
 export type InputAnnotationProps = PropsRuntime<'conversation.input.dock'> &
-  PropsLocale<'inlineAnnotations'> &
+  PropsLocale<'inlineComments'> &
   AnnotationBoundProps
 export type UserAnnotationProps<Key extends 'user' | 'steering'> = PropsRuntime<
   'conversation.chat.node',
   Key
 > &
-  PropsLocale<'inlineAnnotations'> &
+  PropsLocale<'inlineComments'> &
   AnnotationBoundProps
 export type AssistantActionAnnotationProps = PropsRuntime<'conversation.chat.assistant-actions'> &
-  PropsLocale<'inlineAnnotations'> &
+  PropsLocale<'inlineComments'> &
   AnnotationBoundProps
 export type CommandAnnotationProps = PropsRuntime<'conversation.chat.commandview'> & AnnotationBoundProps

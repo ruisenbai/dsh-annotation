@@ -65,7 +65,7 @@ function AnnotationReasoningRow({
       ref={rootRef}
       className="dia-assistant__reasoning"
       data-state={running ? 'running' : 'ok'}
-      data-dsh-inline-annotation-ignore="true"
+      data-dsh-inline-comment-ignore="true"
     >
       <DisclosureRow
         rowClassName="dia-assistant__reasoning-row"
@@ -565,7 +565,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         onPointerMove={(event) => {
           if (
             event.target instanceof Element &&
-            event.target.closest('[data-dsh-inline-annotation-ignore="true"]') !== null
+            event.target.closest('[data-dsh-inline-comment-ignore="true"]') !== null
           ) {
             setHover(null)
             return
@@ -579,7 +579,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         onClick={(event) => {
           if (
             event.target instanceof Element &&
-            event.target.closest('[data-dsh-inline-annotation-ignore="true"]') !== null
+            event.target.closest('[data-dsh-inline-comment-ignore="true"]') !== null
           ) {
             return
           }
@@ -630,7 +630,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
           return null
         })}
         {data.status === 'interrupted' && (
-          <span className="dia-assistant__stopped" data-dsh-inline-annotation-ignore="true">
+          <span className="dia-assistant__stopped" data-dsh-inline-comment-ignore="true">
             {t('assistant.interrupted')}
           </span>
         )}

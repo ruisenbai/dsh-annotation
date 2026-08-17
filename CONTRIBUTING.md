@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for improving `dsh-inline-annotations`.
+Thank you for improving `dsh-inline-comments`.
 
 ## Before opening an issue
 
@@ -12,8 +12,8 @@ Thank you for improving `dsh-inline-annotations`.
 ## Development setup
 
 ```bash
-git clone https://github.com/YOUR_ORG/dsh-inline-annotations.git
-cd dsh-inline-annotations
+git clone https://github.com/YOUR_ORG/dsh-inline-comments.git
+cd dsh-inline-comments
 corepack enable
 pnpm install
 pnpm verify

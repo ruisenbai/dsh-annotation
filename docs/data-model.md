@@ -1,17 +1,19 @@
-# Data model and state machine
+# DSH Inline Comments data model and state machine
 
 ## Identities
 
-| Field                 | Owner               | Stability                                                 |
-| --------------------- | ------------------- | --------------------------------------------------------- |
-| `annotationId`        | Browser             | Stable for one draft and every later status               |
-| `submissionId`        | Browser             | Stable across every retry of one frozen batch             |
-| `messageId`           | DSH assistant event | Identifies the exact source reply/version                 |
-| `messageSeq`          | DSH Session log     | Anchors source navigation and archived-session fork       |
-| submission message id | Plugin Host         | Deterministically `dsh-inline-annotations:<submissionId>` |
-| `sessionId`           | DSH                 | Must equal the receiving Agent id                         |
+| Field                 | Owner               | Stability                                                       |
+| --------------------- | ------------------- | --------------------------------------------------------------- |
+| `annotationId`        | Browser             | Stable for one draft and every later status                     |
+| `submissionId`        | Browser             | Stable across every retry of one frozen batch                   |
+| `messageId`           | DSH assistant event | Identifies the exact source reply/version                       |
+| `messageSeq`          | DSH Session log     | Anchors source navigation and archived-session fork             |
+| submission message id | Plugin Host         | Durable retry namespace `dsh-inline-annotations:<submissionId>` |
+| `sessionId`           | DSH                 | Must equal the receiving Agent id                               |
 
-## Submitted annotation
+The submission message-id namespace is a protocol compatibility identifier rather than the npm package name. Current and migrated outbox records use the same value so an ambiguous retry cannot enqueue a duplicate under another id.
+
+## Submitted comment
 
 ```json
 {
@@ -70,11 +72,11 @@ interface PersistedSessionState {
 }
 ```
 
-`editorDraft` contains the serializable selection capture, current text, long-selection decision, and optional supplemental target. The controller writes nonblank editor text after 400 ms and removes it when Cancel or Save closes the editor. The `localStorage` key retains its `v1` prefix; version-one values migrate to this value format when read. A legacy plugin-owned `overallRequirementDraft` value migrates once into the official composer on the first successful attachment and is then cleared from plugin storage.
+`editorDraft` contains the serializable selection capture, current text, long-selection decision, and optional supplemental target. The controller writes nonblank editor text after 400 ms and removes it when Cancel or Save closes the editor. Session state uses `dsh-inline-comments:v1:<session-id>`; when that key is absent, valid data under `dsh-inline-annotations:v1:<session-id>` moves to the current key. The key retains its `v1` prefix while version-one values migrate to this value format when read. The browser-wide enabled preference uses `dsh.inline-comments.enabled`. A legacy plugin-owned `overallRequirementDraft` value migrates once into the official composer on the first successful attachment and is then cleared from plugin storage.
 
 An outbox entry contains the immutable payload, target Session id, deterministic message id, attempt count, and status. An invalid optional `editorDraft` is omitted so valid drafts and immutable retry records can still recover. Invalid core arrays, provenance, or unsupported versions are not partially trusted; the Client starts with an empty state and shows a storage warning.
 
-## Annotation state transitions
+## Comment state transitions
 
 ```text
              official composer submit
@@ -118,7 +120,7 @@ A client-side item-count or size rejection occurs before any Host call and leave
 Only this JSON-in-comment protocol has authority:
 
 ```html
-<!-- dsh-inline-annotations:{"submissionId":"sub-UUID","processed":["ann-UUID"]} -->
+<!-- dsh-inline-comments:{"submissionId":"sub-UUID","processed":["ann-UUID"]} -->
 ```
 
-The parser accepts string ids, removes duplicates, and ignores malformed values. A marker has status authority only when the durable submission message is also present. It does not require every annotation in a submission to be processed at once.
+The parser accepts the current `dsh-inline-comments:` marker and the legacy `dsh-inline-annotations:` marker, accepts string ids, removes duplicates, and ignores malformed values. A marker has status authority only when the durable submission message is also present. It does not require every annotation in a submission to be processed at once.

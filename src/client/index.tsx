@@ -9,7 +9,8 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import { resolveConfig } from '../shared/config.ts'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import { resolveConfig, LEGACY_COMMAND_NAME } from '../shared/config.ts'
 import { encodeSubmissionCommand } from '../shared/codec.ts'
 import type { AnnotationConfig, MessageIdentity, SessionIdentity, SubmissionId } from '../shared/types.ts'
 import {
@@ -22,6 +23,7 @@ import {
 } from './composer-attachment.ts'
 import { AnnotationController } from './controller.ts'
 import type { AnnotationInjected, UserAnnotationProps } from './contract.ts'
+import { createInlineCommentsFeatureToggle } from './feature-toggle.ts'
 import { HighlightManager } from './highlight.ts'
 import { AnnotationStorage } from './storage.ts'
 import type { StorageLike } from './storage.ts'
@@ -32,8 +34,12 @@ import { AnnotatedUserNode } from './components/AnnotatedUserNode.tsx'
 import { AnnotationDock } from './components/AnnotationDock.tsx'
 import { AssistantAnnotationAction } from './components/AssistantAnnotationAction.tsx'
 import { HiddenCommandRow } from './components/HiddenCommandRow.tsx'
+import {
+  InlineCommentsSettingRow,
+  type InlineCommentsSettingInjected,
+} from './components/InlineCommentsSettingRow.tsx'
 
-const NS = 'inlineAnnotations'
+const NS = 'inlineComments'
 export const inject = ['slots', 'sessions', 'locale', 'conversation', 'inputTriggers']
 
 function UserNode(props: UserAnnotationProps<'user'>) {
@@ -71,14 +77,15 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   const sessions = ctx.sessions as unknown as ISessions
   const conversation = ctx.conversation as unknown as IConversation
   const inputTriggers = ctx.inputTriggers as unknown as InputTriggerServiceContract
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-inline-annotations: dictionaries')
+  const featureEnabled = createInlineCommentsFeatureToggle()
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-inline-comments: dictionaries')
   ctx.effect(() => {
     const style = document.createElement('style')
-    style.dataset.dshInlineAnnotations = 'true'
+    style.dataset.dshInlineComments = 'true'
     style.textContent = styles
     document.head.append(style)
     return () => style.remove()
-  }, 'dsh-inline-annotations: styles')
+  }, 'dsh-inline-comments: styles')
 
   const highlights = new HighlightManager()
   const controllers = new Map<SessionId, { controller: AnnotationController; dispose: () => void }>()
@@ -166,7 +173,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     const unsubscribe = sessions.list.subscribe(prune)
     prune()
     return unsubscribe
-  }, 'dsh-inline-annotations: Session controller pruning')
+  }, 'dsh-inline-comments: Session controller pruning')
 
   const controllerFor = (sessionId: SessionId): AnnotationController => {
     const existing = controllers.get(sessionId)
@@ -380,72 +387,156 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     }
   }
 
-  ctx.slots.inject('conversation.chat.node', () => [
+  ctx.slots.inject('settings.general.item', () =>
     ctx.slots.register(
       {
-        name: 'conversation.chat.node',
-        key: 'assistant-step',
-        priority: -100,
+        name: 'settings.general.item',
+        id: 'inline-comments-enabled',
+        order: 30,
         locale: NS,
-        inject: faceFor,
+        inject: (): InlineCommentsSettingInjected => ({
+          hooks: { enabled: featureEnabled },
+          setEnabled: (enabled) => {
+            featureEnabled.set(enabled)
+          },
+        }),
       },
-      AnnotatedAssistantNode,
-    ),
-    ctx.slots.register(
-      {
-        name: 'conversation.chat.node',
-        key: 'user',
-        priority: -100,
-        locale: NS,
-        inject: faceFor,
-      },
-      UserNode,
-    ),
-    ctx.slots.register(
-      {
-        name: 'conversation.chat.node',
-        key: 'steering',
-        priority: -100,
-        locale: NS,
-        inject: faceFor,
-      },
-      SteeringNode,
-    ),
-  ])
-  ctx.slots.inject('conversation.input.dock', () =>
-    ctx.slots.register(
-      {
-        name: 'conversation.input.dock',
-        id: 'inline-annotations',
-        order: -20,
-        locale: NS,
-        inject: faceFor,
-      },
-      AnnotationDock,
+      InlineCommentsSettingRow,
     ),
   )
-  ctx.slots.inject('conversation.chat.assistant-actions', () =>
-    ctx.slots.register(
-      {
-        name: 'conversation.chat.assistant-actions',
-        id: 'inline-annotations',
-        order: 15,
-        locale: NS,
-        inject: faceFor,
-      },
-      AssistantAnnotationAction,
-    ),
-  )
-  ctx.slots.inject('conversation.chat.commandview', () =>
-    ctx.slots.register(
-      {
-        name: 'conversation.chat.commandview',
-        key: config.commandName,
-        inject: faceFor,
-      },
-      HiddenCommandRow,
-    ),
-  )
+
+  const installConversationIntegrations = (): (() => void) => {
+    const disposers = [
+      ctx.slots.inject('conversation.chat.node', () => [
+        ctx.slots.register(
+          {
+            name: 'conversation.chat.node',
+            key: 'assistant-step',
+            priority: -100,
+            locale: NS,
+            inject: faceFor,
+          },
+          AnnotatedAssistantNode,
+        ),
+        ctx.slots.register(
+          {
+            name: 'conversation.chat.node',
+            key: 'user',
+            priority: -100,
+            locale: NS,
+            inject: faceFor,
+          },
+          UserNode,
+        ),
+        ctx.slots.register(
+          {
+            name: 'conversation.chat.node',
+            key: 'steering',
+            priority: -100,
+            locale: NS,
+            inject: faceFor,
+          },
+          SteeringNode,
+        ),
+      ]),
+      ctx.slots.inject('conversation.input.dock', () =>
+        ctx.slots.register(
+          {
+            name: 'conversation.input.dock',
+            id: 'inline-comments',
+            order: -20,
+            locale: NS,
+            inject: faceFor,
+          },
+          AnnotationDock,
+        ),
+      ),
+      ctx.slots.inject('conversation.chat.assistant-actions', () =>
+        ctx.slots.register(
+          {
+            name: 'conversation.chat.assistant-actions',
+            id: 'inline-comments',
+            order: 15,
+            locale: NS,
+            inject: faceFor,
+          },
+          AssistantAnnotationAction,
+        ),
+      ),
+      ctx.slots.inject('conversation.chat.commandview', () => [
+        ctx.slots.register(
+          {
+            name: 'conversation.chat.commandview',
+            key: config.commandName,
+            inject: faceFor,
+          },
+          HiddenCommandRow,
+        ),
+        ...(config.commandName === LEGACY_COMMAND_NAME
+          ? []
+          : [
+              ctx.slots.register(
+                {
+                  name: 'conversation.chat.commandview',
+                  key: LEGACY_COMMAND_NAME,
+                  inject: faceFor,
+                },
+                HiddenCommandRow,
+              ),
+            ]),
+      ]),
+    ]
+    return () => {
+      for (const dispose of disposers.reverse()) dispose()
+    }
+  }
+
+  const pendingDetachRetries = new Map<SessionId, () => void>()
+
+  const cancelPendingDetachRetries = (): void => {
+    for (const cancel of pendingDetachRetries.values()) cancel()
+    pendingDetachRetries.clear()
+  }
+
+  /**
+   * Retry a submit-time attachment detach once the official input leaves `submitting`.
+   *
+   * A failed submit returns the composer to this plugin's claim; while disabled there is
+   * no UI left to release it, so the invisible claim token would otherwise survive until
+   * the plugin is re-enabled.
+   */
+  const scheduleDetachRetry = (sessionId: SessionId): void => {
+    if (pendingDetachRetries.has(sessionId)) return
+    const binding = sessions.binding(sessionId)
+    if (binding === undefined) return
+    const input = conversation.input.for(binding.ctx)
+    let unsubscribe: () => void = () => undefined
+    const cancel = () => {
+      unsubscribe()
+      pendingDetachRetries.delete(sessionId)
+    }
+    unsubscribe = input.state.subscribe(() => {
+      if (sessions.binding(sessionId) === undefined) {
+        cancel()
+        return
+      }
+      if (input.state.getSnapshot().phase === 'submitting') return
+      cancel()
+      if (hasComposerAttachment(input.state.getSnapshot())) detachComposer(binding.ctx, input)
+    })
+    pendingDetachRetries.set(sessionId, cancel)
+  }
+
+  const detachAllComposerAttachments = (): void => {
+    for (const sessionId of controllers.keys()) {
+      const binding = sessions.binding(sessionId)
+      if (binding === undefined) continue
+      const input = conversation.input.for(binding.ctx)
+      if (!hasComposerAttachment(input.state.getSnapshot())) continue
+      if (detachComposer(binding.ctx, input)) continue
+      scheduleDetachRetry(sessionId)
+    }
+  }
 
   ctx.effect(
     () => () => {
@@ -454,8 +545,31 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       controllers.clear()
       mirrorGroups.clear()
     },
-    'dsh-inline-annotations: controller cleanup',
+    'dsh-inline-comments: controller cleanup',
   )
+
+  ctx.effect(() => {
+    let disposeIntegrations: (() => void) | undefined
+    const sync = (): void => {
+      if (featureEnabled.getSnapshot()) {
+        cancelPendingDetachRetries()
+        disposeIntegrations ??= installConversationIntegrations()
+        return
+      }
+      detachAllComposerAttachments()
+      const dispose = disposeIntegrations
+      disposeIntegrations = undefined
+      dispose?.()
+      highlights.dispose()
+    }
+    const unsubscribe = featureEnabled.subscribe(sync)
+    sync()
+    return () => {
+      unsubscribe()
+      cancelPendingDetachRetries()
+      disposeIntegrations?.()
+    }
+  }, 'dsh-inline-comments: dynamic conversation integrations')
 }
 
 export type { AnnotationConfig, MessageIdentity }

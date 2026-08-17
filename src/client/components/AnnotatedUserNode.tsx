@@ -8,7 +8,7 @@ import {
   IconQueueOutline14,
   MessageText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { parseInlineAnnotationSource } from '../../shared/protocol.ts'
+import { parseInlineCommentSource } from '../../shared/protocol.ts'
 import type { AnnotationId, AnnotationStatus } from '../../shared/types.ts'
 import type { UserAnnotationProps } from '../contract.ts'
 import { MapPin } from '../icons.ts'
@@ -25,7 +25,7 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
   navigate,
   t,
 }: Pick<UserAnnotationProps<Key>, 'useAnnotations' | 'navigate' | 't'> & {
-  payload: NonNullable<ReturnType<typeof parseInlineAnnotationSource>>
+  payload: NonNullable<ReturnType<typeof parseInlineCommentSource>>
 }) {
   const view = useAnnotations((state) => state)
   const byId = useMemo(
@@ -98,7 +98,7 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
   navigate,
   t,
 }: UserAnnotationProps<Key>) {
-  const payload = parseInlineAnnotationSource(node.data.source)
+  const payload = parseInlineCommentSource(node.data.source)
   const imageLabels = useMemo(
     () => ({
       image: t('image.label'),

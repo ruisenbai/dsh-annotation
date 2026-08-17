@@ -33,7 +33,7 @@ function invocation(agent: Agent, rawInput: string): CommandInvocation {
   } as unknown as CommandInvocation
 }
 
-describe('Host annotation command', () => {
+describe('Host inline comment command', () => {
   it('queues a deterministic user message and deduplicates a retry', () => {
     const fake = fakeAgent()
     const payload = fixturePayload()
@@ -45,7 +45,7 @@ describe('Host annotation command', () => {
     expect(fake.nextTurn[0]).toMatchObject({
       id: 'dsh-inline-annotations:sub-test',
       role: 'user',
-      source: { kind: 'user', inlineAnnotations: payload },
+      source: { kind: 'user', inlineComments: payload },
     })
     expect(submitAnnotationPayload(fake.agent, payload).duplicate).toBe(true)
     expect(fake.followup).toHaveBeenCalledTimes(1)

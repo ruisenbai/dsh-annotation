@@ -49,6 +49,19 @@ describe('draft storage', () => {
     expect(storage.usageBytes()).toBe(0)
   })
 
+  it('moves pre-rename session data to the current storage key', () => {
+    const memory = new MemoryStorage()
+    const legacyKey = 'dsh-inline-annotations:v1:session-1'
+    const serialized = JSON.stringify(emptyPersistedState())
+    memory.values.set(legacyKey, serialized)
+    const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+
+    expect(storage.load()).toEqual(emptyPersistedState())
+    expect(storage.key).toBe('dsh-inline-comments:v1:session-1')
+    expect(memory.values.get(storage.key)).toBe(serialized)
+    expect(memory.values.has(legacyKey)).toBe(false)
+  })
+
   it('restores an unfinished compact editor from version-two storage', () => {
     const memory = new MemoryStorage()
     const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)

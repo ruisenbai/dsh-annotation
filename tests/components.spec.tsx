@@ -5,6 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AnnotatedAssistantNode } from '../src/client/components/AnnotatedAssistantNode.tsx'
 import { AnnotatedUserNode } from '../src/client/components/AnnotatedUserNode.tsx'
 import { AnnotationDock } from '../src/client/components/AnnotationDock.tsx'
+import {
+  InlineCommentsSettingRow,
+  type InlineCommentsSettingRowProps,
+} from '../src/client/components/InlineCommentsSettingRow.tsx'
 import { COMPOSER_ATTACHMENT_TOKEN } from '../src/client/composer-attachment.ts'
 import type { AnnotationView } from '../src/client/controller.ts'
 import type {
@@ -12,7 +16,7 @@ import type {
   InputAnnotationProps,
   UserAnnotationProps,
 } from '../src/client/contract.ts'
-import type { InlineAnnotationLocaleKey } from '../src/client/locales.ts'
+import type { InlineCommentLocaleKey } from '../src/client/locales.ts'
 import { styles } from '../src/client/styles.ts'
 import { fixturePayload } from './fixtures.ts'
 
@@ -22,26 +26,31 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => {
-  const values: Partial<Record<InlineAnnotationLocaleKey, string>> = {
-    'timeline.summary': `Added ${String(params?.count)} inline annotations`,
+const t = (key: InlineCommentLocaleKey, params?: Record<string, unknown>) => {
+  const values: Partial<Record<InlineCommentLocaleKey, string>> = {
+    'settings.title': 'DSH Inline Comments',
+    'settings.description': 'Show inline comment features.',
+    'settings.toggle': 'Enable DSH Inline Comments',
+    'settings.on': 'On',
+    'settings.off': 'Off',
+    'timeline.summary': `Added ${String(params?.count)} inline comments`,
     'list.locate': 'Locate source',
     'status.draft': 'Ready to send',
     'status.submitted': 'Submitted; awaiting confirmation',
     'status.sent': 'Sent',
-    'dock.count': `${String(params?.count)} inline annotations`,
+    'dock.count': `${String(params?.count)} inline comments`,
     'dock.pendingDetail': 'Ready to attach · Open list',
-    'dock.expand': 'Expand inline annotations',
-    'dock.collapse': 'Collapse inline annotations',
-    'attach.add': `Attach ${String(params?.count)} annotations to the next send`,
-    'attach.remove': `Detach ${String(params?.count)} annotations`,
-    'attach.archived': 'Archived tasks cannot attach annotations',
-    'attach.images': 'Inline annotations cannot be sent with images',
+    'dock.expand': 'Expand inline comments',
+    'dock.collapse': 'Collapse inline comments',
+    'attach.add': `Attach ${String(params?.count)} comments to the next send`,
+    'attach.remove': `Detach ${String(params?.count)} comments`,
+    'attach.archived': 'Archived tasks cannot attach comments',
+    'attach.images': 'Inline comments cannot be sent with images',
     'attach.busy': 'The composer is busy',
-    'attach.empty': 'No annotations are available to attach',
+    'attach.empty': 'No comments are available to attach',
     'panel.pending': `${String(params?.count)} ready to attach`,
     'panel.submitted': `${String(params?.count)} awaiting delivery outcome`,
-    'list.title': 'Inline annotations',
+    'list.title': 'Inline comments',
     'group.drafts': 'Ready to attach',
     'group.submitted': 'Confirming delivery outcome',
     'group.retry': 'Send failed · Retry from the official composer',
@@ -50,7 +59,7 @@ const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => 
     'list.edit': 'Edit',
     'list.delete': 'Delete',
     'list.withdraw': 'Withdraw queued batch',
-    'list.deleted': 'Draft annotation deleted',
+    'list.deleted': 'Draft comment deleted',
     'list.undo': 'Undo',
     'local.usage': `Local data · ${String(params?.size)}`,
     'local.export': 'Export local data',
@@ -60,21 +69,21 @@ const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => 
     'local.confirmClear': 'Clear every draft?',
     'local.keep': 'Keep',
     'local.confirm': 'Clear drafts now',
-    'toast.queued': `${String(params?.count)} annotations queued; withdrawal is available`,
-    'toast.sent': `${String(params?.count)} annotations sent; history cannot be withdrawn`,
-    'toast.failed': `Send failed; annotations remain attached for submission ${String(params?.id)}`,
-    'editor.title': 'Add annotation',
-    'editor.editTitle': 'Edit annotation',
+    'toast.queued': `${String(params?.count)} comments queued; withdrawal is available`,
+    'toast.sent': `${String(params?.count)} comments sent; history cannot be withdrawn`,
+    'toast.failed': `Send failed; comments remain attached for submission ${String(params?.id)}`,
+    'editor.title': 'Add comment',
+    'editor.editTitle': 'Edit comment',
     'editor.commentLabel': 'Your comment',
     'editor.shortcut': 'Ctrl/⌘ ↵ to save',
     'editor.autosaving': 'Saving locally…',
     'editor.autosaved': 'Automatically saved locally',
     'editor.chooseAction': 'Use Cancel or Save on the right',
     'editor.cancel': 'Cancel',
-    'editor.save': 'Save annotation',
+    'editor.save': 'Save comment',
     'editor.placeholder': 'Explain what to change',
     'selection.toolbar': 'Selection actions',
-    'selection.annotate': 'Add annotation',
+    'selection.annotate': 'Add comment',
     'selection.copy': 'Copy',
   }
   return values[key] ?? key
@@ -124,8 +133,28 @@ function TestAnnotationDock({
   )
 }
 
-describe('annotation presentation', () => {
-  it('folds a durable annotation submission and navigates by id', () => {
+describe('settings preference', () => {
+  it('renders the current state and requests the opposite value', () => {
+    const setEnabled = vi.fn()
+    const props = (enabled: boolean) =>
+      ({
+        useEnabled: <S,>(selector: (value: boolean) => S) => selector(enabled),
+        setEnabled,
+        t,
+      }) as unknown as InlineCommentsSettingRowProps
+    const { rerender } = render(<InlineCommentsSettingRow {...props(true)} />)
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable DSH Inline Comments' }))
+    expect(setEnabled).toHaveBeenCalledWith(false)
+
+    rerender(<InlineCommentsSettingRow {...props(false)} />)
+    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByText('Off')).toBeInTheDocument()
+  })
+})
+
+describe('inline comment presentation', () => {
+  it('folds a durable comment submission and navigates by id', () => {
     const payload = fixturePayload()
     const navigate = vi.fn(async () => true)
     const view: AnnotationView = {
@@ -138,7 +167,7 @@ describe('annotation presentation', () => {
       })),
     }
     const props = {
-      node: { data: { source: { kind: 'user', inlineAnnotations: payload }, content: [] } },
+      node: { data: { source: { kind: 'user', inlineComments: payload }, content: [] } },
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       navigate,
       loadImage: vi.fn(),
@@ -146,8 +175,8 @@ describe('annotation presentation', () => {
     } as unknown as UserAnnotationProps<'user'>
     render(<AnnotatedUserNode {...props} />)
     expect(screen.getByText('Rewrite the proposal coherently.')).toBeInTheDocument()
-    expect(screen.getByText('Added 1 inline annotations')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('Added 1 inline annotations'))
+    expect(screen.getByText('Added 1 inline comments')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Added 1 inline comments'))
     expect(screen.getByText('Explain this claim.')).toBeInTheDocument()
     const locate = screen.getByRole('button', { name: 'Locate source' })
     expect(locate.querySelector('svg.lucide-map-pin')).toBeInTheDocument()
@@ -155,7 +184,7 @@ describe('annotation presentation', () => {
     expect(navigate).toHaveBeenCalledWith(payload.annotations[0]?.annotationId)
   })
 
-  it('shows the composer dock only when recoverable annotation state exists', () => {
+  it('shows the composer dock only when recoverable comment state exists', () => {
     const payload = fixturePayload()
     const setPanelOpen = vi.fn()
     const view: AnnotationView = {
@@ -178,7 +207,7 @@ describe('annotation presentation', () => {
       t,
     } as unknown as InputAnnotationProps
     const { rerender } = render(<TestAnnotationDock {...props} />)
-    fireEvent.click(screen.getByRole('button', { name: /Inline annotations/u }))
+    fireEvent.click(screen.getByRole('button', { name: /Inline comments/u }))
     expect(setPanelOpen).toHaveBeenCalledWith(true)
 
     const emptyProps = {
@@ -186,7 +215,7 @@ describe('annotation presentation', () => {
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(baseView()),
     } as unknown as InputAnnotationProps
     rerender(<TestAnnotationDock {...emptyProps} />)
-    expect(screen.queryByRole('button', { name: /inline annotations/u })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /inline comments/u })).not.toBeInTheDocument()
   })
 
   it('expands an official-style inline list with two-line rows and icon actions', () => {
@@ -226,9 +255,9 @@ describe('annotation presentation', () => {
     } as unknown as InputAnnotationProps
     render(<TestAnnotationDock {...props} />)
 
-    const panel = screen.getByRole('region', { name: 'Inline annotations' })
+    const panel = screen.getByRole('region', { name: 'Inline comments' })
     expect(panel).toBeInTheDocument()
-    expect(screen.queryByRole('dialog', { name: 'Inline annotations' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Inline comments' })).not.toBeInTheDocument()
     const rows = panel.querySelectorAll<HTMLElement>('.dia-item')
     expect(rows).toHaveLength(2)
     expect(within(panel).getByText(secondAnnotation.comment)).toBeInTheDocument()
@@ -237,7 +266,7 @@ describe('annotation presentation', () => {
     expect(comment.parentElement?.children).toHaveLength(2)
     expect(within(panel).queryByText(annotation.annotationId)).not.toBeInTheDocument()
     expect(within(panel).queryByLabelText('Overall request (optional)')).not.toBeInTheDocument()
-    expect(within(panel).queryByRole('button', { name: /Send 2 annotations/u })).not.toBeInTheDocument()
+    expect(within(panel).queryByRole('button', { name: /Send 2 comments/u })).not.toBeInTheDocument()
 
     for (const name of ['Locate source', 'Edit', 'Delete']) {
       expect(firstRow.getByRole('button', { name })).not.toHaveTextContent(/\S/u)
@@ -251,9 +280,9 @@ describe('annotation presentation', () => {
     fireEvent.click(firstRow.getByRole('button', { name: 'Delete' }))
     expect(props.deleteDraft).toHaveBeenCalledWith(annotation.annotationId)
 
-    const attach = screen.getByRole('button', { name: 'Attach 2 annotations to the next send' })
+    const attach = screen.getByRole('button', { name: 'Attach 2 comments to the next send' })
     expect(
-      attach.compareDocumentPosition(screen.getByRole('button', { name: 'Collapse inline annotations' })),
+      attach.compareDocumentPosition(screen.getByRole('button', { name: 'Collapse inline comments' })),
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     fireEvent.click(attach)
     expect(toggleComposerAttachment).toHaveBeenCalledWith('error.images')
@@ -296,12 +325,12 @@ describe('annotation presentation', () => {
     } as unknown as InputAnnotationProps
     render(<TestAnnotationDock {...props} />)
 
-    const detach = screen.getByRole('button', { name: 'Detach 1 annotations' })
+    const detach = screen.getByRole('button', { name: 'Detach 1 comments' })
     expect(detach).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(detach)
     expect(toggleComposerAttachment).toHaveBeenCalledWith('error.images')
     expect(setPanelOpen).not.toHaveBeenCalled()
-    expect(screen.getByRole('region', { name: 'Inline annotations' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Inline comments' })).toBeInTheDocument()
   })
 
   it.each([
@@ -309,21 +338,21 @@ describe('annotation presentation', () => {
       name: 'running task',
       session: { pending: [], running: true },
       archived: false,
-      label: 'Attach 1 annotations to the next send',
+      label: 'Attach 1 comments to the next send',
       disabled: false,
     },
     {
       name: 'awaiting confirmation',
       session: { pending: [{}], running: true },
       archived: false,
-      label: 'Attach 1 annotations to the next send',
+      label: 'Attach 1 comments to the next send',
       disabled: false,
     },
     {
       name: 'archived task',
       session: { pending: [], running: false },
       archived: true,
-      label: 'Archived tasks cannot attach annotations',
+      label: 'Archived tasks cannot attach comments',
       disabled: true,
     },
   ])('offers only the composer attachment action for a $name', ({ session, archived, label, disabled }) => {
@@ -355,7 +384,7 @@ describe('annotation presentation', () => {
     render(<TestAnnotationDock {...props} />)
     const attach = screen.getByRole('button', { name: label })
     expect(attach).toHaveProperty('disabled', disabled)
-    expect(screen.queryByRole('button', { name: /Send 1 annotations/u })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Send 1 comments/u })).not.toBeInTheDocument()
   })
 
   it('shows authoritative queued and durable sent Toasts with matching withdrawal rules', async () => {
@@ -413,9 +442,7 @@ describe('annotation presentation', () => {
         useAnnotations={(selector) => selector(queuedView) as never}
       />,
     )
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '1 annotations queued; withdrawal is available',
-    )
+    expect(await screen.findByRole('alert')).toHaveTextContent('1 comments queued; withdrawal is available')
     expect(screen.getByRole('button', { name: 'Withdraw queued batch' })).toBeInTheDocument()
 
     const sentView: AnnotationView = {
@@ -429,9 +456,7 @@ describe('annotation presentation', () => {
         useAnnotations={(selector) => selector(sentView) as never}
       />,
     )
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '1 annotations sent; history cannot be withdrawn',
-    )
+    expect(await screen.findByRole('alert')).toHaveTextContent('1 comments sent; history cannot be withdrawn')
     expect(screen.queryByRole('button', { name: 'Withdraw queued batch' })).not.toBeInTheDocument()
   })
 
@@ -487,10 +512,10 @@ describe('annotation presentation', () => {
       />,
     )
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      `Send failed; annotations remain attached for submission ${payload.submissionId}`,
+      `Send failed; comments remain attached for submission ${payload.submissionId}`,
     )
-    expect(screen.getByRole('button', { name: 'Attach 1 annotations to the next send' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Retry 1 annotations/u })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Attach 1 comments to the next send' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Retry 1 comments/u })).not.toBeInTheDocument()
     expect(
       screen.queryByText('Retry reuses the original submission id and destination'),
     ).not.toBeInTheDocument()
@@ -625,13 +650,13 @@ describe('annotation presentation', () => {
     fireEvent.pointerUp(paragraph)
 
     const bar = screen.getByRole('toolbar', { name: 'Selection actions' })
-    expect(bar).toHaveTextContent('Add annotation')
+    expect(bar).toHaveTextContent('Add comment')
     expect(bar).toHaveTextContent('Copy')
     expect(bar).toHaveStyle({ left: '40px', top: '50px' })
     expect(beginSelection).not.toHaveBeenCalled()
     expect(selection.isCollapsed).toBe(false)
 
-    fireEvent.click(within(bar).getByRole('button', { name: 'Add annotation' }))
+    fireEvent.click(within(bar).getByRole('button', { name: 'Add comment' }))
     expect(beginSelection).toHaveBeenCalledOnce()
     expect(beginSelection).toHaveBeenCalledWith(
       expect.objectContaining({ quote: expect.objectContaining({ exact: 'selected text' }) }),
@@ -789,9 +814,7 @@ describe('annotation presentation', () => {
     Object.defineProperty(Range.prototype, 'getClientRects', {
       configurable: true,
       value(this: Range) {
-        const ignored = this.startContainer.parentElement?.closest(
-          '[data-dsh-inline-annotation-ignore="true"]',
-        )
+        const ignored = this.startContainer.parentElement?.closest('[data-dsh-inline-comment-ignore="true"]')
         if (ignored !== null) return [rect(105, 140, 80)] as unknown as DOMRectList
         const text = this.toString()
         if (text === 'selected source') return [rect(finalLineTop, 260, 100)] as unknown as DOMRectList
@@ -977,7 +1000,7 @@ describe('annotation presentation', () => {
     }
   })
 
-  it('centers the first newly saved annotation through the already-mounted navigation endpoint', () => {
+  it('centers the first newly saved comment through the already-mounted navigation endpoint', () => {
     const payload = fixturePayload()
     const annotation = {
       ...payload.annotations[0]!,
@@ -1170,10 +1193,10 @@ describe('annotation presentation', () => {
     expect(screen.getByRole('dialog')).toHaveAttribute('data-decision-required', 'true')
     expect(styles).toContain(".dia-editor[data-shake='1'] .dia-editor__input")
 
-    for (const name of ['Cancel', 'Save annotation']) {
+    for (const name of ['Cancel', 'Save comment']) {
       expect(screen.getByRole('button', { name })).not.toHaveTextContent(/\S/u)
     }
-    fireEvent.click(screen.getByRole('button', { name: 'Save annotation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save comment' }))
     expect(saveEditor).toHaveBeenCalledOnce()
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(closeEditor).toHaveBeenLastCalledWith(true)
@@ -1258,7 +1281,7 @@ describe('annotation presentation', () => {
       </>,
     )
 
-    const editor = screen.getByRole('dialog', { name: 'Add annotation' })
+    const editor = screen.getByRole('dialog', { name: 'Add comment' })
     expect(editor).toHaveStyle({ top: '72px', left: '80px' })
     expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
     expect(window.getComputedStyle(editor).boxSizing).toBe('border-box')
@@ -1309,7 +1332,7 @@ describe('annotation presentation', () => {
         </>,
       )
 
-      const editor = screen.getByRole('dialog', { name: 'Edit annotation' })
+      const editor = screen.getByRole('dialog', { name: 'Edit comment' })
       expect(editor).toHaveStyle({ top: '234px', left: '308px' })
       const deleteButton = screen.getByRole('button', { name: 'Delete' })
       expect(deleteButton).toHaveAttribute('data-danger', 'true')

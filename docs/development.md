@@ -33,7 +33,7 @@ pnpm publint
 - `selection.spec.ts` and `highlight.spec.ts`: DOM selectors, relocation, coordinates, and browser highlight fallback;
 - `components.spec.tsx`: user-visible timeline, compact editor, grouped list, marker geometry, and source centering;
 - `scripts/browser-test.mjs` with `tests/browser/fixture.tsx`: real Chromium coverage for autosave, outside-click decisions, mobile overflow, dark mode, zoom, reasoning disclosure, and source centering;
-- `client-apply.spec.ts`: Client registration, local limits, transport failure, and immutable retry;
+- `client-apply.spec.ts`: dynamic setting registration, renderer disable/restore, composer detachment, local limits, transport failure, and immutable retry;
 - `submission-flow.spec.ts`: browser payload through Host admission and durable status reconstruction.
 
 Run one suite during development:
@@ -48,8 +48,8 @@ Build before installing because DSH serves `lib/client.js`, not TypeScript sourc
 
 ```bash
 pnpm build
-dsh plugin --profile annotation-dev add .
-dsh web --profile annotation-dev
+dsh plugin --profile comments-dev add .
+dsh web --profile comments-dev
 ```
 
 Use the existing DSH Web URL for the selected profile. A replacement Vite server does not receive DSH's boot payload.
@@ -57,7 +57,7 @@ Use the existing DSH Web URL for the selected profile. A replacement Vite server
 Minimum manual matrix:
 
 1. select text with pointer and keyboard, then use the action bar's copy, Ctrl+C while the bar is open, and dismissal by outside click or Escape;
-2. annotate prose, fenced code, and a table;
+2. add comments to prose, fenced code, and a table;
 3. create overlapping selections and trigger both empty and dirty outside-click editor behavior;
 4. refresh with unfinished editor text and saved drafts, then test delete undo, export, and draft clearing;
 5. submit while idle, running, and waiting for an interaction;
@@ -65,8 +65,9 @@ Minimum manual matrix:
 7. retry after simulating a transport disconnect;
 8. inspect folded timeline and both navigation directions;
 9. verify an explicit acknowledgement moves only named ids to processed;
-10. fork an archived Session;
-11. disable the plugin and confirm its styles, Slot entries, and controls disappear.
+10. confirm an archived Session cannot arm the official composer;
+11. turn DSH Inline Comments off and confirm official renderers return, controls and highlights disappear, an armed claim preserves visible text, and drafts return after re-enabling;
+12. unload the plugin and confirm its styles, Slot entries, and controls disappear.
 
 ## Packaging
 
@@ -95,4 +96,4 @@ The package must contain `lib/index.js`, `lib/invariant.js`, `lib/client.js`, de
 7. Confirm the Release workflow uploads the verified tarball and generated notes.
 8. If the repository has an `NPM_TOKEN` secret, confirm the same workflow publishes the tarball to npm with provenance.
 
-Never commit `.env`, DSH credentials, Session logs, or real annotation drafts.
+Never commit `.env`, DSH credentials, Session logs, or real comment drafts.

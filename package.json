@@ -1,25 +1,25 @@
 {
-  "name": "dsh-inline-annotations",
+  "name": "dsh-inline-comments",
   "version": "0.1.0",
-  "description": "Inline, batchable annotations for DeepSeek Harness assistant replies",
+  "description": "Inline, batchable comments for DeepSeek Harness assistant replies",
   "keywords": [
     "deepseek",
     "deepseek-harness",
     "dsh",
     "cordis",
-    "annotation",
+    "comment",
     "review"
   ],
-  "homepage": "https://github.com/your-org/dsh-inline-annotations#readme",
+  "homepage": "https://github.com/your-org/dsh-inline-comments#readme",
   "bugs": {
-    "url": "https://github.com/your-org/dsh-inline-annotations/issues"
+    "url": "https://github.com/your-org/dsh-inline-comments/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-org/dsh-inline-annotations.git"
+    "url": "git+https://github.com/your-org/dsh-inline-comments.git"
   },
   "license": "MIT",
-  "author": "dsh-inline-annotations contributors",
+  "author": "dsh-inline-comments contributors",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -65,6 +65,7 @@
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-input-trigger",
         "@deepseek-ai/dsh-client-ui-slots",
@@ -105,6 +106,7 @@
     "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.0-rc.6 <0.2.0",
     "@deepseek-ai/dsh-client-ui-input-trigger": ">=0.1.0-rc.6 <0.2.0",
     "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.0-rc.5 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.0-rc.6 <0.2.0",
     "@deepseek-ai/dsh-client-ui-slots": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/dsh-commands": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/dsh-llm": ">=0.1.0-rc.5 <0.2.0",
@@ -121,6 +123,7 @@
     "@deepseek-ai/dsh-client-ui-conversation": "0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-input-trigger": "0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-primitives": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-settings": "0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-slots": "0.1.0-rc.6",
     "@deepseek-ai/dsh-commands": "0.1.0-rc.6",
     "@deepseek-ai/dsh-llm": "0.1.0-rc.6",

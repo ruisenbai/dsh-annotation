@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_CONFIG } from '../src/shared/config.ts'
 import {
   formatSubmissionMessage,
-  parseInlineAnnotationSource,
+  parseInlineCommentSource,
   parseSubmissionPayload,
   ProtocolError,
   submissionSummary,
@@ -10,7 +10,7 @@ import {
 } from '../src/shared/protocol.ts'
 import { fixturePayload } from './fixtures.ts'
 
-describe('annotation wire protocol', () => {
+describe('inline comment wire protocol', () => {
   it('round-trips a valid immutable payload', () => {
     const fixture = fixturePayload()
     const parsed = parseSubmissionPayload(JSON.parse(JSON.stringify(fixture)))
@@ -83,14 +83,15 @@ describe('annotation wire protocol', () => {
     expect(text).toContain('selected source')
     expect(text).toContain('Explain this claim.')
     expect(text).toContain('ann-test-1')
-    expect(text).toContain('dsh-inline-annotations:')
+    expect(text).toContain('dsh-inline-comments:')
   })
 
   it('reads only valid plugin provenance and builds summaries', () => {
     const payload = fixturePayload()
-    expect(parseInlineAnnotationSource({ kind: 'user', inlineAnnotations: payload })).toEqual(payload)
-    expect(parseInlineAnnotationSource({ kind: 'user' })).toBeNull()
-    expect(parseInlineAnnotationSource({ kind: 'plugin', inlineAnnotations: payload })).toBeNull()
+    expect(parseInlineCommentSource({ kind: 'user', inlineComments: payload })).toEqual(payload)
+    expect(parseInlineCommentSource({ kind: 'user', inlineAnnotations: payload })).toEqual(payload)
+    expect(parseInlineCommentSource({ kind: 'user' })).toBeNull()
+    expect(parseInlineCommentSource({ kind: 'plugin', inlineComments: payload })).toBeNull()
     expect(submissionSummary(payload, 'zh')).toContain('1 条')
     expect(submissionSummary(payload, 'en')).toContain('1 inline')
   })
