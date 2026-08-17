@@ -39,7 +39,7 @@ npm 包：`dsh-inline-comments`
 ### 从源码构建
 
 ```bash
-git clone https://github.com/YOUR_ORG/dsh-inline-comments.git
+git clone https://github.com/ruisenbai/dsh-inline-comments.git
 cd dsh-inline-comments
 corepack enable
 pnpm install
@@ -60,17 +60,15 @@ dsh web --profile web
 每个 `v*.*.*` 标签都会构建可安装 Tarball 并附加到 GitHub Release。下载后可以直接安装预构建包，无需执行仓库构建脚本：
 
 ```bash
-gh release download v0.1.0 --repo YOUR_ORG/dsh-inline-comments --pattern '*.tgz'
+gh release download v0.1.0 --repo ruisenbai/dsh-inline-comments --pattern '*.tgz'
 dsh plugin --profile web add ./dsh-inline-comments-0.1.0.tgz
 ```
 
 如果 Profile 明确允许这个可信包执行 `prepare` 构建，也可以安装固定标签的 Git 依赖：
 
 ```bash
-dsh plugin --profile web add git+https://github.com/YOUR_ORG/dsh-inline-comments.git#v0.1.0
+dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comments.git#v0.1.0
 ```
-
-发布你自己的仓库前，请替换本文和 `package.json` 中的 `YOUR_ORG`。
 
 ## 设置
 

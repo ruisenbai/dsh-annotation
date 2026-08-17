@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Questions and setup help
-    url: https://github.com/YOUR_ORG/dsh-inline-comments/discussions
+    url: https://github.com/ruisenbai/dsh-inline-comments/discussions
     about: Ask usage questions without opening a bug.
   - name: Private security report
-    url: https://github.com/YOUR_ORG/dsh-inline-comments/security/advisories/new
+    url: https://github.com/ruisenbai/dsh-inline-comments/security/advisories/new
     about: Report a vulnerability privately.

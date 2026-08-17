@@ -12,7 +12,7 @@ Thank you for improving `dsh-inline-comments`.
 ## Development setup
 
 ```bash
-git clone https://github.com/YOUR_ORG/dsh-inline-comments.git
+git clone https://github.com/ruisenbai/dsh-inline-comments.git
 cd dsh-inline-comments
 corepack enable
 pnpm install

@@ -5,7 +5,7 @@ This project publishes installable npm tarballs and GitHub Releases from version
 ## One-time repository setup
 
 1. Create the GitHub repository with `main` as its default branch.
-2. Replace every `YOUR_ORG` and `your-org` placeholder in `package.json`, Markdown files, and `.github/ISSUE_TEMPLATE/config.yml` with the actual owner.
+2. When publishing under a different owner, replace the owner (`ruisenbai`) in `package.json`, Markdown files, and `.github/ISSUE_TEMPLATE/config.yml`.
 3. Enable GitHub Discussions and private vulnerability reporting so the links in `SUPPORT.md` and `SECURITY.md` work.
 4. Protect `main`, require the `CI` workflow, and require pull-request review before merging.
 5. Add an `NPM_TOKEN` Actions secret only if releases should also publish to npm. GitHub Release tarballs do not require this secret.

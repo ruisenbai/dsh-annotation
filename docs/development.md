@@ -87,7 +87,7 @@ The package must contain `lib/index.js`, `lib/invariant.js`, `lib/client.js`, de
 
 ## Release checklist
 
-1. Replace `YOUR_ORG` metadata if the repository owner changed.
+1. Replace owner metadata if the repository owner changed.
 2. Update `CHANGELOG.md` and the compatibility matrix.
 3. Run the full local verification and Web smoke matrix.
 4. Set the version with `pnpm version <patch|minor|major>`.

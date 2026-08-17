@@ -40,7 +40,7 @@ A standalone DeepSeek Harness plugin for reviewing assistant replies in place. S
 ### Build from a clone
 
 ```bash
-git clone https://github.com/YOUR_ORG/dsh-inline-comments.git
+git clone https://github.com/ruisenbai/dsh-inline-comments.git
 cd dsh-inline-comments
 corepack enable
 pnpm install
@@ -61,17 +61,15 @@ Open the DSH Web URL and select text in a finalized assistant reply. A small act
 Each `v*.*.*` tag builds an installable tarball and attaches it to GitHub Releases. Download it and install the prebuilt package without running repository build scripts:
 
 ```bash
-gh release download v0.1.0 --repo YOUR_ORG/dsh-inline-comments --pattern '*.tgz'
+gh release download v0.1.0 --repo ruisenbai/dsh-inline-comments --pattern '*.tgz'
 dsh plugin --profile web add ./dsh-inline-comments-0.1.0.tgz
 ```
 
 A pinned Git dependency also works when the profile explicitly allows this trusted package to run its `prepare` build:
 
 ```bash
-dsh plugin --profile web add git+https://github.com/YOUR_ORG/dsh-inline-comments.git#v0.1.0
+dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comments.git#v0.1.0
 ```
-
-Replace `YOUR_ORG` in this README and `package.json` before publishing your fork.
 
 ## Settings
 

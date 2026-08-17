@@ -10,13 +10,13 @@
     "comment",
     "review"
   ],
-  "homepage": "https://github.com/your-org/dsh-inline-comments#readme",
+  "homepage": "https://github.com/ruisenbai/dsh-inline-comments#readme",
   "bugs": {
-    "url": "https://github.com/your-org/dsh-inline-comments/issues"
+    "url": "https://github.com/ruisenbai/dsh-inline-comments/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-org/dsh-inline-comments.git"
+    "url": "git+https://github.com/ruisenbai/dsh-inline-comments.git"
   },
   "license": "MIT",
   "author": "dsh-inline-comments contributors",

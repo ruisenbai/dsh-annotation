@@ -54,5 +54,5 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - Bidirectional source navigation and CSS Custom Highlight support with marker fallback.
 - Host, protocol, controller, DOM selection, component, and cross-plane integration tests.
 
-[Unreleased]: https://github.com/YOUR_ORG/dsh-inline-comments/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/YOUR_ORG/dsh-inline-comments/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ruisenbai/dsh-inline-comments/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ruisenbai/dsh-inline-comments/releases/tag/v0.1.0
