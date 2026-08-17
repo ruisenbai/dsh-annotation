@@ -15,7 +15,7 @@ Do not replace the contributor copyright in `LICENSE` unless the project has a s
 ## Release checklist
 
 1. Move relevant entries from `Unreleased` into a dated version section in `CHANGELOG.md`.
-2. Update `version` in `package.json` and refresh `pnpm-lock.yaml`.
+2. Update `version` in `package.json`; refresh `pnpm-lock.yaml` if dependency ranges changed.
 3. Run:
 
    ```bash

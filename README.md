@@ -157,7 +157,7 @@ pnpm publint
 pnpm pack
 ```
 
-The CI workflow runs type checking, linting, unit tests, a real Chromium regression on Node 24, a production bundle, artifact verification, and package creation on Node 22 and 24. See [Development](docs/development.md), [Architecture](docs/architecture.md), and [Data model](docs/data-model.md).
+The CI workflow runs type checking, linting, unit tests, a production bundle, artifact verification, and publint on Node 22.19 and 24. The Node 24 job also runs the real Chromium regression and creates the package artifact. See [Development](docs/development.md), [Architecture](docs/architecture.md), and [Data model](docs/data-model.md).
 
 ## Known limitations and deferred work
 
