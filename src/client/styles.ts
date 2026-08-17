@@ -226,6 +226,41 @@ export const styles: string = `
   font-weight: 500;
 }
 
+.dia-selection-bar {
+  position: fixed;
+  z-index: 110;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-specific-menu);
+  box-shadow: var(--dia-shadow);
+}
+
+.dia-selection-bar__action {
+  appearance: none;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 22px;
+  padding: 2px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dia-selection-bar__action:hover {
+  background: var(--dia-highlight);
+  color: var(--dia-accent);
+}
+
+.dia-selection-bar__action:focus-visible {
+  outline: 2px solid var(--dia-accent);
+  outline-offset: 1px;
+}
+
 .dia-editor {
   position: fixed;
   z-index: 120;

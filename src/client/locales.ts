@@ -1,4 +1,7 @@
 export const zh = {
+  'selection.toolbar': '选区操作',
+  'selection.annotate': '添加注释',
+  'selection.copy': '复制',
   'selection.tooLong': '选区较长，建议缩小范围；也可以继续完整保存。',
   'editor.title': '添加注释',
   'editor.editTitle': '编辑注释',
@@ -99,6 +102,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 export const en = {
+  'selection.toolbar': 'Selection actions',
+  'selection.annotate': 'Add annotation',
+  'selection.copy': 'Copy',
   'selection.tooLong': 'This selection is long. Narrow it, or continue and keep the full text.',
   'editor.title': 'Add annotation',
   'editor.editTitle': 'Edit annotation',

@@ -244,6 +244,10 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   const [flash, setFlash] = useState(false)
   const [revealRequest, setRevealRequest] = useState<{ annotationId: AnnotationId } | null>(null)
   const [hover, setHover] = useState<{ annotation: AnnotationDraft; x: number; y: number } | null>(null)
+  const [selectionBar, setSelectionBar] = useState<{
+    readonly capture: ReturnType<typeof captureSelection>
+  } | null>(null)
+  const selectionBarRef = useRef<HTMLDivElement>(null)
   const data = node.data
   const messageId = data.finalNode?.messageId as unknown as MessageIdentity | undefined
   const messageSeq = data.finalNode?.seq
@@ -496,10 +500,9 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       const range = selected.getRangeAt(0)
       if (!body.contains(range.startContainer) || !body.contains(range.endContainer)) return
       try {
-        beginSelection(captureSelection(body, range, messageId, messageSeq))
-        selected.removeAllRanges()
+        setSelectionBar({ capture: captureSelection(body, range, messageId, messageSeq) })
       } catch {
-        // Selections crossing ignored or non-text content do not create an editor.
+        // Selections crossing ignored or non-text content do not offer the selection bar.
       }
     }
     body.addEventListener('pointerup', capture)
@@ -508,12 +511,45 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       body.removeEventListener('pointerup', capture)
       body.removeEventListener('keyup', capture)
     }
-  }, [beginSelection, messageId, messageSeq])
+  }, [messageId, messageSeq])
+
+  const selectionBarActive = selectionBar !== null
+  useEffect(() => {
+    if (!selectionBarActive) return undefined
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && selectionBarRef.current?.contains(event.target) === true) return
+      setSelectionBar(null)
+    }
+    const onSelectionChange = () => {
+      const selected = window.getSelection()
+      if (selected === null || selected.rangeCount === 0 || selected.isCollapsed) setSelectionBar(null)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSelectionBar(null)
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('selectionchange', onSelectionChange)
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('selectionchange', onSelectionChange)
+      document.removeEventListener('keydown', onKeyDown, true)
+    }
+  }, [selectionBarActive])
 
   const inspectPoint = (x: number, y: number): AnnotationDraft | undefined => {
     const body = bodyRef.current
     return body === null ? undefined : annotationAtOffset(annotations, textOffsetAtPoint(body, x, y))
   }
+
+  const copySelectionText = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setSelectionBar(null)
+    } catch {
+      // Clipboard write denied or unavailable: keep the bar open so Ctrl+C remains usable.
+    }
+  }, [])
 
   return (
     <section
@@ -626,6 +662,39 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         <aside className="dia-hover" style={{ left: hover.x, top: hover.y }}>
           <strong>#{hover.annotation.ordinal}</strong> {hover.annotation.comment}
         </aside>
+      )}
+      {selectionBar !== null && (
+        <div
+          ref={selectionBarRef}
+          className="dia-selection-bar"
+          role="toolbar"
+          aria-label={t('selection.toolbar')}
+          style={{
+            left: Math.max(12, Math.min(selectionBar.capture.rect.left, window.innerWidth - 212)),
+            top: Math.max(12, Math.min(selectionBar.capture.rect.bottom + 8, window.innerHeight - 44)),
+          }}
+          onPointerDown={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            className="dia-selection-bar__action"
+            onClick={() => {
+              beginSelection(selectionBar.capture)
+              setSelectionBar(null)
+            }}
+          >
+            {t('selection.annotate')}
+          </button>
+          <button
+            type="button"
+            className="dia-selection-bar__action"
+            onClick={() => {
+              void copySelectionText(selectionBar.capture.quote.exact)
+            }}
+          >
+            {t('selection.copy')}
+          </button>
+        </div>
       )}
     </section>
   )

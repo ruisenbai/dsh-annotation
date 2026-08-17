@@ -11,7 +11,7 @@ A standalone DeepSeek Harness plugin for reviewing assistant replies in place. S
 
 ## Features
 
-- Select text inside one finalized assistant reply to open the annotation input immediately, without an intermediate action menu or click.
+- Select text inside one finalized assistant reply to open a small action bar with Add annotation and Copy. The blue selection stays alive, so Ctrl+C keeps working until a button is chosen.
 - Type directly in the compact selection-positioned input with icon-only Cancel and Save actions. An empty outside click closes it; a dirty outside click keeps it open, turns the input red, and shakes it until one action is chosen.
 - Autosave unfinished editor text after 400 ms, display its local-save state, and restore it after a refresh without treating it as a submitted annotation.
 - Group two-line rows into ready-to-attach, delivery-outcome/retry, authoritatively queued, and sent sections; use official DSH buttons, state dots, icons, tooltips, and Toasts.
@@ -52,7 +52,7 @@ dsh plugin --profile web add .
 dsh web --profile web
 ```
 
-Open the DSH Web URL and select text in a finalized assistant reply. The compact input opens immediately; type the comment and use its check icon to create the draft, or use X to cancel. Drafts appear above the official composer. Click the paperclip in the annotation header, enter any task text in the official composer, and use its normal Enter key or Send button. The paperclip also enables an annotation-only submission when the composer text is empty.
+Open the DSH Web URL and select text in a finalized assistant reply. A small action bar appears with Add annotation and Copy; the selection stays alive so Ctrl+C also works. Choose Add annotation to open the compact input, type the comment, and use its check icon to create the draft, or use X to cancel. Drafts appear above the official composer. Click the paperclip in the annotation header, enter any task text in the official composer, and use its normal Enter key or Send button. The paperclip also enables an annotation-only submission when the composer text is empty.
 
 ### Install a GitHub release
 

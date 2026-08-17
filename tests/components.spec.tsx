@@ -73,6 +73,9 @@ const t = (key: InlineAnnotationLocaleKey, params?: Record<string, unknown>) => 
     'editor.cancel': 'Cancel',
     'editor.save': 'Save annotation',
     'editor.placeholder': 'Explain what to change',
+    'selection.toolbar': 'Selection actions',
+    'selection.annotate': 'Add annotation',
+    'selection.copy': 'Copy',
   }
   return values[key] ?? key
 }
@@ -580,7 +583,7 @@ describe('annotation presentation', () => {
     expect(clearLocalDrafts).toHaveBeenCalledOnce()
   })
 
-  it('starts annotation editing directly from an assistant text selection', () => {
+  it('shows a selection action bar instead of opening the editor directly', () => {
     const beginSelection = vi.fn()
     Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
       configurable: true,
@@ -621,12 +624,130 @@ describe('annotation presentation', () => {
     selection.addRange(range)
     fireEvent.pointerUp(paragraph)
 
+    const bar = screen.getByRole('toolbar', { name: 'Selection actions' })
+    expect(bar).toHaveTextContent('Add annotation')
+    expect(bar).toHaveTextContent('Copy')
+    expect(bar).toHaveStyle({ left: '40px', top: '50px' })
+    expect(beginSelection).not.toHaveBeenCalled()
+    expect(selection.isCollapsed).toBe(false)
+
+    fireEvent.click(within(bar).getByRole('button', { name: 'Add annotation' }))
     expect(beginSelection).toHaveBeenCalledOnce()
     expect(beginSelection).toHaveBeenCalledWith(
       expect.objectContaining({ quote: expect.objectContaining({ exact: 'selected text' }) }),
     )
-    expect(selection.isCollapsed).toBe(true)
     expect(screen.queryByRole('toolbar')).not.toBeInTheDocument()
+    expect(selection.isCollapsed).toBe(false)
+    selection.removeAllRanges()
+  })
+
+  it('copies the selection from the action bar and keeps the selection alive', async () => {
+    const beginSelection = vi.fn()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 20, left: 40, right: 150, bottom: 42, width: 110, height: 22 }),
+    })
+    const view = baseView()
+    const props = {
+      node: {
+        data: {
+          status: 'closed',
+          blocks: [{ kind: 'text', text: 'Alpha selected text omega' }],
+          finalNode: { messageId: 'assistant-copy-test', seq: 9 },
+        },
+        location: { kind: 'root' },
+      },
+      useTurnData: () => undefined,
+      openFile: vi.fn(),
+      loadImage: vi.fn(),
+      fileMentions: vi.fn(),
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      beginSelection,
+      openAnnotation: vi.fn(),
+      registerEndpoint: vi.fn(() => () => undefined),
+      updateHighlightRanges: vi.fn(),
+      activateHighlight: vi.fn(),
+      removeHighlights: vi.fn(),
+      t,
+    } as unknown as AssistantAnnotationProps
+    render(<AnnotatedAssistantNode {...props} />)
+
+    const paragraph = screen.getByText('Alpha selected text omega')
+    const text = paragraph.firstChild!
+    const range = document.createRange()
+    range.setStart(text, 6)
+    range.setEnd(text, 19)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    fireEvent.pointerUp(paragraph)
+
+    fireEvent.click(
+      within(screen.getByRole('toolbar', { name: 'Selection actions' })).getByRole('button', {
+        name: 'Copy',
+      }),
+    )
+    await waitFor(() => expect(screen.queryByRole('toolbar')).not.toBeInTheDocument())
+    expect(writeText).toHaveBeenCalledWith('selected text')
+    expect(beginSelection).not.toHaveBeenCalled()
+    expect(selection.isCollapsed).toBe(false)
+    selection.removeAllRanges()
+  })
+
+  it('dismisses the selection action bar on outside pointerdown and on Escape', () => {
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 20, left: 40, right: 150, bottom: 42, width: 110, height: 22 }),
+    })
+    const view = baseView()
+    const props = {
+      node: {
+        data: {
+          status: 'closed',
+          blocks: [{ kind: 'text', text: 'Alpha selected text omega' }],
+          finalNode: { messageId: 'assistant-dismiss-test', seq: 9 },
+        },
+        location: { kind: 'root' },
+      },
+      useTurnData: () => undefined,
+      openFile: vi.fn(),
+      loadImage: vi.fn(),
+      fileMentions: vi.fn(),
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      beginSelection: vi.fn(),
+      openAnnotation: vi.fn(),
+      registerEndpoint: vi.fn(() => () => undefined),
+      updateHighlightRanges: vi.fn(),
+      activateHighlight: vi.fn(),
+      removeHighlights: vi.fn(),
+      t,
+    } as unknown as AssistantAnnotationProps
+    const { unmount } = render(<AnnotatedAssistantNode {...props} />)
+
+    const paragraph = screen.getByText('Alpha selected text omega')
+    const text = paragraph.firstChild!
+    const range = document.createRange()
+    range.setStart(text, 6)
+    range.setEnd(text, 19)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    fireEvent.pointerUp(paragraph)
+    expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toBeInTheDocument()
+
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument()
+
+    fireEvent.pointerUp(paragraph)
+    expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toBeInTheDocument()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument()
+
+    selection.removeAllRanges()
+    unmount()
   })
 
   it('anchors markers after the complete text line and orders same-line numbers ascending', async () => {

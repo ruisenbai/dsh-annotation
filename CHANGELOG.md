@@ -10,7 +10,7 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - One official composer submission containing ordinary text plus structured annotations, driven by the official Enter key and Send button. Annotation-only submission is allowed when the composer text is empty.
 - One-time migration of the removed plugin-owned overall-request text into the official composer on the first successful attachment.
 - Explicit refusal of mixed image and annotation drafts because DSH command claims do not carry composer image ids.
-- Immediate annotation-input opening after selecting assistant reply text, without an intermediate action menu.
+- A selection action bar with Add annotation and Copy buttons after selecting assistant reply text. The selection stays alive, so Ctrl+C keeps working; Copy keeps the selection, and clicking elsewhere or pressing Escape dismisses the bar.
 - A direct annotation input with icon-only Cancel and Save actions, 400 ms local autosave, empty outside-click dismissal, and red shake feedback when dirty input requires a decision.
 - Draft, attachable, delivery-outcome/retry, authoritative queue, and sent list groups with official state dots, two-line rows, deletion undo, local-data export, draft clearing, and storage-usage feedback.
 - Official DSH buttons, icons, tooltips, and Toasts for plugin actions and submission results, with the original Lucide MapPin retained for Locate source.

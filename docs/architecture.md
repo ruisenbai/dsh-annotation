@@ -5,7 +5,7 @@
 `dsh-inline-annotations` is one installable Cordis row with two runtime halves:
 
 - the **Host half** registers the internal `inline_annotations_submit` command, validates a base64url JSON payload, creates one standard user message, deduplicates retries, and calls `Agent.followup()`;
-- the **Web Client half** owns selection capture, draft persistence, the official-composer attachment claim, status reconstruction, rendering, queue withdrawal, and source navigation.
+- the **Web Client half** owns selection capture, the selection action bar, draft persistence, the official-composer attachment claim, status reconstruction, rendering, queue withdrawal, and source navigation.
 
 The package does not add a custom durable Session event. Every model-visible batch is represented by the existing `user/message` event and therefore survives replay and persistence without extending DSH's closed reload vocabulary.
 
@@ -20,8 +20,8 @@ sequenceDiagram
   participant L as Session log
   participant M as Model
 
-  U->>C: Select reply text and save drafts
-  Note over C: localStorage only
+  U->>C: Select reply text (action bar: add or copy)
+  Note over C: Selection stays alive; localStorage only
   U->>C: Toggle paperclip (arm official composer)
   Note over C: Live draft set follows edits until submit
   U->>C: Official Enter or Send
@@ -103,11 +103,11 @@ Each numbered button anchors after the complete selectable-text line containing 
 
 DSH currently has no additive slot inside `AssistantMarkdown`. The Client uses supported priority shadowing for three keyed cells:
 
-| Slot cell                               | Priority | Reason                                                            |
-| --------------------------------------- | -------: | ----------------------------------------------------------------- |
-| `conversation.chat.node:assistant-step` |   `-100` | Own selection roots, highlights, and quote markers                |
-| `conversation.chat.node:user`           |   `-100` | Fold annotation submissions while preserving normal user messages |
-| `conversation.chat.node:steering`       |   `-100` | Fold annotation batches admitted during a running task            |
+| Slot cell                               | Priority | Reason                                                                       |
+| --------------------------------------- | -------: | ---------------------------------------------------------------------------- |
+| `conversation.chat.node:assistant-step` |   `-100` | Own selection roots, the selection action bar, highlights, and quote markers |
+| `conversation.chat.node:user`           |   `-100` | Fold annotation submissions while preserving normal user messages            |
+| `conversation.chat.node:steering`       |   `-100` | Fold annotation batches admitted during a running task                       |
 
 Lower priority wins in DSH keyed slots. The replacements use public `MarkdownText`, `JsonBlock`, `MessageText`, and attachment primitives. Additive entries are used where available:
 

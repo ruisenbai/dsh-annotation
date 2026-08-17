@@ -56,7 +56,7 @@ Use the existing DSH Web URL for the selected profile. A replacement Vite server
 
 Minimum manual matrix:
 
-1. select text with pointer and keyboard;
+1. select text with pointer and keyboard, then use the action bar's copy, Ctrl+C while the bar is open, and dismissal by outside click or Escape;
 2. annotate prose, fenced code, and a table;
 3. create overlapping selections and trigger both empty and dirty outside-click editor behavior;
 4. refresh with unfinished editor text and saved drafts, then test delete undo, export, and draft clearing;

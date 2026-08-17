@@ -68,6 +68,7 @@ try {
   }
   browser = await chromium.launch({ headless: true })
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'dark' })
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   const page = await context.newPage()
   page.on('pageerror', (error) => failures.push(error.message))
   page.on('console', (message) => {
@@ -116,10 +117,40 @@ try {
     `reasoning must use official disclosure typography, received ${JSON.stringify(assistantChrome.reasoning)}`,
   )
   await selectExact(page, 'selected phrase')
+  const selectionBar = page.locator('.dia-selection-bar')
+  await selectionBar.waitFor()
   assert(
-    (await page.locator('.dia-selection-toolbar').count()) === 0,
-    'selection must open the input directly',
+    (await selectionBar.getByRole('button', { name: 'Add annotation' }).count()) === 1 &&
+      (await selectionBar.getByRole('button', { name: 'Copy' }).count()) === 1,
+    'selection must offer add-annotation and copy actions',
   )
+  const liveSelection = await page.evaluate(() => window.getSelection()?.toString() ?? '')
+  assert(liveSelection === 'selected phrase', 'selection must stay alive while the action bar is open')
+
+  await selectionBar.getByRole('button', { name: 'Copy' }).click()
+  await selectionBar.waitFor({ state: 'detached' })
+  assert(
+    (await page.evaluate(() => window.getSelection()?.toString())) === 'selected phrase',
+    'copying must keep the selection alive',
+  )
+  const copied = await page.evaluate(() => navigator.clipboard.readText())
+  assert(copied === 'selected phrase', `copy must copy the selected text, received ${copied}`)
+
+  await selectExact(page, 'selected phrase')
+  await selectionBar.waitFor()
+  await page.keyboard.press('Control+c')
+  const keyboardCopy = await page.evaluate(() => navigator.clipboard.readText())
+  assert(keyboardCopy === 'selected phrase', 'Ctrl+C must copy while the action bar is open')
+  await page.locator('h1').dispatchEvent('pointerdown')
+  await selectionBar.waitFor({ state: 'detached' })
+  assert(
+    (await page.evaluate(() => window.getSelection()?.isCollapsed)) === false,
+    'dismissal must not clear the selection',
+  )
+
+  await selectExact(page, 'selected phrase')
+  await selectionBar.waitFor()
+  await selectionBar.getByRole('button', { name: 'Add annotation' }).click()
 
   let dialog = page.getByRole('dialog', { name: 'Add annotation' })
   await dialog.waitFor()
@@ -181,6 +212,8 @@ try {
   await dialog.waitFor({ state: 'detached' })
 
   await selectExact(page, 'selected phrase')
+  await selectionBar.waitFor()
+  await selectionBar.getByRole('button', { name: 'Add annotation' }).click()
   dialog = page.getByRole('dialog', { name: 'Add annotation' })
   const input = dialog.getByRole('textbox', { name: 'Your comment' })
   await input.fill('Needs a concrete explanation.')
@@ -456,7 +489,7 @@ try {
 
   assert(failures.length === 0, `browser console errors:\n${failures.join('\n')}`)
   console.log(
-    'browser regression passed: direct selection input, compact editor, autosave, marker-anchored editing with delete, mobile markers, dark mode, zoom, reasoning, attach toggle, one official submission, attachment-only retry, authoritative Toasts, locate',
+    'browser regression passed: selection action bar with copy, compact editor, autosave, marker-anchored editing with delete, mobile markers, dark mode, zoom, reasoning, attach toggle, one official submission, attachment-only retry, authoritative Toasts, locate',
   )
   await context.close()
 } finally {
