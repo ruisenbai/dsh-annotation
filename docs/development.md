@@ -74,7 +74,8 @@ Minimum manual matrix:
 ```bash
 pnpm verify
 pnpm publint
-pnpm pack --pack-destination dist
+mkdir -p artifacts
+pnpm pack --pack-destination artifacts
 ```
 
 Inspect the tarball before release:
@@ -83,7 +84,7 @@ Inspect the tarball before release:
 pnpm pack --dry-run
 ```
 
-The package must contain `lib/index.js`, `lib/invariant.js`, `lib/client.js`, declarations under `lib/types`, `cordis.patch.yml`, README files, the changelog, and the license.
+The package must contain `lib/index.js`, `lib/invariant.js`, `lib/client.js`, declarations under `lib/types`, `cordis.patch.yml`, README files and images under `docs/assets`, the changelog, and the license.
 
 ## Release checklist
 
