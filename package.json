@@ -6,6 +6,7 @@
     "deepseek",
     "deepseek-harness",
     "dsh",
+    "dsh-plugins",
     "cordis",
     "comment",
     "review"
@@ -53,6 +54,7 @@
     "SECURITY.md",
     "SUPPORT.md",
     "docs/**/*.md",
+    "docs/assets/**/*.png",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md"
   ],

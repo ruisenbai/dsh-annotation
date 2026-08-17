@@ -1,15 +1,35 @@
 # DSH Inline Comments
 
-npm 包：`dsh-inline-comments`
+包名：`dsh-inline-comments`
 
 [English](README.md)
 
+[![CI](https://github.com/ruisenbai/dsh-inline-comments/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ruisenbai/dsh-inline-comments/actions/workflows/ci.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/ruisenbai/dsh-inline-comments)](https://github.com/ruisenbai/dsh-inline-comments/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%5E22.19%20%7C%7C%20%3E%3D24-43853d.svg)](package.json)
 
 这是一个独立的 DeepSeek Harness 插件，用于直接审阅 AI 回复正文：选中原文、保留多条可编辑意见、附加到官方输入框，并提交一条由官方文本和结构化注释组成、可安全重试的任务。
 
 > **兼容性提示：**项目要求 DeepSeek Harness `0.1.0-rc.6` 或更高的 `0.1.x` 预发布版本。DSH 仍处于预发布阶段。由于当前没有助手正文内部 Slot，本插件必须覆盖三个内置会话渲染器。升级 DSH 前请阅读[兼容性说明](docs/compatibility.md)。
+
+## 界面预览
+
+选中原文后，仍可保留浏览器原生选区。
+
+![选中的助手回复原文及添加注释、复制操作](docs/assets/inline-comments-selection.png)
+
+在选区旁直接写入简短注释。
+
+![助手回复旁的正文注释编辑器](docs/assets/inline-comments-editor.png)
+
+在附加到官方输入框前审阅本地草稿。
+
+![带原文引用的正文注释草稿列表](docs/assets/inline-comments-drafts.png)
+
+通过通用设置启用或关闭整个浏览器 Profile 的功能。
+
+![已启用的 DSH Inline Comments 设置项](docs/assets/inline-comments-settings.png)
 
 ## 功能
 

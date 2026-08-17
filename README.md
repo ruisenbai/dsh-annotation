@@ -1,15 +1,35 @@
 # DSH Inline Comments
 
-npm package: `dsh-inline-comments`
+Package name: `dsh-inline-comments`
 
 [简体中文](README.zh-CN.md)
 
+[![CI](https://github.com/ruisenbai/dsh-inline-comments/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ruisenbai/dsh-inline-comments/actions/workflows/ci.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/ruisenbai/dsh-inline-comments)](https://github.com/ruisenbai/dsh-inline-comments/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%5E22.19%20%7C%7C%20%3E%3D24-43853d.svg)](package.json)
 
 A standalone DeepSeek Harness plugin for reviewing assistant replies in place. Select exact reply text, keep several comments as editable drafts, attach them to the official composer, and submit one idempotent task containing composer text plus structured comments.
 
 > **Compatibility:** this project requires DeepSeek Harness `0.1.0-rc.6` or a later `0.1.x` prerelease. DSH is pre-release software. The plugin must shadow three shipped conversation renderers because DSH does not yet expose an inline assistant-body slot. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
+
+## Preview
+
+Select a quote without losing the native selection.
+
+![Selected assistant text with Add comment and Copy actions](docs/assets/inline-comments-selection.png)
+
+Write a concise comment beside the selected text.
+
+![Inline comment editor beside an assistant reply](docs/assets/inline-comments-editor.png)
+
+Review local drafts before attaching them to the official composer.
+
+![Inline comment draft list with quoted source text](docs/assets/inline-comments-drafts.png)
+
+Enable or disable the browser-wide feature from General Settings.
+
+![DSH Inline Comments setting enabled](docs/assets/inline-comments-settings.png)
 
 ## Features
 
