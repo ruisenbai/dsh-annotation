@@ -9,25 +9,31 @@ Package name: `dsh-inline-comments`
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%5E22.19%20%7C%7C%20%3E%3D24-43853d.svg)](package.json)
 
-A standalone DeepSeek Harness plugin for reviewing assistant replies in place. Select exact reply text, keep several comments as editable drafts, attach them to the official composer, and submit one idempotent task containing composer text plus structured comments.
+Long AI replies are much easier to review when each note can sit beside the exact sentence it belongs to. DSH Inline Comments lets you highlight a passage, write feedback in place, collect several notes, and send them together through DSH's normal composer—without repeatedly copying quotes into a new prompt.
+
+> **Interaction origin:** this plugin is an independent, unofficial recreation of ChatGPT's inline commenting feature for DeepSeek Harness. It copies the workflow, not OpenAI source code, assets, APIs, or branding, and it is not affiliated with or endorsed by OpenAI.
 
 > **Compatibility:** this project requires DeepSeek Harness `0.1.0-rc.6` or a later `0.1.x` prerelease. DSH is pre-release software. The plugin must shadow three shipped conversation renderers because DSH does not yet expose an inline assistant-body slot. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
 
 ## Preview
 
-Select a quote without losing the native selection.
+The complete workflow stays inside the conversation: select a quote, leave one or more numbered comments, review the drafts, and send them from the familiar DSH composer.
+
+![DSH Inline Comments overview with numbered comments, an inline editor, and the composer draft list](docs/assets/inline-comments-overview.png)
+
+Highlight the exact words you want to discuss; the browser selection remains available for copying.
 
 ![Selected assistant text with Add comment and Copy actions](docs/assets/inline-comments-selection.png)
 
-Write a concise comment beside the selected text.
+Write the note right beside the quote while its context is still on screen.
 
 ![Inline comment editor beside an assistant reply](docs/assets/inline-comments-editor.png)
 
-Review local drafts before attaching them to the official composer.
+Review and adjust all local drafts before attaching them to the official composer.
 
 ![Inline comment draft list with quoted source text](docs/assets/inline-comments-drafts.png)
 
-Enable or disable the browser-wide feature from General Settings.
+Need a break from comments? Turn the feature off from General Settings without deleting your drafts.
 
 ![DSH Inline Comments setting enabled](docs/assets/inline-comments-settings.png)
 

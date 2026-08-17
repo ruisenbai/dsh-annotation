@@ -9,25 +9,31 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%5E22.19%20%7C%7C%20%3E%3D24-43853d.svg)](package.json)
 
-这是一个独立的 DeepSeek Harness 插件，用于直接审阅 AI 回复正文：选中原文、保留多条可编辑意见、附加到官方输入框，并提交一条由官方文本和结构化注释组成、可安全重试的任务。
+审阅一段很长的 AI 回复时，最麻烦的往往不是提出意见，而是反复复制原文、解释“我说的是哪一句”。DSH Inline Comments 让每条意见直接留在对应句子旁边：选中原文、就地写下注释、攒齐多条意见，再通过 DSH 官方输入框一次发送。
+
+> **交互来源说明：**本插件独立、非官方地复刻了 ChatGPT 的正文注释功能，并将这套体验带到 DeepSeek Harness。复制的是使用流程，不是 OpenAI 的源码、素材、API 或品牌；本项目与 OpenAI 无隶属或官方合作关系。
 
 > **兼容性提示：**项目要求 DeepSeek Harness `0.1.0-rc.6` 或更高的 `0.1.x` 预发布版本。DSH 仍处于预发布阶段。由于当前没有助手正文内部 Slot，本插件必须覆盖三个内置会话渲染器。升级 DSH 前请阅读[兼容性说明](docs/compatibility.md)。
 
 ## 界面预览
 
-选中原文后，仍可保留浏览器原生选区。
+整个流程都留在对话里：选中原文、添加一条或多条编号注释、检查草稿，再从熟悉的 DSH 输入框发送。
+
+![DSH Inline Comments 的编号注释、就地编辑器和输入框草稿列表总览](docs/assets/inline-comments-overview.png)
+
+选中真正想讨论的文字，浏览器原生选区仍然保留，随时可以复制。
 
 ![选中的助手回复原文及添加注释、复制操作](docs/assets/inline-comments-selection.png)
 
-在选区旁直接写入简短注释。
+趁上下文还在眼前，直接在原文旁写下意见。
 
 ![助手回复旁的正文注释编辑器](docs/assets/inline-comments-editor.png)
 
-在附加到官方输入框前审阅本地草稿。
+发送前可以集中检查和调整所有本地草稿。
 
 ![带原文引用的正文注释草稿列表](docs/assets/inline-comments-drafts.png)
 
-通过通用设置启用或关闭整个浏览器 Profile 的功能。
+暂时不想使用注释时，可在通用设置中关闭功能，已有草稿不会丢失。
 
 ![已启用的 DSH Inline Comments 设置项](docs/assets/inline-comments-settings.png)
 
