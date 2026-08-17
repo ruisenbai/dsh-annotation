@@ -24,7 +24,9 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Verify tag matches package version
-        run: test "v$(node -p \"require('./package.json').version\")" = "${GITHUB_REF_NAME}"
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          test "v${version}" = "${GITHUB_REF_NAME}"
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
       - name: Run browser regressions
