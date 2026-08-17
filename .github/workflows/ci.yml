@@ -45,7 +45,7 @@ jobs:
         run: |
           mkdir -p artifacts
           pnpm pack --pack-destination artifacts
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: matrix.node == '24.x'
         with:
           name: npm-package
