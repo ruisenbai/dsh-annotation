@@ -4,14 +4,16 @@
 
 | Component                | Supported baseline                                                                  |
 | ------------------------ | ----------------------------------------------------------------------------------- |
-| DeepSeek Harness         | `>=0.1.0-rc.6 <0.2.0`                                                               |
-| Development declarations | `0.1.0-rc.6`                                                                        |
+| DeepSeek Harness         | `>=0.1.0-rc.7 <0.2.0`                                                               |
+| Development declarations | `0.1.0-rc.7`                                                                        |
 | Cordis                   | `^4.0.1`                                                                            |
 | Node.js                  | `^22.19.0` or `>=24`                                                                |
 | React                    | `^18.2.0`                                                                           |
 | Browser                  | Current Chromium-based DSH Web target; other modern browsers retain marker fallback |
 
 DSH has no external compatibility promise before `0.2.0`. The peer range expresses the intended review window, not an automatic guarantee for every prerelease.
+
+The `0.1.0-rc.7` review found no breaking changes in the command registry, Session queue APIs, input-trigger claim protocol, Slot contracts, or renderer owner props used by this plugin. The rc.7 Web change affecting this surface is limited to Safari composer layout recovery, so the plugin requires no runtime code branch for rc.7.
 
 ## High-risk integration points
 

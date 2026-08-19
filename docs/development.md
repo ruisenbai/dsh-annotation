@@ -5,7 +5,7 @@
 - Node.js `^22.19.0` or `>=24`;
 - Corepack;
 - pnpm `11.7.0`;
-- a DeepSeek Harness checkout or installation compatible with `0.1.0-rc.5`/`rc.6` for Web verification.
+- a DeepSeek Harness checkout or installation compatible with `0.1.0-rc.7` for Web verification.
 
 ## Install and verify
 

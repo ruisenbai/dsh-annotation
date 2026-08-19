@@ -13,7 +13,7 @@ Long AI replies are much easier to review when each note can sit beside the exac
 
 > **Interaction origin:** this plugin is an independent, unofficial recreation of ChatGPT's inline commenting feature for DeepSeek Harness. It copies the workflow, not OpenAI source code, assets, APIs, or branding, and it is not affiliated with or endorsed by OpenAI.
 
-> **Compatibility:** this project requires DeepSeek Harness `0.1.0-rc.6` or a later `0.1.x` prerelease. DSH is pre-release software. The plugin must shadow three shipped conversation renderers because DSH does not yet expose an inline assistant-body slot. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
+> **Compatibility:** this project requires DeepSeek Harness `0.1.0-rc.7` or a later `0.1.x` prerelease. DSH is pre-release software. The plugin must shadow three shipped conversation renderers because DSH does not yet expose an inline assistant-body slot. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
 
 ## Preview
 

@@ -13,7 +13,7 @@
 
 > **交互来源说明：**本插件独立、非官方地复刻了 ChatGPT 的正文注释功能，并将这套体验带到 DeepSeek Harness。复制的是使用流程，不是 OpenAI 的源码、素材、API 或品牌；本项目与 OpenAI 无隶属或官方合作关系。
 
-> **兼容性提示：**项目要求 DeepSeek Harness `0.1.0-rc.6` 或更高的 `0.1.x` 预发布版本。DSH 仍处于预发布阶段。由于当前没有助手正文内部 Slot，本插件必须覆盖三个内置会话渲染器。升级 DSH 前请阅读[兼容性说明](docs/compatibility.md)。
+> **兼容性提示：**项目要求 DeepSeek Harness `0.1.0-rc.7` 或更高的 `0.1.x` 预发布版本。DSH 仍处于预发布阶段。由于当前没有助手正文内部 Slot，本插件必须覆盖三个内置会话渲染器。升级 DSH 前请阅读[兼容性说明](docs/compatibility.md)。
 
 ## 界面预览
 

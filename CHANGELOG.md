@@ -4,6 +4,14 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-19
+
+### Changed
+
+- Raised the supported and development baseline to DeepSeek Harness `0.1.0-rc.7` after reviewing the command, Session, input-trigger, Slot, renderer, and browser-composer integration points.
+- Added the optional `unrun` peer required by the current `tsdown` release to load the TypeScript build configuration reliably.
+- Added a local oxlint configuration so linting inside a parent repository no longer picks up the parent's configuration.
+
 ## [0.1.0] - 2026-08-17
 
 ### Added
@@ -38,5 +46,6 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-inline-comments/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-inline-comments/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/ruisenbai/dsh-inline-comments/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ruisenbai/dsh-inline-comments/releases/tag/v0.1.0
