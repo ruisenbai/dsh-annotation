@@ -4,8 +4,8 @@
 
 | Component                | Supported baseline                                                                  |
 | ------------------------ | ----------------------------------------------------------------------------------- |
-| DeepSeek Harness         | `>=0.1.0-rc.7 <0.2.0`                                                               |
-| Development declarations | `0.1.0-rc.7`                                                                        |
+| DeepSeek Harness         | `>=0.1.0-rc.8 <0.2.0`                                                               |
+| Development declarations | `0.1.0-rc.8`                                                                        |
 | Cordis                   | `^4.0.1`                                                                            |
 | Node.js                  | `^22.19.0` or `>=24`                                                                |
 | React                    | `^18.2.0`                                                                           |
@@ -13,7 +13,7 @@
 
 DSH has no external compatibility promise before `0.2.0`. The peer range expresses the intended review window, not an automatic guarantee for every prerelease.
 
-The `0.1.0-rc.7` review found no breaking changes in the command registry, Session queue APIs, input-trigger claim protocol, Slot contracts, or renderer owner props used by this plugin. The rc.7 Web change affecting this surface is limited to Safari composer layout recovery, so the plugin requires no runtime code branch for rc.7.
+The `0.1.0-rc.8` upgrade changed three integration points used by this plugin. Chat-node owner props now expose `renderMessageImages` through the `conversation.message.images` Slot instead of passing `loadImage` to renderers that import attachment components directly. Composer reference occurrences now cover their complete inline display text instead of one placeholder character, so submission serialization replaces each declared range with its model form. `CommandClaim.submit` now receives serialized image attachments and requires an explicit `images` capability to accept them. The plugin delegates image rendering to the Slot, advances serialization by each reference range length, and leaves image support disabled to preserve its refusal of mixed image and comment drafts.
 
 ## High-risk integration points
 
@@ -23,7 +23,7 @@ The plugin shadows these shipped renderer cells at priority `-100`:
 - `conversation.chat.node:user`;
 - `conversation.chat.node:steering`.
 
-A DSH upgrade is compatible only if the public owner props, `AssistantChatData`, standard Slot hooks, primitives, and queue/session methods used by those replacements remain compatible. The CI type check catches declaration drift; a real Web smoke must catch rendering or lifecycle drift.
+A DSH upgrade is compatible only if the public owner props, `AssistantChatData`, `renderMessageImages` helper, standard Slot hooks, primitives, and queue/session methods used by those replacements remain compatible. The CI type check catches declaration drift; a real Web smoke must catch rendering or lifecycle drift.
 
 The internal command is registered through the public command registry. DSH currently has no non-discoverable command flag, so the transport command can appear in slash-command discovery. Invoking it manually without a valid payload fails validation and does not reach the model.
 

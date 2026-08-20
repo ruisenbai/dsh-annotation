@@ -67,6 +67,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
       source: string
       ref: string
       offset: number
+      length: number
       label: string
       clipboardText: string
     }[],
@@ -215,6 +216,26 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
     setComposerText(text: string) {
       input.setDraft(`${COMPOSER_ATTACHMENT_TOKEN}${text}`)
     },
+    setComposerReferences(
+      text: string,
+      references: readonly { display: string; source: string; ref: string }[],
+    ) {
+      const draft = `${COMPOSER_ATTACHMENT_TOKEN}${text}`
+      const occurrences = references.map((reference, index) => {
+        const offset = draft.indexOf(reference.display)
+        if (offset < 0) throw new Error(`reference display is absent from draft: ${reference.display}`)
+        return {
+          occurrenceId: index + 1,
+          source: reference.source,
+          ref: reference.ref,
+          offset,
+          length: reference.display.length,
+          label: reference.display.slice(1),
+          clipboardText: reference.display,
+        }
+      })
+      publishInput({ ...inputState, draft, draftRev: inputState.draftRev + 1, occurrences })
+    },
     setImages(ids: string[]) {
       publishInput({ ...inputState, imageIds: ids })
     },
@@ -222,7 +243,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
       if (claim === null) throw new Error('composer is not claimed')
       const current = claim
       publishInput({ ...inputState, phase: 'submitting' })
-      const outcome = await current.submit('', actx)
+      const outcome = await current.submit('', actx, [])
       if (outcome.kind === 'success') {
         claim = null
         publishInput({
@@ -374,6 +395,26 @@ describe('Client plugin composer attachment lifecycle', () => {
     fixture.dispose()
   })
 
+  it('serializes rc.8 reference display ranges without leaking their labels', async () => {
+    const command = vi.fn().mockResolvedValue({ ok: true, value: { matched: true } })
+    const fixture = fixtureContext(command)
+    apply(fixture.ctx)
+    const face = fixture.face()
+    saveAnnotation(face)
+
+    expect(face.toggleComposerAttachment('remove images')).toBe(true)
+    fixture.setComposerReferences('Compare @current-session with @docs/guide.md.', [
+      { display: '@current-session', source: 'session', ref: 'session-current' },
+      { display: '@docs/guide.md', source: 'file', ref: 'file-guide' },
+    ])
+
+    await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
+    expect(face.hooks.annotations.getSnapshot().outbox[0]?.payload.overallRequirement).toBe(
+      'Compare <reference>session-current</reference> with <reference>file-guide</reference>.',
+    )
+    fixture.dispose()
+  })
+
   it('allows an attachment-only official composer submission', async () => {
     const command = vi.fn().mockResolvedValue({ ok: true, value: { matched: true } })
     const fixture = fixtureContext(command)
@@ -449,13 +490,14 @@ describe('Client plugin composer attachment lifecycle', () => {
     fixture.dispose()
   })
 
-  it('retains attached annotations and images when a mixed submission is refused', async () => {
+  it('leaves rc.8 image capability disabled and defensively refuses a mixed submit', async () => {
     const command = vi.fn()
     const fixture = fixtureContext(command)
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
     expect(face.toggleComposerAttachment('remove images')).toBe(true)
+    expect(fixture.inputSnapshot().claim).not.toHaveProperty('images')
     fixture.setImages(['image-1'])
 
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'error', text: 'remove images' })

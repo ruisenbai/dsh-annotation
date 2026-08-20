@@ -51,7 +51,7 @@ export function detachComposer(actx: ClientContext, input: SessionInput): boolea
   )
 }
 
-/** Expand every official reference chip while omitting this plugin's invisible claim prefix. */
+/** Replace every official reference display range with its model form while omitting this plugin's invisible claim prefix. */
 export async function serializeComposerRequirement(
   input: InputState,
   triggerController: InputTriggerController,
@@ -62,6 +62,7 @@ export async function serializeComposerRequirement(
   const parts = await Promise.all(
     input.occurrences.map(async (occurrence) => ({
       offset: occurrence.offset,
+      length: occurrence.length,
       text: await triggerController.serializeReference(occurrence.source, occurrence.ref, signal),
     })),
   )
@@ -69,7 +70,7 @@ export async function serializeComposerRequirement(
   let cursor = start
   for (const part of parts) {
     output += input.draft.slice(cursor, part.offset) + part.text
-    cursor = part.offset + 1
+    cursor = part.offset + part.length
   }
   return (output + input.draft.slice(cursor)).trim()
 }

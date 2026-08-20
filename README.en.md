@@ -13,7 +13,7 @@ Long AI replies are much easier to review when each note can sit beside the exac
 
 > **Interaction origin:** this plugin is an independent, unofficial recreation of ChatGPT's inline commenting feature for DeepSeek Harness. It copies the workflow, not OpenAI source code, assets, APIs, or branding, and it is not affiliated with or endorsed by OpenAI.
 
-> **Compatibility:** this project requires DeepSeek Harness `0.1.0-rc.7` or a later `0.1.x` prerelease. DSH is pre-release software. The plugin must shadow three shipped conversation renderers because DSH does not yet expose an inline assistant-body slot. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
+> **Compatibility:** this project requires DeepSeek Harness `0.1.0-rc.8` or a later `0.1.x` prerelease. DSH is pre-release software. The plugin must shadow three shipped conversation renderers because DSH does not yet expose an inline assistant-body slot. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
 
 ## Preview
 
@@ -87,14 +87,14 @@ Open the DSH Web URL and select text in a finalized assistant reply. A small act
 Each `v*.*.*` tag builds an installable tarball and attaches it to GitHub Releases. Download it and install the prebuilt package without running repository build scripts:
 
 ```bash
-gh release download v0.1.0 --repo ruisenbai/dsh-inline-comments --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-inline-comments-0.1.0.tgz
+gh release download v0.1.2 --repo ruisenbai/dsh-inline-comments --pattern '*.tgz'
+dsh plugin --profile web add ./dsh-inline-comments-0.1.2.tgz
 ```
 
 A pinned Git dependency also works when the profile explicitly allows this trusted package to run its `prepare` build:
 
 ```bash
-dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comments.git#v0.1.0
+dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comments.git#v0.1.2
 ```
 
 ## Settings
@@ -111,7 +111,7 @@ Transport acceptance is not presented as queue admission. The queued Toast appea
 
 Existing values written into the removed plugin-owned overall-request field migrate into the official composer on the first successful attachment. The value is cleared from plugin storage only after the composer accepts the claim.
 
-The current DSH command submit API does not expose official composer image ids. The plugin therefore refuses attachment while images are present and refuses a mixed submission if images are added after arming. It does not discard either image or comment drafts.
+DSH rc.8 command claims can opt into serialized composer images. This plugin deliberately leaves that capability disabled, so comments cannot be attached while images are present and DSH refuses a mixed submission if images are added after arming. It does not discard either image or comment drafts.
 
 ## States
 

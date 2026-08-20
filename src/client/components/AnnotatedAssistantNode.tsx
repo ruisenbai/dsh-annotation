@@ -1,5 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ImageGallery } from '@deepseek-ai/dsh-client-ui-attachment'
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   DisclosureRow,
   IconThinkOutline14,
@@ -221,7 +220,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   node,
   useTurnData,
   openFile,
-  loadImage,
+  renderMessageImages,
   fileMentions,
   useAnnotations,
   beginSelection,
@@ -280,17 +279,6 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     [fileMentions, mentionOwner],
   )
   const codeLabels = useMemo(() => ({ copyLabel: t('code.copy'), copiedLabel: t('code.copied') }), [t])
-  const imageLabels = useMemo(
-    () => ({
-      image: t('image.label'),
-      open: t('image.open'),
-      openNamed: (name: string) => t('image.openNamed', { name }),
-      loading: t('image.loading'),
-      loadFailed: t('image.failed'),
-      lightbox: { dialog: t('image.open'), close: t('image.close') },
-    }),
-    [t],
-  )
 
   const reveal = useCallback((annotationId: AnnotationId) => {
     setRevealRequest({ annotationId })
@@ -608,16 +596,21 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
                 t={t}
               />
             )
-          if (block.kind === 'image')
+          if (block.kind === 'image') {
+            const previous = data.blocks[index - 1]
+            if (previous !== undefined && previous.kind === 'image') return null
+            const group: Array<{ attachment: typeof block.attachment }> = []
+            for (let cursor = index; cursor < data.blocks.length; cursor += 1) {
+              const current = data.blocks[cursor]
+              if (current?.kind !== 'image') break
+              group.push({ attachment: current.attachment })
+            }
             return (
-              <ImageGallery
-                key={`image:${block.attachment.attachmentId}:${index}`}
-                images={[{ attachment: block.attachment }]}
-                load={loadImage}
-                align="start"
-                labels={imageLabels}
-              />
+              <Fragment key={`image:${block.attachment.attachmentId}:${index}`}>
+                {renderMessageImages({ images: group, align: 'start' })}
+              </Fragment>
             )
+          }
           if (block.kind === 'other')
             return (
               <JsonBlock

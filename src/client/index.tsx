@@ -5,6 +5,7 @@ import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/clie
 import type {
   CommandClaim,
   InputTriggerServiceContract,
+  SubmitImageAttachment,
   SubmitOutcome,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
@@ -293,7 +294,11 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   const claimFor = (sessionId: SessionId, imageError: string): CommandClaim =>
     Object.freeze({
       token: COMPOSER_ATTACHMENT_TOKEN,
-      async submit(_args: string, actx: ClientContext): Promise<SubmitOutcome> {
+      async submit(
+        _args: string,
+        actx: ClientContext,
+        _images: readonly SubmitImageAttachment[],
+      ): Promise<SubmitOutcome> {
         if (sessions.scopeOf(actx) !== sessionId) {
           return { kind: 'error', text: 'Annotation attachment belongs to another Session.' }
         }

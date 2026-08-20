@@ -5,7 +5,7 @@
 - Node.js `^22.19.0` or `>=24`;
 - Corepack;
 - pnpm `11.7.0`;
-- a DeepSeek Harness checkout or installation compatible with `0.1.0-rc.7` for Web verification.
+- a DeepSeek Harness checkout or installation compatible with `0.1.0-rc.8` for Web verification.
 
 ## Install and verify
 
@@ -33,7 +33,7 @@ pnpm publint
 - `selection.spec.ts` and `highlight.spec.ts`: DOM selectors, relocation, coordinates, and browser highlight fallback;
 - `components.spec.tsx`: user-visible timeline, compact editor, grouped list, marker geometry, and source centering;
 - `scripts/browser-test.mjs` with `tests/browser/fixture.tsx`: real Chromium coverage for autosave, outside-click decisions, mobile overflow, dark mode, zoom, reasoning disclosure, and source centering;
-- `client-apply.spec.ts`: dynamic setting registration, renderer disable/restore, composer detachment, local limits, transport failure, and immutable retry;
+- `client-apply.spec.ts`: dynamic setting registration, renderer disable/restore, composer detachment, rc.8 reference serialization, local limits, transport failure, and immutable retry;
 - `submission-flow.spec.ts`: browser payload through Host admission and durable status reconstruction.
 
 Run one suite during development:

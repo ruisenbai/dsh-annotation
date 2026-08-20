@@ -1,5 +1,4 @@
 import { useMemo } from 'react'
-import { ImageGallery } from '@deepseek-ai/dsh-client-ui-attachment'
 import {
   IconCheckOutline14,
   IconChevronDownOutline14,
@@ -93,23 +92,12 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
 /** Shadow renderer that upgrades annotation submissions while preserving ordinary user messages. */
 export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
   node,
-  loadImage,
+  renderMessageImages,
   useAnnotations,
   navigate,
   t,
 }: UserAnnotationProps<Key>) {
   const payload = parseInlineCommentSource(node.data.source)
-  const imageLabels = useMemo(
-    () => ({
-      image: t('image.label'),
-      open: t('image.open'),
-      openNamed: (name: string) => t('image.openNamed', { name }),
-      loading: t('image.loading'),
-      loadFailed: t('image.failed'),
-      lightbox: { dialog: t('image.open'), close: t('image.close') },
-    }),
-    [t],
-  )
   if (payload !== null) {
     const requirement = payload.overallRequirement?.trim() ?? ''
     return (
@@ -137,7 +125,7 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
       {texts.map((text, index) => (
         <MessageText key={`text:${index}`} text={text} />
       ))}
-      <ImageGallery images={images} load={loadImage} align="end" labels={imageLabels} />
+      {renderMessageImages({ images, align: 'end' })}
     </article>
   )
 }

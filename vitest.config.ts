@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     server: {
       deps: {
-        inline: [/@deepseek-ai\/dsh-client-ui-primitives/, /@deepseek-ai\/dsh-client-ui-attachment/, /katex/],
+        inline: [/@deepseek-ai\/dsh-client-ui-primitives/, /katex/],
       },
     },
     setupFiles: ['tests/setup.ts'],

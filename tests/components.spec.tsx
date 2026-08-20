@@ -170,7 +170,7 @@ describe('inline comment presentation', () => {
       node: { data: { source: { kind: 'user', inlineComments: payload }, content: [] } },
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       navigate,
-      loadImage: vi.fn(),
+      renderMessageImages: () => null,
       t,
     } as unknown as UserAnnotationProps<'user'>
     render(<AnnotatedUserNode {...props} />)
@@ -182,6 +182,67 @@ describe('inline comment presentation', () => {
     expect(locate.querySelector('svg.lucide-map-pin')).toBeInTheDocument()
     fireEvent.click(locate)
     expect(navigate).toHaveBeenCalledWith(payload.annotations[0]?.annotationId)
+  })
+
+  it('delegates historical images through the rc.8 conversation image renderer', () => {
+    const userAttachment = { attachmentId: 'user-image' }
+    const renderUserImages = vi.fn(() => <div data-testid="user-images" />)
+    const userProps = {
+      node: {
+        data: {
+          source: { kind: 'user' },
+          content: [{ type: 'image', attachment: userAttachment }],
+        },
+      },
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(baseView()),
+      navigate: vi.fn(async () => true),
+      renderMessageImages: renderUserImages,
+      t,
+    } as unknown as UserAnnotationProps<'user'>
+    render(<AnnotatedUserNode {...userProps} />)
+
+    expect(screen.getByTestId('user-images')).toBeInTheDocument()
+    expect(renderUserImages).toHaveBeenCalledWith({
+      images: [{ attachment: userAttachment }],
+      align: 'end',
+    })
+    cleanup()
+
+    const firstAttachment = { attachmentId: 'assistant-image-1' }
+    const secondAttachment = { attachmentId: 'assistant-image-2' }
+    const renderAssistantImages = vi.fn(() => <div data-testid="assistant-images" />)
+    const assistantProps = {
+      node: {
+        data: {
+          status: 'closed',
+          blocks: [
+            { kind: 'image', attachment: firstAttachment },
+            { kind: 'image', attachment: secondAttachment },
+          ],
+        },
+        location: { kind: 'root' },
+      },
+      useTurnData: () => undefined,
+      openFile: vi.fn(),
+      renderMessageImages: renderAssistantImages,
+      fileMentions: vi.fn(),
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(baseView()),
+      beginSelection: vi.fn(),
+      openAnnotation: vi.fn(),
+      registerEndpoint: vi.fn(() => () => undefined),
+      updateHighlightRanges: vi.fn(),
+      activateHighlight: vi.fn(),
+      removeHighlights: vi.fn(),
+      t,
+    } as unknown as AssistantAnnotationProps
+    render(<AnnotatedAssistantNode {...assistantProps} />)
+
+    expect(screen.getByTestId('assistant-images')).toBeInTheDocument()
+    expect(renderAssistantImages).toHaveBeenCalledOnce()
+    expect(renderAssistantImages).toHaveBeenCalledWith({
+      images: [{ attachment: firstAttachment }, { attachment: secondAttachment }],
+      align: 'start',
+    })
   })
 
   it('shows the composer dock only when recoverable comment state exists', () => {
@@ -626,7 +687,7 @@ describe('inline comment presentation', () => {
       },
       useTurnData: () => undefined,
       openFile: vi.fn(),
-      loadImage: vi.fn(),
+      renderMessageImages: () => null,
       fileMentions: vi.fn(),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       beginSelection,
@@ -686,7 +747,7 @@ describe('inline comment presentation', () => {
       },
       useTurnData: () => undefined,
       openFile: vi.fn(),
-      loadImage: vi.fn(),
+      renderMessageImages: () => null,
       fileMentions: vi.fn(),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       beginSelection,
@@ -738,7 +799,7 @@ describe('inline comment presentation', () => {
       },
       useTurnData: () => undefined,
       openFile: vi.fn(),
-      loadImage: vi.fn(),
+      renderMessageImages: () => null,
       fileMentions: vi.fn(),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       beginSelection: vi.fn(),
@@ -846,7 +907,7 @@ describe('inline comment presentation', () => {
         },
         useTurnData: () => undefined,
         openFile: vi.fn(),
-        loadImage: vi.fn(),
+        renderMessageImages: () => null,
         fileMentions: vi.fn(),
         useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
         beginSelection: vi.fn(),
@@ -942,7 +1003,7 @@ describe('inline comment presentation', () => {
         },
         useTurnData: () => undefined,
         openFile: vi.fn(),
-        loadImage: vi.fn(),
+        renderMessageImages: () => null,
         fileMentions: vi.fn(),
         useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
         beginSelection: vi.fn(),
@@ -1043,7 +1104,7 @@ describe('inline comment presentation', () => {
       },
       useTurnData: () => undefined,
       openFile: vi.fn(),
-      loadImage: vi.fn(),
+      renderMessageImages: () => null,
       fileMentions: vi.fn(),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       beginSelection: vi.fn(),

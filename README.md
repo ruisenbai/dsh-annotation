@@ -13,7 +13,7 @@
 
 > **交互来源说明：**本插件独立、非官方地复刻了 ChatGPT 的正文注释功能，并将这套体验带到 DeepSeek Harness。复制的是使用流程，不是 OpenAI 的源码、素材、API 或品牌；本项目与 OpenAI 无隶属或官方合作关系。
 
-> **兼容性提示：**项目要求 DeepSeek Harness `0.1.0-rc.7` 或更高的 `0.1.x` 预发布版本。DSH 仍处于预发布阶段。由于当前没有助手正文内部 Slot，本插件必须覆盖三个内置会话渲染器。升级 DSH 前请阅读[兼容性说明](docs/compatibility.md)。
+> **兼容性提示：**项目要求 DeepSeek Harness `0.1.0-rc.8` 或更高的 `0.1.x` 预发布版本。DSH 仍处于预发布阶段。由于当前没有助手正文内部 Slot，本插件必须覆盖三个内置会话渲染器。升级 DSH 前请阅读[兼容性说明](docs/compatibility.md)。
 
 ## 界面预览
 
@@ -86,14 +86,14 @@ dsh web --profile web
 每个 `v*.*.*` 标签都会构建可安装 Tarball 并附加到 GitHub Release。下载后可以直接安装预构建包，无需执行仓库构建脚本：
 
 ```bash
-gh release download v0.1.0 --repo ruisenbai/dsh-inline-comments --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-inline-comments-0.1.0.tgz
+gh release download v0.1.2 --repo ruisenbai/dsh-inline-comments --pattern '*.tgz'
+dsh plugin --profile web add ./dsh-inline-comments-0.1.2.tgz
 ```
 
 如果 Profile 明确允许这个可信包执行 `prepare` 构建，也可以安装固定标签的 Git 依赖：
 
 ```bash
-dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comments.git#v0.1.0
+dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comments.git#v0.1.2
 ```
 
 ## 设置
@@ -110,7 +110,7 @@ dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comment
 
 移除的插件内“整体要求”已有内容，会在第一次成功附加时一次性迁移进官方输入框；只有官方输入框接受附加后，插件存储中的旧值才会被清除。
 
-当前 DSH 命令提交接口不透出官方输入框的图片 ID，因此输入框存在图片时无法附加注释；附加后再添加图片时，混合提交会被拒绝，且不会丢弃图片或注释草稿。
+DSH rc.8 的命令声明可选择接收序列化图片。本插件有意不启用该能力，因此输入框存在图片时无法附加注释；附加后再添加图片时，DSH 会拒绝混合提交，且不会丢弃图片或注释草稿。
 
 ## 状态定义
 

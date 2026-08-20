@@ -240,7 +240,7 @@ function Fixture() {
     },
     useTurnData: () => undefined,
     openFile: () => undefined,
-    loadImage: async () => new Blob(),
+    renderMessageImages: () => null,
     fileMentions: () => undefined,
     t,
   }
