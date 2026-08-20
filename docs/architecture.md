@@ -41,7 +41,7 @@ sequenceDiagram
 
 The header paperclip arms the current Session's official composer through the scoped `slash/input-begin-command` event with a zero-width, non-whitespace claim token. The token keeps the official Send action eligible while the visible composer text is empty, so annotation-only submission needs no second send surface. The official Enter key and Send button submit through the claim; Shift+Enter and the composer's remaining keyboard behavior are unchanged.
 
-The claim rejects mixed image and annotation drafts because the DSH command submit API does not carry composer image ids. Detaching removes the token through the scoped `slash/input-consume-token` event or a plain draft write without touching the remaining text. The header button suppresses its pointerdown default so composer focus and caret survive the toggle.
+DSH rc.8 can pass serialized composer images to claims that opt in. This claim deliberately omits `CommandClaim.images`, so DSH rejects mixed image and annotation drafts before invoking its submit callback and retains both drafts. Detaching removes the token through the scoped `slash/input-consume-token` event or a plain draft write without touching the remaining text. The header button suppresses its pointerdown default so composer focus and caret survive the toggle.
 
 ## Durable representation
 

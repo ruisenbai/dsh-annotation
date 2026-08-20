@@ -171,7 +171,7 @@ The CI workflow runs type checking, linting, unit tests, a production bundle, ar
 - Browser-local drafts do not synchronize between devices or browser profiles. Sent batches reconstruct from the Session log on any client.
 - The machine acknowledgement is cooperative. If the model omits or corrupts it, comments remain `sent` rather than being guessed as processed.
 - Archived tasks have no active composer and cannot arm comments. Create comments in an editable task.
-- DSH command claims do not carry composer image ids, so images and inline comments cannot share one submission yet.
+- DSH rc.8 command claims can opt into serialized images, but this plugin deliberately omits `CommandClaim.images`, so images and inline comments cannot share one submission yet.
 - CSS Custom Highlights are browser-dependent. Numbered markers and timeline navigation remain available without them.
 - A selection must stay within one assistant reply. Cross-message selections are rejected.
 - DSH has no private command-registration flag, so the validated internal transport command may appear in slash-command discovery.
