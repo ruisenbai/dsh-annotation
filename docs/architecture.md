@@ -4,7 +4,7 @@
 
 `dsh-inline-comments` is one installable Cordis row with two runtime halves:
 
-- the **Host half** registers the internal `inline_comments_submit` command, validates a base64url JSON payload, creates one standard user message, deduplicates retries, and calls `Agent.followup()`;
+- the **Host half** registers the `inline-comments` settings namespace and internal `inline_comments_submit` command, validates a base64url JSON payload, creates one standard user message, deduplicates retries, and calls `Agent.followup()`;
 - the **Web Client half** owns selection capture, the selection action bar, draft persistence, the official-composer attachment claim, status reconstruction, rendering, queue withdrawal, and source navigation.
 
 The package does not add a custom durable Session event. Every model-visible batch is represented by the existing `user/message` event and therefore survives replay and persistence without extending DSH's closed reload vocabulary.
@@ -41,7 +41,7 @@ sequenceDiagram
 
 The header paperclip arms the current Session's official composer through the scoped `slash/input-begin-command` event with a zero-width, non-whitespace claim token. The token keeps the official Send action eligible while the visible composer text is empty, so annotation-only submission needs no second send surface. The official Enter key and Send button submit through the claim; Shift+Enter and the composer's remaining keyboard behavior are unchanged.
 
-DSH rc.8 can pass serialized composer images to claims that opt in. This claim deliberately omits `CommandClaim.images`, so DSH rejects mixed image and annotation drafts before invoking its submit callback and retains both drafts. Detaching removes the token through the scoped `slash/input-consume-token` event or a plain draft write without touching the remaining text. The header button suppresses its pointerdown default so composer focus and caret survive the toggle.
+DSH can pass serialized composer images to claims that opt in. This claim deliberately omits `CommandClaim.images`, so DSH rejects mixed image and annotation drafts before invoking its submit callback and retains both drafts. Detaching removes the token through the scoped `slash/input-consume-token` event or a plain draft write without touching the remaining text. The header button suppresses its pointerdown default so composer focus and caret survive the toggle.
 
 ## Durable representation
 
@@ -101,7 +101,7 @@ Each numbered button anchors after the complete selectable-text line containing 
 
 ## Feature setting lifecycle
 
-The browser-wide enabled preference is an identity-stable `SnapshotStore<boolean>` persisted under `dsh.inline-comments.enabled`. The `settings.general.item` row and per-Session controllers remain mounted for the plugin fiber, while conversation-facing Slot registrations form one dynamic disposer group.
+The Host registers an `inline-comments` settings namespace whose `enabled` field defaults to `true`. The Client binds that namespace through `ctx.settingsScope` and registers an expandable card in the keyed `settings.plugin.item:inline-comments` Slot. Card edits are staged until Save writes the Host settings provider; Reset removes the user-layer field so the schema default applies again. An identity-stable `SnapshotStore<boolean>` projects Host-accepted values into the feature lifecycle; during the one-time pre-0.1.3 migration, it preserves a valid browser preference until the Host accepts it. The card and per-Session controllers remain mounted for the plugin fiber, while conversation-facing Slot registrations form one dynamic disposer group.
 
 Disabling the feature removes any armed zero-width composer claim while retaining visible draft text, disposes every conversation renderer, dock, action, and command-view registration, and clears CSS Custom Highlights. Controllers, local drafts, editor recovery state, outbox entries, and durable-history reconstruction stay alive. Enabling the feature installs the same contribution group again and reuses the existing controllers. When disable lands while the official composer is submitting, the claim cannot be consumed yet; the Client subscribes to that input and releases the claim as soon as the phase leaves `submitting`, cancelling the subscription if the feature is re-enabled first.
 
@@ -120,7 +120,7 @@ Lower priority wins in DSH keyed slots. The replacements use public `MarkdownTex
 - `conversation.input.dock` for the grouped task-style comment list, the header attachment toggle, local-data controls, and the compact selection-positioned editor;
 - `conversation.chat.assistant-actions` for a keyboard-accessible whole-reply comment action;
 - `conversation.chat.commandview:<commandName>` to suppress the transport command's redundant timeline card. A second registration under the pre-rename `inline_annotations_submit` name keeps durable rows recorded by earlier versions out of the visible timeline;
-- `settings.general.item` for the always-available enabled preference.
+- `settings.plugin.item:inline-comments` for the Host-backed enabled preference under the Plugins settings section.
 
 Conversation registrations also dispose when the enabled preference is off. Every registration, locale dictionary, style element, controller, subscription, and highlight is disposed with the Cordis fiber.
 

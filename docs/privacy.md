@@ -2,7 +2,7 @@
 
 ## Data retained before submission
 
-For each DSH Session, the browser stores selected reply text, comments, selectors, source ids, unfinished editor text, drafts, and immutable retry records under `dsh-inline-comments:v1:<session-id>` in the origin's `localStorage`. If that key is absent, valid data under `dsh-inline-annotations:v1:<session-id>` is copied to the current key and the legacy key is removed. The browser-wide enabled preference uses `dsh.inline-comments.enabled`. Editor input is written after 400 ms of inactivity; Cancel removes the unfinished editor record.
+For each DSH Session, the browser stores selected reply text, comments, selectors, source ids, unfinished editor text, drafts, and immutable retry records under `dsh-inline-comments:v1:<session-id>` in the origin's `localStorage`. If that key is absent, valid data under `dsh-inline-annotations:v1:<session-id>` is copied to the current key and the legacy key is removed. The Host settings provider stores the enabled preference under the `inline-comments` namespace; that preference contains no comment content. When the Host has no user-layer value, version 0.1.3 reads a valid pre-0.1.3 `dsh.inline-comments.enabled` value and removes that browser key only after the Host accepts it. Editor input is written after 400 ms of inactivity; Cancel removes the unfinished editor record.
 
 Before explicit submission, the plugin does not send this data to the DSH Host, the model provider, analytics, or another network service. Anyone with access to the browser profile or origin storage may be able to read it.
 

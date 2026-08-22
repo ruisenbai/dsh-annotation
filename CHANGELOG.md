@@ -4,6 +4,15 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-08-22
+
+### Changed
+
+- Raised the supported and development baseline to DeepSeek Harness `0.1.1-rc.2` and added the complete matching DSH development environment so peer validation covers the assembled release.
+- Moved the enabled switch from General Settings to **Settings → Plugins → Plugin configuration** through the official Host `inline-comments` settings namespace and keyed plugin-card Slot.
+- Staged enabled-setting edits until Save, added Discard and Reset-to-default behavior, and applied conversation changes only after the Host settings provider accepts the value.
+- Moved enabled-preference persistence to the active DSH settings provider while keeping per-Session comment drafts in browser storage; a valid pre-0.1.3 browser preference migrates once and is removed only after the Host accepts it.
+
 ## [0.1.2] - 2026-08-20
 
 ### Changed
@@ -56,7 +65,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-inline-comments/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-inline-comments/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/ruisenbai/dsh-inline-comments/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/ruisenbai/dsh-inline-comments/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/ruisenbai/dsh-inline-comments/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ruisenbai/dsh-inline-comments/releases/tag/v0.1.0

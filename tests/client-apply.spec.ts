@@ -35,6 +35,7 @@ import type { CommandClaim, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-inp
 import { apply } from '../src/client/index.tsx'
 import { COMPOSER_ATTACHMENT_TOKEN } from '../src/client/composer-attachment.ts'
 import type { AnnotationInjected } from '../src/client/contract.ts'
+import { LEGACY_INLINE_COMMENTS_ENABLED_STORAGE_KEY } from '../src/shared/settings.ts'
 import type { MessageIdentity } from '../src/shared/types.ts'
 
 function emptySnapshot(): ConversationSnapshot {
@@ -45,14 +46,45 @@ function emptySnapshot(): ConversationSnapshot {
   } as unknown as ConversationSnapshot
 }
 
-function fixtureContext(command: ReturnType<typeof vi.fn>) {
+function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true) {
   const registrations: { options: Record<string, unknown> }[] = []
-  const disposers: (() => void)[] = []
+  const disposers: (() => void | Promise<void>)[] = []
   const listListeners = new Set<() => void>()
   const unsubscribeSession = vi.fn()
   const sessionListeners = new Set<() => void>()
   const inputListeners = new Set<() => void>()
   const inputNotice = vi.fn()
+  const settingsListeners = new Set<() => void>()
+  let settingsUser: { enabled?: boolean } = initialEnabled ? {} : { enabled: false }
+  let settingsRevision = 0
+  const settingsSnapshot = () => ({
+    status: 'ready' as const,
+    value: { enabled: settingsUser.enabled ?? true },
+    base: undefined,
+    user: settingsUser,
+    revision: settingsRevision,
+    writable: true,
+    mode: 'host' as const,
+  })
+  const publishSettings = () => {
+    settingsRevision += 1
+    for (const listener of settingsListeners) listener()
+  }
+  const settingsScope = {
+    getSnapshot: settingsSnapshot,
+    subscribe(listener: () => void) {
+      settingsListeners.add(listener)
+      return () => settingsListeners.delete(listener)
+    },
+    async set(field: string, value: unknown) {
+      if (field === 'enabled' && typeof value === 'boolean') settingsUser = { enabled: value }
+      publishSettings()
+    },
+    async unset(field: string) {
+      if (field === 'enabled') settingsUser = {}
+      publishSettings()
+    },
+  }
   let sessionSnapshot = emptySnapshot()
   let listed = true
   let claim: CommandClaim | null = null
@@ -168,6 +200,9 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
         serializeReference: async (_source: string, ref: string) => `<reference>${ref}</reference>`,
       }),
     },
+    settingsScope: {
+      bind: () => settingsScope,
+    },
     slots: {
       register(options: Record<string, unknown>) {
         const registration = { options }
@@ -185,7 +220,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
         }
       },
     },
-    effect(install: () => void | (() => void)) {
+    effect(install: () => void | (() => void | Promise<void>)) {
       const dispose = install()
       if (typeof dispose === 'function') disposers.push(dispose)
     },
@@ -198,13 +233,20 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
         throw new Error('dock was not registered')
       return dock.options.inject('session-test' as SessionId) as AnnotationInjected
     },
-    setPluginEnabled(enabled: boolean) {
-      const setting = registrations.find((entry) => entry.options.name === 'settings.general.item')
+    async setPluginEnabled(enabled: boolean) {
+      const setting = registrations.find((entry) => entry.options.name === 'settings.plugin.item')
       if (setting === undefined || typeof setting.options.inject !== 'function')
-        throw new Error('settings row was not registered')
-      const face = setting.options.inject() as { setEnabled: (value: boolean) => void }
+        throw new Error('plugin settings card was not registered')
+      const face = setting.options.inject() as {
+        setEnabled: (value: boolean) => void
+        save: () => void
+      }
       face.setEnabled(enabled)
+      face.save()
+      await Promise.resolve()
+      await Promise.resolve()
     },
+    settingsUser: () => settingsUser,
     hasRegistration(name: string) {
       return registrations.some((entry) => entry.options.name === name)
     },
@@ -268,8 +310,8 @@ function fixtureContext(command: ReturnType<typeof vi.fn>) {
       for (const listener of listListeners) listener()
     },
     unsubscribeSession,
-    dispose() {
-      for (const dispose of disposers.reverse()) dispose()
+    async dispose() {
+      for (const dispose of disposers.reverse()) await dispose()
     },
   }
 }
@@ -294,7 +336,7 @@ function saveAnnotation(face: AnnotationInjected, start = 0, exact = 'first', co
 beforeEach(() => localStorage.clear())
 
 describe('Client plugin composer attachment lifecycle', () => {
-  it('disables conversation integrations without discarding drafts and restores them when enabled', () => {
+  it('disables conversation integrations without discarding drafts and restores them when enabled', async () => {
     const fixture = fixtureContext(vi.fn())
     apply(fixture.ctx)
     const face = fixture.face()
@@ -302,21 +344,21 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(face.toggleComposerAttachment('remove images')).toBe(true)
     fixture.setComposerText('Keep this visible draft.')
 
-    fixture.setPluginEnabled(false)
+    await fixture.setPluginEnabled(false)
 
-    expect(fixture.hasRegistration('settings.general.item')).toBe(true)
+    expect(fixture.hasRegistration('settings.plugin.item')).toBe(true)
     expect(fixture.hasRegistration('conversation.chat.node')).toBe(false)
     expect(fixture.hasRegistration('conversation.input.dock')).toBe(false)
     expect(fixture.hasRegistration('conversation.chat.assistant-actions')).toBe(false)
     expect(fixture.inputSnapshot()).toMatchObject({ draft: 'Keep this visible draft.', phase: 'plain' })
     expect(face.hooks.annotations.getSnapshot().annotations).toHaveLength(1)
-    expect(localStorage.getItem('dsh.inline-comments.enabled')).toBe('false')
+    expect(fixture.settingsUser()).toEqual({ enabled: false })
 
-    fixture.setPluginEnabled(true)
+    await fixture.setPluginEnabled(true)
 
     expect(fixture.hasRegistration('conversation.chat.node')).toBe(true)
     expect(fixture.face().hooks.annotations.getSnapshot().annotations).toHaveLength(1)
-    fixture.dispose()
+    await fixture.dispose()
   })
 
   it('releases a submitting attachment when the feature is disabled mid-send', async () => {
@@ -335,7 +377,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(command).toHaveBeenCalledOnce()
-    fixture.setPluginEnabled(false)
+    await fixture.setPluginEnabled(false)
 
     expect(fixture.hasRegistration('conversation.input.dock')).toBe(false)
     expect(fixture.inputSnapshot().draft.startsWith(COMPOSER_ATTACHMENT_TOKEN)).toBe(true)
@@ -351,21 +393,34 @@ describe('Client plugin composer attachment lifecycle', () => {
     })
     expect(fixture.hasRegistration('conversation.input.dock')).toBe(false)
     expect(face.hooks.annotations.getSnapshot().outbox[0]).toMatchObject({ status: 'failed' })
-    fixture.dispose()
+    await fixture.dispose()
   })
 
-  it('rehydrates the disabled preference while leaving its Settings row available', () => {
-    localStorage.setItem('dsh.inline-comments.enabled', 'false')
-    const fixture = fixtureContext(vi.fn())
+  it('reads a disabled Host setting while leaving its plugin card available', async () => {
+    const fixture = fixtureContext(vi.fn(), false)
     apply(fixture.ctx)
 
-    expect(fixture.hasRegistration('settings.general.item')).toBe(true)
+    expect(fixture.hasRegistration('settings.plugin.item')).toBe(true)
     expect(fixture.hasRegistration('conversation.input.dock')).toBe(false)
     expect(() => fixture.face()).toThrow('dock was not registered')
 
-    fixture.setPluginEnabled(true)
+    await fixture.setPluginEnabled(true)
     expect(fixture.hasRegistration('conversation.input.dock')).toBe(true)
-    fixture.dispose()
+    await fixture.dispose()
+  })
+
+  it('migrates the legacy disabled preference before mounting conversation integrations', async () => {
+    localStorage.setItem(LEGACY_INLINE_COMMENTS_ENABLED_STORAGE_KEY, 'false')
+    const fixture = fixtureContext(vi.fn())
+    apply(fixture.ctx)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(fixture.hasRegistration('settings.plugin.item')).toBe(true)
+    expect(fixture.hasRegistration('conversation.input.dock')).toBe(false)
+    expect(fixture.settingsUser()).toEqual({ enabled: false })
+    expect(localStorage.getItem(LEGACY_INLINE_COMMENTS_ENABLED_STORAGE_KEY)).toBeNull()
+    await fixture.dispose()
   })
 
   it('submits official composer text and retries the same immutable batch after transport failure', async () => {
@@ -392,10 +447,10 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(retried).toMatchObject({ status: 'accepted', attempts: 2 })
     expect(command.mock.calls[1]?.[0]).toBe(command.mock.calls[0]?.[0])
     expect(fixture.inputSnapshot()).toMatchObject({ draft: '', phase: 'plain' })
-    fixture.dispose()
+    await fixture.dispose()
   })
 
-  it('serializes rc.8 reference display ranges without leaking their labels', async () => {
+  it('serializes complete reference display ranges without leaking their labels', async () => {
     const command = vi.fn().mockResolvedValue({ ok: true, value: { matched: true } })
     const fixture = fixtureContext(command)
     apply(fixture.ctx)
@@ -412,7 +467,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(face.hooks.annotations.getSnapshot().outbox[0]?.payload.overallRequirement).toBe(
       'Compare <reference>session-current</reference> with <reference>file-guide</reference>.',
     )
-    fixture.dispose()
+    await fixture.dispose()
   })
 
   it('allows an attachment-only official composer submission', async () => {
@@ -427,7 +482,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
     expect(face.hooks.annotations.getSnapshot().outbox[0]?.payload.overallRequirement).toBeUndefined()
     expect(command).toHaveBeenCalledOnce()
-    fixture.dispose()
+    await fixture.dispose()
   })
 
   it('freezes the live draft set only when the official composer submits', async () => {
@@ -444,7 +499,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(
       face.hooks.annotations.getSnapshot().outbox[0]?.payload.annotations.map((item) => item.comment),
     ).toEqual(['First note.', 'Second note.'])
-    fixture.dispose()
+    await fixture.dispose()
   })
 
   it('moves a legacy overall request into the official composer on first attachment', async () => {
@@ -487,10 +542,10 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(face.hooks.annotations.getSnapshot().outbox[0]?.payload.overallRequirement).toBe(
       'Rewrite the introduction.\n\nKeep the original structure.',
     )
-    fixture.dispose()
+    await fixture.dispose()
   })
 
-  it('leaves rc.8 image capability disabled and defensively refuses a mixed submit', async () => {
+  it('leaves image capability disabled and defensively refuses a mixed submit', async () => {
     const command = vi.fn()
     const fixture = fixtureContext(command)
     apply(fixture.ctx)
@@ -504,7 +559,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(command).not.toHaveBeenCalled()
     expect(fixture.inputSnapshot()).toMatchObject({ phase: 'claimed', imageIds: ['image-1'] })
     expect(face.hooks.annotations.getSnapshot().outbox).toHaveLength(0)
-    fixture.dispose()
+    await fixture.dispose()
   })
 
   it('converges a stale withdrawal to durable sent history without removing provenance', async () => {
@@ -550,16 +605,16 @@ describe('Client plugin composer attachment lifecycle', () => {
       outbox: [{ status: 'sent' }],
       annotations: [{ status: 'sent', submissionId: accepted.payload.submissionId }],
     })
-    fixture.dispose()
+    await fixture.dispose()
   })
 
-  it('disposes a Session controller when the authoritative list removes that Session', () => {
+  it('disposes a Session controller when the authoritative list removes that Session', async () => {
     const fixture = fixtureContext(vi.fn())
     apply(fixture.ctx)
     fixture.face()
     fixture.removeSession()
     expect(fixture.unsubscribeSession).toHaveBeenCalledOnce()
-    fixture.dispose()
+    await fixture.dispose()
   })
 
   it('rejects an oversized item count from the official composer before transport', async () => {
@@ -582,6 +637,6 @@ describe('Client plugin composer attachment lifecycle', () => {
       'draft',
       'draft',
     ])
-    fixture.dispose()
+    await fixture.dispose()
   })
 })

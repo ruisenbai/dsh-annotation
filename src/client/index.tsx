@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { resolveConfig, LEGACY_COMMAND_NAME } from '../shared/config.ts'
 import { encodeSubmissionCommand } from '../shared/codec.ts'
+import { INLINE_COMMENTS_SETTINGS_NAMESPACE, type InlineCommentsSettings } from '../shared/settings.ts'
 import type { AnnotationConfig, MessageIdentity, SessionIdentity, SubmissionId } from '../shared/types.ts'
 import {
   attachComposer,
@@ -24,7 +25,7 @@ import {
 } from './composer-attachment.ts'
 import { AnnotationController } from './controller.ts'
 import type { AnnotationInjected, UserAnnotationProps } from './contract.ts'
-import { createInlineCommentsFeatureToggle } from './feature-toggle.ts'
+import { InlineCommentsSettingsController } from './feature-toggle.ts'
 import { HighlightManager } from './highlight.ts'
 import { AnnotationStorage } from './storage.ts'
 import type { StorageLike } from './storage.ts'
@@ -35,13 +36,10 @@ import { AnnotatedUserNode } from './components/AnnotatedUserNode.tsx'
 import { AnnotationDock } from './components/AnnotationDock.tsx'
 import { AssistantAnnotationAction } from './components/AssistantAnnotationAction.tsx'
 import { HiddenCommandRow } from './components/HiddenCommandRow.tsx'
-import {
-  InlineCommentsSettingRow,
-  type InlineCommentsSettingInjected,
-} from './components/InlineCommentsSettingRow.tsx'
+import { InlineCommentsPluginCard } from './components/InlineCommentsPluginCard.tsx'
 
 const NS = 'inlineComments'
-export const inject = ['slots', 'sessions', 'locale', 'conversation', 'inputTriggers']
+export const inject = ['slots', 'sessions', 'locale', 'conversation', 'inputTriggers', 'settingsScope']
 
 function UserNode(props: UserAnnotationProps<'user'>) {
   return <AnnotatedUserNode {...props} />
@@ -78,7 +76,30 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   const sessions = ctx.sessions as unknown as ISessions
   const conversation = ctx.conversation as unknown as IConversation
   const inputTriggers = ctx.inputTriggers as unknown as InputTriggerServiceContract
-  const featureEnabled = createInlineCommentsFeatureToggle()
+  const unavailableStorage: StorageLike = {
+    getItem(): never {
+      throw new Error('localStorage is unavailable')
+    },
+    setItem(): never {
+      throw new Error('localStorage is unavailable')
+    },
+    removeItem(): never {
+      throw new Error('localStorage is unavailable')
+    },
+  }
+  let browserStorage: StorageLike
+  try {
+    browserStorage = globalThis.localStorage
+  } catch {
+    // Browser privacy modes can deny the localStorage getter itself.
+    browserStorage = unavailableStorage
+  }
+  const settingsController = new InlineCommentsSettingsController(
+    ctx.settingsScope.bind<InlineCommentsSettings>({ namespace: INLINE_COMMENTS_SETTINGS_NAMESPACE }),
+    browserStorage,
+  )
+  const featureEnabled = settingsController.feature()
+  ctx.effect(() => () => settingsController.dispose(), 'dsh-inline-comments: settings controller')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-inline-comments: dictionaries')
   ctx.effect(() => {
     const style = document.createElement('style')
@@ -144,25 +165,6 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       }
     }
   }
-  const unavailableStorage: StorageLike = {
-    getItem(): never {
-      throw new Error('localStorage is unavailable')
-    },
-    setItem(): never {
-      throw new Error('localStorage is unavailable')
-    },
-    removeItem(): never {
-      throw new Error('localStorage is unavailable')
-    },
-  }
-  let browserStorage: StorageLike
-  try {
-    browserStorage = globalThis.localStorage
-  } catch {
-    // Browser privacy modes can deny the localStorage getter itself.
-    browserStorage = unavailableStorage
-  }
-
   ctx.effect(() => {
     const prune = () => {
       const list = sessions.list.getSnapshot()
@@ -392,21 +394,15 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     }
   }
 
-  ctx.slots.inject('settings.general.item', () =>
+  ctx.slots.inject('settings.plugin.item', () =>
     ctx.slots.register(
       {
-        name: 'settings.general.item',
-        id: 'inline-comments-enabled',
-        order: 30,
+        name: 'settings.plugin.item',
+        key: INLINE_COMMENTS_SETTINGS_NAMESPACE,
         locale: NS,
-        inject: (): InlineCommentsSettingInjected => ({
-          hooks: { enabled: featureEnabled },
-          setEnabled: (enabled) => {
-            featureEnabled.set(enabled)
-          },
-        }),
+        inject: () => settingsController.inject(),
       },
-      InlineCommentsSettingRow,
+      InlineCommentsPluginCard,
     ),
   )
 

@@ -13,7 +13,7 @@
 
 > **交互来源说明：**本插件独立、非官方地复刻了 ChatGPT 的正文注释功能，并将这套体验带到 DeepSeek Harness。复制的是使用流程，不是 OpenAI 的源码、素材、API 或品牌；本项目与 OpenAI 无隶属或官方合作关系。
 
-> **兼容性提示：**项目要求 DeepSeek Harness `0.1.0-rc.8` 或更高的 `0.1.x` 预发布版本。DSH 仍处于预发布阶段。由于当前没有助手正文内部 Slot，本插件必须覆盖三个内置会话渲染器。升级 DSH 前请阅读[兼容性说明](docs/compatibility.md)。
+> **兼容性提示：**项目要求 DeepSeek Harness `0.1.1-rc.2` 或更高的 `0.1.x` 预发布版本。DSH 仍处于预发布阶段。由于当前没有助手正文内部 Slot，本插件必须覆盖三个内置会话渲染器。升级 DSH 前请阅读[兼容性说明](docs/compatibility.md)。
 
 ## 界面预览
 
@@ -33,9 +33,9 @@
 
 ![带原文引用的正文注释草稿列表](docs/assets/inline-comments-drafts.png)
 
-暂时不想使用注释时，可在通用设置中关闭功能，已有草稿不会丢失。
+暂时不想使用注释时，可在 **设置 → 插件 → 插件配置** 中关闭功能，已有草稿不会丢失。
 
-![已启用的 DSH Inline Comments 设置项](docs/assets/inline-comments-settings.png)
+![DSH 插件配置中的正文注释开关](docs/assets/inline-comments-settings.png)
 
 ## 功能
 
@@ -86,21 +86,21 @@ dsh web --profile web
 每个 `v*.*.*` 标签都会构建可安装 Tarball 并附加到 GitHub Release。下载后可以直接安装预构建包，无需执行仓库构建脚本：
 
 ```bash
-gh release download v0.1.2 --repo ruisenbai/dsh-inline-comments --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-inline-comments-0.1.2.tgz
+gh release download v0.1.3 --repo ruisenbai/dsh-inline-comments --pattern '*.tgz'
+dsh plugin --profile web add ./dsh-inline-comments-0.1.3.tgz
 ```
 
 如果 Profile 明确允许这个可信包执行 `prepare` 构建，也可以安装固定标签的 Git 依赖：
 
 ```bash
-dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comments.git#v0.1.2
+dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comments.git#v0.1.3
 ```
 
 ## 设置
 
-通用设置中提供 **DSH Inline Comments** 开关。开关默认开启，并对当前浏览器 Profile 中的所有 Session 生效。关闭后恢复官方助手与用户消息渲染器，移除选区操作条、数字标记、注释列表、注释操作、隐藏传输视图和输入框附加状态，同时保留输入框中的可见文本。草稿、编辑中内容、Outbox 状态和已提交历史都不会删除；重新开启后会恢复。
+**设置 → 插件 → 插件配置** 中提供可展开的 **DSH Inline Comments** 卡片。开关默认开启；修改会先在卡片中暂存，点击“保存”后写入 Host 的 `inline-comments` 设置 namespace，并对这个 Host 提供的所有 Session 生效。关闭后恢复官方助手与用户消息渲染器，移除选区操作条、数字标记、注释列表、注释操作、隐藏传输视图和输入框附加状态，同时保留输入框中的可见文本。草稿、编辑中内容、Outbox 状态和已提交历史都不会删除；重新开启后会恢复。
 
-开关值保存在当前 Origin 的 `localStorage` 键 `dsh.inline-comments.enabled` 中。
+“恢复默认”会清除用户层覆盖并重新采用默认开启值。设置由 DSH 的 settings provider 持久化；0.1.3 首次启动时会保留并迁移有效的旧版浏览器开关，Host 接受后才删除旧 key。每个 Session 的注释草稿仍按[隐私与持久化](#隐私与持久化)所述保存在浏览器中。
 
 ## 任务状态与发送方式
 
@@ -110,7 +110,7 @@ dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comment
 
 移除的插件内“整体要求”已有内容，会在第一次成功附加时一次性迁移进官方输入框；只有官方输入框接受附加后，插件存储中的旧值才会被清除。
 
-DSH rc.8 的命令声明可选择接收序列化图片。本插件有意不启用该能力，因此输入框存在图片时无法附加注释；附加后再添加图片时，DSH 会拒绝混合提交，且不会丢弃图片或注释草稿。
+DSH 的命令声明可选择接收序列化图片。本插件有意不启用该能力，因此输入框存在图片时无法附加注释；附加后再添加图片时，DSH 会拒绝混合提交，且不会丢弃图片或注释草稿。
 
 ## 状态定义
 
@@ -170,7 +170,7 @@ CI 会在 Node 22.19 与 24 上执行类型检查、Lint、单元测试、生产
 - 未发送草稿只存在当前浏览器，不会跨设备同步；已发送批次可从 Session 日志恢复。
 - 模型确认属于协作协议。模型遗漏或破坏标记时，状态保持“已发送”，不会猜测为“已处理”。
 - 归档任务没有活跃输入框，无法附加注释；请在可编辑任务中创建注释。
-- DSH rc.8 的命令 Claim 可选择接收序列化图片，但本插件有意不声明 `CommandClaim.images`，因此图片与正文注释暂不能合并在一次提交中。
+- DSH 命令 Claim 可选择接收序列化图片，但本插件有意不声明 `CommandClaim.images`，因此图片与正文注释暂不能合并在一次提交中。
 - CSS Custom Highlight 取决于浏览器支持；不支持时仍可使用编号标记和时间线定位。
 - 一次选区必须位于同一条助手回复内，跨消息选区会被拒绝。
 - DSH 暂无私有命令注册标记，因此经过严格校验的内部传输命令可能出现在斜杠命令目录中。

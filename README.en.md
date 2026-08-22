@@ -13,7 +13,7 @@ Long AI replies are much easier to review when each note can sit beside the exac
 
 > **Interaction origin:** this plugin is an independent, unofficial recreation of ChatGPT's inline commenting feature for DeepSeek Harness. It copies the workflow, not OpenAI source code, assets, APIs, or branding, and it is not affiliated with or endorsed by OpenAI.
 
-> **Compatibility:** this project requires DeepSeek Harness `0.1.0-rc.8` or a later `0.1.x` prerelease. DSH is pre-release software. The plugin must shadow three shipped conversation renderers because DSH does not yet expose an inline assistant-body slot. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
+> **Compatibility:** this project requires DeepSeek Harness `0.1.1-rc.2` or a later `0.1.x` prerelease. DSH is pre-release software. The plugin must shadow three shipped conversation renderers because DSH does not yet expose an inline assistant-body slot. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
 
 ## Preview
 
@@ -33,9 +33,9 @@ Review and adjust all local drafts before attaching them to the official compose
 
 ![Inline comment draft list with quoted source text](docs/assets/inline-comments-drafts.png)
 
-Need a break from comments? Turn the feature off from General Settings without deleting your drafts.
+Need a break from comments? Turn the feature off under **Settings → Plugins → Plugin configuration** without deleting your drafts.
 
-![DSH Inline Comments setting enabled](docs/assets/inline-comments-settings.png)
+![Inline Comments switch under DSH Plugin configuration](docs/assets/inline-comments-settings.png)
 
 ## Features
 
@@ -87,21 +87,21 @@ Open the DSH Web URL and select text in a finalized assistant reply. A small act
 Each `v*.*.*` tag builds an installable tarball and attaches it to GitHub Releases. Download it and install the prebuilt package without running repository build scripts:
 
 ```bash
-gh release download v0.1.2 --repo ruisenbai/dsh-inline-comments --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-inline-comments-0.1.2.tgz
+gh release download v0.1.3 --repo ruisenbai/dsh-inline-comments --pattern '*.tgz'
+dsh plugin --profile web add ./dsh-inline-comments-0.1.3.tgz
 ```
 
 A pinned Git dependency also works when the profile explicitly allows this trusted package to run its `prepare` build:
 
 ```bash
-dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comments.git#v0.1.2
+dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comments.git#v0.1.3
 ```
 
 ## Settings
 
-General Settings contains a **DSH Inline Comments** switch. It is enabled by default and applies to every Session in the current browser profile. Disabling it restores the official assistant and user renderers, removes the selection action bar, markers, comment list, comment action, hidden transport view, and composer attachment, and preserves visible composer text. Drafts, unfinished editor text, outbox state, and submitted history remain stored and return when the switch is enabled again.
+**Settings → Plugins → Plugin configuration** contains an expandable **DSH Inline Comments** card. The switch is enabled by default; edits remain staged until **Save** writes the Host's `inline-comments` settings namespace, then apply to every Session served by that Host. Disabling it restores the official assistant and user renderers, removes the selection action bar, markers, comment list, comment action, hidden transport view, and composer attachment, and preserves visible composer text. Drafts, unfinished editor text, outbox state, and submitted history remain stored and return when the switch is enabled again.
 
-The preference is stored under `dsh.inline-comments.enabled` in the origin's `localStorage`.
+**Reset to default** clears the user-layer override and restores the enabled default. The DSH settings provider persists this setting. On the first 0.1.3 load, a valid legacy browser switch remains effective until the Host accepts it, then its old key is removed. Per-Session comment drafts remain browser-local as described under [Privacy and persistence](#privacy-and-persistence).
 
 ## Delivery behavior
 
@@ -111,7 +111,7 @@ Transport acceptance is not presented as queue admission. The queued Toast appea
 
 Existing values written into the removed plugin-owned overall-request field migrate into the official composer on the first successful attachment. The value is cleared from plugin storage only after the composer accepts the claim.
 
-DSH rc.8 command claims can opt into serialized composer images. This plugin deliberately leaves that capability disabled, so comments cannot be attached while images are present and DSH refuses a mixed submission if images are added after arming. It does not discard either image or comment drafts.
+DSH command claims can opt into serialized composer images. This plugin deliberately leaves that capability disabled, so comments cannot be attached while images are present and DSH refuses a mixed submission if images are added after arming. It does not discard either image or comment drafts.
 
 ## States
 
@@ -171,7 +171,7 @@ The CI workflow runs type checking, linting, unit tests, a production bundle, ar
 - Browser-local drafts do not synchronize between devices or browser profiles. Sent batches reconstruct from the Session log on any client.
 - The machine acknowledgement is cooperative. If the model omits or corrupts it, comments remain `sent` rather than being guessed as processed.
 - Archived tasks have no active composer and cannot arm comments. Create comments in an editable task.
-- DSH rc.8 command claims can opt into serialized images, but this plugin deliberately omits `CommandClaim.images`, so images and inline comments cannot share one submission yet.
+- DSH command claims can opt into serialized images, but this plugin deliberately omits `CommandClaim.images`, so images and inline comments cannot share one submission yet.
 - CSS Custom Highlights are browser-dependent. Numbered markers and timeline navigation remain available without them.
 - A selection must stay within one assistant reply. Cross-message selections are rejected.
 - DSH has no private command-registration flag, so the validated internal transport command may appear in slash-command discovery.

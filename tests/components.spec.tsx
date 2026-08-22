@@ -6,9 +6,9 @@ import { AnnotatedAssistantNode } from '../src/client/components/AnnotatedAssist
 import { AnnotatedUserNode } from '../src/client/components/AnnotatedUserNode.tsx'
 import { AnnotationDock } from '../src/client/components/AnnotationDock.tsx'
 import {
-  InlineCommentsSettingRow,
-  type InlineCommentsSettingRowProps,
-} from '../src/client/components/InlineCommentsSettingRow.tsx'
+  InlineCommentsPluginCard,
+  type InlineCommentsPluginCardProps,
+} from '../src/client/components/InlineCommentsPluginCard.tsx'
 import { COMPOSER_ATTACHMENT_TOKEN } from '../src/client/composer-attachment.ts'
 import type { AnnotationView } from '../src/client/controller.ts'
 import type {
@@ -30,9 +30,20 @@ const t = (key: InlineCommentLocaleKey, params?: Record<string, unknown>) => {
   const values: Partial<Record<InlineCommentLocaleKey, string>> = {
     'settings.title': 'DSH Inline Comments',
     'settings.description': 'Show inline comment features.',
+    'settings.cardDescription': 'Selection comments and composer attachments.',
     'settings.toggle': 'Enable DSH Inline Comments',
     'settings.on': 'On',
     'settings.off': 'Off',
+    'settings.expand': 'Show settings',
+    'settings.collapse': 'Hide settings',
+    'settings.overridden': 'Overridden',
+    'settings.reset': 'Reset to default',
+    'settings.readOnly': 'This deployment stores settings read-only.',
+    'settings.save': 'Save',
+    'settings.saving': 'Saving…',
+    'settings.discard': 'Discard',
+    'settings.unsaved': 'Unsaved',
+    'settings.saveFailed': 'The deployment did not accept this value.',
     'timeline.summary': `Added ${String(params?.count)} inline comments`,
     'list.locate': 'Locate source',
     'status.draft': 'Ready to send',
@@ -133,23 +144,54 @@ function TestAnnotationDock({
   )
 }
 
-describe('settings preference', () => {
-  it('renders the current state and requests the opposite value', () => {
-    const setEnabled = vi.fn()
-    const props = (enabled: boolean) =>
-      ({
-        useEnabled: <S,>(selector: (value: boolean) => S) => selector(enabled),
-        setEnabled,
-        t,
-      }) as unknown as InlineCommentsSettingRowProps
-    const { rerender } = render(<InlineCommentsSettingRow {...props(true)} />)
+describe('plugin settings card', () => {
+  const state = {
+    available: true,
+    writable: true,
+    enabled: true,
+    overridden: false,
+    dirty: false,
+    saving: false,
+    failed: false,
+  }
 
+  function cardProps(overrides: Partial<typeof state> = {}) {
+    const snapshot = { ...state, ...overrides }
+    return {
+      useSettingsCard: <S,>(selector: (value: typeof snapshot) => S) => selector(snapshot),
+      setEnabled: vi.fn(),
+      resetEnabled: vi.fn(),
+      save: vi.fn(),
+      discard: vi.fn(),
+      t,
+    } as unknown as InlineCommentsPluginCardProps
+  }
+
+  it('stages the switch and writes only from the card footer', () => {
+    const props = cardProps({ dirty: true })
+    render(<InlineCommentsPluginCard {...props} />)
+
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('DSH Inline Comments'))
     fireEvent.click(screen.getByRole('switch', { name: 'Enable DSH Inline Comments' }))
-    expect(setEnabled).toHaveBeenCalledWith(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
 
-    rerender(<InlineCommentsSettingRow {...props(false)} />)
-    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
-    expect(screen.getByText('Off')).toBeInTheDocument()
+    expect(props.setEnabled).toHaveBeenCalledWith(false)
+    expect(props.save).toHaveBeenCalledOnce()
+    expect(props.discard).toHaveBeenCalledOnce()
+    expect(screen.getByText('Unsaved')).toBeInTheDocument()
+  })
+
+  it('offers override reset and reports read-only save failures', () => {
+    const props = cardProps({ writable: false, overridden: true, dirty: true, failed: true })
+    render(<InlineCommentsPluginCard {...props} />)
+    fireEvent.click(screen.getByText('DSH Inline Comments'))
+
+    expect(screen.getByText('This deployment stores settings read-only.')).toHaveAttribute('role', 'status')
+    expect(screen.getByRole('switch')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Reset to default' })).toBeDisabled()
+    expect(screen.getByText('The deployment did not accept this value.')).toBeInTheDocument()
   })
 })
 
@@ -184,7 +226,7 @@ describe('inline comment presentation', () => {
     expect(navigate).toHaveBeenCalledWith(payload.annotations[0]?.annotationId)
   })
 
-  it('delegates historical images through the rc.8 conversation image renderer', () => {
+  it('delegates historical images through the conversation image renderer', () => {
     const userAttachment = { attachmentId: 'user-image' }
     const renderUserImages = vi.fn(() => <div data-testid="user-images" />)
     const userProps = {

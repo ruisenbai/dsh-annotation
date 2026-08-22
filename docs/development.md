@@ -5,7 +5,7 @@
 - Node.js `^22.19.0` or `>=24`;
 - Corepack;
 - pnpm `11.7.0`;
-- a DeepSeek Harness checkout or installation compatible with `0.1.0-rc.8` for Web verification.
+- a DeepSeek Harness `0.1.1-rc.2` checkout or installation for Web verification.
 
 ## Install and verify
 
@@ -31,9 +31,10 @@ pnpm publint
 - `host-command.spec.ts`: delivery, cross-Session rejection, and idempotency;
 - `controller.spec.ts`: editing, retries, states, overlap, supplementation, recovery, and navigation;
 - `selection.spec.ts` and `highlight.spec.ts`: DOM selectors, relocation, coordinates, and browser highlight fallback;
-- `components.spec.tsx`: user-visible timeline, compact editor, grouped list, marker geometry, and source centering;
+- `components.spec.tsx`: user-visible timeline, compact editor, grouped list, marker geometry, source centering, and the plugin-configuration card;
+- `feature-toggle.spec.ts`: staged Host setting writes, legacy preference migration, failure recovery, and quiescent disposal;
 - `scripts/browser-test.mjs` with `tests/browser/fixture.tsx`: real Chromium coverage for autosave, outside-click decisions, mobile overflow, dark mode, zoom, reasoning disclosure, and source centering;
-- `client-apply.spec.ts`: dynamic setting registration, renderer disable/restore, composer detachment, rc.8 reference serialization, local limits, transport failure, and immutable retry;
+- `client-apply.spec.ts`: Host-backed plugin setting registration, renderer disable/restore, composer detachment, reference serialization, local limits, transport failure, and immutable retry;
 - `submission-flow.spec.ts`: browser payload through Host admission and durable status reconstruction.
 
 Run one suite during development:
@@ -66,7 +67,7 @@ Minimum manual matrix:
 8. inspect folded timeline and both navigation directions;
 9. verify an explicit acknowledgement moves only named ids to processed;
 10. confirm an archived Session cannot arm the official composer;
-11. turn DSH Inline Comments off and confirm official renderers return, controls and highlights disappear, an armed claim preserves visible text, and drafts return after re-enabling;
+11. save the disabled switch under **Settings → Plugins → Plugin configuration** and confirm official renderers return, controls and highlights disappear, an armed claim preserves visible text, and drafts return after saving the enabled switch;
 12. unload the plugin and confirm its styles, Slot entries, and controls disappear.
 
 ## Packaging
