@@ -1,8 +1,8 @@
 import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import { createAnnotationId, createSubmissionId, submissionMessageId } from '../shared/ids.ts'
 import { parseModelAcknowledgements } from '../shared/model-ack.ts'
-import { parseInlineCommentSource } from '../shared/protocol.ts'
-import { PROTOCOL_VERSION } from '../shared/types.ts'
+import { parseAnnotationSource } from '../shared/protocol.ts'
+import { PROTOCOL_SOURCE, PROTOCOL_VERSION } from '../shared/types.ts'
 import type {
   AnnotationConfig,
   AnnotationDraft,
@@ -12,6 +12,7 @@ import type {
   DeliveryMode,
   MessageIdentity,
   OutboxEntry,
+  OutboxImages,
   PersistedEditorDraft,
   PersistedSessionState,
   SessionIdentity,
@@ -190,7 +191,7 @@ export class AnnotationController {
         editor: Object.freeze({
           kind: 'edit',
           annotationId: overlap.annotationId,
-          text: overlap.comment,
+          text: overlap.annotation,
           expandedCapture: capture,
         }),
         editorSaveStatus: 'idle',
@@ -250,7 +251,7 @@ export class AnnotationController {
     }
     this.publish({
       ...this.view,
-      editor: Object.freeze({ kind: 'edit', annotationId, text: item.comment }),
+      editor: Object.freeze({ kind: 'edit', annotationId, text: item.annotation }),
       editorSaveStatus: 'idle',
       activeAnnotationId: annotationId,
     })
@@ -281,8 +282,8 @@ export class AnnotationController {
   saveEditor(): AnnotationId {
     const editor = this.view.editor
     if (editor === null) throw new Error('no annotation editor is open')
-    const comment = editor.text.trim()
-    if (comment.length === 0) throw new Error('annotation comment is blank')
+    const annotation = editor.text.trim()
+    if (annotation.length === 0) throw new Error('annotation text is blank')
     const time = this.now()
     let savedId: AnnotationId
     let annotations: AnnotationDraft[]
@@ -299,7 +300,7 @@ export class AnnotationController {
           messageSeq: editor.capture.messageSeq,
           responseVersion: editor.capture.responseVersion,
           quote: editor.capture.quote,
-          comment,
+          annotation,
           ...(editor.capture.structure === undefined ? {} : { structure: editor.capture.structure }),
           createdAt: time,
           updatedAt: time,
@@ -316,7 +317,7 @@ export class AnnotationController {
           const capture = editor.expandedCapture
           return Object.freeze({
             ...item,
-            comment,
+            annotation,
             ...(capture === undefined
               ? {}
               : {
@@ -345,7 +346,7 @@ export class AnnotationController {
       editor.kind === 'new'
         ? editor.text.trim().length > 0
         : editor.expandedCapture !== undefined ||
-          this.view.annotations.find((item) => item.annotationId === editor.annotationId)?.comment !==
+          this.view.annotations.find((item) => item.annotationId === editor.annotationId)?.annotation !==
             editor.text
     if (!force && dirty) return false
     this.publish({
@@ -436,6 +437,7 @@ export class AnnotationController {
     delivery: DeliveryMode,
     targetSessionId: SessionIdentity,
     overallRequirement = '',
+    images?: OutboxImages,
   ): OutboxEntry {
     const retry = this.view.outbox.find((item) => item.status === 'failed' || item.status === 'ready')
     if (retry !== undefined) return retry
@@ -450,7 +452,7 @@ export class AnnotationController {
         messageSeq: item.messageSeq,
         responseVersion: item.responseVersion,
         quote: item.quote,
-        comment: item.comment,
+        annotation: item.annotation,
         ...(item.structure === undefined ? {} : { structure: item.structure }),
         createdAt: item.createdAt,
       }),
@@ -458,6 +460,7 @@ export class AnnotationController {
     const overall = overallRequirement.trim()
     const payload: AnnotationSubmissionPayload = Object.freeze({
       protocolVersion: PROTOCOL_VERSION,
+      source: PROTOCOL_SOURCE,
       submissionId,
       sessionId: targetSessionId,
       delivery,
@@ -471,6 +474,7 @@ export class AnnotationController {
       messageId: submissionMessageId(submissionId),
       status: 'ready',
       attempts: 0,
+      ...(images === undefined ? {} : { images }),
     })
     const selected = new Set(drafts.map((item) => item.annotationId))
     const nextAnnotations = this.view.annotations.map((item) =>
@@ -554,13 +558,31 @@ export class AnnotationController {
     })
   }
 
+  /** Drop a never-queued retry record and return its annotations to the editable draft list. */
+  discardOutbox(submissionId: SubmissionId): void {
+    const time = this.now()
+    this.publish({
+      ...this.view,
+      annotations: this.view.annotations.map((item) => {
+        if (item.submissionId !== submissionId || item.status !== 'queued') return item
+        const { submissionId: _submissionId, ...rest } = item
+        return Object.freeze({ ...rest, status: 'draft' as const, updatedAt: time })
+      }),
+      outbox: this.view.outbox.map((item) =>
+        item.payload.submissionId === submissionId
+          ? Object.freeze({ ...item, status: 'withdrawn' as const })
+          : item,
+      ),
+    })
+  }
+
   reconcile(snapshot: ConversationSnapshot): void {
     const submissions = new Map<SubmissionId, AnnotationSubmissionPayload>()
     const acknowledgements = new Map<SubmissionId, Set<AnnotationId>>()
     let latestAssistantMessageId: MessageIdentity | null = null
     for (const node of snapshot.chat.nodes.values()) {
       const source = sourceFromInputNode(node)
-      const payload = parseInlineCommentSource(source)
+      const payload = parseAnnotationSource(source)
       if (payload !== null) submissions.set(payload.submissionId, payload)
       const assistantId = finalAssistantId(node)
       if (assistantId !== null) latestAssistantMessageId = assistantId
@@ -708,16 +730,36 @@ export class AnnotationController {
     for (let page = 0; page < this.config.locateHistoryPages; page += 1) {
       if (!this.navigationSession.getSnapshot().hasMore) break
       await this.navigationSession.loadOlder()
-      const loaded = this.endpoints.get(annotation.messageId)
+      // 官方 loadOlder 只保证数据已取回；目标消息的端点由挂载的助手节点在
+      // 随后的 React 提交中注册，可能晚于这次同步检查。给注册留出有界等待。
+      const loaded = await this.awaitEndpoint(annotation.messageId)
       if (loaded !== undefined) {
         this.pendingNavigation = null
         loaded.reveal(annotationId)
         return true
       }
+      // 已加载到历史末尾仍未见目标消息：直接失败，不再空转等待。
+      if (!this.navigationSession.getSnapshot().hasMore) break
     }
     this.pendingNavigation = null
     this.publish({ ...this.view, notice: { level: 'error', text: 'locate' } }, false)
     return false
+  }
+
+  /** Bounded wait for the mounted assistant node to register its endpoint after a history page lands. */
+  private async awaitEndpoint(
+    messageId: MessageIdentity,
+    frames = 5,
+  ): Promise<AnnotationEndpoint | undefined> {
+    for (let frame = 0; frame < frames; frame += 1) {
+      const endpoint = this.endpoints.get(messageId)
+      if (endpoint !== undefined) return endpoint
+      await new Promise<void>((resolve) => {
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve())
+        else setTimeout(resolve, 16)
+      })
+    }
+    return this.endpoints.get(messageId)
   }
 
   private patchOutbox(submissionId: SubmissionId, update: (entry: OutboxEntry) => OutboxEntry): void {
@@ -770,7 +812,7 @@ export class AnnotationController {
       try {
         listener()
       } catch (error: unknown) {
-        console.error('[dsh-inline-comments] subscriber failed:', error)
+        console.error('[dsh-annotation] subscriber failed:', error)
       }
     }
   }

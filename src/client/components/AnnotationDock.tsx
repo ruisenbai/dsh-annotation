@@ -135,19 +135,51 @@ function EditorSaveState({ view, t }: { view: AnnotationView; t: InputAnnotation
   return <span>{t('editor.shortcut')}</span>
 }
 
+/** Whether the editor is inside an IME composition, including the post-compositionend latch. */
+function compositionActive(
+  event: { isComposing?: boolean; keyCode?: number },
+  composing: boolean,
+  justComposed: boolean,
+): boolean {
+  return (
+    composing ||
+    justComposed ||
+    event.isComposing === true ||
+    (event.keyCode !== undefined && event.keyCode === 229)
+  )
+}
+
+/** Whether the editor belongs inside the summary box instead of floating in the assistant body. */
+function isInlineEditor(editor: EditorState | null): boolean {
+  if (editor === null) return false
+  if (editor.kind === 'edit') return true
+  const rect = editor.capture.rect
+  return rect.top === 0 && rect.left === 0 && rect.bottom === 0 && rect.right === 0
+}
+
+/** Dock-internal action face: the editor's own saveEditor wrapper is always passed explicitly. */
+type DockBoundActions = Omit<AnnotationBoundProps, 'useAnnotations' | 'saveEditor'>
+
 function AnnotationEditor({
   view,
   t,
+  inline = false,
+  saveEditor,
   ...actions
 }: {
   view: AnnotationView
   t: InputAnnotationProps['t']
-} & Omit<AnnotationBoundProps, 'useAnnotations'>) {
+  inline?: boolean
+  saveEditor: () => AnnotationId
+} & DockBoundActions) {
   const [error, setError] = useState<string | null>(null)
   const [decisionRequired, setDecisionRequired] = useState(false)
   const [shakeVersion, setShakeVersion] = useState(0)
   const editorRef = useRef<HTMLElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const composingRef = useRef(false)
+  const justComposedRef = useRef(false)
+  const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const editor = view.editor
 
   const requireDecision = () => {
@@ -161,7 +193,7 @@ function AnnotationEditor({
   }
   const save = () => {
     try {
-      actions.saveEditor()
+      saveEditor()
       setError(null)
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -183,6 +215,8 @@ function AnnotationEditor({
     if (editor === null) return undefined
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
+      // 输入法组合期间按 Escape 只用于取消候选，不关闭编辑器。
+      if (compositionActive(event, composingRef.current, justComposedRef.current)) return
       event.preventDefault()
       if (!actions.closeEditor()) requireDecision()
     }
@@ -209,92 +243,133 @@ function AnnotationEditor({
     }
   }, [actions.closeEditor, editor])
 
+  useEffect(
+    () => () => {
+      // 组件卸载时清掉延迟解除定时器。
+      if (releaseTimerRef.current !== null) clearTimeout(releaseTimerRef.current)
+    },
+    [],
+  )
+
   if (editor === null) return null
   const longSelection = editor.kind === 'new' && !editor.longSelectionConfirmed
   const expanded = editor.kind === 'edit' && editor.expandedCapture !== undefined
-  return (
-    <Portal>
-      <section
-        ref={editorRef}
-        className="dia-editor"
-        style={editorPosition(editor)}
-        role="dialog"
-        aria-modal="false"
-        aria-label={editor.kind === 'edit' ? t('editor.editTitle') : t('editor.title')}
-        data-decision-required={decisionRequired ? 'true' : undefined}
-        data-shake={decisionRequired ? String(shakeVersion % 2) : undefined}
-      >
-        <div className="dia-editor__row">
-          <textarea
-            ref={textareaRef}
-            autoFocus
-            rows={1}
-            className="dia-editor__input"
-            value={editor.text}
-            aria-label={t('editor.commentLabel')}
-            aria-invalid={decisionRequired || error !== null}
-            placeholder={t('editor.placeholder')}
-            onChange={(event) => actions.updateEditorText(event.target.value)}
-            onKeyDown={(event) => {
-              if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-                event.preventDefault()
-                save()
-              }
-            }}
-          />
-          <div className="dia-editor__actions">
+  const editorElement = (
+    <section
+      ref={editorRef}
+      className={`dia-editor${inline ? ' dia-editor--inline' : ''}`}
+      style={inline ? undefined : editorPosition(editor)}
+      role="dialog"
+      aria-modal="false"
+      aria-label={editor.kind === 'edit' ? t('editor.editTitle') : t('editor.title')}
+      data-decision-required={decisionRequired ? 'true' : undefined}
+      data-shake={decisionRequired ? String(shakeVersion % 2) : undefined}
+    >
+      <div className="dia-editor__row">
+        <textarea
+          ref={textareaRef}
+          autoFocus
+          rows={1}
+          className="dia-editor__input"
+          value={editor.text}
+          aria-label={t('editor.annotationLabel')}
+          aria-invalid={decisionRequired || error !== null}
+          placeholder={t('editor.placeholder')}
+          onChange={(event) => actions.updateEditorText(event.target.value)}
+          onCompositionStart={() => {
+            composingRef.current = true
+            justComposedRef.current = false
+          }}
+          onCompositionEnd={() => {
+            // 延迟到下一次事件循环后才解除组合状态，吞掉选词后的同一次 Enter。
+            justComposedRef.current = true
+            composingRef.current = false
+            if (releaseTimerRef.current !== null) clearTimeout(releaseTimerRef.current)
+            releaseTimerRef.current = setTimeout(() => {
+              justComposedRef.current = false
+              releaseTimerRef.current = null
+            }, 0)
+          }}
+          onKeyDown={(event) => {
+            const native = event.nativeEvent as unknown as KeyboardEvent
+            const composing = compositionActive(native, composingRef.current, justComposedRef.current)
+            if (composing) {
+              // 组合输入事件只属于选词，不保存、不冒泡到官方输入框。
+              event.stopPropagation()
+              return
+            }
+            if (event.key !== 'Enter') return
+            event.stopPropagation()
+            if (event.shiftKey) return // Shift+Enter 换行，走 textarea 默认行为。
+            event.preventDefault()
+            if (event.ctrlKey || event.metaKey || editor.text.trim().length > 0) save()
+            else requireDecision()
+          }}
+          onKeyUp={(event) => {
+            if (
+              compositionActive(
+                event.nativeEvent as unknown as KeyboardEvent,
+                composingRef.current,
+                justComposedRef.current,
+              )
+            ) {
+              event.stopPropagation()
+            }
+          }}
+        />
+        <div className="dia-editor__actions">
+          <TooltipIconAction
+            label={t('editor.cancel')}
+            side="bottom"
+            className="dia-icon-button"
+            onActivate={cancel}
+          >
+            <IconCloseOutline16 size={14} />
+          </TooltipIconAction>
+          <TooltipIconAction
+            label={t('editor.save')}
+            side="bottom"
+            className="dia-icon-button"
+            primary
+            disabled={editor.text.trim().length === 0 || longSelection}
+            onActivate={save}
+          >
+            <IconCheckOutline16 size={14} />
+          </TooltipIconAction>
+          {editor.kind === 'edit' && (
             <TooltipIconAction
-              label={t('editor.cancel')}
+              label={t('list.delete')}
               side="bottom"
               className="dia-icon-button"
-              onActivate={cancel}
+              danger
+              onActivate={remove}
             >
-              <IconCloseOutline16 size={14} />
+              <IconTrashOutline16 size={14} />
             </TooltipIconAction>
-            <TooltipIconAction
-              label={t('editor.save')}
-              side="bottom"
-              className="dia-icon-button"
-              primary
-              disabled={editor.text.trim().length === 0 || longSelection}
-              onActivate={save}
-            >
-              <IconCheckOutline16 size={14} />
-            </TooltipIconAction>
-            {editor.kind === 'edit' && (
-              <TooltipIconAction
-                label={t('list.delete')}
-                side="bottom"
-                className="dia-icon-button"
-                danger
-                onActivate={remove}
-              >
-                <IconTrashOutline16 size={14} />
-              </TooltipIconAction>
-            )}
-          </div>
+          )}
         </div>
-        <div className="dia-editor__meta" aria-live="polite">
-          <EditorSaveState view={view} t={t} />
-          {decisionRequired && <span data-tone="error">{t('editor.chooseAction')}</span>}
+      </div>
+      <div className="dia-editor__meta" aria-live="polite">
+        <EditorSaveState view={view} t={t} />
+        {decisionRequired && <span data-tone="error">{t('editor.chooseAction')}</span>}
+      </div>
+      {expanded && <p className="dia-editor__notice">{t('editor.expand')}</p>}
+      {longSelection && (
+        <div className="dia-editor__notice" data-tone="warning">
+          <span>{t('selection.tooLong')}</span>
+          <button type="button" className="dia-text-button" onClick={actions.confirmLongSelection}>
+            {t('editor.confirmLong')}
+          </button>
         </div>
-        {expanded && <p className="dia-editor__notice">{t('editor.expand')}</p>}
-        {longSelection && (
-          <div className="dia-editor__notice" data-tone="warning">
-            <span>{t('selection.tooLong')}</span>
-            <button type="button" className="dia-text-button" onClick={actions.confirmLongSelection}>
-              {t('editor.confirmLong')}
-            </button>
-          </div>
-        )}
-        {error !== null && (
-          <p className="dia-error" role="alert">
-            {error}
-          </p>
-        )}
-      </section>
-    </Portal>
+      )}
+      {error !== null && (
+        <p className="dia-error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
   )
+  return inline ? editorElement : <Portal>{editorElement}</Portal>
 }
 
 function AnnotationRow({
@@ -306,7 +381,7 @@ function AnnotationRow({
   annotationId: AnnotationId
   view: AnnotationView
   t: InputAnnotationProps['t']
-} & Omit<AnnotationBoundProps, 'useAnnotations'>) {
+} & DockBoundActions) {
   const item = view.annotations.find((candidate) => candidate.annotationId === annotationId)
   if (item === undefined) return null
   const awaitingAuthoritativeState =
@@ -316,7 +391,7 @@ function AnnotationRow({
   return (
     <div
       role="listitem"
-      aria-label={`#${item.ordinal} · ${renderedStatus} · ${item.quote.exact} · ${item.comment}`}
+      aria-label={`#${item.ordinal} · ${renderedStatus} · ${item.quote.exact} · ${item.annotation}`}
       className={`dia-item${view.activeAnnotationId === item.annotationId ? ' is-active' : ''}`}
       data-status={item.status}
     >
@@ -326,7 +401,7 @@ function AnnotationRow({
         </span>
         <span className="dia-item__copy">
           <q>{item.quote.exact}</q>
-          <span>{item.comment}</span>
+          <span>{item.annotation}</span>
         </span>
       </div>
       <div className="dia-item__actions">
@@ -369,7 +444,6 @@ function noticeText(text: string, t: InputAnnotationProps['t']): string {
   if (text === 'locate') return t('error.locate')
   if (text === 'payload') return t('error.payload')
   if (text === 'items') return t('error.items')
-  if (text === 'images') return t('error.images')
   return text
 }
 
@@ -448,7 +522,7 @@ function downloadLocalData(serialized: string): void {
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = `dsh-inline-comments-${new Date().toISOString().slice(0, 10)}.json`
+  anchor.download = `dsh-annotation-${new Date().toISOString().slice(0, 10)}.json`
   document.body.append(anchor)
   anchor.click()
   anchor.remove()
@@ -469,7 +543,7 @@ function AnnotationGroup({
   items: readonly AnnotationView['annotations'][number][]
   view: AnnotationView
   t: InputAnnotationProps['t']
-  actions: Omit<AnnotationBoundProps, 'useAnnotations'>
+  actions: DockBoundActions
   state: StateDotState
   collapsible?: boolean
   initiallyOpen?: boolean
@@ -525,6 +599,7 @@ function AnnotationPanel({
   attachmentDisabled,
   attachmentLabel,
   onToggleAttachment,
+  saveEditor,
   t,
   shellRef,
   ...actions
@@ -535,9 +610,10 @@ function AnnotationPanel({
   attachmentDisabled: boolean
   attachmentLabel: string
   onToggleAttachment: () => void
+  saveEditor: () => AnnotationId
   t: InputAnnotationProps['t']
   shellRef: RefObject<HTMLElement>
-} & Omit<AnnotationBoundProps, 'useAnnotations'>) {
+} & DockBoundActions) {
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportState, setExportState] = useState<'idle' | 'done' | 'failed'>('idle')
   const listId = useId()
@@ -601,30 +677,43 @@ function AnnotationPanel({
             <span className="dia-dock__title">{t('list.title')}</span>
             <span className="dia-dock__summary">{panelSummary(view, retry !== undefined, t)}</span>
           </button>
-          <Tooltip label={attachmentLabel} side="top" delayMs={400}>
+          <div className="dia-dock__actions">
+            <Tooltip label={attachmentLabel} side="top" delayMs={400}>
+              <button
+                type="button"
+                className="dia-dock__attach"
+                aria-label={attachmentLabel}
+                aria-pressed={attached}
+                disabled={attachmentDisabled}
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={onToggleAttachment}
+              >
+                <IconPaperclipOutline16 size={15} />
+              </button>
+            </Tooltip>
             <button
               type="button"
-              className="dia-dock__attach"
-              aria-label={attachmentLabel}
-              aria-pressed={attached}
-              disabled={attachmentDisabled}
-              onPointerDown={(event) => event.preventDefault()}
-              onClick={onToggleAttachment}
+              className="dia-dock__fold"
+              aria-label={view.panelOpen ? t('dock.collapse') : t('dock.expand')}
+              aria-controls={listId}
+              aria-expanded={view.panelOpen}
+              onClick={() => actions.setPanelOpen(!view.panelOpen)}
             >
-              <IconPaperclipOutline16 size={15} />
+              {view.panelOpen ? <IconChevronDownOutline14 size={14} /> : <IconChevronUpOutline14 size={14} />}
             </button>
-          </Tooltip>
-          <button
-            type="button"
-            className="dia-dock__fold"
-            aria-label={view.panelOpen ? t('dock.collapse') : t('dock.expand')}
-            aria-controls={listId}
-            aria-expanded={view.panelOpen}
-            onClick={() => actions.setPanelOpen(!view.panelOpen)}
-          >
-            {view.panelOpen ? <IconChevronDownOutline14 size={14} /> : <IconChevronUpOutline14 size={14} />}
-          </button>
+          </div>
         </div>
+
+        {isInlineEditor(view.editor) && (
+          <AnnotationEditor
+            key={editorKey(view.editor)}
+            inline
+            view={view}
+            t={t}
+            {...actions}
+            saveEditor={saveEditor}
+          />
+        )}
 
         {view.panelOpen && (
           <div id={listId} className="dia-inline-panel">
@@ -640,6 +729,18 @@ function AnnotationPanel({
                 <div>
                   <p>{t('error.send')}</p>
                   <code>{retry.payload.submissionId}</code>
+                  {retry.images !== undefined && (
+                    <p className="dia-inline-notice__detail">
+                      {t('error.imagesRequired', { count: retry.images.count })}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    className="dia-text-button"
+                    onClick={() => actions.discardOutbox(retry.payload.submissionId as SubmissionId)}
+                  >
+                    {t('list.discard')}
+                  </button>
                 </div>
               </div>
             )}
@@ -782,6 +883,18 @@ function AnnotationPanel({
   )
 }
 
+interface ComposerCaret {
+  readonly start: number
+  readonly end: number
+  readonly direction: 'forward' | 'backward' | 'none' | null
+}
+
+function composerTextarea(shell: HTMLElement | null): HTMLTextAreaElement | null {
+  const card = shell?.closest<HTMLElement>('[data-composer-card]')
+  const textarea = card?.querySelector<HTMLTextAreaElement>('textarea')
+  return textarea ?? null
+}
+
 /** Composer dock list plus the Session-owned selection editor. */
 export function AnnotationDock({
   useAnnotations,
@@ -789,6 +902,7 @@ export function AnnotationDock({
   sessionId,
   input,
   t,
+  saveEditor: controllerSaveEditor,
   ...actions
 }: InputAnnotationProps) {
   const view = useAnnotations((state) => state)
@@ -797,31 +911,33 @@ export function AnnotationDock({
   const previousOutbox = useRef<Map<SubmissionId, ObservedOutboxState> | null>(null)
   const toastSeq = useRef(0)
   const [submissionToast, setSubmissionToast] = useState<SubmissionToastState | null>(null)
+  const [pendingFocus, setPendingFocus] = useState<{
+    textarea: HTMLTextAreaElement | null
+    caret: ComposerCaret | null
+  } | null>(null)
   const failed = view.outbox.some((item) => item.status === 'failed')
-  const dockVisible = view.annotations.length > 0 || failed || view.deletedDraft !== null
+  const dockVisible =
+    view.annotations.length > 0 || failed || view.deletedDraft !== null || isInlineEditor(view.editor)
   const retry = view.outbox.find((item) => item.status === 'failed' || item.status === 'ready')
   const draftCount = view.annotations.filter((item) => item.status === 'draft').length
   const attachmentCount = retry?.payload.annotations.length ?? draftCount
   const attached = hasComposerAttachment(input)
   const attachmentDisabled =
     input.phase === 'submitting' ||
-    (!attached && (archived || input.phase !== 'plain' || input.imageIds.length > 0 || attachmentCount === 0))
+    (!attached && (archived || input.phase !== 'plain' || attachmentCount === 0))
   const attachmentLabel = attached
     ? t('attach.remove', { count: attachmentCount })
     : archived
       ? t('attach.archived')
-      : input.imageIds.length > 0
-        ? t('attach.images')
-        : input.phase !== 'plain'
-          ? t('attach.busy')
-          : attachmentCount === 0
-            ? t('attach.empty')
-            : t('attach.add', { count: attachmentCount })
-  const markerPresent = input.draft.startsWith(COMPOSER_ATTACHMENT_TOKEN)
+      : input.phase !== 'plain'
+        ? t('attach.busy')
+        : attachmentCount === 0
+          ? t('attach.empty')
+          : t('attach.add', { count: attachmentCount })
 
   useEffect(() => {
-    actions.repairComposerAttachment(t('error.images'))
-  }, [actions.repairComposerAttachment, attachmentCount, input.claim?.token, input.phase, markerPresent, t])
+    actions.repairComposerAttachment()
+  }, [actions.repairComposerAttachment, attachmentCount, input.claim?.token, input.draft, input.phase])
 
   useEffect(() => {
     previousOutbox.current = null
@@ -839,6 +955,41 @@ export function AnnotationDock({
     setSubmissionToast({ ...transition, seq: toastSeq.current })
   }, [view.outbox])
 
+  /**
+   * 新增注解保存成功后，等一次微任务加一帧页面渲染，再把焦点交还官方输入框。
+   * 组件卸载（会话切换）时清理，绝不抢焦点；也不改写输入框已有文字。
+   */
+  useEffect(() => {
+    if (pendingFocus === null || view.editor !== null) return undefined
+    let cancelled = false
+    let frame = 0
+    void Promise.resolve().then(() => {
+      if (cancelled) return
+      frame = requestAnimationFrame(() => {
+        if (cancelled) return
+        const captured = pendingFocus.textarea
+        const textarea =
+          captured !== null && captured.isConnected ? captured : composerTextarea(shellRef.current)
+        if (textarea === null || !textarea.isConnected) return
+        textarea.focus({ preventScroll: true })
+        const caret = pendingFocus.caret
+        if (caret === null) {
+          textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+          return
+        }
+        textarea.setSelectionRange(
+          caret.start,
+          caret.end,
+          caret.direction === null ? 'none' : caret.direction,
+        )
+      })
+    })
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(frame)
+    }
+  }, [pendingFocus, view.editor])
+
   const toggleAttachment = () => {
     const active = document.activeElement
     const textarea = active instanceof HTMLTextAreaElement ? active : null
@@ -850,8 +1001,7 @@ export function AnnotationDock({
             end: textarea.selectionEnd,
             direction: textarea.selectionDirection,
           }
-    if (!actions.toggleComposerAttachment(t('error.images')) || textarea === null || selection === null)
-      return
+    if (!actions.toggleComposerAttachment() || textarea === null || selection === null) return
     const offset = attached ? -COMPOSER_ATTACHMENT_TOKEN.length : COMPOSER_ATTACHMENT_TOKEN.length
     requestAnimationFrame(() => {
       if (!textarea.isConnected) return
@@ -862,6 +1012,24 @@ export function AnnotationDock({
         selection.direction,
       )
     })
+  }
+
+  const saveEditor = () => {
+    const isNew = view.editor?.kind === 'new'
+    const shouldAttach = isNew && actions.autoAttachEnabled() && !archived && !attached
+    const caretElement = composerTextarea(shellRef.current)
+    const captured: ComposerCaret | null =
+      caretElement === null
+        ? null
+        : {
+            start: caretElement.selectionStart,
+            end: caretElement.selectionEnd,
+            direction: caretElement.selectionDirection,
+          }
+    const annotationId = controllerSaveEditor()
+    if (shouldAttach) actions.ensureComposerAttachment()
+    if (isNew) setPendingFocus({ textarea: caretElement, caret: captured })
+    return annotationId
   }
 
   if (!dockVisible && view.editor === null) return null
@@ -875,12 +1043,21 @@ export function AnnotationDock({
           attachmentDisabled={attachmentDisabled}
           attachmentLabel={attachmentLabel}
           onToggleAttachment={toggleAttachment}
+          saveEditor={saveEditor}
           t={t}
           shellRef={shellRef}
           {...actions}
         />
       )}
-      <AnnotationEditor key={editorKey(view.editor)} view={view} t={t} {...actions} />
+      {!isInlineEditor(view.editor) && (
+        <AnnotationEditor
+          key={editorKey(view.editor)}
+          view={view}
+          t={t}
+          {...actions}
+          saveEditor={saveEditor}
+        />
+      )}
       {submissionToast !== null && (
         <Toast
           key={submissionToast.seq}

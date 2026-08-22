@@ -1,22 +1,22 @@
-/** Plugin configuration card for the Host-backed enabled setting. */
+/** Plugin configuration card for Host-backed annotation settings. */
 
 import { useState } from 'react'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
-import type { InlineCommentsSettingsInjected } from '../feature-toggle.ts'
+import type { AnnotationSettingsInjected } from '../feature-toggle.ts'
 
 /** Full plugin-configuration card props. */
-export type InlineCommentsPluginCardProps = PropsRuntime<'settings.plugin.item'> &
-  PropsLocale<'inlineComments'> &
-  InjectFace<InlineCommentsSettingsInjected>
+export type AnnotationPluginCardProps = PropsRuntime<'settings.plugin.item'> &
+  PropsLocale<'dshAnnotation'> &
+  InjectFace<AnnotationSettingsInjected>
 
 /**
- * Render the staged enabled setting under Settings > Plugins > Plugin configuration.
+ * Render staged annotation settings under Settings > Plugins > Plugin configuration.
  * @param props - composed plugin-card props.
  * @returns the card, or nothing while the Host namespace is unavailable.
  */
-export function InlineCommentsPluginCard(props: InlineCommentsPluginCardProps) {
+export function AnnotationPluginCard(props: AnnotationPluginCardProps) {
   const [open, setOpen] = useState(false)
   const state = props.useSettingsCard((snapshot) => snapshot)
   if (!state.available) return null
@@ -86,6 +86,47 @@ export function InlineCommentsPluginCard(props: InlineCommentsPluginCardProps) {
               </span>
             </button>
             <p className="dia-plugin-card__hint">{props.t('settings.description')}</p>
+          </div>
+          <div className="dia-plugin-card__field">
+            <div className="dia-plugin-card__field-head">
+              <span className="dia-plugin-card__field-label">{props.t('settings.autoAttach')}</span>
+              {state.autoAttachOverridden ? (
+                <span className="dia-plugin-card__field-actions">
+                  <span className="dia-plugin-card__badge">{props.t('settings.overridden')}</span>
+                  <button
+                    type="button"
+                    className="dia-plugin-card__reset"
+                    disabled={!state.writable || state.saving}
+                    onClick={props.resetAutoAttach}
+                  >
+                    {props.t('settings.reset')}
+                  </button>
+                </span>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="dia-plugin-card__switch"
+              role="switch"
+              aria-label={props.t('settings.autoAttach')}
+              aria-checked={state.autoAttach}
+              disabled={!state.writable || state.saving}
+              onClick={() => {
+                props.setAutoAttach(!state.autoAttach)
+              }}
+            >
+              <span className="dia-plugin-card__switch-state">
+                {props.t(state.autoAttach ? 'settings.on' : 'settings.off')}
+              </span>
+              <span
+                className="dia-plugin-card__switch-track"
+                data-on={state.autoAttach || undefined}
+                aria-hidden="true"
+              >
+                <span className="dia-plugin-card__switch-thumb" />
+              </span>
+            </button>
+            <p className="dia-plugin-card__hint">{props.t('settings.autoAttachHint')}</p>
           </div>
           <div className="dia-plugin-card__footer">
             {state.failed ? (

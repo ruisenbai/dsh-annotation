@@ -1,10 +1,11 @@
 {
-  "protocolVersion": 1,
+  "protocolVersion": 2,
+  "source": "dsh-annotation",
   "submissionId": "sub-00000000-0000-4000-8000-000000000001",
   "sessionId": "example-session-id",
   "delivery": "queue",
   "createdAt": 1786716000000,
-  "overallRequirement": "Revise the complete proposal using these notes.",
+  "overallRequirement": "Revise the complete proposal using these annotations.",
   "annotations": [
     {
       "annotationId": "ann-00000000-0000-4000-8000-000000000001",
@@ -19,7 +20,7 @@
         "start": 125,
         "end": 156
       },
-      "comment": "Add a source and explain the boundary conditions.",
+      "annotation": "Add a source and explain the boundary conditions.",
       "createdAt": 1786715900000
     }
   ]

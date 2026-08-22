@@ -1,4 +1,14 @@
-import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import {
   DisclosureRow,
   IconThinkOutline14,
@@ -7,8 +17,13 @@ import {
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { stripModelAcknowledgementMarkers } from '../../shared/model-ack.ts'
-import type { AnnotationDraft, AnnotationId, MessageIdentity } from '../../shared/types.ts'
+import {
+  machineMarkerSpans,
+  parseReplyMarkers,
+  strippedOffset,
+  stripMachineMarkers,
+} from '../../shared/model-ack.ts'
+import type { AnnotationDraft, AnnotationId, MessageIdentity, TextQuoteSelector } from '../../shared/types.ts'
 import type { AssistantAnnotationProps } from '../contract.ts'
 import { captureSelection, rangeFromSelector, selectableTextNodes, textOffsetAtPoint } from '../selection.ts'
 
@@ -64,7 +79,7 @@ function AnnotationReasoningRow({
       ref={rootRef}
       className="dia-assistant__reasoning"
       data-state={running ? 'running' : 'ok'}
-      data-dsh-inline-comment-ignore="true"
+      data-dsh-annotation-ignore="true"
     >
       <DisclosureRow
         rowClassName="dia-assistant__reasoning-row"
@@ -215,7 +230,99 @@ function centerVisualLine(element: HTMLElement, line: VisualLine): void {
   window.scrollBy({ top: visualDelta / (scale > 0 ? scale : 1), behavior })
 }
 
-/** Full replacement renderer required because DSH exposes no slot inside assistant Markdown. */
+function annotationKey(submissionId: string, annotationId: string): string {
+  return `${submissionId}\u0000${annotationId}`
+}
+
+/** One validated reply marker target: where its "注解 N" heading should be overlaid. */
+interface ReplyChipTarget {
+  readonly key: string
+  readonly annotation: AnnotationDraft
+  readonly ordinal: number
+  readonly start: number
+  readonly length: number
+}
+
+function replyNeedle(ordinal: number): string {
+  return `注解 ${ordinal}`
+}
+
+/**
+ * Derive chip targets from raw model text. Only markers whose
+ * submissionId+annotationId pair exists in the current Session survive;
+ * unknown, duplicate, forged, and malformed markers are ignored and their
+ * "注解 N" text stays plain Markdown.
+ */
+function buildReplyChipTargets(
+  blocks: readonly { kind: string; text?: unknown }[],
+  known: ReadonlyMap<string, AnnotationDraft>,
+): readonly ReplyChipTarget[] {
+  const targets: ReplyChipTarget[] = []
+  const seen = new Set<string>()
+  let joined = ''
+  for (const block of blocks) {
+    if (block.kind !== 'text' || typeof block.text !== 'string') continue
+    const raw = block.text
+    const markers = parseReplyMarkers(raw)
+    const spans = machineMarkerSpans(raw)
+    const stripped = stripMachineMarkers(raw)
+    const blockStart = joined.length
+    joined += stripped
+    for (const marker of markers) {
+      const key = annotationKey(marker.submissionId, marker.annotationId)
+      const annotation = known.get(key)
+      if (annotation === undefined || seen.has(key)) continue
+      seen.add(key)
+      const needle = replyNeedle(marker.ordinal)
+      const searchFrom = blockStart + strippedOffset(marker.offset, spans)
+      const index = joined.indexOf(needle, searchFrom)
+      if (index < 0) continue
+      targets.push(
+        Object.freeze({ key, annotation, ordinal: marker.ordinal, start: index, length: needle.length }),
+      )
+    }
+  }
+  return Object.freeze(targets)
+}
+
+function selectorForTarget(target: ReplyChipTarget): TextQuoteSelector {
+  return Object.freeze({
+    exact: replyNeedle(target.ordinal),
+    prefix: '',
+    suffix: '',
+    start: target.start,
+    end: target.start + target.length,
+  })
+}
+
+interface ReplyChipState {
+  readonly key: string
+  readonly annotation: AnnotationDraft
+  readonly ordinal: number
+  readonly top: number
+  readonly left: number
+  readonly viewportLeft: number
+  readonly viewportTop: number
+}
+
+function sameReplyChips(left: readonly ReplyChipState[], right: readonly ReplyChipState[]): boolean {
+  if (left.length !== right.length) return false
+  return left.every(
+    (chip, index) =>
+      chip.key === right[index]?.key &&
+      chip.top === right[index]?.top &&
+      chip.left === right[index]?.left &&
+      chip.viewportLeft === right[index]?.viewportLeft &&
+      chip.viewportTop === right[index]?.viewportTop,
+  )
+}
+
+type AnnotatedAssistantNodeProps = AssistantAnnotationProps & {
+  /** 已有渲染器的输出；未传时保留原来的独立渲染能力，便于单独测试。 */
+  readonly children?: ReactNode
+}
+
+/** 给已有助手消息渲染器套一层注解界面，不接管其正文渲染。 */
 export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   node,
   useTurnData,
@@ -230,7 +337,8 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   activateHighlight,
   removeHighlights,
   t,
-}: AssistantAnnotationProps) {
+  children,
+}: AnnotatedAssistantNodeProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const [markerPositions, setMarkerPositions] = useState<ReadonlyMap<AnnotationId, MarkerPosition>>(
@@ -243,9 +351,12 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   const [flash, setFlash] = useState(false)
   const [revealRequest, setRevealRequest] = useState<{ annotationId: AnnotationId } | null>(null)
   const [hover, setHover] = useState<{ annotation: AnnotationDraft; x: number; y: number } | null>(null)
+  const [replyChips, setReplyChips] = useState<readonly ReplyChipState[]>([])
+  const [replyHover, setReplyHover] = useState<ReplyChipState | null>(null)
   const [selectionBar, setSelectionBar] = useState<{
     readonly capture: ReturnType<typeof captureSelection>
   } | null>(null)
+  const [domRevision, setDomRevision] = useState(0)
   const selectionBarRef = useRef<HTMLDivElement>(null)
   const data = node.data
   const messageId = data.finalNode?.messageId as unknown as MessageIdentity | undefined
@@ -254,6 +365,20 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     (view) =>
       messageId === undefined ? [] : view.annotations.filter((item) => item.messageId === messageId),
     sameAnnotations,
+  )
+  const allAnnotations = useAnnotations((view) => view.annotations, sameAnnotations)
+  const knownSubmissions = useMemo(
+    () =>
+      new Map(
+        allAnnotations
+          .filter((item) => item.submissionId !== undefined)
+          .map((item) => [annotationKey(item.submissionId as string, item.annotationId), item] as const),
+      ),
+    [allAnnotations],
+  )
+  const replyTargets = useMemo(
+    () => buildReplyChipTargets(data.blocks, knownSubmissions),
+    [data.blocks, knownSubmissions],
   )
   const activeId = useAnnotations((view) => view.activeAnnotationId)
   const geometryKey = useMemo(
@@ -285,6 +410,26 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   }, [])
 
   useLayoutEffect(() => {
+    const body = bodyRef.current
+    if (body === null || messageId === undefined || typeof MutationObserver === 'undefined') {
+      return undefined
+    }
+    let frame: number | null = null
+    const observer = new MutationObserver(() => {
+      if (frame !== null) return
+      frame = requestAnimationFrame(() => {
+        frame = null
+        setDomRevision((value) => value + 1)
+      })
+    })
+    observer.observe(body, { childList: true, characterData: true, subtree: true })
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [messageId])
+
+  useLayoutEffect(() => {
     if (revealRequest === null) return
     const root = rootRef.current
     const body = bodyRef.current
@@ -293,22 +438,45 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       return
     }
     const annotation = annotations.find((item) => item.annotationId === revealRequest.annotationId)
-    const range = annotation === undefined ? null : rangeFromSelector(body, annotation.quote)
-    const rangeLine = range === null ? null : completeFinalLine(selectableTextNodes(body), range)
-    const marker = Array.from(root.querySelectorAll<HTMLElement>('.dia-marker')).find(
-      (candidate) => candidate.dataset.annotationId === revealRequest.annotationId,
-    )
-    const markerRect = marker?.getBoundingClientRect()
-    const line =
-      rangeLine ??
-      (markerRect === undefined || markerRect.height <= 0 ? null : visualLineFromRect(markerRect))
-    if (line === null) root.scrollIntoView({ behavior: preferredScrollBehavior(), block: 'center' })
-    else centerVisualLine(root, line)
-    activateHighlight(messageId, range)
-    setRevealRequest(null)
-    setFlash(false)
-    requestAnimationFrame(() => setFlash(true))
-    root.focus({ preventScroll: true })
+    const measure = (): { line: VisualLine | null; range: Range | null } => {
+      const range = annotation === undefined ? null : rangeFromSelector(body, annotation.quote)
+      const rangeLine = range === null ? null : completeFinalLine(selectableTextNodes(body), range)
+      const marker = Array.from(root.querySelectorAll<HTMLElement>('.dia-marker')).find(
+        (candidate) => candidate.dataset.annotationId === revealRequest.annotationId,
+      )
+      const markerRect = marker?.getBoundingClientRect()
+      const line =
+        rangeLine ??
+        (markerRect === undefined || markerRect.height <= 0 ? null : visualLineFromRect(markerRect))
+      return { line, range }
+    }
+    const settle = (line: VisualLine | null, range: Range | null) => {
+      if (line === null) root.scrollIntoView({ behavior: preferredScrollBehavior(), block: 'center' })
+      else centerVisualLine(root, line)
+      activateHighlight(messageId, range)
+      setRevealRequest(null)
+      setFlash(false)
+      requestAnimationFrame(() => setFlash(true))
+      root.focus({ preventScroll: true })
+    }
+    const first = measure()
+    if (first.line !== null) {
+      settle(first.line, first.range)
+      return
+    }
+    // 目标行尚未参与布局（滚动区外的懒渲染或 content-visibility 节点）：
+    // 先把整条回复滚入视口，等一帧渲染完成后再重新测量并居中。
+    root.scrollIntoView({ behavior: preferredScrollBehavior(), block: 'center' })
+    let cancelled = false
+    let retryFrame = requestAnimationFrame(() => {
+      if (cancelled) return
+      const retry = measure()
+      settle(retry.line, retry.range)
+    })
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(retryFrame)
+    }
   }, [activateHighlight, annotations, messageId, revealRequest])
 
   const annotateAll = useCallback(() => {
@@ -340,7 +508,15 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     const active = annotations.find((item) => item.annotationId === activeId)
     activateHighlight(messageId, active === undefined ? null : rangeFromSelector(body, active.quote))
     return () => removeHighlights(messageId)
-  }, [activeId, activateHighlight, annotations, messageId, removeHighlights, updateHighlightRanges])
+  }, [
+    activeId,
+    activateHighlight,
+    annotations,
+    domRevision,
+    messageId,
+    removeHighlights,
+    updateHighlightRanges,
+  ])
 
   useLayoutEffect(() => {
     const root = rootRef.current
@@ -477,7 +653,68 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       document.removeEventListener('toggle', scheduleMeasure, true)
       document.fonts?.removeEventListener('loadingdone', scheduleMeasure)
     }
-  }, [data.blocks, geometryKey, markerGutter])
+  }, [data.blocks, domRevision, geometryKey, markerGutter])
+
+  /** Overlay one React chip over each validated "注解 N" heading once streaming settles. */
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    const body = bodyRef.current
+    if (root === null || body === null || messageId === undefined || data.status === 'running') {
+      setReplyChips((current) => (current.length === 0 ? current : []))
+      return undefined
+    }
+    if (replyTargets.length === 0) {
+      setReplyChips((current) => (current.length === 0 ? current : []))
+      return undefined
+    }
+    let frame: number | null = null
+    const measure = () => {
+      const rootRect = root.getBoundingClientRect()
+      const scaleX = root.offsetWidth > 0 && rootRect.width > 0 ? rootRect.width / root.offsetWidth : 1
+      const scaleY = root.offsetHeight > 0 && rootRect.height > 0 ? rootRect.height / root.offsetHeight : 1
+      const next: ReplyChipState[] = []
+      for (const target of replyTargets) {
+        const range = rangeFromSelector(body, selectorForTarget(target))
+        const rect = range === null ? null : finalVisibleRect(range)
+        if (rect === null) continue
+        next.push(
+          Object.freeze({
+            key: target.key,
+            annotation: target.annotation,
+            ordinal: target.ordinal,
+            top: Math.round((rect.top - rootRect.top) / scaleY),
+            left: Math.round((rect.left - rootRect.left) / scaleX),
+            viewportLeft: rect.left,
+            viewportTop: rect.bottom + 6,
+          }),
+        )
+      }
+      setReplyChips((current) => (sameReplyChips(current, next) ? current : next))
+    }
+    const scheduleMeasure = () => {
+      if (frame !== null) return
+      frame = requestAnimationFrame(() => {
+        frame = null
+        measure()
+      })
+    }
+    measure()
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleMeasure)
+    resizeObserver?.observe(root)
+    resizeObserver?.observe(body)
+    window.addEventListener('resize', scheduleMeasure)
+    window.visualViewport?.addEventListener('resize', scheduleMeasure)
+    document.addEventListener('toggle', scheduleMeasure, true)
+    document.fonts?.addEventListener('loadingdone', scheduleMeasure)
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame)
+      resizeObserver?.disconnect()
+      window.removeEventListener('resize', scheduleMeasure)
+      window.visualViewport?.removeEventListener('resize', scheduleMeasure)
+      document.removeEventListener('toggle', scheduleMeasure, true)
+      document.fonts?.removeEventListener('loadingdone', scheduleMeasure)
+    }
+  }, [data.status, domRevision, messageId, replyTargets])
 
   useEffect(() => {
     const body = bodyRef.current
@@ -542,9 +779,9 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   return (
     <section
       ref={rootRef}
-      className={`dia-assistant${flash ? ' dia-flash' : ''}`}
+      className={`dia-assistant${children === undefined ? '' : ' dia-assistant--decorator'}${flash ? ' dia-flash' : ''}`}
       tabIndex={-1}
-      data-dsh-inline-message-id={messageId}
+      data-dsh-annotation-message-id={messageId}
     >
       <div
         ref={bodyRef}
@@ -553,7 +790,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         onPointerMove={(event) => {
           if (
             event.target instanceof Element &&
-            event.target.closest('[data-dsh-inline-comment-ignore="true"]') !== null
+            event.target.closest('[data-dsh-annotation-ignore="true"]') !== null
           ) {
             setHover(null)
             return
@@ -567,7 +804,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         onClick={(event) => {
           if (
             event.target instanceof Element &&
-            event.target.closest('[data-dsh-inline-comment-ignore="true"]') !== null
+            event.target.closest('[data-dsh-annotation-ignore="true"]') !== null
           ) {
             return
           }
@@ -576,54 +813,55 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
           if (annotation !== undefined) openAnnotation(annotation.annotationId)
         }}
       >
-        {data.blocks.map((block, index) => {
-          if (block.kind === 'text')
-            return (
-              <MarkdownText
-                key={`text:${index}`}
-                text={stripModelAcknowledgementMarkers(block.text)}
-                streaming={data.status === 'running'}
-                codeLabels={codeLabels}
-                fileMentions={mentions}
-              />
-            )
-          if (block.kind === 'reasoning')
-            return (
-              <AnnotationReasoningRow
-                key={`reasoning:${index}`}
-                text={stripModelAcknowledgementMarkers(block.text)}
-                running={data.status === 'running' && index === data.blocks.length - 1}
-                t={t}
-              />
-            )
-          if (block.kind === 'image') {
-            const previous = data.blocks[index - 1]
-            if (previous !== undefined && previous.kind === 'image') return null
-            const group: Array<{ attachment: typeof block.attachment }> = []
-            for (let cursor = index; cursor < data.blocks.length; cursor += 1) {
-              const current = data.blocks[cursor]
-              if (current?.kind !== 'image') break
-              group.push({ attachment: current.attachment })
+        {children ??
+          data.blocks.map((block, index) => {
+            if (block.kind === 'text')
+              return (
+                <MarkdownText
+                  key={`text:${index}`}
+                  text={stripMachineMarkers(block.text)}
+                  streaming={data.status === 'running'}
+                  codeLabels={codeLabels}
+                  fileMentions={mentions}
+                />
+              )
+            if (block.kind === 'reasoning')
+              return (
+                <AnnotationReasoningRow
+                  key={`reasoning:${index}`}
+                  text={stripMachineMarkers(block.text)}
+                  running={data.status === 'running' && index === data.blocks.length - 1}
+                  t={t}
+                />
+              )
+            if (block.kind === 'image') {
+              const previous = data.blocks[index - 1]
+              if (previous !== undefined && previous.kind === 'image') return null
+              const group: Array<{ attachment: typeof block.attachment }> = []
+              for (let cursor = index; cursor < data.blocks.length; cursor += 1) {
+                const current = data.blocks[cursor]
+                if (current?.kind !== 'image') break
+                group.push({ attachment: current.attachment })
+              }
+              return (
+                <Fragment key={`image:${block.attachment.attachmentId}:${index}`}>
+                  {renderMessageImages({ images: group, align: 'start' })}
+                </Fragment>
+              )
             }
-            return (
-              <Fragment key={`image:${block.attachment.attachmentId}:${index}`}>
-                {renderMessageImages({ images: group, align: 'start' })}
-              </Fragment>
-            )
-          }
-          if (block.kind === 'other')
-            return (
-              <JsonBlock
-                key={`other:${index}`}
-                label={t('assistant.other')}
-                payload={block.block}
-                truncatedLabel={(total) => t('json.truncated', { total })}
-              />
-            )
-          return null
-        })}
-        {data.status === 'interrupted' && (
-          <span className="dia-assistant__stopped" data-dsh-inline-comment-ignore="true">
+            if (block.kind === 'other')
+              return (
+                <JsonBlock
+                  key={`other:${index}`}
+                  label={t('assistant.other')}
+                  payload={block.block}
+                  truncatedLabel={(total) => t('json.truncated', { total })}
+                />
+              )
+            return null
+          })}
+        {children === undefined && data.status === 'interrupted' && (
+          <span className="dia-assistant__stopped" data-dsh-annotation-ignore="true">
             {t('assistant.interrupted')}
           </span>
         )}
@@ -631,7 +869,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       {annotations.length > 0 && (
         <nav className="dia-markers" aria-label={t('list.title')}>
           {annotations.map((annotation) => (
-            <Tooltip key={annotation.annotationId} label={annotation.comment} side="top" delayMs={300}>
+            <Tooltip key={annotation.annotationId} label={annotation.annotation} side="top" delayMs={300}>
               <button
                 type="button"
                 className="dia-marker"
@@ -642,7 +880,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
                   top: markerPositions.get(annotation.annotationId)?.top ?? (annotation.ordinal - 1) * 30,
                   left: markerPositions.get(annotation.annotationId)?.left ?? 'calc(100% + 6px)',
                 }}
-                aria-label={`#${annotation.ordinal}: ${annotation.comment}`}
+                aria-label={`#${annotation.ordinal}: ${annotation.annotation}`}
                 onClick={() => openAnnotation(annotation.annotationId)}
               >
                 <span>{annotation.ordinal}</span>
@@ -651,9 +889,46 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
           ))}
         </nav>
       )}
+      {replyChips.length > 0 && (
+        <nav className="dia-reply-chips">
+          {replyChips.map((chip) => (
+            <button
+              key={chip.key}
+              type="button"
+              className="dia-reply-chip"
+              style={{ top: chip.top, left: chip.left }}
+              aria-label={t('reply.chipLabel', {
+                ordinal: chip.ordinal,
+                quote: chip.annotation.quote.exact,
+                annotation: chip.annotation.annotation,
+              })}
+              onPointerEnter={() => setReplyHover(chip)}
+              onPointerLeave={() => setReplyHover(null)}
+              onFocus={() => setReplyHover(chip)}
+              onBlur={() => setReplyHover(null)}
+              onClick={() => openAnnotation(chip.annotation.annotationId)}
+            >
+              {t('reply.chip', { ordinal: chip.ordinal })}
+            </button>
+          ))}
+        </nav>
+      )}
+      {replyHover !== null && (
+        <aside
+          className="dia-hover dia-reply-popover"
+          style={{
+            left: Math.max(12, Math.min(replyHover.viewportLeft, window.innerWidth - 320)),
+            top: Math.min(replyHover.viewportTop, window.innerHeight - 120),
+          }}
+        >
+          <strong>{t('reply.chip', { ordinal: replyHover.ordinal })}</strong>
+          <q>{replyHover.annotation.quote.exact}</q>
+          <p>{replyHover.annotation.annotation}</p>
+        </aside>
+      )}
       {hover !== null && (
         <aside className="dia-hover" style={{ left: hover.x, top: hover.y }}>
-          <strong>#{hover.annotation.ordinal}</strong> {hover.annotation.comment}
+          <strong>#{hover.annotation.ordinal}</strong> {hover.annotation.annotation}
         </aside>
       )}
       {selectionBar !== null && (

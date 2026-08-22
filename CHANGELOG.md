@@ -4,6 +4,31 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed the plugin runtime identity to **dsh-annotation**: the npm package name, bundle row, settings namespace, settings card, internal command (`annotation_submit`), log prefixes, Slot ids, locale namespace, DOM data attributes, and CSS Custom Highlight names all use the new identity, while the development directory name and repository URL are unchanged.
+- Unified the user-visible Chinese terminology on 注解 and the internal domain model on annotation semantics (`comment` → `annotation`, `inlineComments` → `annotations`, `inline-comments-submit` → `annotation-submit`).
+- Upgraded the internal protocol to v2 (`protocolVersion: 2`, `source: "dsh-annotation"`, `annotation` field). New submissions only emit v2; legacy v1 payloads are still read and converted, historical messages are never rewritten, and legacy acknowledgement and reply markers remain authoritative reads while new messages only emit `dsh-annotation-*` markers.
+- Migrated browser storage to the `dsh-annotation:v1:<session-id>` namespace: legacy keys are validated, converted, and written to the new key before removal, and a failed migration keeps the legacy data. The legacy `inline-comments` settings namespace migrates the same way, and the legacy internal command names forward to the new handler through invisible aliases.
+- Enabled official slash commands while annotations are attached: composer content starting with `/` temporarily releases the input claim and removes the zero-width token, the claim re-arms when command state ends, `claim.submit()` re-checks slash commands to defeat the Enter race, and a raced command routes through the rc.2 official Session command interface without creating an outbox, sending annotations, or marking them sent.
+- Merged composer images into the same submission: the claim declares `CommandClaim.images = true`, images travel as rc.2 standard command attachments, the internal command declares `input.images = true`, the Host appends the admitted durable image blocks to the single user message, and the custom user node renders official image thumbnails and the official image viewer. The outbox stores only image count, media types, and names; after a refresh, a recorded image batch refuses to resubmit without images and offers re-selection or discarding the pending record.
+- Restored focus and the previous caret position to the official composer after saving a new annotation (one microtask plus one frame, DOM adapter scoped to the current Session's composer card, no text overwrite, no focus grab on save failure, cancel, Session switch, or edits to existing annotations).
+- Completed Chinese input-method handling in the annotation editor: Enter during composition only confirms the candidate, the post-composition Enter never saves, a plain Enter saves, Shift+Enter inserts a newline, Escape during composition never closes the editor, and composition events never reach the official composer.
+- The model prompt now demands ordered per-annotation replies: each paragraph starts with `注解 N：`, annotations are never merged, a hidden `dsh-annotation-reply` marker precedes each paragraph, and the reply ends with the `dsh-annotation` acknowledgement marker. The Client validates markers against the current Session, locates each `注解 N` heading by text Range, and overlays React chips that show the annotation number, source quote, and user annotation on hover or keyboard focus; unknown, duplicate, forged, and malformed markers are ignored, and reply markers never mutate business state.
+- Stopped registering a competing `conversation.chat.node:assistant-step` entry. The Client now decorates every existing assistant renderer in place, composes its inject face, and restores both fields on disable or unload so renderer plugins such as `dsh-smooth-stream` can remain the sole keyed owner.
+- Rebuild annotation ranges and marker geometry after an inner renderer mutates its DOM, while excluding live-region and Think text from persistent quote offsets.
+- Matched the rc.2 official queue-action geometry in the annotation summary header: 10 px action spacing, 28 px circular targets, and the official interactive hover background.
+- Added a Host-backed, on-by-default automatic-attachment switch. Saving a new annotation now attaches the live annotation set to the official composer, whose Enter key sends it together with visible composer text and images; editing an existing annotation remains attach-neutral and the paperclip remains the manual override.
+
+### Fixed
+
+- A manual detach click on the annotation summary box now sticks: the input-state repair watcher no longer re-attaches the claim after the user cancelled the attachment, while the slash-command release still auto-restores the attachment when the command state ends.
+- Clearing the last draft annotation now releases the armed composer claim immediately (even while the claim is still in the claimed phase), so ordinary composer text sends through the official plain-message path afterwards.
+- An Enter that lands right after the annotations were cleared no longer fails with the raw `no draft annotations to submit` error: the claim is released after settlement and the composer shows a friendly localized notice, keeping the typed text for the next Enter.
+- The annotation summary box's fold button now keeps the same 6 px right margin from the visible card edge as the official task summary box (including the dsh-queue-plus takeover of QueueDock).
+- Locate source now survives the history-page race: after `loadOlder` resolves, the Client waits a few frames for the mounted assistant node to register its endpoint instead of failing a synchronous check, and the reveal re-measures once after scrolling an unrendered reply into view (lazy-rendered or `content-visibility` content).
+- Editing an existing annotation no longer positions or locates anything in the assistant body: the editor opens inline inside the annotation summary box (including marker-clicked edits and supplemental annotations), so a failed marker lookup can no longer strand the popup at the body's top-right corner.
+
 ## [0.1.3] - 2026-08-22
 
 ### Changed

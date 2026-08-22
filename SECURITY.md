@@ -11,7 +11,7 @@ Support also requires a DSH version listed in [Compatibility](docs/compatibility
 
 ## Reporting a vulnerability
 
-Do not open a public issue. Use GitHub's private vulnerability reporting for this repository. If that feature is unavailable, contact the repository owner through the private address listed in the GitHub profile and include `dsh-inline-comments security` in the subject.
+Do not open a public issue. Use GitHub's private vulnerability reporting for this repository. If that feature is unavailable, contact the repository owner through the private address listed in the GitHub profile and include `dsh-annotation security` in the subject.
 
 Include:
 

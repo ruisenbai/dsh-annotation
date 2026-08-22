@@ -6,9 +6,9 @@ import { AnnotatedAssistantNode } from '../src/client/components/AnnotatedAssist
 import { AnnotatedUserNode } from '../src/client/components/AnnotatedUserNode.tsx'
 import { AnnotationDock } from '../src/client/components/AnnotationDock.tsx'
 import {
-  InlineCommentsPluginCard,
-  type InlineCommentsPluginCardProps,
-} from '../src/client/components/InlineCommentsPluginCard.tsx'
+  AnnotationPluginCard,
+  type AnnotationPluginCardProps,
+} from '../src/client/components/AnnotationPluginCard.tsx'
 import { COMPOSER_ATTACHMENT_TOKEN } from '../src/client/composer-attachment.ts'
 import type { AnnotationView } from '../src/client/controller.ts'
 import type {
@@ -16,7 +16,7 @@ import type {
   InputAnnotationProps,
   UserAnnotationProps,
 } from '../src/client/contract.ts'
-import type { InlineCommentLocaleKey } from '../src/client/locales.ts'
+import type { AnnotationLocaleKey } from '../src/client/locales.ts'
 import { styles } from '../src/client/styles.ts'
 import { fixturePayload } from './fixtures.ts'
 
@@ -26,12 +26,14 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-const t = (key: InlineCommentLocaleKey, params?: Record<string, unknown>) => {
-  const values: Partial<Record<InlineCommentLocaleKey, string>> = {
+const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
+  const values: Partial<Record<AnnotationLocaleKey, string>> = {
     'settings.title': 'DSH Inline Comments',
     'settings.description': 'Show inline comment features.',
     'settings.cardDescription': 'Selection comments and composer attachments.',
     'settings.toggle': 'Enable DSH Inline Comments',
+    'settings.autoAttach': 'Attach new comments to the composer automatically',
+    'settings.autoAttachHint': 'Saving a new comment attaches it to the official composer.',
     'settings.on': 'On',
     'settings.off': 'Off',
     'settings.expand': 'Show settings',
@@ -56,7 +58,6 @@ const t = (key: InlineCommentLocaleKey, params?: Record<string, unknown>) => {
     'attach.add': `Attach ${String(params?.count)} comments to the next send`,
     'attach.remove': `Detach ${String(params?.count)} comments`,
     'attach.archived': 'Archived tasks cannot attach comments',
-    'attach.images': 'Inline comments cannot be sent with images',
     'attach.busy': 'The composer is busy',
     'attach.empty': 'No comments are available to attach',
     'panel.pending': `${String(params?.count)} ready to attach`,
@@ -85,7 +86,7 @@ const t = (key: InlineCommentLocaleKey, params?: Record<string, unknown>) => {
     'toast.failed': `Send failed; comments remain attached for submission ${String(params?.id)}`,
     'editor.title': 'Add comment',
     'editor.editTitle': 'Edit comment',
-    'editor.commentLabel': 'Your comment',
+    'editor.annotationLabel': 'Your annotation',
     'editor.shortcut': 'Ctrl/⌘ ↵ to save',
     'editor.autosaving': 'Saving locally…',
     'editor.autosaved': 'Automatically saved locally',
@@ -94,8 +95,12 @@ const t = (key: InlineCommentLocaleKey, params?: Record<string, unknown>) => {
     'editor.save': 'Save comment',
     'editor.placeholder': 'Explain what to change',
     'selection.toolbar': 'Selection actions',
-    'selection.annotate': 'Add comment',
+    'selection.annotate': 'Add annotation',
     'selection.copy': 'Copy',
+    'error.imagesRequired': `Re-select the ${String(params?.count)} images or discard the record.`,
+    'list.discard': 'Discard this pending record',
+    'reply.chip': `Annotation ${String(params?.ordinal)}`,
+    'reply.chipLabel': `Annotation ${String(params?.ordinal)}: ${String(params?.quote)} · ${String(params?.annotation)}`,
   }
   return values[key] ?? key
 }
@@ -127,11 +132,15 @@ const idleInput = {
 } as const
 const noAttachmentRepair = () => undefined
 const noAttachmentToggle = () => true
+const noAutoAttach = () => false
+const noEnsureAttachment = () => true
 
 function TestAnnotationDock({
   input = idleInput as InputAnnotationProps['input'],
   repairComposerAttachment = noAttachmentRepair,
   toggleComposerAttachment = noAttachmentToggle,
+  autoAttachEnabled = noAutoAttach,
+  ensureComposerAttachment = noEnsureAttachment,
   ...props
 }: InputAnnotationProps) {
   return (
@@ -139,6 +148,8 @@ function TestAnnotationDock({
       input={input}
       repairComposerAttachment={repairComposerAttachment}
       toggleComposerAttachment={toggleComposerAttachment}
+      autoAttachEnabled={autoAttachEnabled}
+      ensureComposerAttachment={ensureComposerAttachment}
       {...props}
     />
   )
@@ -150,6 +161,8 @@ describe('plugin settings card', () => {
     writable: true,
     enabled: true,
     overridden: false,
+    autoAttach: true,
+    autoAttachOverridden: false,
     dirty: false,
     saving: false,
     failed: false,
@@ -161,23 +174,27 @@ describe('plugin settings card', () => {
       useSettingsCard: <S,>(selector: (value: typeof snapshot) => S) => selector(snapshot),
       setEnabled: vi.fn(),
       resetEnabled: vi.fn(),
+      setAutoAttach: vi.fn(),
+      resetAutoAttach: vi.fn(),
       save: vi.fn(),
       discard: vi.fn(),
       t,
-    } as unknown as InlineCommentsPluginCardProps
+    } as unknown as AnnotationPluginCardProps
   }
 
   it('stages the switch and writes only from the card footer', () => {
     const props = cardProps({ dirty: true })
-    render(<InlineCommentsPluginCard {...props} />)
+    render(<AnnotationPluginCard {...props} />)
 
     expect(screen.queryByRole('switch')).not.toBeInTheDocument()
     fireEvent.click(screen.getByText('DSH Inline Comments'))
     fireEvent.click(screen.getByRole('switch', { name: 'Enable DSH Inline Comments' }))
+    fireEvent.click(screen.getByRole('switch', { name: 'Attach new comments to the composer automatically' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
 
     expect(props.setEnabled).toHaveBeenCalledWith(false)
+    expect(props.setAutoAttach).toHaveBeenCalledWith(false)
     expect(props.save).toHaveBeenCalledOnce()
     expect(props.discard).toHaveBeenCalledOnce()
     expect(screen.getByText('Unsaved')).toBeInTheDocument()
@@ -185,11 +202,12 @@ describe('plugin settings card', () => {
 
   it('offers override reset and reports read-only save failures', () => {
     const props = cardProps({ writable: false, overridden: true, dirty: true, failed: true })
-    render(<InlineCommentsPluginCard {...props} />)
+    render(<AnnotationPluginCard {...props} />)
     fireEvent.click(screen.getByText('DSH Inline Comments'))
 
     expect(screen.getByText('This deployment stores settings read-only.')).toHaveAttribute('role', 'status')
-    expect(screen.getByRole('switch')).toBeDisabled()
+    expect(screen.getAllByRole('switch')).toHaveLength(2)
+    for (const control of screen.getAllByRole('switch')) expect(control).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Reset to default' })).toBeDisabled()
     expect(screen.getByText('The deployment did not accept this value.')).toBeInTheDocument()
   })
@@ -285,6 +303,15 @@ describe('inline comment presentation', () => {
       images: [{ attachment: firstAttachment }, { attachment: secondAttachment }],
       align: 'start',
     })
+
+    cleanup()
+    render(
+      <AnnotatedAssistantNode {...assistantProps}>
+        <div data-testid="composed-assistant">Existing renderer output</div>
+      </AnnotatedAssistantNode>,
+    )
+    expect(screen.getByTestId('composed-assistant')).toBeInTheDocument()
+    expect(renderAssistantImages).toHaveBeenCalledOnce()
   })
 
   it('shows the composer dock only when recoverable comment state exists', () => {
@@ -333,7 +360,7 @@ describe('inline comment presentation', () => {
       annotationId: 'ann-test-2' as typeof annotation.annotationId,
       ordinal: 2,
       quote: { ...annotation.quote, exact: 'second selected source' },
-      comment: 'Use a concrete example here.',
+      annotation: 'Use a concrete example here.',
     }
     const navigate = vi.fn(async () => true)
     const toggleComposerAttachment = vi.fn(() => true)
@@ -356,16 +383,21 @@ describe('inline comment presentation', () => {
       withdraw: vi.fn(),
       t,
     } as unknown as InputAnnotationProps
-    render(<TestAnnotationDock {...props} />)
+    render(
+      <>
+        <style>{styles}</style>
+        <TestAnnotationDock {...props} />
+      </>,
+    )
 
     const panel = screen.getByRole('region', { name: 'Inline comments' })
     expect(panel).toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: 'Inline comments' })).not.toBeInTheDocument()
     const rows = panel.querySelectorAll<HTMLElement>('.dia-item')
     expect(rows).toHaveLength(2)
-    expect(within(panel).getByText(secondAnnotation.comment)).toBeInTheDocument()
+    expect(within(panel).getByText(secondAnnotation.annotation)).toBeInTheDocument()
     const firstRow = within(rows[0]!)
-    const comment = firstRow.getByText(annotation.comment)
+    const comment = firstRow.getByText(annotation.annotation)
     expect(comment.parentElement?.children).toHaveLength(2)
     expect(within(panel).queryByText(annotation.annotationId)).not.toBeInTheDocument()
     expect(within(panel).queryByLabelText('Overall request (optional)')).not.toBeInTheDocument()
@@ -384,11 +416,19 @@ describe('inline comment presentation', () => {
     expect(props.deleteDraft).toHaveBeenCalledWith(annotation.annotationId)
 
     const attach = screen.getByRole('button', { name: 'Attach 2 comments to the next send' })
+    const summaryActions = attach.closest('.dia-dock__actions')
+    expect(summaryActions).not.toBeNull()
+    expect(window.getComputedStyle(summaryActions!)).toMatchObject({ gap: '10px' })
+    expect(window.getComputedStyle(attach)).toMatchObject({
+      width: '28px',
+      height: '28px',
+      borderRadius: '999px',
+    })
     expect(
       attach.compareDocumentPosition(screen.getByRole('button', { name: 'Collapse inline comments' })),
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     fireEvent.click(attach)
-    expect(toggleComposerAttachment).toHaveBeenCalledWith('error.images')
+    expect(toggleComposerAttachment).toHaveBeenCalled()
     expect(props.setPanelOpen).not.toHaveBeenCalled()
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(props.setPanelOpen).toHaveBeenCalledWith(false)
@@ -431,7 +471,7 @@ describe('inline comment presentation', () => {
     const detach = screen.getByRole('button', { name: 'Detach 1 comments' })
     expect(detach).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(detach)
-    expect(toggleComposerAttachment).toHaveBeenCalledWith('error.images')
+    expect(toggleComposerAttachment).toHaveBeenCalled()
     expect(setPanelOpen).not.toHaveBeenCalled()
     expect(screen.getByRole('region', { name: 'Inline comments' })).toBeInTheDocument()
   })
@@ -637,7 +677,7 @@ describe('inline comment presentation', () => {
       ordinal: 2,
       status: 'queued' as const,
       submissionId: payload.submissionId,
-      comment: 'Queued note',
+      annotation: 'Queued note',
     }
     const sent = {
       ...draft,
@@ -645,7 +685,7 @@ describe('inline comment presentation', () => {
       ordinal: 3,
       status: 'sent' as const,
       submissionId: payload.submissionId,
-      comment: 'Sent note',
+      annotation: 'Sent note',
     }
     const undoDelete = vi.fn()
     const clearLocalDrafts = vi.fn()
@@ -753,13 +793,13 @@ describe('inline comment presentation', () => {
     fireEvent.pointerUp(paragraph)
 
     const bar = screen.getByRole('toolbar', { name: 'Selection actions' })
-    expect(bar).toHaveTextContent('Add comment')
+    expect(bar).toHaveTextContent('Add annotation')
     expect(bar).toHaveTextContent('Copy')
     expect(bar).toHaveStyle({ left: '40px', top: '50px' })
     expect(beginSelection).not.toHaveBeenCalled()
     expect(selection.isCollapsed).toBe(false)
 
-    fireEvent.click(within(bar).getByRole('button', { name: 'Add comment' }))
+    fireEvent.click(within(bar).getByRole('button', { name: 'Add annotation' }))
     expect(beginSelection).toHaveBeenCalledOnce()
     expect(beginSelection).toHaveBeenCalledWith(
       expect.objectContaining({ quote: expect.objectContaining({ exact: 'selected text' }) }),
@@ -896,7 +936,7 @@ describe('inline comment presentation', () => {
         start: 0,
         end: 6,
       },
-      comment: 'Clarify the introduction.',
+      annotation: 'Clarify the introduction.',
     }
     const rangeRects = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects')
     const elementRect = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'getBoundingClientRect')
@@ -917,7 +957,7 @@ describe('inline comment presentation', () => {
     Object.defineProperty(Range.prototype, 'getClientRects', {
       configurable: true,
       value(this: Range) {
-        const ignored = this.startContainer.parentElement?.closest('[data-dsh-inline-comment-ignore="true"]')
+        const ignored = this.startContainer.parentElement?.closest('[data-dsh-annotation-ignore="true"]')
         if (ignored !== null) return [rect(105, 140, 80)] as unknown as DOMRectList
         const text = this.toString()
         if (text === 'selected source') return [rect(finalLineTop, 260, 100)] as unknown as DOMRectList
@@ -1007,7 +1047,7 @@ describe('inline comment presentation', () => {
       ...base,
       annotationId: `ann-mobile-${index + 1}` as typeof base.annotationId,
       ordinal: index + 1,
-      comment: `Mobile note ${index + 1}`,
+      annotation: `Mobile note ${index + 1}`,
     }))
     const rangeRects = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects')
     const elementRect = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'getBoundingClientRect')
@@ -1058,7 +1098,7 @@ describe('inline comment presentation', () => {
       } as unknown as AssistantAnnotationProps
       const { container, rerender } = render(<AnnotatedAssistantNode {...props} />)
       const markers = annotations.map((annotation) =>
-        screen.getByRole('button', { name: `#${annotation.ordinal}: ${annotation.comment}` }),
+        screen.getByRole('button', { name: `#${annotation.ordinal}: ${annotation.annotation}` }),
       )
 
       await waitFor(() =>
@@ -1288,7 +1328,7 @@ describe('inline comment presentation', () => {
       </>,
     )
 
-    const input = screen.getByLabelText('Your comment')
+    const input = screen.getByLabelText('Your annotation')
     fireEvent.pointerDown(document.body)
     expect(closeEditor).toHaveBeenCalledWith()
     expect(input).toHaveAttribute('aria-invalid', 'true')
@@ -1343,9 +1383,10 @@ describe('inline comment presentation', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('uses a selection-positioned editor and saves with the keyboard shortcut', () => {
+  it('uses a selection-positioned editor, saves with the keyboard shortcut, and auto-attaches', () => {
     const payload = fixturePayload()
-    const saveEditor = vi.fn()
+    const saveEditor = vi.fn(() => payload.annotations[0]!.annotationId)
+    const ensureComposerAttachment = vi.fn(() => true)
     const closeEditor = vi.fn(() => true)
     const setPanelOpen = vi.fn()
     const view: AnnotationView = {
@@ -1373,6 +1414,8 @@ describe('inline comment presentation', () => {
       closeEditor,
       setPanelOpen,
       saveEditor,
+      autoAttachEnabled: () => true,
+      ensureComposerAttachment,
       updateEditorText: vi.fn(),
       confirmLongSelection: vi.fn(),
       t,
@@ -1388,14 +1431,15 @@ describe('inline comment presentation', () => {
     expect(editor).toHaveStyle({ top: '72px', left: '80px' })
     expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
     expect(window.getComputedStyle(editor).boxSizing).toBe('border-box')
-    fireEvent.keyDown(screen.getByLabelText('Your comment'), { key: 'Enter', ctrlKey: true })
+    fireEvent.keyDown(screen.getByLabelText('Your annotation'), { key: 'Enter', ctrlKey: true })
     expect(saveEditor).toHaveBeenCalledOnce()
+    expect(ensureComposerAttachment).toHaveBeenCalled()
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(closeEditor).toHaveBeenCalled()
     expect(setPanelOpen).not.toHaveBeenCalled()
   })
 
-  it('opens a marker-clicked draft editor beside its number with a delete action', () => {
+  it('edits an existing draft inline inside the summary box with a delete action', () => {
     const payload = fixturePayload()
     const annotation = {
       ...payload.annotations[0]!,
@@ -1406,7 +1450,7 @@ describe('inline comment presentation', () => {
     const view: AnnotationView = {
       ...baseView(),
       annotations: [annotation],
-      editor: { kind: 'edit', annotationId: annotation.annotationId, text: annotation.comment },
+      editor: { kind: 'edit', annotationId: annotation.annotationId, text: annotation.annotation },
     }
     const props = {
       sessionId: payload.sessionId,
@@ -1421,29 +1465,296 @@ describe('inline comment presentation', () => {
       deleteDraft,
       t,
     } as unknown as InputAnnotationProps
-    const marker = document.createElement('button')
-    marker.type = 'button'
-    marker.className = 'dia-marker'
-    marker.dataset.annotationId = annotation.annotationId
-    marker.getBoundingClientRect = () => new DOMRect(284, 240, 16, 16)
-    document.body.append(marker)
-    try {
-      render(
-        <>
-          <style>{styles}</style>
-          <TestAnnotationDock {...props} />
-        </>,
-      )
+    render(
+      <>
+        <style>{styles}</style>
+        <TestAnnotationDock {...props} />
+      </>,
+    )
 
-      const editor = screen.getByRole('dialog', { name: 'Edit comment' })
-      expect(editor).toHaveStyle({ top: '234px', left: '308px' })
-      const deleteButton = screen.getByRole('button', { name: 'Delete' })
-      expect(deleteButton).toHaveAttribute('data-danger', 'true')
-      fireEvent.click(deleteButton)
-      expect(deleteDraft).toHaveBeenCalledOnce()
-      expect(deleteDraft).toHaveBeenCalledWith(annotation.annotationId)
-    } finally {
-      marker.remove()
+    // 编辑已有注解不再定位正文：编辑器直接内嵌在注解汇总框内。
+    const editor = screen.getByRole('dialog', { name: 'Edit comment' })
+    expect(editor).toHaveClass('dia-editor--inline')
+    expect(editor).not.toHaveStyle({ top: expect.any(String), left: expect.any(String) })
+    expect(editor.closest('.dia-dock-shell')).not.toBeNull()
+    const deleteButton = screen.getByRole('button', { name: 'Delete' })
+    expect(deleteButton).toHaveAttribute('data-danger', 'true')
+    fireEvent.click(deleteButton)
+    expect(deleteDraft).toHaveBeenCalledOnce()
+    expect(deleteDraft).toHaveBeenCalledWith(annotation.annotationId)
+  })
+})
+
+function assistantPropsFor(
+  view: AnnotationView,
+  status: 'running' | 'closed',
+  blocks: unknown[],
+  openAnnotation: (...args: unknown[]) => void = vi.fn(),
+): AssistantAnnotationProps {
+  return {
+    node: {
+      data: {
+        status,
+        blocks,
+        finalNode: { messageId: 'assistant-chip', seq: 9 },
+      },
+      location: { kind: 'root' },
+    },
+    useTurnData: () => undefined,
+    openFile: vi.fn(),
+    renderMessageImages: () => null,
+    fileMentions: vi.fn(),
+    useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+    beginSelection: vi.fn(),
+    openAnnotation,
+    registerEndpoint: vi.fn(() => () => undefined),
+    updateHighlightRanges: vi.fn(),
+    activateHighlight: vi.fn(),
+    removeHighlights: vi.fn(),
+    t,
+  } as unknown as AssistantAnnotationProps
+}
+
+describe('reply chips', () => {
+  const rangeRects = Object.getOwnPropertyDescriptor(Range.prototype, 'getBoundingClientRect')
+  const elementRect = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'getBoundingClientRect')
+
+  afterEach(() => {
+    if (rangeRects === undefined) Reflect.deleteProperty(Range.prototype, 'getBoundingClientRect')
+    else Object.defineProperty(Range.prototype, 'getBoundingClientRect', rangeRects)
+    if (elementRect === undefined) Reflect.deleteProperty(HTMLElement.prototype, 'getBoundingClientRect')
+    else Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', elementRect)
+  })
+
+  function chipGeometry() {
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 100, left: 200, right: 260, bottom: 118, width: 60, height: 18 }),
+    })
+    Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 0, left: 0, right: 800, bottom: 400, width: 800, height: 400 }),
+    })
+  }
+
+  it('overlays a chip on a marker-backed heading and reveals source on focus', async () => {
+    chipGeometry()
+    const payload = fixturePayload()
+    const annotation = {
+      ...payload.annotations[0]!,
+      status: 'sent' as const,
+      updatedAt: payload.createdAt,
+      submissionId: payload.submissionId,
     }
+    const rawText = `<!-- dsh-annotation-reply:{"submissionId":"${payload.submissionId}","annotationId":"${payload.annotations[0]!.annotationId}","ordinal":1} -->\n注解 1：已处理这段内容。`
+    const openAnnotation = vi.fn()
+    const view: AnnotationView = { ...baseView(), annotations: [annotation] }
+    render(
+      <AnnotatedAssistantNode
+        {...assistantPropsFor(view, 'closed', [{ kind: 'text', text: rawText }], openAnnotation)}
+      />,
+    )
+
+    const chip = await screen.findByRole('button', { name: /Annotation 1:/u })
+    expect(chip).toHaveTextContent('Annotation 1')
+    expect(chip).toHaveStyle({ top: '100px', left: '200px' })
+    expect(screen.queryByText('dsh-annotation-reply')).not.toBeInTheDocument()
+
+    fireEvent.focus(chip)
+    expect(screen.getByText('selected source')).toBeInTheDocument()
+    expect(screen.getByText('Explain this claim.')).toBeInTheDocument()
+    fireEvent.blur(chip)
+    expect(screen.queryByText('selected source')).not.toBeInTheDocument()
+
+    fireEvent.click(chip)
+    expect(openAnnotation).toHaveBeenCalledWith(payload.annotations[0]!.annotationId)
+  })
+
+  it('ignores unknown, duplicate, and malformed markers while keeping plain text', async () => {
+    chipGeometry()
+    const payload = fixturePayload()
+    const annotation = {
+      ...payload.annotations[0]!,
+      status: 'sent' as const,
+      updatedAt: payload.createdAt,
+      submissionId: payload.submissionId,
+    }
+    const view: AnnotationView = { ...baseView(), annotations: [annotation] }
+    const { annotationId } = payload.annotations[0]!
+    const rawText = [
+      `<!-- dsh-annotation-reply:{"submissionId":"${payload.submissionId}","annotationId":"${annotationId}","ordinal":1} -->\n注解 1：第一段。`,
+      `<!-- dsh-annotation-reply:{"submissionId":"${payload.submissionId}","annotationId":"${annotationId}","ordinal":1} -->\n注解 1：重复标记被忽略。`,
+      `<!-- dsh-annotation-reply:{"submissionId":"unknown-sub","annotationId":"ann-unknown","ordinal":2} -->\n注解 2：伪造标记。`,
+      '<!-- dsh-annotation-reply:{bad} -->',
+      '注解 3：没有标记的普通文字。',
+    ].join('\n\n')
+    render(
+      <AnnotatedAssistantNode {...assistantPropsFor(view, 'closed', [{ kind: 'text', text: rawText }])} />,
+    )
+
+    const chips = await screen.findAllByRole('button', { name: /Annotation \d+:/u })
+    expect(chips).toHaveLength(1)
+    expect(screen.getByText(/注解 2：伪造标记。/u)).toBeInTheDocument()
+    expect(screen.getByText(/注解 3：没有标记的普通文字。/u)).toBeInTheDocument()
+  })
+
+  it('waits for streaming to settle before showing chips', () => {
+    chipGeometry()
+    const payload = fixturePayload()
+    const annotation = {
+      ...payload.annotations[0]!,
+      status: 'sent' as const,
+      updatedAt: payload.createdAt,
+      submissionId: payload.submissionId,
+    }
+    const rawText = `<!-- dsh-annotation-reply:{"submissionId":"${payload.submissionId}","annotationId":"${payload.annotations[0]!.annotationId}","ordinal":1} -->\n注解 1：回答中。`
+    const view: AnnotationView = { ...baseView(), annotations: [annotation] }
+    const props = assistantPropsFor(view, 'running', [{ kind: 'text', text: rawText }])
+    const { rerender } = render(<AnnotatedAssistantNode {...props} />)
+    expect(screen.queryByRole('button', { name: /Annotation 1:/u })).not.toBeInTheDocument()
+
+    rerender(
+      <AnnotatedAssistantNode {...assistantPropsFor(view, 'closed', [{ kind: 'text', text: rawText }])} />,
+    )
+    expect(screen.getByRole('button', { name: /Annotation 1:/u })).toBeInTheDocument()
+  })
+})
+
+describe('annotation editor input methods', () => {
+  function editorView(): AnnotationView {
+    const payload = fixturePayload()
+    return {
+      ...baseView(),
+      editor: {
+        kind: 'new',
+        capture: {
+          messageId: payload.annotations[0]!.messageId,
+          messageSeq: payload.annotations[0]!.messageSeq,
+          responseVersion: payload.annotations[0]!.responseVersion,
+          quote: payload.annotations[0]!.quote,
+          rect: { top: 40, left: 80, right: 180, bottom: 64 },
+        },
+        text: '输入内容',
+        longSelectionConfirmed: true,
+      },
+    }
+  }
+
+  it('never saves during composition, swallows the post-composition Enter, and saves on a plain Enter', async () => {
+    const payload = fixturePayload()
+    const saveEditor = vi.fn()
+    const closeEditor = vi.fn(() => true)
+    const view = editorView()
+    const props = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      closeEditor,
+      saveEditor,
+      updateEditorText: vi.fn(),
+      confirmLongSelection: vi.fn(),
+      t,
+    } as unknown as InputAnnotationProps
+    render(<TestAnnotationDock {...props} />)
+
+    const input = screen.getByLabelText('Your annotation')
+    fireEvent.compositionStart(input)
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+    expect(saveEditor).not.toHaveBeenCalled()
+
+    // Escape during composition must not close the editor.
+    fireEvent.keyDown(document, { key: 'Escape', keyCode: 229 })
+    expect(closeEditor).not.toHaveBeenCalled()
+
+    fireEvent.compositionEnd(input)
+    // The Enter produced by the same composition must not save.
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(saveEditor).not.toHaveBeenCalled()
+
+    // After the next event loop the latch clears; a plain Enter saves.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(saveEditor).toHaveBeenCalledOnce()
+
+    // Shift+Enter stays a newline and never saves.
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+    expect(saveEditor).toHaveBeenCalledOnce()
+  })
+
+  it('returns focus and the caret to the official composer after saving a new annotation', async () => {
+    const payload = fixturePayload()
+    const saveEditor = vi.fn(() => payload.annotations[0]!.annotationId)
+    const ensureComposerAttachment = vi.fn(() => true)
+    let view: AnnotationView = editorView()
+    const props = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      closeEditor: vi.fn(() => true),
+      saveEditor,
+      updateEditorText: vi.fn(),
+      confirmLongSelection: vi.fn(),
+      autoAttachEnabled: () => true,
+      ensureComposerAttachment,
+      t,
+    } as unknown as InputAnnotationProps
+    const tree = (
+      <div data-composer-card>
+        <textarea aria-label="Official composer" value="draft text" onChange={() => undefined} />
+        <TestAnnotationDock {...props} />
+      </div>
+    )
+    const { rerender } = render(tree)
+
+    const composer = screen.getByLabelText<HTMLTextAreaElement>('Official composer')
+    composer.focus()
+    composer.setSelectionRange(3, 3)
+    fireEvent.click(screen.getByRole('button', { name: 'Save comment' }))
+    expect(saveEditor).toHaveBeenCalledOnce()
+    expect(ensureComposerAttachment).toHaveBeenCalledOnce()
+
+    view = baseView()
+    rerender(tree)
+    await waitFor(() => expect(document.activeElement).toBe(composer))
+    expect(composer.value).toBe('draft text')
+    expect(composer.selectionStart).toBe(3)
+  })
+
+  it('does not force focus after editing an existing annotation', async () => {
+    const payload = fixturePayload()
+    const saveEditor = vi.fn(() => payload.annotations[0]!.annotationId)
+    const view: AnnotationView = {
+      ...baseView(),
+      editor: { kind: 'edit', annotationId: payload.annotations[0]!.annotationId, text: 'Edited' },
+    }
+    const props = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      closeEditor: vi.fn(() => true),
+      saveEditor,
+      updateEditorText: vi.fn(),
+      confirmLongSelection: vi.fn(),
+      t,
+    } as unknown as InputAnnotationProps
+    const tree = (
+      <div data-composer-card>
+        <textarea aria-label="Official composer" value="draft text" onChange={() => undefined} />
+        <TestAnnotationDock {...props} />
+      </div>
+    )
+    render(tree)
+
+    const composer = screen.getByLabelText<HTMLTextAreaElement>('Official composer')
+    fireEvent.click(screen.getByRole('button', { name: 'Save comment' }))
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    expect(document.activeElement).not.toBe(composer)
+    expect(composer.value).toBe('draft text')
   })
 })

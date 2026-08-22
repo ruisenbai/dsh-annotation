@@ -1,14 +1,14 @@
 {
-  "name": "dsh-inline-comments",
+  "name": "dsh-annotation",
   "version": "0.1.3",
-  "description": "Inline, batchable comments for DeepSeek Harness assistant replies",
+  "description": "Selection annotations for DeepSeek Harness assistant replies, sent through the official composer",
   "keywords": [
     "deepseek",
     "deepseek-harness",
     "dsh",
     "dsh-plugins",
     "cordis",
-    "comment",
+    "annotation",
     "review"
   ],
   "homepage": "https://github.com/ruisenbai/dsh-inline-comments#readme",
@@ -20,7 +20,7 @@
     "url": "git+https://github.com/ruisenbai/dsh-inline-comments.git"
   },
   "license": "MIT",
-  "author": "dsh-inline-comments contributors",
+  "author": "dsh-annotation contributors",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

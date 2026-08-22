@@ -172,7 +172,7 @@ function Fixture() {
             'sent',
             {
               kind: 'user',
-              data: { source: { kind: 'user', inlineComments: entry.payload } },
+              data: { source: { kind: 'user', annotationSubmission: entry.payload } },
             },
           ],
         ]),
@@ -208,6 +208,11 @@ function Fixture() {
     exportLocalData: controller.exportLocalData.bind(controller),
     clearLocalDrafts: controller.clearLocalDrafts.bind(controller),
     setPanelOpen: controller.setPanelOpen.bind(controller),
+    autoAttachEnabled: () => true,
+    ensureComposerAttachment: () => {
+      setAttached(true)
+      return true
+    },
     toggleComposerAttachment: () => {
       setAttached((current) => !current)
       return true
@@ -215,6 +220,9 @@ function Fixture() {
     repairComposerAttachment: () => undefined,
     withdraw: async (submissionId: Parameters<AnnotationController['markWithdrawn']>[0]) => {
       controller.markWithdrawn(submissionId)
+    },
+    discardOutbox: (submissionId: Parameters<AnnotationController['discardOutbox']>[0]) => {
+      controller.discardOutbox(submissionId)
     },
     navigate: controller.navigate.bind(controller),
     annotateMessage: controller.annotateMessage.bind(controller),
@@ -264,7 +272,7 @@ function Fixture() {
   return (
     <main className="browser-fixture">
       <style>{fixtureTokens + styles}</style>
-      <h1>Inline comment browser fixture</h1>
+      <h1>Annotation browser fixture</h1>
       <div className="browser-scroller" data-testid="conversation-scroll">
         <div className="browser-spacer" />
         <AnnotatedAssistantNode {...(assistantProps as unknown as AssistantAnnotationProps)} />

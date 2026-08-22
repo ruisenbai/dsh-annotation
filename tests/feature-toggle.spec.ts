@@ -23,22 +23,22 @@ vi.mock('@deepseek-ai/dsh-client-runtime/client', () => ({
   },
 }))
 
-import { InlineCommentsSettingsController } from '../src/client/feature-toggle.ts'
-import {
-  LEGACY_INLINE_COMMENTS_ENABLED_STORAGE_KEY,
-  type InlineCommentsSettings,
-} from '../src/shared/settings.ts'
+import { AnnotationSettingsController } from '../src/client/feature-toggle.ts'
+import { LEGACY_ANNOTATION_ENABLED_STORAGE_KEY, type AnnotationSettings } from '../src/shared/settings.ts'
 
-function settingsScope(initial?: boolean, writable = true) {
+function settingsScope(initial?: boolean, writable = true, initialAutoAttach?: boolean) {
   const listeners = new Set<() => void>()
-  let user: { enabled?: boolean } = initial === undefined ? {} : { enabled: initial }
+  let user: { enabled?: boolean; autoAttach?: boolean } = {
+    ...(initial === undefined ? {} : { enabled: initial }),
+    ...(initialAutoAttach === undefined ? {} : { autoAttach: initialAutoAttach }),
+  }
   let revision = 0
   let writeMode: 'accept' | 'retain' | 'throw' = 'accept'
   let deferred = false
   let releaseWrite: (() => void) | undefined
-  const snapshot = (): SettingsScopeSnapshot<InlineCommentsSettings> => ({
+  const snapshot = (): SettingsScopeSnapshot<AnnotationSettings> => ({
     status: 'ready',
-    value: { enabled: user.enabled ?? true },
+    value: { enabled: user.enabled ?? true, autoAttach: user.autoAttach ?? true },
     base: undefined,
     user,
     revision,
@@ -55,7 +55,7 @@ function settingsScope(initial?: boolean, writable = true) {
     revision += 1
     for (const listener of listeners) listener()
   }
-  const scope: SettingsScope<InlineCommentsSettings> = {
+  const scope: SettingsScope<AnnotationSettings> = {
     getSnapshot: snapshot,
     subscribe(listener) {
       listeners.add(listener)
@@ -64,15 +64,23 @@ function settingsScope(initial?: boolean, writable = true) {
     async set(field, value) {
       await waitForRelease()
       if (writeMode === 'throw') throw new Error('settings transport failed')
-      if (writeMode === 'accept' && field === 'enabled' && typeof value === 'boolean') {
-        user = { enabled: value }
+      if (
+        writeMode === 'accept' &&
+        (field === 'enabled' || field === 'autoAttach') &&
+        typeof value === 'boolean'
+      ) {
+        user = { ...user, [field]: value }
       }
       publish()
     },
     async unset(field) {
       await waitForRelease()
       if (writeMode === 'throw') throw new Error('settings transport failed')
-      if (writeMode === 'accept' && field === 'enabled') user = {}
+      if (writeMode === 'accept' && (field === 'enabled' || field === 'autoAttach')) {
+        const next = { ...user }
+        delete next[field]
+        user = next
+      }
       publish()
     },
   }
@@ -99,7 +107,7 @@ function settingsScope(initial?: boolean, writable = true) {
 function legacyStorage(initial?: boolean) {
   const values = new Map<string, string>()
   if (initial !== undefined) {
-    values.set(LEGACY_INLINE_COMMENTS_ENABLED_STORAGE_KEY, String(initial))
+    values.set(LEGACY_ANNOTATION_ENABLED_STORAGE_KEY, String(initial))
   }
   return {
     getItem: (key: string) => values.get(key) ?? null,
@@ -119,7 +127,7 @@ async function settle(): Promise<void> {
 describe('Host-backed feature setting', () => {
   it('stages changes without moving the feature and applies them after save', async () => {
     const fixture = settingsScope(false)
-    const controller = new InlineCommentsSettingsController(fixture.scope)
+    const controller = new AnnotationSettingsController(fixture.scope)
     const face = controller.inject()
 
     expect(controller.feature().getSnapshot()).toBe(false)
@@ -153,10 +161,44 @@ describe('Host-backed feature setting', () => {
     expect(fixture.listenerCount()).toBe(0)
   })
 
+  it('defaults auto-attach on and applies its staged switch only after save', async () => {
+    const fixture = settingsScope()
+    const controller = new AnnotationSettingsController(fixture.scope)
+    const face = controller.inject()
+
+    expect(controller.autoAttach().getSnapshot()).toBe(true)
+    expect(face.hooks.settingsCard.getSnapshot()).toMatchObject({
+      autoAttach: true,
+      autoAttachOverridden: false,
+    })
+
+    face.setAutoAttach(false)
+    expect(controller.autoAttach().getSnapshot()).toBe(true)
+    expect(face.hooks.settingsCard.getSnapshot()).toMatchObject({ autoAttach: false, dirty: true })
+
+    face.save()
+    await settle()
+    expect(controller.autoAttach().getSnapshot()).toBe(false)
+    expect(fixture.user()).toEqual({ autoAttach: false })
+
+    face.resetAutoAttach()
+    expect(face.hooks.settingsCard.getSnapshot()).toMatchObject({
+      autoAttach: true,
+      autoAttachOverridden: false,
+      dirty: true,
+    })
+    face.save()
+    await settle()
+    expect(fixture.user()).toEqual({})
+    expect(controller.autoAttach().getSnapshot()).toBe(true)
+
+    await controller.dispose()
+  })
+
   it('keeps a rejected draft for correction and allows discard', async () => {
     const fixture = settingsScope()
     fixture.rejectWrites()
-    const controller = new InlineCommentsSettingsController(fixture.scope)
+    const controller = new AnnotationSettingsController(fixture.scope)
     const face = controller.inject()
 
     face.setEnabled(false)
@@ -174,7 +216,7 @@ describe('Host-backed feature setting', () => {
   it('settles a rejected settings promise as a failed editable draft', async () => {
     const fixture = settingsScope()
     fixture.throwWrites()
-    const controller = new InlineCommentsSettingsController(fixture.scope)
+    const controller = new AnnotationSettingsController(fixture.scope)
     const face = controller.inject()
 
     face.setEnabled(false)
@@ -195,18 +237,18 @@ describe('Host-backed feature setting', () => {
     const fixture = settingsScope()
     fixture.deferWrites()
     const storage = legacyStorage(false)
-    const controller = new InlineCommentsSettingsController(fixture.scope, storage)
+    const controller = new AnnotationSettingsController(fixture.scope, storage)
 
     expect(controller.feature().getSnapshot()).toBe(false)
     expect(fixture.user()).toEqual({})
-    expect(storage.getItem(LEGACY_INLINE_COMMENTS_ENABLED_STORAGE_KEY)).toBe('false')
+    expect(storage.getItem(LEGACY_ANNOTATION_ENABLED_STORAGE_KEY)).toBe('false')
 
     fixture.releaseWrite()
     await settle()
 
     expect(controller.feature().getSnapshot()).toBe(false)
     expect(fixture.user()).toEqual({ enabled: false })
-    expect(storage.getItem(LEGACY_INLINE_COMMENTS_ENABLED_STORAGE_KEY)).toBeNull()
+    expect(storage.getItem(LEGACY_ANNOTATION_ENABLED_STORAGE_KEY)).toBeNull()
     await controller.dispose()
   })
 
@@ -214,12 +256,12 @@ describe('Host-backed feature setting', () => {
     const fixture = settingsScope()
     fixture.rejectWrites()
     const storage = legacyStorage(false)
-    const controller = new InlineCommentsSettingsController(fixture.scope, storage)
+    const controller = new AnnotationSettingsController(fixture.scope, storage)
     await settle()
 
     expect(controller.feature().getSnapshot()).toBe(false)
     expect(fixture.user()).toEqual({})
-    expect(storage.getItem(LEGACY_INLINE_COMMENTS_ENABLED_STORAGE_KEY)).toBe('false')
+    expect(storage.getItem(LEGACY_ANNOTATION_ENABLED_STORAGE_KEY)).toBe('false')
     await controller.dispose()
   })
 
@@ -227,7 +269,7 @@ describe('Host-backed feature setting', () => {
     const fixture = settingsScope()
     fixture.deferWrites()
     const storage = legacyStorage(false)
-    const controller = new InlineCommentsSettingsController(fixture.scope, storage)
+    const controller = new AnnotationSettingsController(fixture.scope, storage)
     const changed = vi.fn()
     controller.feature().subscribe(changed)
 
@@ -238,23 +280,23 @@ describe('Host-backed feature setting', () => {
 
     expect(changed).not.toHaveBeenCalled()
     expect(fixture.user()).toEqual({ enabled: false })
-    expect(storage.getItem(LEGACY_INLINE_COMMENTS_ENABLED_STORAGE_KEY)).toBe('false')
+    expect(storage.getItem(LEGACY_ANNOTATION_ENABLED_STORAGE_KEY)).toBe('false')
   })
 
   it('lets an existing Host value supersede and remove a stale browser preference', async () => {
     const fixture = settingsScope(true)
     const storage = legacyStorage(false)
-    const controller = new InlineCommentsSettingsController(fixture.scope, storage)
+    const controller = new AnnotationSettingsController(fixture.scope, storage)
 
     expect(controller.feature().getSnapshot()).toBe(true)
-    expect(storage.getItem(LEGACY_INLINE_COMMENTS_ENABLED_STORAGE_KEY)).toBeNull()
+    expect(storage.getItem(LEGACY_ANNOTATION_ENABLED_STORAGE_KEY)).toBeNull()
     await controller.dispose()
   })
 
   it('stops publication before awaiting an in-flight save during disposal', async () => {
     const fixture = settingsScope()
     fixture.deferWrites()
-    const controller = new InlineCommentsSettingsController(fixture.scope)
+    const controller = new AnnotationSettingsController(fixture.scope)
     const face = controller.inject()
     const changed = vi.fn()
     face.hooks.settingsCard.subscribe(changed)
@@ -283,12 +325,13 @@ describe('Host-backed feature setting', () => {
         writable: false,
       }),
     }
-    const controller = new InlineCommentsSettingsController(unavailable)
+    const controller = new AnnotationSettingsController(unavailable)
 
     expect(controller.feature().getSnapshot()).toBe(true)
     expect(controller.inject().hooks.settingsCard.getSnapshot()).toMatchObject({
       available: false,
       writable: false,
+      autoAttach: true,
     })
     await controller.dispose()
   })

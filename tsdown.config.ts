@@ -1,6 +1,6 @@
 import { defineConfig } from 'tsdown'
 
-const packageId = 'dsh-inline-comments'
+const packageId = 'dsh-annotation'
 const platformModules = [
   'react',
   'react/jsx-runtime',

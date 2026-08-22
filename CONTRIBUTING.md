@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for improving `dsh-inline-comments`.
+Thank you for improving `dsh-annotation`.
 
 ## Before opening an issue
 

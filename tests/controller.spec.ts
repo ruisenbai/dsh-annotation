@@ -70,13 +70,13 @@ describe('annotation controller', () => {
       {
         annotationId: id,
         status: 'draft',
-        comment: 'Please revise this sentence.',
+        annotation: 'Please revise this sentence.',
       },
     ])
     controller.openAnnotation(id)
     controller.updateEditorText('Use a concrete example.')
     controller.saveEditor()
-    expect(controller.getSnapshot().annotations[0]?.comment).toBe('Use a concrete example.')
+    expect(controller.getSnapshot().annotations[0]?.annotation).toBe('Use a concrete example.')
     const outbox = controller.createOutbox('queue', 'session-test' as SessionIdentity)
     expect(outbox.payload.annotations[0]?.annotationId).toBe(id)
     expect(controller.getSnapshot().annotations[0]?.status).toBe('queued')
@@ -260,7 +260,7 @@ describe('annotation controller', () => {
       const supplementalId = restored.saveEditor()
       expect(supplementalId).not.toBe(id)
       expect(restored.getSnapshot().annotations).toHaveLength(2)
-      expect(restored.getSnapshot().annotations.find((item) => item.annotationId === id)?.comment).toBe(
+      expect(restored.getSnapshot().annotations.find((item) => item.annotationId === id)?.annotation).toBe(
         'Please revise this sentence.',
       )
       expect(
@@ -380,6 +380,36 @@ describe('annotation controller', () => {
     await expect(missing.controller.navigate(missingId)).resolves.toBe(true)
   })
 
+  it('waits for the mounted endpoint after a history page lands instead of failing a sync check', async () => {
+    const missing = harness()
+    const missingId = saveDraft(missing.controller)
+    const reveal = vi.fn()
+    const annotateAll = vi.fn()
+    missing.navigation.state.hasMore = true
+    missing.navigation.loadOlder.mockImplementation(async () => {
+      // 官方 loadOlder 只保证数据取回；端点由随后的一次 React 提交注册（异步）。
+      setTimeout(() => {
+        missing.controller.registerEndpoint('assistant-1' as MessageIdentity, { reveal, annotateAll })
+        missing.navigation.state.hasMore = false
+      }, 30)
+    })
+    await expect(missing.controller.navigate(missingId)).resolves.toBe(true)
+    expect(reveal).toHaveBeenCalledWith(missingId)
+  })
+
+  it('fails closed when the target message never mounts within the history window', async () => {
+    const missing = harness()
+    const missingId = saveDraft(missing.controller)
+    missing.navigation.state.hasMore = true
+    missing.navigation.loadOlder.mockImplementation(async () => {
+      missing.navigation.state.hasMore = false
+    })
+    await expect(missing.controller.navigate(missingId)).resolves.toBe(false)
+    expect(missing.controller.getSnapshot()).toMatchObject({
+      notice: { level: 'error', text: 'locate' },
+    })
+  })
+
   it('offers one-step undo after deleting a draft', () => {
     const { controller } = harness()
     const id = saveDraft(controller)
@@ -422,5 +452,28 @@ describe('annotation controller', () => {
     expect(controller.getSnapshot().annotations[0]).toMatchObject({ status: 'draft' })
     expect(controller.getSnapshot().annotations[0]).not.toHaveProperty('submissionId')
     expect(controller.getSnapshot().outbox[0]?.status).toBe('withdrawn')
+  })
+
+  it('discards a never-queued retry record and restores its annotations to draft', () => {
+    const { controller } = harness()
+    saveDraft(controller)
+    const entry = controller.createOutbox('queue', 'session-test' as SessionIdentity)
+    controller.markSending(entry.payload.submissionId)
+    controller.markFailed(entry.payload.submissionId, 'offline')
+    controller.discardOutbox(entry.payload.submissionId)
+    expect(controller.getSnapshot().outbox[0]?.status).toBe('withdrawn')
+    expect(controller.getSnapshot().annotations[0]).toMatchObject({ status: 'draft' })
+    expect(controller.getSnapshot().annotations[0]).not.toHaveProperty('submissionId')
+  })
+
+  it('records non-base64 image metadata on a fresh outbox entry', () => {
+    const { controller } = harness()
+    saveDraft(controller)
+    const entry = controller.createOutbox('queue', 'session-test' as SessionIdentity, '', {
+      count: 2,
+      mediaTypes: ['image/png', 'image/jpeg'],
+      names: ['shot.png'],
+    })
+    expect(entry.images).toEqual({ count: 2, mediaTypes: ['image/png', 'image/jpeg'], names: ['shot.png'] })
   })
 })

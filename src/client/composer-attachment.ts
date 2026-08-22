@@ -14,6 +14,23 @@ export function hasComposerAttachment(input: InputState): boolean {
   return input.claim?.token === COMPOSER_ATTACHMENT_TOKEN || input.draft.startsWith(COMPOSER_ATTACHMENT_TOKEN)
 }
 
+/** Visible composer text with this plugin's invisible claim prefix removed. */
+export function visibleComposerDraft(input: InputState): string {
+  return input.draft.startsWith(COMPOSER_ATTACHMENT_TOKEN)
+    ? input.draft.slice(COMPOSER_ATTACHMENT_TOKEN.length)
+    : input.draft
+}
+
+/** Whether the visible composer content is an official slash-command line. */
+export function isSlashCommandLine(input: InputState): boolean {
+  return visibleComposerDraft(input).trimStart().startsWith('/')
+}
+
+/** Strip this plugin's claim token from raw text that may still carry it. */
+export function stripComposerToken(text: string): string {
+  return text.startsWith(COMPOSER_ATTACHMENT_TOKEN) ? text.slice(COMPOSER_ATTACHMENT_TOKEN.length) : text
+}
+
 /** Enter this plugin's claimed submit mode without changing visible composer text. */
 export function attachComposer(actx: ClientContext, input: SessionInput, claim: CommandClaim): boolean {
   const state = input.state.getSnapshot()

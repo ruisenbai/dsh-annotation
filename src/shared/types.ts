@@ -1,8 +1,20 @@
 /** JSON protocol shared by the Host command bridge and browser client. */
 
-export const PROTOCOL_VERSION = 1 as const
-export const MODEL_ACK_PREFIX = 'dsh-inline-comments:'
-export const LEGACY_MODEL_ACK_PREFIX = 'dsh-inline-annotations:'
+/** Current submission protocol; new submissions only emit v2. */
+export const PROTOCOL_VERSION = 2 as const
+/** Protocol source identity written into every v2 payload. */
+export const PROTOCOL_SOURCE = 'dsh-annotation' as const
+/** Acknowledgement marker prefix emitted into new model prompts. */
+export const MODEL_ACK_PREFIX = 'dsh-annotation:'
+/** Pre-rename acknowledgement prefixes still parsed from durable history. */
+export const LEGACY_MODEL_ACK_PREFIXES = ['dsh-inline-comments:', 'dsh-inline-annotations:'] as const
+/** Reply-association marker prefix emitted into new model prompts. */
+export const REPLY_MARKER_PREFIX = 'dsh-annotation-reply:'
+/** Pre-rename reply markers still parsed from durable history. */
+export const LEGACY_REPLY_MARKER_PREFIXES = [
+  'dsh-inline-comments-reply:',
+  'dsh-inline-annotations-reply:',
+] as const
 /** Stable across the product rename so failed persisted retries keep their authoritative queue identity. */
 export const MESSAGE_ID_PREFIX = 'dsh-inline-annotations:'
 
@@ -83,14 +95,32 @@ export interface SubmittedAnnotation {
   /** DSH has no mutable reply version; the finalized assistant message id is the version identity. */
   readonly responseVersion: MessageIdentity
   readonly quote: TextQuoteSelector
-  readonly comment: string
+  /** Human-authored annotation text written beside the quoted source. */
+  readonly annotation: string
   readonly structure?: StructuredSelection
   readonly createdAt: number
 }
 
+/** v2 wire shape of one annotation; v1 payloads use `comment` instead of `annotation`. */
+export interface WireAnnotation {
+  readonly annotationId: unknown
+  readonly ordinal: unknown
+  readonly messageId: unknown
+  readonly messageSeq: unknown
+  readonly responseVersion: unknown
+  readonly quote: unknown
+  readonly structure?: unknown
+  readonly createdAt: unknown
+  /** v2 field; converted to `annotation` by the v1 compatibility layer. */
+  readonly annotation?: unknown
+  /** v1 field; converted to `annotation` by the v2 model. */
+  readonly comment?: unknown
+}
+
 /** Idempotent batch transported through the internal slash command. */
 export interface AnnotationSubmissionPayload {
-  readonly protocolVersion: typeof PROTOCOL_VERSION
+  readonly protocolVersion: 2
+  readonly source: typeof PROTOCOL_SOURCE
   readonly submissionId: SubmissionId
   readonly sessionId: SessionIdentity
   readonly delivery: DeliveryMode
@@ -99,16 +129,33 @@ export interface AnnotationSubmissionPayload {
   readonly annotations: readonly SubmittedAnnotation[]
 }
 
-/** Extra durable provenance attached to a new standard user/message event. */
-export interface InlineCommentMessageSource {
-  readonly kind: 'user'
-  readonly inlineComments: AnnotationSubmissionPayload
+/** v1 wire shape of one submission; read for compatibility, never emitted again. */
+export interface LegacySubmissionPayloadV1 {
+  readonly protocolVersion: 1
+  readonly submissionId: unknown
+  readonly sessionId: unknown
+  readonly delivery: unknown
+  readonly createdAt: unknown
+  readonly overallRequirement?: unknown
+  readonly annotations: unknown
 }
 
-/** Durable provenance written before the project rename. */
+/** Current durable provenance attached to a new standard user/message event. */
+export interface AnnotationMessageSource {
+  readonly kind: 'user'
+  readonly annotationSubmission: AnnotationSubmissionPayload
+}
+
+/** Durable provenance written by the dsh-inline-comments rename era. */
+export interface InlineCommentMessageSource {
+  readonly kind: 'user'
+  readonly inlineComments: unknown
+}
+
+/** Durable provenance written before the dsh-inline-comments rename. */
 export interface LegacyInlineAnnotationMessageSource {
   readonly kind: 'user'
-  readonly inlineAnnotations: AnnotationSubmissionPayload
+  readonly inlineAnnotations: unknown
 }
 
 /** Browser-only editable record. */
@@ -119,6 +166,13 @@ export interface AnnotationDraft extends SubmittedAnnotation {
   readonly supplementalTo?: AnnotationId
 }
 
+/** Composer image metadata retained for refresh-safe retries; never the base64 bytes. */
+export interface OutboxImages {
+  readonly count: number
+  readonly mediaTypes: readonly string[]
+  readonly names: readonly string[]
+}
+
 /** Immutable retry record. The payload never changes after its first attempt. */
 export interface OutboxEntry {
   readonly payload: AnnotationSubmissionPayload
@@ -127,6 +181,8 @@ export interface OutboxEntry {
   readonly status: OutboxStatus
   readonly attempts: number
   readonly lastError?: string
+  /** Present exactly when the original submission carried composer images. */
+  readonly images?: OutboxImages
 }
 
 export interface PersistedSessionState {
@@ -140,6 +196,15 @@ export interface PersistedSessionState {
 export interface ModelAcknowledgement {
   readonly submissionId: SubmissionId
   readonly processed: readonly AnnotationId[]
+}
+
+/** One hidden reply marker emitted before its model paragraph. */
+export interface ReplyMarker {
+  readonly submissionId: SubmissionId
+  readonly annotationId: AnnotationId
+  readonly ordinal: number
+  /** Offset of the marker inside the raw text block it was parsed from. */
+  readonly offset: number
 }
 
 export interface AnnotationConfig {

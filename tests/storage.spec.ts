@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { AnnotationStorage, emptyPersistedState } from '../src/client/storage.ts'
 import type { MessageIdentity, SessionIdentity } from '../src/shared/types.ts'
-import { fixturePayload } from './fixtures.ts'
+import { fixturePayload, fixtureV1Payload } from './fixtures.ts'
 
 class MemoryStorage {
   readonly values = new Map<string, string>()
@@ -49,17 +49,82 @@ describe('draft storage', () => {
     expect(storage.usageBytes()).toBe(0)
   })
 
-  it('moves pre-rename session data to the current storage key', () => {
+  it('persists outbox image metadata without base64 bytes', () => {
     const memory = new MemoryStorage()
-    const legacyKey = 'dsh-inline-annotations:v1:session-1'
+    const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+    const payload = fixturePayload({ sessionId: 'session-1' as SessionIdentity })
+    const state = {
+      ...emptyPersistedState(),
+      outbox: [
+        {
+          payload,
+          targetSessionId: payload.sessionId,
+          messageId: 'dsh-inline-annotations:sub-test' as MessageIdentity,
+          status: 'failed' as const,
+          attempts: 1,
+          lastError: 'offline',
+          images: { count: 2, mediaTypes: ['image/png', 'image/jpeg'], names: ['a.png'] },
+        },
+      ],
+    }
+    expect(storage.save(state)).toBe(true)
+    const restored = storage.load()
+    expect(restored.outbox[0]?.images).toEqual({
+      count: 2,
+      mediaTypes: ['image/png', 'image/jpeg'],
+      names: ['a.png'],
+    })
+    expect(JSON.stringify(restored)).not.toContain('base64')
+    expect(JSON.stringify(restored)).not.toContain('iVBOR')
+  })
+
+  it('moves pre-rename session data from either legacy key to the new namespace', () => {
+    const memory = new MemoryStorage()
+    const legacyCommentsKey = 'dsh-inline-comments:v1:session-1'
+    const legacyAnnotationsKey = 'dsh-inline-annotations:v1:session-1'
     const serialized = JSON.stringify(emptyPersistedState())
-    memory.values.set(legacyKey, serialized)
+    memory.values.set(legacyAnnotationsKey, serialized)
     const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
 
     expect(storage.load()).toEqual(emptyPersistedState())
-    expect(storage.key).toBe('dsh-inline-comments:v1:session-1')
+    expect(storage.key).toBe('dsh-annotation:v1:session-1')
     expect(memory.values.get(storage.key)).toBe(serialized)
-    expect(memory.values.has(legacyKey)).toBe(false)
+    expect(memory.values.has(legacyAnnotationsKey)).toBe(false)
+
+    memory.values.set(legacyCommentsKey, serialized)
+    const second = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+    expect(second.load()).toEqual(emptyPersistedState())
+    expect(memory.values.has(legacyCommentsKey)).toBe(false)
+    expect(memory.values.get(second.key)).toBe(serialized)
+  })
+
+  it('prefers the new namespace and treats legacy keys as inert residue', () => {
+    const memory = new MemoryStorage()
+    const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+    memory.values.set(storage.key, JSON.stringify(emptyPersistedState()))
+    memory.values.set(
+      'dsh-inline-comments:v1:session-1',
+      JSON.stringify({ ...emptyPersistedState(), overallRequirementDraft: 'stale' }),
+    )
+    const restored = storage.load()
+    expect(restored.overallRequirementDraft).toBe('')
+    expect(memory.values.has('dsh-inline-comments:v1:session-1')).toBe(false)
+  })
+
+  it('preserves legacy data when the migrated write fails', () => {
+    const memory = new MemoryStorage()
+    memory.values.set('dsh-inline-annotations:v1:session-1', JSON.stringify(emptyPersistedState()))
+    const failing = {
+      getItem: memory.getItem.bind(memory),
+      removeItem: memory.removeItem.bind(memory),
+      setItem(key: string) {
+        if (key.startsWith('dsh-annotation:')) throw new Error('quota')
+        memory.setItem(key, 'ignored')
+      },
+    }
+    const storage = new AnnotationStorage(failing, 'session-1' as SessionIdentity)
+    expect(storage.load()).toEqual(emptyPersistedState())
+    expect(memory.values.has('dsh-inline-annotations:v1:session-1')).toBe(true)
   })
 
   it('restores an unfinished compact editor from version-two storage', () => {
@@ -144,6 +209,33 @@ describe('draft storage', () => {
       })
     },
   )
+
+  it('recovers a legacy v1 payload stored under the old key as the v2 model', () => {
+    const memory = new MemoryStorage()
+    const storage = new AnnotationStorage(memory, 'session-test' as SessionIdentity)
+    const v1 = fixtureV1Payload() as { annotations: unknown[] }
+    const serialized = JSON.stringify({
+      storageVersion: 1,
+      annotations: [
+        {
+          ...(v1.annotations[0] as Record<string, unknown>),
+          status: 'sent',
+          updatedAt: 1_700_000_000_000,
+          submissionId: 'sub-legacy',
+        },
+      ],
+      outbox: [],
+      overallRequirementDraft: '',
+    })
+    memory.values.set('dsh-inline-annotations:v1:session-test', serialized)
+    const restored = storage.load()
+    expect(restored.annotations[0]).toMatchObject({
+      annotationId: 'ann-legacy-1',
+      annotation: 'Legacy comment.',
+      status: 'sent',
+    })
+    expect(memory.values.has('dsh-inline-annotations:v1:session-test')).toBe(false)
+  })
 
   it('fails closed when outbox provenance does not match its immutable payload', () => {
     const memory = new MemoryStorage()

@@ -2,15 +2,18 @@ import { Buffer } from 'node:buffer'
 import { TextDecoder } from 'node:util'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandDefinition, CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import {
   formatSubmissionMessage,
   parseSubmissionPayload,
   validateSubmissionLimits,
 } from '../shared/protocol.ts'
+import { LEGACY_COMMAND_NAMES } from '../shared/config.ts'
 import { submissionMessageId } from '../shared/ids.ts'
 import type {
   AnnotationConfig,
+  AnnotationMessageSource,
   AnnotationSubmissionPayload,
   InlineCommentMessageSource,
   LegacyInlineAnnotationMessageSource,
@@ -19,6 +22,7 @@ import type {
 /** Make the plugin's durable user provenance visible to DSH's merge-extensible source union. */
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    annotationSubmission: AnnotationMessageSource
     inlineComments: InlineCommentMessageSource
     inlineAnnotations: LegacyInlineAnnotationMessageSource
   }
@@ -54,15 +58,18 @@ function hasMessage(agent: Agent, messageId: string): boolean {
   return agent.session.events.some((event) => event.type === 'user/message' && event.data.id === messageId)
 }
 
-function createAnnotationMessage(payload: AnnotationSubmissionPayload): UserMessage {
-  const source: InlineCommentMessageSource = Object.freeze({
+function createAnnotationMessage(
+  payload: AnnotationSubmissionPayload,
+  images: readonly ContentBlock[],
+): UserMessage {
+  const source: AnnotationMessageSource = Object.freeze({
     kind: 'user',
-    inlineComments: payload,
+    annotationSubmission: payload,
   })
   return Object.freeze({
     id: submissionMessageId(payload.submissionId) as unknown as UserMessage['id'],
     role: 'user',
-    content: [{ type: 'text' as const, text: formatSubmissionMessage(payload) }],
+    content: [{ type: 'text' as const, text: formatSubmissionMessage(payload) }, ...images],
     source,
   })
 }
@@ -71,13 +78,14 @@ function createAnnotationMessage(payload: AnnotationSubmissionPayload): UserMess
 export function submitAnnotationPayload(
   agent: Agent,
   payload: AnnotationSubmissionPayload,
+  images: readonly ContentBlock[] = [],
 ): { readonly duplicate: boolean; readonly messageId: string } {
   if (String(agent.id) !== payload.sessionId) {
     throw new Error(`annotation payload targets session ${payload.sessionId}, not ${String(agent.id)}`)
   }
   const messageId = submissionMessageId(payload.submissionId)
   if (hasMessage(agent, messageId)) return Object.freeze({ duplicate: true, messageId })
-  const message = createAnnotationMessage(payload)
+  const message = createAnnotationMessage(payload, images)
   if (payload.delivery === 'steer') agent.steer(message)
   else agent.followup(message)
   return Object.freeze({ duplicate: false, messageId })
@@ -87,19 +95,37 @@ export function submitAnnotationPayload(
 export function createAnnotationCommand(config: AnnotationConfig): CommandDefinition {
   return Object.freeze({
     name: config.commandName,
-    description: 'Submit an idempotent batch of inline reply comments',
-    input: { hint: '<internal-base64url-payload>' },
+    description: 'Submit an idempotent batch of annotations for an earlier assistant reply',
+    input: { hint: '<internal-base64url-payload>', images: true },
     recordInput: false,
     handler(invocation: CommandInvocation): CommandResult {
       if (invocation.signal.aborted) {
         throw invocation.signal.reason ?? new Error('annotation submission was aborted')
       }
       const payload = decodePayload(invocation.rawInput, config)
-      const result = submitAnnotationPayload(invocation.agent, payload)
+      const result = submitAnnotationPayload(invocation.agent, payload, invocation.attachments)
       return Object.freeze({
         kind: 'success',
-        text: result.duplicate ? 'Comment batch was already accepted.' : 'Comment batch accepted.',
+        text: result.duplicate ? 'Annotation batch was already accepted.' : 'Annotation batch accepted.',
       })
     },
   })
+}
+
+/** Create the shared handler behind the new command and every invisible pre-rename alias. */
+export function createLegacyAnnotationAliases(config: AnnotationConfig): readonly CommandDefinition[] {
+  const primary = createAnnotationCommand(config)
+  return Object.freeze(
+    LEGACY_COMMAND_NAMES.map((name) =>
+      Object.freeze({
+        name,
+        description: 'Compatibility alias for the internal annotation submission command',
+        input: { hint: '<internal-base64url-payload>', images: true },
+        recordInput: false,
+        handler(invocation: CommandInvocation) {
+          return primary.handler(invocation)
+        },
+      }),
+    ),
+  )
 }

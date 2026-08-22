@@ -23,9 +23,12 @@ describe('DOM selection capture', () => {
   beforeEach(() => {
     document.body.innerHTML = `
       <div id="root">
-        <details data-dsh-inline-comment-ignore="true"><summary>Reasoning</summary><p>hidden analysis</p></details>
+        <details data-dsh-annotation-ignore="true"><summary>Reasoning</summary><p>hidden analysis</p></details>
         <p>Hello <strong>world</strong>!</p>
         <button type="button">Copy chrome</button>
+        <span aria-live="polite">stream announcement</span>
+        <span role="status">stream status</span>
+        <div data-variant="think">private think text</div>
         <pre><code class="language-ts">one\ntwo\nthree</code></pre>
         <table><tbody><tr><td>alpha</td><td>beta</td></tr><tr><td>gamma</td><td>delta</td></tr></tbody></table>
       </div>`
@@ -36,6 +39,9 @@ describe('DOM selection capture', () => {
     const nodes = selectableTextNodes(root)
     expect(nodes.map((node) => node.data).join('')).not.toContain('Copy chrome')
     expect(nodes.map((node) => node.data).join('')).not.toContain('hidden analysis')
+    expect(nodes.map((node) => node.data).join('')).not.toContain('stream announcement')
+    expect(nodes.map((node) => node.data).join('')).not.toContain('stream status')
+    expect(nodes.map((node) => node.data).join('')).not.toContain('private think text')
     const hello = document.querySelector('#root > p')!.firstChild!
     const world = document.querySelector('strong')!.firstChild!
     const range = withRect(document.createRange())

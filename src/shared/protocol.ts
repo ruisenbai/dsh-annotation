@@ -1,7 +1,8 @@
-import { MODEL_ACK_PREFIX, PROTOCOL_VERSION } from './types.ts'
+import { MODEL_ACK_PREFIX, PROTOCOL_SOURCE, PROTOCOL_VERSION, REPLY_MARKER_PREFIX } from './types.ts'
 import type {
   AnnotationConfig,
   AnnotationId,
+  AnnotationMessageSource,
   AnnotationSubmissionPayload,
   CodeSelection,
   InlineCommentMessageSource,
@@ -13,6 +14,7 @@ import type {
   SubmittedAnnotation,
   TableSelection,
   TextQuoteSelector,
+  WireAnnotation,
 } from './types.ts'
 
 export class ProtocolError extends Error {
@@ -103,10 +105,12 @@ export function parseStructuredSelection(value: unknown, field: string): Structu
   throw new ProtocolError(`${field}.kind must be code or table`)
 }
 
+/** Read one wire annotation and convert legacy `comment` into the v2 `annotation` model. */
 export function parseSubmittedAnnotation(value: unknown, index: number): SubmittedAnnotation {
   const field = `annotations[${index}]`
-  const source = record(value, field)
+  const source = record(value, field) as UnknownRecord & WireAnnotation
   const parsedStructure = parseStructuredSelection(source.structure, `${field}.structure`)
+  const annotationText = source.annotation ?? source.comment
   const parsed: SubmittedAnnotation = {
     annotationId: id<AnnotationId>(source.annotationId, `${field}.annotationId`),
     ordinal: integer(source.ordinal, `${field}.ordinal`, 1),
@@ -114,7 +118,7 @@ export function parseSubmittedAnnotation(value: unknown, index: number): Submitt
     messageSeq: integer(source.messageSeq, `${field}.messageSeq`),
     responseVersion: id<MessageIdentity>(source.responseVersion, `${field}.responseVersion`),
     quote: parseTextQuoteSelector(source.quote, `${field}.quote`),
-    comment: string(source.comment, `${field}.comment`),
+    annotation: string(annotationText, `${field}.annotation`),
     createdAt: integer(source.createdAt, `${field}.createdAt`),
     ...(parsedStructure === undefined ? {} : { structure: parsedStructure }),
   }
@@ -127,11 +131,17 @@ export function parseSubmittedAnnotation(value: unknown, index: number): Submitt
 /** Parse durable or wire JSON without trusting TypeScript declarations across the boundary. */
 export function parseSubmissionPayload(value: unknown): AnnotationSubmissionPayload {
   const source = record(value, 'submission')
-  if (source.protocolVersion !== PROTOCOL_VERSION) {
-    throw new ProtocolError(`unsupported protocolVersion ${String(source.protocolVersion)}`)
+  const version = source.protocolVersion
+  if (version !== 1 && version !== 2) {
+    throw new ProtocolError(`unsupported protocolVersion ${String(version)}`)
   }
   if (!Array.isArray(source.annotations) || source.annotations.length === 0) {
     throw new ProtocolError('annotations must be a non-empty array')
+  }
+  if (version === 2) {
+    if (source.source !== PROTOCOL_SOURCE) {
+      throw new ProtocolError(`source must be ${PROTOCOL_SOURCE}`)
+    }
   }
   const annotations = source.annotations.map(parseSubmittedAnnotation)
   const ids = new Set(annotations.map((item) => item.annotationId))
@@ -147,6 +157,7 @@ export function parseSubmissionPayload(value: unknown): AnnotationSubmissionPayl
   const overallRequirement = optionalString(source.overallRequirement, 'overallRequirement')
   return Object.freeze({
     protocolVersion: PROTOCOL_VERSION,
+    source: PROTOCOL_SOURCE,
     submissionId: id<SubmissionId>(source.submissionId, 'submissionId'),
     sessionId: id<SessionIdentity>(source.sessionId, 'sessionId'),
     delivery,
@@ -173,17 +184,20 @@ export function validateSubmissionLimits(
 }
 
 /** Read current or pre-rename metadata from one persisted user-message source. */
-export function parseInlineCommentSource(value: unknown): AnnotationSubmissionPayload | null {
+export function parseAnnotationSource(value: unknown): AnnotationSubmissionPayload | null {
   try {
     const source = record(value, 'source') as UnknownRecord &
-      Partial<InlineCommentMessageSource & LegacyInlineAnnotationMessageSource>
+      Partial<AnnotationMessageSource & InlineCommentMessageSource & LegacyInlineAnnotationMessageSource>
     if (source.kind !== 'user') return null
-    const payload = source.inlineComments ?? source.inlineAnnotations
+    const payload = source.annotationSubmission ?? source.inlineComments ?? source.inlineAnnotations
     return payload === undefined ? null : parseSubmissionPayload(payload)
   } catch {
     return null
   }
 }
+
+/** Pre-rename name retained so old integrations can keep reading one source shape. */
+export const parseInlineCommentSource = parseAnnotationSource
 
 function structureLabel(value: StructuredSelection | undefined): string | null {
   if (value?.kind === 'code') {
@@ -196,36 +210,54 @@ function structureLabel(value: StructuredSelection | undefined): string | null {
   return null
 }
 
+/** Hidden reply marker the model must emit before each per-annotation paragraph. */
+export function replyMarkerFor(payload: AnnotationSubmissionPayload, item: SubmittedAnnotation): string {
+  return `<!-- ${REPLY_MARKER_PREFIX}${JSON.stringify({
+    submissionId: payload.submissionId,
+    annotationId: item.annotationId,
+    ordinal: item.ordinal,
+  })} -->`
+}
+
 /** Produce the exact readable text sent to the model and retained in the standard user/message event. */
 export function formatSubmissionMessage(payload: AnnotationSubmissionPayload): string {
   const lines: string[] = [
-    '[DSH inline comments]',
+    '[DSH 注解提交]',
     `Submission ID: ${payload.submissionId}`,
-    `Reply comments: ${payload.annotations.length}`,
+    `Reply annotations: ${payload.annotations.length}`,
     '',
-    'Overall requirement:',
-    payload.overallRequirement?.trim() || 'Handle every comment together and preserve unaffected content.',
+    '总体要求：',
+    payload.overallRequirement?.trim() || '请按注解逐条处理，并保持未涉及的原文不变。',
+    '',
+    '请按注解顺序逐条回答：',
+    '- 每段必须以「注解 N：」开头，N 为该注解的编号。',
+    '- 不要合并不同注解；每个注解单独一段。',
+    '- 每段回答前先输出该注解的隐藏关联标记（HTML 注释，用户不可见）。',
+    '',
   ]
   for (const item of payload.annotations) {
     lines.push(
-      '',
-      `Comment ${item.ordinal} (${item.annotationId})`,
+      replyMarkerFor(payload, item),
+      `注解 ${item.ordinal} (${item.annotationId})`,
       `Reply message: ${item.messageId}`,
       `Reply event seq: ${item.messageSeq}`,
-      'Original text:',
+      '被选中的原文：',
       item.quote.exact,
-      'Comment:',
-      item.comment,
+      '用户的注解：',
+      item.annotation,
     )
     const label = structureLabel(item.structure)
     if (label !== null) lines.push(`Source coordinates: ${label}`)
+    lines.push('')
   }
   lines.push(
-    '',
-    'Processing acknowledgement:',
-    'Only for comments you actually handled, append one hidden HTML comment with their exact IDs:',
-    `<!-- ${MODEL_ACK_PREFIX}{"submissionId":"${payload.submissionId}","processed":["comment-id"]} -->`,
-    'Do not include a comment ID in processed unless your answer addresses it.',
+    '处理确认：',
+    '只把你实际处理过的注解 ID 写进 processed；在回复结尾附加一个隐藏 HTML 注释：',
+    `<!-- ${MODEL_ACK_PREFIX}${JSON.stringify({
+      submissionId: payload.submissionId,
+      processed: ['annotation-id'],
+    })} -->`,
+    '没有处理的注解 ID 不要放进 processed。',
   )
   return lines.join('\n')
 }
@@ -233,6 +265,6 @@ export function formatSubmissionMessage(payload: AnnotationSubmissionPayload): s
 /** Text shown in the collapsed timeline row. */
 export function submissionSummary(payload: AnnotationSubmissionPayload, locale: 'zh' | 'en' = 'zh'): string {
   return locale === 'zh'
-    ? `基于上一条回复添加了 ${payload.annotations.length} 条正文注释`
-    : `Added ${payload.annotations.length} inline comments to an earlier reply`
+    ? `基于上一条回复添加了 ${payload.annotations.length} 条注解`
+    : `Added ${payload.annotations.length} annotations to an earlier reply`
 }

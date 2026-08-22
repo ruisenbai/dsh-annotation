@@ -11,6 +11,7 @@ import type {
   AnnotationStatus,
   MessageIdentity,
   OutboxEntry,
+  OutboxImages,
   OutboxStatus,
   PersistedEditorDraft,
   PersistedSessionState,
@@ -25,8 +26,9 @@ export interface StorageLike {
   removeItem(key: string): void
 }
 
-const PREFIX = 'dsh-inline-comments:v1:'
-const LEGACY_PREFIX = 'dsh-inline-annotations:v1:'
+const PREFIX = 'dsh-annotation:v1:'
+/** Pre-rename keys read only to migrate their state into the new namespace. */
+const LEGACY_PREFIXES = ['dsh-inline-comments:v1:', 'dsh-inline-annotations:v1:'] as const
 const ANNOTATION_STATUSES: readonly AnnotationStatus[] = ['draft', 'queued', 'sent', 'processed']
 const OUTBOX_STATUSES: readonly OutboxStatus[] = [
   'ready',
@@ -74,6 +76,24 @@ function parseAnnotation(value: unknown, index: number): AnnotationDraft {
   })
 }
 
+function parseOutboxImages(value: unknown): OutboxImages | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    throw new Error('outbox images must be an object')
+  const source = value as Record<string, unknown>
+  if (!Number.isSafeInteger(source.count) || (source.count as number) < 1)
+    throw new Error('invalid outbox image count')
+  if (!Array.isArray(source.mediaTypes) || !source.mediaTypes.every((item) => typeof item === 'string'))
+    throw new Error('invalid outbox image media types')
+  if (!Array.isArray(source.names) || !source.names.every((item) => typeof item === 'string'))
+    throw new Error('invalid outbox image names')
+  return Object.freeze({
+    count: source.count as number,
+    mediaTypes: Object.freeze(source.mediaTypes as string[]),
+    names: Object.freeze(source.names as string[]),
+  })
+}
+
 function parseOutbox(value: unknown): OutboxEntry {
   if (typeof value !== 'object' || value === null || Array.isArray(value))
     throw new Error('outbox entry must be an object')
@@ -91,6 +111,7 @@ function parseOutbox(value: unknown): OutboxEntry {
     throw new Error('invalid attempts')
   if (source.lastError !== undefined && typeof source.lastError !== 'string')
     throw new Error('invalid lastError')
+  const images = parseOutboxImages(source.images)
   const interrupted = source.status === 'sending' || source.status === 'accepted'
   return Object.freeze({
     payload,
@@ -98,6 +119,7 @@ function parseOutbox(value: unknown): OutboxEntry {
     messageId: source.messageId as OutboxEntry['messageId'],
     status: interrupted ? 'failed' : (source.status as OutboxStatus),
     attempts: source.attempts as number,
+    ...(images === undefined ? {} : { images }),
     ...(interrupted
       ? { lastError: 'Submission outcome was not observed; retry with the same submission id.' }
       : source.lastError === undefined
@@ -238,7 +260,7 @@ function parseState(value: unknown): PersistedSessionState {
 /** Browser-local repository for one Session's drafts and immutable retry records. */
 export class AnnotationStorage {
   readonly key: string
-  private readonly legacyKey: string
+  private readonly legacyKeys: readonly string[]
   private error: string | null = null
   private bytes = 0
 
@@ -247,26 +269,16 @@ export class AnnotationStorage {
     sessionId: SessionIdentity,
   ) {
     this.key = `${PREFIX}${sessionId}`
-    this.legacyKey = `${LEGACY_PREFIX}${sessionId}`
+    this.legacyKeys = Object.freeze(LEGACY_PREFIXES.map((prefix) => `${prefix}${sessionId}`))
   }
 
   load(): PersistedSessionState {
     try {
-      const current = this.storage.getItem(this.key)
-      const fromLegacy = current === null
-      const raw = current ?? this.storage.getItem(this.legacyKey)
+      const raw = this.readFirstAvailable()
       this.bytes = raw === null ? 0 : byteLength(raw)
       if (raw === null) return emptyPersistedState()
       const parsed = parseState(JSON.parse(raw))
-      if (fromLegacy) {
-        try {
-          this.storage.setItem(this.key, raw)
-          this.storage.removeItem(this.legacyKey)
-        } catch (error: unknown) {
-          this.error = error instanceof Error ? error.message : String(error)
-          return parsed
-        }
-      }
+      this.writeMigrated(parsed)
       this.error = null
       return parsed
     } catch (error: unknown) {
@@ -279,7 +291,7 @@ export class AnnotationStorage {
     try {
       const serialized = JSON.stringify(state)
       this.storage.setItem(this.key, serialized)
-      this.storage.removeItem(this.legacyKey)
+      this.removeLegacyKeys()
       this.bytes = byteLength(serialized)
       this.error = null
       return true
@@ -291,7 +303,7 @@ export class AnnotationStorage {
 
   clear(): void {
     this.storage.removeItem(this.key)
-    this.storage.removeItem(this.legacyKey)
+    this.removeLegacyKeys()
     this.bytes = 0
     this.error = null
   }
@@ -302,5 +314,37 @@ export class AnnotationStorage {
 
   lastError(): string | null {
     return this.error
+  }
+
+  /**
+   * Read the new namespace first; fall back to pre-rename keys in order.
+   * Legacy data is preserved until its conversion has been written back.
+   */
+  private readFirstAvailable(): string | null {
+    const current = this.storage.getItem(this.key)
+    if (current !== null) return current
+    for (const legacyKey of this.legacyKeys) {
+      const legacy = this.storage.getItem(legacyKey)
+      if (legacy !== null) return legacy
+    }
+    return null
+  }
+
+  /** Persist a successful legacy load into the new namespace, then drop legacy keys. */
+  private writeMigrated(state: PersistedSessionState): void {
+    const current = this.storage.getItem(this.key)
+    if (current !== null) {
+      // The new namespace already owns this Session; legacy keys are inert residue.
+      this.removeLegacyKeys()
+      return
+    }
+    this.storage.setItem(this.key, JSON.stringify(state))
+    this.removeLegacyKeys()
+  }
+
+  private removeLegacyKeys(): void {
+    for (const legacyKey of this.legacyKeys) {
+      this.storage.removeItem(legacyKey)
+    }
   }
 }

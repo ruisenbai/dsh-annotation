@@ -6,13 +6,14 @@ import {
   type SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  DEFAULT_INLINE_COMMENTS_ENABLED,
-  LEGACY_INLINE_COMMENTS_ENABLED_STORAGE_KEY,
-  type InlineCommentsSettings,
+  DEFAULT_ANNOTATION_AUTO_ATTACH,
+  DEFAULT_ANNOTATION_ENABLED,
+  LEGACY_ANNOTATION_ENABLED_STORAGE_KEY,
+  type AnnotationSettings,
 } from '../shared/settings.ts'
 
 /** State rendered by the plugin-configuration card. */
-export interface InlineCommentsSettingsCardState {
+export interface AnnotationSettingsCardState {
   /** Whether the Host serves this plugin's settings namespace. */
   readonly available: boolean
   /** Whether the active settings provider accepts writes. */
@@ -21,6 +22,10 @@ export interface InlineCommentsSettingsCardState {
   readonly enabled: boolean
   /** Whether saving leaves a user-layer enabled value. */
   readonly overridden: boolean
+  /** Auto-attach value shown by the staged switch. */
+  readonly autoAttach: boolean
+  /** Whether saving leaves a user-layer auto-attach value. */
+  readonly autoAttachOverridden: boolean
   /** Whether the card holds a change that has not been saved. */
   readonly dirty: boolean
   /** Whether a settings write is in flight. */
@@ -30,15 +35,19 @@ export interface InlineCommentsSettingsCardState {
 }
 
 /** Registration-side face for the plugin-configuration card. */
-export interface InlineCommentsSettingsInjected {
+export interface AnnotationSettingsInjected {
   readonly hooks: {
     /** Card snapshot bound by the renderer as useSettingsCard. */
-    readonly settingsCard: SnapshotStore<InlineCommentsSettingsCardState>
+    readonly settingsCard: SnapshotStore<AnnotationSettingsCardState>
   }
   /** Stage the enabled value without writing it. */
   readonly setEnabled: (enabled: boolean) => void
   /** Stage removal of the user override. */
   readonly resetEnabled: () => void
+  /** Stage whether a new annotation is attached to the official composer automatically. */
+  readonly setAutoAttach: (enabled: boolean) => void
+  /** Stage removal of the user auto-attach override. */
+  readonly resetAutoAttach: () => void
   /** Persist the staged value. */
   readonly save: () => void
   /** Drop the staged value. */
@@ -50,19 +59,19 @@ interface LegacyEnabledStorage {
   removeItem(key: string): void
 }
 
-type StagedEnabled =
+type StagedBoolean =
   { readonly kind: 'set'; readonly value: boolean } | { readonly kind: 'clear'; readonly value: boolean }
 
-function userEnabled(value: unknown): boolean | undefined {
+function userBoolean(value: unknown, field: keyof AnnotationSettings): boolean | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
-  if (!Object.prototype.hasOwnProperty.call(value, 'enabled')) return undefined
-  const enabled = (value as { readonly enabled?: unknown }).enabled
-  return typeof enabled === 'boolean' ? enabled : undefined
+  if (!Object.prototype.hasOwnProperty.call(value, field)) return undefined
+  const stored = (value as Record<string, unknown>)[field]
+  return typeof stored === 'boolean' ? stored : undefined
 }
 
 function readLegacyEnabled(storage: LegacyEnabledStorage | undefined): boolean | undefined {
   try {
-    const value = storage?.getItem(LEGACY_INLINE_COMMENTS_ENABLED_STORAGE_KEY)
+    const value = storage?.getItem(LEGACY_ANNOTATION_ENABLED_STORAGE_KEY)
     if (value === 'true') return true
     if (value === 'false') return false
   } catch {
@@ -75,12 +84,14 @@ function readLegacyEnabled(storage: LegacyEnabledStorage | undefined): boolean |
  * Project one Host settings namespace into the feature toggle and its staged card.
  * The feature changes only after the Host accepts a card save; a valid legacy browser preference remains authoritative until its one-time Host migration lands.
  */
-export class InlineCommentsSettingsController {
-  private readonly featureEnabled = createSnapshotStore(DEFAULT_INLINE_COMMENTS_ENABLED)
-  private staged: StagedEnabled | undefined
+export class AnnotationSettingsController {
+  private readonly featureEnabled = createSnapshotStore(DEFAULT_ANNOTATION_ENABLED)
+  private readonly autoAttachEnabled = createSnapshotStore(DEFAULT_ANNOTATION_AUTO_ATTACH)
+  private stagedEnabled: StagedBoolean | undefined
+  private stagedAutoAttach: StagedBoolean | undefined
   private saving = false
   private failed = false
-  private readonly card: SnapshotStore<InlineCommentsSettingsCardState>
+  private readonly card: SnapshotStore<AnnotationSettingsCardState>
   private readonly unsubscribe: () => void
   private legacyEnabled: boolean | undefined
   private migrationTask: Promise<void> | undefined
@@ -92,7 +103,7 @@ export class InlineCommentsSettingsController {
    * @param legacyStorage - browser storage read only to preserve the pre-0.1.3 enabled preference.
    */
   constructor(
-    private readonly scope: SettingsScope<InlineCommentsSettings>,
+    private readonly scope: SettingsScope<AnnotationSettings>,
     private readonly legacyStorage?: LegacyEnabledStorage,
   ) {
     this.legacyEnabled = readLegacyEnabled(legacyStorage)
@@ -108,22 +119,43 @@ export class InlineCommentsSettingsController {
     return this.featureEnabled
   }
 
+  /** @returns whether a newly saved annotation should arm the official composer. */
+  autoAttach(): SnapshotStore<boolean> {
+    return this.autoAttachEnabled
+  }
+
   /** @returns the slot inject face for the plugin-configuration card. */
-  inject(): InlineCommentsSettingsInjected {
+  inject(): AnnotationSettingsInjected {
     return {
       hooks: { settingsCard: this.card },
       setEnabled: (enabled) => {
         if (this.disposed) return
-        this.staged = enabled === this.effectiveEnabled() ? undefined : { kind: 'set', value: enabled }
+        this.stagedEnabled = enabled === this.effectiveEnabled() ? undefined : { kind: 'set', value: enabled }
         this.failed = false
         this.publishCard()
       },
       resetEnabled: () => {
         if (this.disposed) return
-        this.staged =
+        this.stagedEnabled =
           this.storedEnabled() === undefined
             ? undefined
-            : { kind: 'clear', value: DEFAULT_INLINE_COMMENTS_ENABLED }
+            : { kind: 'clear', value: DEFAULT_ANNOTATION_ENABLED }
+        this.failed = false
+        this.publishCard()
+      },
+      setAutoAttach: (enabled) => {
+        if (this.disposed) return
+        this.stagedAutoAttach =
+          enabled === this.effectiveAutoAttach() ? undefined : { kind: 'set', value: enabled }
+        this.failed = false
+        this.publishCard()
+      },
+      resetAutoAttach: () => {
+        if (this.disposed) return
+        this.stagedAutoAttach =
+          this.storedAutoAttach() === undefined
+            ? undefined
+            : { kind: 'clear', value: DEFAULT_ANNOTATION_AUTO_ATTACH }
         this.failed = false
         this.publishCard()
       },
@@ -131,8 +163,14 @@ export class InlineCommentsSettingsController {
         this.startSave()
       },
       discard: () => {
-        if (this.disposed || (this.staged === undefined && !this.failed)) return
-        this.staged = undefined
+        if (
+          this.disposed ||
+          (this.stagedEnabled === undefined && this.stagedAutoAttach === undefined && !this.failed)
+        ) {
+          return
+        }
+        this.stagedEnabled = undefined
+        this.stagedAutoAttach = undefined
         this.failed = false
         this.publishCard()
       },
@@ -159,22 +197,38 @@ export class InlineCommentsSettingsController {
     if (this.storedEnabled() === undefined && this.legacyEnabled !== undefined) return this.legacyEnabled
     return snapshot.status === 'ready' && typeof snapshot.value?.enabled === 'boolean'
       ? snapshot.value.enabled
-      : DEFAULT_INLINE_COMMENTS_ENABLED
+      : DEFAULT_ANNOTATION_ENABLED
+  }
+
+  private effectiveAutoAttach(): boolean {
+    const snapshot = this.scope.getSnapshot()
+    return snapshot.status === 'ready' && typeof snapshot.value?.autoAttach === 'boolean'
+      ? snapshot.value.autoAttach
+      : DEFAULT_ANNOTATION_AUTO_ATTACH
   }
 
   private storedEnabled(): boolean | undefined {
-    return userEnabled(this.scope.getSnapshot().user)
+    return userBoolean(this.scope.getSnapshot().user, 'enabled')
   }
 
-  private project(): InlineCommentsSettingsCardState {
+  private storedAutoAttach(): boolean | undefined {
+    return userBoolean(this.scope.getSnapshot().user, 'autoAttach')
+  }
+
+  private project(): AnnotationSettingsCardState {
     const snapshot = this.scope.getSnapshot()
     const stored = this.storedEnabled()
     return {
       available: snapshot.status === 'ready',
       writable: snapshot.writable,
-      enabled: this.staged?.value ?? this.effectiveEnabled(),
-      overridden: this.staged?.kind === 'set' || (this.staged === undefined && stored !== undefined),
-      dirty: this.staged !== undefined,
+      enabled: this.stagedEnabled?.value ?? this.effectiveEnabled(),
+      overridden:
+        this.stagedEnabled?.kind === 'set' || (this.stagedEnabled === undefined && stored !== undefined),
+      autoAttach: this.stagedAutoAttach?.value ?? this.effectiveAutoAttach(),
+      autoAttachOverridden:
+        this.stagedAutoAttach?.kind === 'set' ||
+        (this.stagedAutoAttach === undefined && this.storedAutoAttach() !== undefined),
+      dirty: this.stagedEnabled !== undefined || this.stagedAutoAttach !== undefined,
       saving: this.saving,
       failed: this.failed,
     }
@@ -184,6 +238,7 @@ export class InlineCommentsSettingsController {
     if (this.disposed) return
     this.syncLegacyPreference()
     this.featureEnabled.set(this.effectiveEnabled())
+    this.autoAttachEnabled.set(this.effectiveAutoAttach())
     this.publishCard()
   }
 
@@ -224,7 +279,7 @@ export class InlineCommentsSettingsController {
   private clearLegacyPreference(): void {
     this.legacyEnabled = undefined
     try {
-      this.legacyStorage?.removeItem(LEGACY_INLINE_COMMENTS_ENABLED_STORAGE_KEY)
+      this.legacyStorage?.removeItem(LEGACY_ANNOTATION_ENABLED_STORAGE_KEY)
     } catch {
       // The Host value is authoritative even when browser privacy controls deny cleanup.
     }
@@ -241,24 +296,40 @@ export class InlineCommentsSettingsController {
   }
 
   private async save(): Promise<void> {
-    const staged = this.staged
-    if (staged === undefined || this.saving) return
+    const stagedEnabled = this.stagedEnabled
+    const stagedAutoAttach = this.stagedAutoAttach
+    if ((stagedEnabled === undefined && stagedAutoAttach === undefined) || this.saving) return
     this.saving = true
     this.failed = false
     this.publishCard()
-    let landed = false
-    try {
-      if (staged.kind === 'clear') await this.scope.unset('enabled')
-      else await this.scope.set('enabled', staged.value)
-      const stored = this.storedEnabled()
-      landed = staged.kind === 'clear' ? stored === undefined : stored === staged.value
-    } catch {
-      landed = false
-    }
+    const enabledLanded =
+      stagedEnabled === undefined
+        ? true
+        : await this.persistBoolean('enabled', stagedEnabled, () => this.storedEnabled())
+    const autoAttachLanded =
+      stagedAutoAttach === undefined
+        ? true
+        : await this.persistBoolean('autoAttach', stagedAutoAttach, () => this.storedAutoAttach())
     if (this.disposed) return
-    if (landed && this.staged === staged) this.staged = undefined
+    if (enabledLanded && this.stagedEnabled === stagedEnabled) this.stagedEnabled = undefined
+    if (autoAttachLanded && this.stagedAutoAttach === stagedAutoAttach) this.stagedAutoAttach = undefined
     this.saving = false
-    this.failed = !landed
+    this.failed = !enabledLanded || !autoAttachLanded
     this.publish()
+  }
+
+  private async persistBoolean(
+    field: keyof AnnotationSettings,
+    staged: StagedBoolean,
+    storedValue: () => boolean | undefined,
+  ): Promise<boolean> {
+    try {
+      if (staged.kind === 'clear') await this.scope.unset(field)
+      else await this.scope.set(field, staged.value)
+    } catch {
+      return false
+    }
+    const stored = storedValue()
+    return staged.kind === 'clear' ? stored === undefined : stored === staged.value
   }
 }

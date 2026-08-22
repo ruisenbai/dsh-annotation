@@ -106,6 +106,10 @@ export const styles: string = `
   padding: 12px 0;
 }
 
+.dia-plugin-card__field + .dia-plugin-card__field {
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
 .dia-plugin-card__field-head {
   display: flex;
   align-items: center;
@@ -273,12 +277,12 @@ export const styles: string = `
   transform: translateX(16px);
 }
 
-::highlight(dsh-inline-comment) {
+::highlight(dsh-annotation) {
   background: var(--dsw-alias-state-business-tertiary);
   text-decoration: underline 2px var(--dsw-alias-state-business-primary);
 }
 
-::highlight(dsh-inline-comment-active) {
+::highlight(dsh-annotation-active) {
   background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 22%, transparent);
   text-decoration: underline 3px var(--dsw-alias-state-business-primary);
 }
@@ -300,6 +304,16 @@ export const styles: string = `
   min-width: 0;
   flex-direction: column;
   gap: 16px;
+}
+
+.dia-assistant--decorator {
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+}
+
+.dia-assistant--decorator > .dia-assistant__body {
+  gap: 0;
 }
 
 .dia-assistant__reasoning {
@@ -461,6 +475,63 @@ export const styles: string = `
     0 0 0 4px color-mix(in srgb, var(--dia-marker-color) 42%, transparent);
 }
 
+.dia-reply-chips {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.dia-reply-chip {
+  position: absolute;
+  display: inline-flex;
+  height: 20px;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--dia-accent);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dia-accent);
+  padding: 0 8px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+.dia-reply-chip:hover,
+.dia-reply-chip:focus-visible {
+  background: var(--dia-accent);
+  color: var(--dia-accent-text);
+}
+
+.dia-reply-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 360px;
+}
+
+.dia-reply-popover strong {
+  font-weight: 600;
+}
+
+.dia-reply-popover q {
+  display: block;
+  color: var(--dsw-static-neutral-bluish-50);
+  font-size: 12px;
+  line-height: 18px;
+  border-left: 2px solid color-mix(in srgb, currentColor 40%, transparent);
+  padding-left: 6px;
+}
+
+.dia-reply-popover p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .dia-hover {
   position: fixed;
   z-index: 100;
@@ -532,6 +603,16 @@ export const styles: string = `
   padding: 6px;
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+/* 列表打开的编辑器：在注解汇总框内就地修改，不做正文定位。 */
+.dia-editor--inline {
+  position: static;
+  z-index: auto;
+  width: 100%;
+  max-height: none;
+  border-color: var(--dsw-alias-border-l2);
+  box-shadow: none;
 }
 
 .dia-editor__row {
@@ -737,6 +818,14 @@ export const styles: string = `
   overflow-wrap: anywhere;
 }
 
+.dia-inline-notice__detail {
+  margin: 4px 0 0 !important;
+}
+
+.dia-inline-notice .dia-text-button {
+  margin-top: 6px;
+}
+
 .dia-textarea:disabled {
   cursor: not-allowed;
   opacity: 0.5;
@@ -825,8 +914,18 @@ export const styles: string = `
   width: 100%;
   min-width: 0;
   align-items: center;
-  gap: 2px;
+  gap: 10px;
   color: var(--dsw-alias-label-primary);
+}
+
+.dia-dock__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  /* 折叠按钮右缘与官方任务汇总框（含 dsh-queue-plus 接管后的收起按钮）一致：
+     外壳 1px 边框 + 内容 5px = 距可见右边缘 6px。 */
+  margin-right: -7px;
 }
 
 .dia-dock__main {
@@ -878,25 +977,24 @@ export const styles: string = `
 .dia-dock__attach,
 .dia-dock__fold {
   display: grid;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   flex: none;
   place-items: center;
   border: 0;
-  border-radius: 7px;
+  border-radius: 999px;
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
+  padding: 0;
   cursor: pointer;
 }
 
 .dia-dock__attach:hover:not(:disabled),
 .dia-dock__fold:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
 }
 
 .dia-dock[data-attached='true'] .dia-dock__attach {
-  background: var(--dia-highlight);
   color: var(--dia-accent);
 }
 

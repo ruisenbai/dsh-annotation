@@ -7,7 +7,7 @@ import {
   IconQueueOutline14,
   MessageText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { parseInlineCommentSource } from '../../shared/protocol.ts'
+import { parseAnnotationSource } from '../../shared/protocol.ts'
 import type { AnnotationId, AnnotationStatus } from '../../shared/types.ts'
 import type { UserAnnotationProps } from '../contract.ts'
 import { MapPin } from '../icons.ts'
@@ -24,7 +24,7 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
   navigate,
   t,
 }: Pick<UserAnnotationProps<Key>, 'useAnnotations' | 'navigate' | 't'> & {
-  payload: NonNullable<ReturnType<typeof parseInlineCommentSource>>
+  payload: NonNullable<ReturnType<typeof parseAnnotationSource>>
 }) {
   const view = useAnnotations((state) => state)
   const byId = useMemo(
@@ -71,7 +71,7 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
                   <code>{item.annotationId}</code>
                 </header>
                 <q>{item.quote.exact}</q>
-                <p>{item.comment}</p>
+                <p>{item.annotation}</p>
                 <button
                   type="button"
                   className="dia-text-button dia-timeline-item__locate"
@@ -97,7 +97,10 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
   navigate,
   t,
 }: UserAnnotationProps<Key>) {
-  const payload = parseInlineCommentSource(node.data.source)
+  const payload = parseAnnotationSource(node.data.source)
+  const images = node.data.content.flatMap((block) =>
+    block.type === 'image' ? [{ attachment: block.attachment }] : [],
+  )
   if (payload !== null) {
     const requirement = payload.overallRequirement?.trim() ?? ''
     return (
@@ -113,13 +116,11 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
           navigate={navigate}
           t={t}
         />
+        {renderMessageImages({ images, align: 'end' })}
       </div>
     )
   }
   const texts = node.data.content.flatMap((block) => (block.type === 'text' ? [block.text] : []))
-  const images = node.data.content.flatMap((block) =>
-    block.type === 'image' ? [{ attachment: block.attachment }] : [],
-  )
   return (
     <article className="dia-user">
       {texts.map((text, index) => (
