@@ -4,6 +4,12 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-08-23
+
+### Changed
+
+- Clicking a numbered annotation marker in the assistant body now opens a compact preview eight pixels below that marker instead of expanding the composer summary box. Editing or supplementing from the preview keeps the editor under the same marker, follows nested scrolling and viewport resizing, and preserves marker anchoring on mobile instead of switching to the generic bottom editor. Editing from the summary box remains inline. The marker preview closes from its close action, the same marker, outside pointer input, or Escape.
+
 ## [0.2.2] - 2026-08-23
 
 ### Fixed
@@ -114,7 +120,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.1.3...v0.2.0

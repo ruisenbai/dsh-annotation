@@ -588,6 +588,48 @@ export const styles: string = `
   outline-offset: 1px;
 }
 
+.dia-marker-popover {
+  position: fixed;
+  z-index: 119;
+  box-sizing: border-box;
+  width: min(360px, calc(100vw - 24px));
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-specific-menu);
+  box-shadow: var(--dia-shadow);
+  color: var(--dsw-alias-label-primary);
+  padding: 8px 36px 8px 8px;
+}
+
+.dia-marker-popover__close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.dia-marker-popover__close:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.dia-marker-popover__close:focus-visible {
+  outline: 2px solid var(--dia-accent);
+  outline-offset: -2px;
+}
+
+.dia-marker-popover .dia-item {
+  padding-right: 0;
+}
+
 .dia-editor {
   position: fixed;
   z-index: 120;
@@ -1647,7 +1689,7 @@ button.dia-group__heading:focus-visible {
     width: 92%;
   }
 
-  .dia-editor {
+  .dia-editor:not(.dia-editor--marker) {
     top: auto !important;
     right: 12px !important;
     bottom: 12px;

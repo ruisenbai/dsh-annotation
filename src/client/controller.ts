@@ -26,6 +26,7 @@ import type { SelectionCapture } from './selection.ts'
 import { rangesOverlap } from './selection.ts'
 
 export type EditorState = PersistedEditorDraft
+export type AnnotationPresentation = 'summary' | 'marker' | 'marker-edit'
 
 export interface AnnotationView {
   readonly annotations: readonly AnnotationDraft[]
@@ -37,6 +38,8 @@ export interface AnnotationView {
   readonly panelOpen: boolean
   readonly notice: { readonly level: 'info' | 'error'; readonly text: string } | null
   readonly activeAnnotationId: AnnotationId | null
+  /** Transient annotation card anchored to a marker in the assistant body. */
+  readonly markerAnnotationId: AnnotationId | null
   readonly latestAssistantMessageId: MessageIdentity | null
   readonly storageAvailable: boolean
   readonly storageBytes: number
@@ -155,6 +158,7 @@ export class AnnotationController {
       panelOpen: false,
       notice: storage.lastError() === null ? null : { level: 'error' as const, text: 'storage' },
       activeAnnotationId,
+      markerAnnotationId: null,
       latestAssistantMessageId: null,
       storageAvailable: storage.lastError() === null,
       storageBytes: storage.usageBytes(),
@@ -198,6 +202,7 @@ export class AnnotationController {
         }),
         editorSaveStatus: 'idle',
         activeAnnotationId: overlap.annotationId,
+        markerAnnotationId: null,
       })
       return
     }
@@ -212,19 +217,34 @@ export class AnnotationController {
       }),
       editorSaveStatus: 'idle',
       activeAnnotationId: overlap?.annotationId ?? null,
+      markerAnnotationId: null,
     })
   }
 
-  openAnnotation(annotationId: AnnotationId): void {
+  openAnnotation(annotationId: AnnotationId, presentation: AnnotationPresentation = 'summary'): void {
     const item = this.view.annotations.find((candidate) => candidate.annotationId === annotationId)
     if (item === undefined) return
+    if (presentation === 'marker') {
+      const closing = this.view.markerAnnotationId === annotationId && this.view.editor === null
+      this.publish({
+        ...this.view,
+        editor: null,
+        editorSaveStatus: 'idle',
+        panelOpen: false,
+        activeAnnotationId: closing ? null : annotationId,
+        markerAnnotationId: closing ? null : annotationId,
+      })
+      return
+    }
+    const markerAnnotationId = presentation === 'marker-edit' ? annotationId : null
     if (item.status === 'queued') {
       this.publish({
         ...this.view,
         editor: null,
         editorSaveStatus: 'idle',
-        panelOpen: true,
+        panelOpen: presentation === 'summary',
         activeAnnotationId: annotationId,
+        markerAnnotationId,
       })
       return
     }
@@ -248,6 +268,7 @@ export class AnnotationController {
         }),
         editorSaveStatus: 'idle',
         activeAnnotationId: annotationId,
+        markerAnnotationId,
       })
       return
     }
@@ -256,6 +277,7 @@ export class AnnotationController {
       editor: Object.freeze({ kind: 'edit', annotationId, text: item.annotation }),
       editorSaveStatus: 'idle',
       activeAnnotationId: annotationId,
+      markerAnnotationId,
     })
   }
 
@@ -359,7 +381,7 @@ export class AnnotationController {
       ...this.view,
       editor: null,
       editorSaveStatus: 'idle',
-      activeAnnotationId: null,
+      activeAnnotationId: this.view.markerAnnotationId,
     })
     return true
   }
@@ -378,6 +400,7 @@ export class AnnotationController {
       editorSaveStatus: closesEditor ? 'idle' : this.view.editorSaveStatus,
       deletedDraft: target,
       activeAnnotationId: this.view.activeAnnotationId === annotationId ? null : this.view.activeAnnotationId,
+      markerAnnotationId: this.view.markerAnnotationId === annotationId ? null : this.view.markerAnnotationId,
     })
   }
 
@@ -402,7 +425,14 @@ export class AnnotationController {
   }
 
   setPanelOpen(panelOpen: boolean): void {
-    this.publish({ ...this.view, panelOpen }, false)
+    this.publish(
+      {
+        ...this.view,
+        panelOpen,
+        markerAnnotationId: panelOpen ? null : this.view.markerAnnotationId,
+      },
+      false,
+    )
   }
 
   setOverallRequirementDraft(overallRequirementDraft: string): void {
@@ -428,6 +458,10 @@ export class AnnotationController {
         this.view.activeAnnotationId !== null && draftIds.has(this.view.activeAnnotationId)
           ? null
           : this.view.activeAnnotationId,
+      markerAnnotationId:
+        this.view.markerAnnotationId !== null && draftIds.has(this.view.markerAnnotationId)
+          ? null
+          : this.view.markerAnnotationId,
     })
   }
 
@@ -729,7 +763,10 @@ export class AnnotationController {
   async navigate(annotationId: AnnotationId): Promise<boolean> {
     const annotation = this.view.annotations.find((item) => item.annotationId === annotationId)
     if (annotation === undefined) return false
-    this.publish({ ...this.view, activeAnnotationId: annotationId, panelOpen: false }, false)
+    this.publish(
+      { ...this.view, activeAnnotationId: annotationId, markerAnnotationId: null, panelOpen: false },
+      false,
+    )
     const endpoint = this.endpoints.get(annotation.messageId)
     if (endpoint !== undefined) {
       endpoint.reveal(annotationId)

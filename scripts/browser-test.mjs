@@ -331,20 +331,54 @@ try {
   )
 
   await page.locator('.dia-marker').nth(1).click()
+  const markerPreview = page.locator('.dia-marker-popover')
+  await markerPreview.waitFor()
+  const previewPlacement = await page.evaluate(() => {
+    const marker = document.querySelector('.dia-marker[data-active="true"]')?.getBoundingClientRect()
+    const preview = document.querySelector('.dia-marker-popover')?.getBoundingClientRect()
+    if (marker === undefined || preview === undefined) return null
+    return {
+      gap: preview.top - marker.bottom,
+      inDock: document.querySelector('.dia-marker-popover')?.closest('.dia-dock-shell') !== null,
+    }
+  })
+  assert(
+    previewPlacement !== null && Math.abs(previewPlacement.gap - 8) < 1 && !previewPlacement.inDock,
+    `a marker preview must open eight pixels below the clicked number outside the summary box, received ${JSON.stringify(previewPlacement)}`,
+  )
+  await markerPreview.getByRole('button', { name: 'Edit' }).click()
   const editDialog = page.getByRole('dialog', { name: 'Edit annotation' })
   await editDialog.waitFor()
-  const editInline = await editDialog.evaluate((element) => ({
-    inlineClass: element.classList.contains('dia-editor--inline'),
-    inlineLeft: element.style.left,
-    inlineRight: element.style.right,
-    inDock: element.closest('.dia-dock-shell') !== null,
-  }))
+  const editPlacement = await page.evaluate(() => {
+    const active = document.querySelector('.dia-marker[data-active="true"]')
+    const marker = active?.getBoundingClientRect()
+    const element = document.querySelector('.dia-editor')
+    const editor = element?.getBoundingClientRect()
+    if (marker === undefined || editor === undefined) return null
+    const annotationId = active instanceof HTMLElement ? active.dataset.annotationId : undefined
+    return {
+      gap: editor.top - marker.bottom,
+      marker: { top: marker.top, bottom: marker.bottom },
+      editor: { top: editor.top, styleTop: element instanceof HTMLElement ? element.style.top : '' },
+      matchingMarkers: Array.from(document.querySelectorAll('.dia-marker'))
+        .filter(
+          (candidate) => candidate instanceof HTMLElement && candidate.dataset.annotationId === annotationId,
+        )
+        .map((candidate) => {
+          const rect = candidate.getBoundingClientRect()
+          return { top: rect.top, bottom: rect.bottom }
+        }),
+      scrollerTop: document.querySelector('.browser-scroller')?.scrollTop,
+      inlineClass: element?.classList.contains('dia-editor--inline') === true,
+      inDock: element?.closest('.dia-dock-shell') !== null,
+    }
+  })
   assert(
-    editInline.inlineClass &&
-      editInline.inlineLeft === '' &&
-      editInline.inlineRight === '' &&
-      editInline.inDock,
-    `a marker-clicked editor must open inline inside the summary box without body positioning, received ${JSON.stringify(editInline)}`,
+    editPlacement !== null &&
+      Math.abs(editPlacement.gap - 8) < 1 &&
+      !editPlacement.inlineClass &&
+      !editPlacement.inDock,
+    `a marker editor must open eight pixels below the clicked number outside the summary box, received ${JSON.stringify(editPlacement)}`,
   )
   const markerDelete = editDialog.getByRole('button', { name: 'Delete' })
   assert((await markerDelete.count()) === 1, 'editing a draft from its marker must expose a delete action')
@@ -578,7 +612,7 @@ try {
 
   assert(failures.length === 0, `browser console errors:\n${failures.join('\n')}`)
   console.log(
-    'browser regression passed: selection action bar with copy, compact editor, autosave, default auto-attach, official action geometry and hover, inline summary-box editing with delete, mobile markers, dark mode, zoom, reasoning, attach toggle, Enter submission, attachment-only retry, authoritative Toasts, locate',
+    'browser regression passed: selection action bar with copy, compact editor, autosave, default auto-attach, official action geometry and hover, marker-anchored preview and editing with delete, mobile markers, dark mode, zoom, reasoning, attach toggle, Enter submission, attachment-only retry, authoritative Toasts, locate',
   )
   await context.close()
 } finally {

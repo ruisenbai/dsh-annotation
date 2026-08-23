@@ -936,7 +936,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
                   left: markerPositions.get(annotation.annotationId)?.left ?? 'calc(100% + 6px)',
                 }}
                 aria-label={`#${annotation.ordinal}: ${annotation.annotation === '' ? t('highlightOnly') : annotation.annotation}`}
-                onClick={() => openAnnotation(annotation.annotationId)}
+                onClick={() => openAnnotation(annotation.annotationId, 'marker')}
               >
                 <span>{annotation.ordinal}</span>
               </button>

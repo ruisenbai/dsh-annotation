@@ -66,7 +66,7 @@
 - 沿用官方输入框的提交策略；注解命令通过一条可幂等重试的排队用户消息入队。
 - 使用不同的 DSH Toast 提示权威队列、持久发送和可重试失败；只有批次仍在已观测队列中时才显示撤回操作。
 - 编号位于选区结束位置所在完整正文行之后；预留防溢出区域并保持升序，同时合并思考过程展开、视口、字体和缩放触发的布局测量。
-- 点击数字编号后，编辑器出现在编号右侧而不是右上角；编辑已有草稿时提供可撤销的删除操作。
+- 点击正文数字编号后，查看卡直接出现在编号下方；从卡片发起编辑或补充时，编辑器继续锚定在同一编号下方并跟随滚动、缩放，汇总框内发起的编辑仍在汇总框内就地显示；编辑已有草稿时提供可撤销的删除操作。
 - 点击定位后，将数字编号所在的正文行垂直居中到真实会话或窗口滚动区域，并校正 CSS 缩放。
 - 使用 `localStorage` 恢复未发送草稿、编辑中内容和不可变重试记录。
 - 用由提交 ID 派生的稳定消息 ID 去重网络中断后的重试。
@@ -99,14 +99,14 @@ dsh web --profile web
 每个 `v*.*.*` 标签都会构建可安装 Tarball 并附加到 GitHub Release。下载后可以直接安装预构建包，无需执行仓库构建脚本：
 
 ```bash
-gh release download v0.2.2 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-annotation-0.2.2.tgz
+gh release download v0.2.3 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
+dsh plugin --profile web add ./dsh-annotation-0.2.3.tgz
 ```
 
 如果 Profile 明确允许这个可信包执行 `prepare` 构建，也可以安装固定标签的 Git 依赖：
 
 ```bash
-dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.2.2
+dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.2.3
 ```
 
 ## 设置

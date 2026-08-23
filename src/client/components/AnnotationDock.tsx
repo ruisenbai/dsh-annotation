@@ -21,7 +21,7 @@ import {
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import type {
@@ -46,13 +46,17 @@ function editorKey(editor: EditorState | null): string {
   return `new:${editor.capture.messageId}:${editor.capture.quote.start}:${editor.capture.quote.end}`
 }
 
+function markerElement(annotationId: AnnotationId): HTMLElement | null {
+  return (
+    Array.from(document.querySelectorAll<HTMLElement>('button.dia-marker')).find(
+      (element) => element.dataset.annotationId === annotationId,
+    ) ?? null
+  )
+}
+
 function markerRectFor(editor: EditorState): DOMRect | null {
   const annotationId = editor.kind === 'edit' ? editor.annotationId : editor.supplementalTo
-  if (annotationId === undefined) return null
-  const marker = Array.from(document.querySelectorAll<HTMLElement>('button.dia-marker')).find(
-    (element) => element.dataset.annotationId === annotationId,
-  )
-  return marker?.getBoundingClientRect() ?? null
+  return annotationId === undefined ? null : (markerElement(annotationId)?.getBoundingClientRect() ?? null)
 }
 
 function editorPosition(editor: EditorState): { top?: number; left?: number; right?: number } {
@@ -74,11 +78,8 @@ function editorPosition(editor: EditorState): { top?: number; left?: number; rig
   const marker = markerRectFor(editor)
   if (marker === null) return { top: 82, right: 24 }
   const width = Math.min(420, window.innerWidth - 24)
-  const estimatedHeight = 116
-  const fitsRight = marker.right + 8 + width <= window.innerWidth - 12
-  const left = fitsRight ? marker.right + 8 : Math.max(12, marker.left - width - 8)
-  const top = Math.max(12, Math.min(marker.top - 6, window.innerHeight - estimatedHeight - 12))
-  return { top, left }
+  const left = Math.max(12, Math.min(window.innerWidth - width - 12, marker.right - width))
+  return { top: marker.bottom + 8, left }
 }
 
 function Portal({ children }: { children: ReactNode }) {
@@ -149,9 +150,9 @@ function compositionActive(
   )
 }
 
-/** Whether the editor belongs inside the summary box instead of floating in the assistant body. */
-function isInlineEditor(editor: EditorState | null): boolean {
-  if (editor === null) return false
+/** Whether the editor belongs inside the summary box instead of under a body marker or selection. */
+function isInlineEditor(editor: EditorState | null, markerAnnotationId: AnnotationId | null): boolean {
+  if (editor === null || markerAnnotationId !== null) return false
   if (editor.kind === 'edit') return true
   const rect = editor.capture.rect
   return rect.top === 0 && rect.left === 0 && rect.bottom === 0 && rect.right === 0
@@ -181,6 +182,24 @@ function AnnotationEditor({
   const justComposedRef = useRef(false)
   const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const editor = view.editor
+  const [floatingPosition, setFloatingPosition] = useState<{
+    top?: number
+    left?: number
+    right?: number
+  }>({ top: 82, right: 24 })
+
+  useLayoutEffect(() => {
+    if (editor === null || inline) return undefined
+    const update = () => setFloatingPosition(editorPosition(editor))
+    update()
+    if (view.markerAnnotationId === null) return undefined
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [editor, inline, view.markerAnnotationId])
 
   const requireDecision = () => {
     setDecisionRequired(true)
@@ -257,8 +276,8 @@ function AnnotationEditor({
   const editorElement = (
     <section
       ref={editorRef}
-      className={`dia-editor${inline ? ' dia-editor--inline' : ''}`}
-      style={inline ? undefined : editorPosition(editor)}
+      className={`dia-editor${inline ? ' dia-editor--inline' : ''}${view.markerAnnotationId !== null ? ' dia-editor--marker' : ''}`}
+      style={inline ? undefined : floatingPosition}
       role="dialog"
       aria-modal="false"
       aria-label={editor.kind === 'edit' ? t('editor.editTitle') : t('editor.title')}
@@ -377,11 +396,13 @@ function AnnotationRow({
   annotationId,
   view,
   t,
+  markerAnchored = false,
   ...actions
 }: {
   annotationId: AnnotationId
   view: AnnotationView
   t: InputAnnotationProps['t']
+  markerAnchored?: boolean
 } & DockBoundActions) {
   const item = view.annotations.find((candidate) => candidate.annotationId === annotationId)
   if (item === undefined) return null
@@ -410,20 +431,26 @@ function AnnotationRow({
         </span>
       </div>
       <div className="dia-item__actions">
-        <TooltipIconAction
-          label={t('list.locate')}
-          side="bottom"
-          className="dia-row-action"
-          onActivate={() => void actions.navigate(item.annotationId)}
-        >
-          <MapPin aria-hidden="true" size={12} strokeWidth={1.8} />
-        </TooltipIconAction>
+        {!markerAnchored && (
+          <TooltipIconAction
+            label={t('list.locate')}
+            side="bottom"
+            className="dia-row-action"
+            onActivate={() => void actions.navigate(item.annotationId)}
+          >
+            <MapPin aria-hidden="true" size={12} strokeWidth={1.8} />
+          </TooltipIconAction>
+        )}
         {item.status !== 'queued' && (
           <TooltipIconAction
             label={editLabel}
             side="bottom"
             className="dia-row-action"
-            onActivate={() => actions.openAnnotation(item.annotationId)}
+            onActivate={() =>
+              markerAnchored
+                ? actions.openAnnotation(item.annotationId, 'marker-edit')
+                : actions.openAnnotation(item.annotationId)
+            }
           >
             {item.status === 'draft' ? <IconEditOutline16 size={14} /> : <IconPlusOutline16 size={14} />}
           </TooltipIconAction>
@@ -441,6 +468,96 @@ function AnnotationRow({
         )}
       </div>
     </div>
+  )
+}
+
+interface MarkerPopoverPosition {
+  readonly top: number
+  readonly left: number
+}
+
+function markerPopoverPosition(annotationId: AnnotationId): MarkerPopoverPosition {
+  const marker = markerElement(annotationId)
+  const width = Math.min(360, window.innerWidth - 24)
+  if (marker === null) return { top: 82, left: Math.max(12, window.innerWidth - width - 24) }
+  const rect = marker.getBoundingClientRect()
+  return {
+    top: rect.bottom + 8,
+    left: Math.max(12, Math.min(window.innerWidth - width - 12, rect.right - width)),
+  }
+}
+
+function MarkerAnnotationPopover({
+  view,
+  t,
+  ...actions
+}: {
+  view: AnnotationView
+  t: InputAnnotationProps['t']
+} & DockBoundActions) {
+  const annotationId = view.markerAnnotationId
+  const popoverRef = useRef<HTMLElement>(null)
+  const [position, setPosition] = useState<MarkerPopoverPosition>({ top: 82, left: 12 })
+
+  useLayoutEffect(() => {
+    if (annotationId === null || view.editor !== null) return undefined
+    const update = () => setPosition(markerPopoverPosition(annotationId))
+    update()
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [annotationId, view.editor])
+
+  useEffect(() => {
+    if (annotationId === null || view.editor !== null) return undefined
+    const dismiss = () => actions.openAnnotation(annotationId, 'marker')
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      dismiss()
+    }
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (popoverRef.current?.contains(target) === true) return
+      if (markerElement(annotationId)?.contains(target) === true) return
+      dismiss()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    document.addEventListener('pointerdown', closeOnOutsidePointer, true)
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape)
+      document.removeEventListener('pointerdown', closeOnOutsidePointer, true)
+    }
+  }, [actions.openAnnotation, annotationId, view.editor])
+
+  if (annotationId === null || view.editor !== null) return null
+  const item = view.annotations.find((candidate) => candidate.annotationId === annotationId)
+  if (item === undefined) return null
+  return (
+    <Portal>
+      <aside
+        ref={popoverRef}
+        className="dia-marker-popover"
+        style={position}
+        role="dialog"
+        aria-modal="false"
+        aria-label={`#${item.ordinal}: ${item.annotation === '' ? t('highlightOnly') : item.annotation}`}
+      >
+        <button
+          type="button"
+          className="dia-marker-popover__close"
+          aria-label={t('list.close')}
+          onClick={() => actions.openAnnotation(annotationId, 'marker')}
+        >
+          <IconCloseOutline16 size={14} />
+        </button>
+        <AnnotationRow annotationId={annotationId} view={view} t={t} markerAnchored {...actions} />
+      </aside>
+    </Portal>
   )
 }
 
@@ -743,9 +860,9 @@ function AnnotationPanel({
           </div>
         </div>
       </div>
-      {(view.panelOpen || isInlineEditor(view.editor)) && (
+      {(view.panelOpen || isInlineEditor(view.editor, view.markerAnnotationId)) && (
         <div id={listId} className="dia-inline-panel dia-inline-panel--dropup">
-          {isInlineEditor(view.editor) && (
+          {isInlineEditor(view.editor, view.markerAnnotationId) && (
             <AnnotationEditor
               key={editorKey(view.editor)}
               inline
@@ -984,7 +1101,10 @@ export function AnnotationDock({
   } | null>(null)
   const failed = view.outbox.some((item) => item.status === 'failed')
   const dockVisible =
-    view.annotations.length > 0 || failed || view.deletedDraft !== null || isInlineEditor(view.editor)
+    view.annotations.length > 0 ||
+    failed ||
+    view.deletedDraft !== null ||
+    isInlineEditor(view.editor, view.markerAnnotationId)
   const retry = view.outbox.find((item) => item.status === 'failed' || item.status === 'ready')
   const draftCount = view.annotations.filter((item) => item.status === 'draft').length
   const attachmentCount = retry?.payload.annotations.length ?? draftCount
@@ -1118,7 +1238,8 @@ export function AnnotationDock({
           {...actions}
         />
       )}
-      {!isInlineEditor(view.editor) && (
+      <MarkerAnnotationPopover view={view} t={t} {...actions} />
+      {!isInlineEditor(view.editor, view.markerAnnotationId) && (
         <AnnotationEditor
           key={editorKey(view.editor)}
           view={view}

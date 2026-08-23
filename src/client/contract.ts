@@ -1,5 +1,5 @@
 import type { PropsLocale, PropsRuntime, InjectFace, HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
-import type { AnnotationEndpoint, AnnotationView } from './controller.ts'
+import type { AnnotationEndpoint, AnnotationPresentation, AnnotationView } from './controller.ts'
 import type { SelectionCapture } from './selection.ts'
 import type { AnnotationId, MessageIdentity, SubmissionId } from '../shared/types.ts'
 
@@ -12,7 +12,7 @@ export interface AnnotationInjected {
   /** 注解界面的翻译函数，避免覆盖原消息渲染器自己的 t。 */
   readonly annotationT: PropsLocale<'dshAnnotation'>['t']
   readonly beginSelection: (capture: SelectionCapture) => void
-  readonly openAnnotation: (annotationId: AnnotationId) => void
+  readonly openAnnotation: (annotationId: AnnotationId, presentation?: AnnotationPresentation) => void
   readonly updateEditorText: (text: string) => void
   readonly confirmLongSelection: () => void
   readonly saveEditor: () => AnnotationId

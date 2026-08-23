@@ -556,7 +556,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       hooks: { annotations: controller, localTools: localToolsEnabled },
       annotationT,
       beginSelection: (capture) => controller.beginSelection(capture),
-      openAnnotation: (annotationId) => controller.openAnnotation(annotationId),
+      openAnnotation: (annotationId, presentation) => controller.openAnnotation(annotationId, presentation),
       updateEditorText: (text) => controller.updateEditorText(text),
       confirmLongSelection: () => controller.confirmLongSelection(),
       saveEditor: () => controller.saveEditor(),

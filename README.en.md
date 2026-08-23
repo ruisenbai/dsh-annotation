@@ -63,7 +63,7 @@ Need a break from annotations? Turn the feature off under **Settings → Plugins
 - Report authoritative queue, durable send, and retryable failure outcomes through distinct DSH Toasts; withdrawal appears only while the batch remains in the observed queue.
 - Render submitted annotation batches as collapsed timeline cards with source navigation.
 - Place numbered markers after the complete endpoint line, reserve an overflow-safe gutter, retain ascending order, and coalesce layout updates across reasoning disclosure, viewport, font, and zoom changes.
-- Open the annotation editor beside the clicked numbered marker — never the top-right corner — and edit an existing draft from its marker with a delete action backed by undo.
+- Open a preview directly below a clicked body marker; editing or supplementing from that preview remains anchored below the same marker through scrolling and zoom, while edits started from the summary box stay inline. Editing a draft from its marker retains the undo-backed delete action.
 - Center the exact numbered-marker line in the active conversation or window viewport when locating source text, including CSS zoom correction.
 - Persist unsent drafts, unfinished editor text, and immutable retry records in browser `localStorage`.
 - Deduplicate retries across transport failures with a stable submission-derived message id.
@@ -96,14 +96,14 @@ Open the DSH Web URL and select text in a finalized assistant reply. A small act
 Each `v*.*.*` tag builds an installable tarball and attaches it to GitHub Releases. Download it and install the prebuilt package without running repository build scripts:
 
 ```bash
-gh release download v0.2.2 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-annotation-0.2.2.tgz
+gh release download v0.2.3 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
+dsh plugin --profile web add ./dsh-annotation-0.2.3.tgz
 ```
 
 A pinned Git dependency also works when the profile explicitly allows this trusted package to run its `prepare` build:
 
 ```bash
-dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.2.2
+dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.2.3
 ```
 
 ## Settings

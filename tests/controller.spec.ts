@@ -179,6 +179,44 @@ describe('annotation controller', () => {
     expect(controller.getSnapshot().outbox[0]?.status).toBe('queued')
   })
 
+  it('keeps marker previews and marker-anchored editors outside the summary panel', () => {
+    const { controller } = harness()
+    const id = saveDraft(controller)
+
+    controller.openAnnotation(id, 'marker')
+    expect(controller.getSnapshot()).toMatchObject({
+      editor: null,
+      panelOpen: false,
+      activeAnnotationId: id,
+      markerAnnotationId: id,
+    })
+
+    controller.openAnnotation(id, 'marker-edit')
+    expect(controller.getSnapshot()).toMatchObject({
+      editor: { kind: 'edit', annotationId: id },
+      panelOpen: false,
+      markerAnnotationId: id,
+    })
+    expect(controller.closeEditor()).toBe(true)
+    expect(controller.getSnapshot()).toMatchObject({
+      editor: null,
+      activeAnnotationId: id,
+      markerAnnotationId: id,
+    })
+
+    controller.openAnnotation(id, 'marker')
+    expect(controller.getSnapshot()).toMatchObject({
+      activeAnnotationId: null,
+      markerAnnotationId: null,
+    })
+
+    controller.openAnnotation(id)
+    expect(controller.getSnapshot()).toMatchObject({
+      editor: { kind: 'edit', annotationId: id },
+      markerAnnotationId: null,
+    })
+  })
+
   it('closes an unchanged edit directly and requires confirmation only after changes', () => {
     const { controller } = harness()
     const id = saveDraft(controller)

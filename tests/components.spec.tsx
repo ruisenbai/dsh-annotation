@@ -70,6 +70,7 @@ const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
     'group.queued': 'Queued',
     'group.history': 'Sent',
     'list.edit': 'Edit',
+    'list.close': 'Close annotation preview',
     'list.delete': 'Delete',
     'list.withdraw': 'Withdraw queued batch',
     'list.deleted': 'Draft comment deleted',
@@ -121,6 +122,7 @@ function baseView(): AnnotationView {
     panelOpen: false,
     notice: null,
     activeAnnotationId: null,
+    markerAnnotationId: null,
     latestAssistantMessageId: null,
     storageAvailable: true,
     storageBytes: 0,
@@ -1086,6 +1088,8 @@ describe('inline comment presentation', () => {
         expect(firstMarker).toHaveStyle({ top: '48px', left: '315px' })
         expect(secondMarker).toHaveStyle({ top: '48px', left: '341px' })
       })
+      fireEvent.click(firstMarker)
+      expect(props.openAnnotation).toHaveBeenCalledWith(annotation.annotationId, 'marker')
 
       finalLineTop = 190
       fireEvent(
@@ -1566,6 +1570,97 @@ describe('inline comment presentation', () => {
     fireEvent.click(deleteButton)
     expect(deleteDraft).toHaveBeenCalledOnce()
     expect(deleteDraft).toHaveBeenCalledWith(annotation.annotationId)
+  })
+
+  it('anchors the body-marker preview and editor directly below the clicked number', async () => {
+    const payload = fixturePayload()
+    const annotation = {
+      ...payload.annotations[0]!,
+      status: 'draft' as const,
+      updatedAt: payload.createdAt,
+    }
+    let view: AnnotationView = {
+      ...baseView(),
+      annotations: [annotation],
+      activeAnnotationId: annotation.annotationId,
+      markerAnnotationId: annotation.annotationId,
+    }
+    const openAnnotation = vi.fn()
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function mockRect(this: HTMLElement) {
+        if (this.classList.contains('dia-marker')) {
+          return {
+            top: 112,
+            left: 476,
+            right: 500,
+            bottom: 140,
+            width: 24,
+            height: 28,
+            x: 476,
+            y: 112,
+            toJSON: () => undefined,
+          }
+        }
+        return {
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: 0,
+          height: 0,
+          x: 0,
+          y: 0,
+          toJSON: () => undefined,
+        }
+      })
+    const props = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      openAnnotation,
+      closeEditor: vi.fn(() => true),
+      saveEditor: vi.fn(),
+      updateEditorText: vi.fn(),
+      confirmLongSelection: vi.fn(),
+      deleteDraft: vi.fn(),
+      t,
+    } as unknown as InputAnnotationProps
+    const renderTree = () => (
+      <>
+        <style>{styles}</style>
+        <button
+          type="button"
+          className="dia-marker"
+          data-annotation-id={annotation.annotationId}
+          aria-label="Body marker 1"
+        >
+          1
+        </button>
+        <TestAnnotationDock {...props} />
+      </>
+    )
+    const rendered = render(renderTree())
+
+    const preview = await screen.findByRole('dialog', { name: /#1:/u })
+    await waitFor(() => expect(preview).toHaveStyle({ top: '148px', left: '140px' }))
+    expect(document.querySelector('.dia-inline-panel')).toBeNull()
+    fireEvent.click(within(preview).getByRole('button', { name: 'Edit' }))
+    expect(openAnnotation).toHaveBeenCalledWith(annotation.annotationId, 'marker-edit')
+
+    view = {
+      ...view,
+      editor: { kind: 'edit', annotationId: annotation.annotationId, text: annotation.annotation },
+    }
+    rendered.rerender(renderTree())
+    const editor = screen.getByRole('dialog', { name: 'Edit comment' })
+    expect(editor).toHaveStyle({ top: '148px', left: '80px' })
+    expect(editor).not.toHaveClass('dia-editor--inline')
+    expect(editor.closest('.dia-inline-panel')).toBeNull()
+    rectSpy.mockRestore()
   })
 })
 
