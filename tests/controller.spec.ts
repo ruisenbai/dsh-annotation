@@ -63,6 +63,64 @@ function saveDraft(controller: AnnotationController): AnnotationId {
 }
 
 describe('annotation controller', () => {
+  it('saves an empty annotation as highlight-only and whitespace counts as empty', () => {
+    const { controller } = harness()
+    controller.beginSelection(capture())
+    controller.updateEditorText('   \n  ')
+    const id = controller.saveEditor()
+    expect(controller.getSnapshot().annotations[0]).toMatchObject({
+      annotationId: id,
+      annotation: '',
+      kind: 'highlight-only',
+      status: 'draft',
+    })
+
+    // 编辑已有注解时清空内容：转成仅标记原文，而不是删除。
+    controller.openAnnotation(id)
+    controller.updateEditorText('Add a real note.')
+    controller.saveEditor()
+    expect(controller.getSnapshot().annotations[0]).toMatchObject({
+      annotationId: id,
+      annotation: 'Add a real note.',
+      kind: 'note',
+    })
+    controller.openAnnotation(id)
+    controller.updateEditorText('')
+    controller.saveEditor()
+    expect(controller.getSnapshot().annotations[0]).toMatchObject({
+      annotationId: id,
+      annotation: '',
+      kind: 'highlight-only',
+    })
+  })
+
+  it('still requires a valid selection before saving an empty annotation', () => {
+    const { controller } = harness()
+    controller.beginSelection(capture())
+    controller.updateEditorText('')
+    expect(() => controller.saveEditor()).not.toThrow()
+    // 没有选区时不能保存。
+    const second = harness()
+    expect(() => second.controller.saveEditor()).toThrow('no annotation editor is open')
+  })
+
+  it('freezes the protocol locale into a fresh outbox entry', () => {
+    const { controller } = harness()
+    saveDraft(controller)
+    const entry = controller.createOutbox('queue', 'session-test' as SessionIdentity, '', undefined, 'en')
+    expect(entry.payload.protocolLocale).toBe('en')
+    expect(entry.payload.annotations[0]).toMatchObject({ kind: 'note' })
+    const zh = harness()
+    saveDraft(zh.controller)
+    const zhEntry = zh.controller.createOutbox(
+      'queue',
+      'session-test' as SessionIdentity,
+      '',
+      undefined,
+      'zh',
+    )
+    expect(zhEntry.payload.protocolLocale).toBe('zh')
+  })
   it('keeps a draft editable until explicit batch creation', () => {
     const { controller } = harness()
     const id = saveDraft(controller)

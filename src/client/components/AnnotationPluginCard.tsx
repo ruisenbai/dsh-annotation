@@ -128,6 +128,47 @@ export function AnnotationPluginCard(props: AnnotationPluginCardProps) {
             </button>
             <p className="dia-plugin-card__hint">{props.t('settings.autoAttachHint')}</p>
           </div>
+          <div className="dia-plugin-card__field">
+            <div className="dia-plugin-card__field-head">
+              <span className="dia-plugin-card__field-label">{props.t('settings.localTools')}</span>
+              {state.localToolsOverridden ? (
+                <span className="dia-plugin-card__field-actions">
+                  <span className="dia-plugin-card__badge">{props.t('settings.overridden')}</span>
+                  <button
+                    type="button"
+                    className="dia-plugin-card__reset"
+                    disabled={!state.writable || state.saving}
+                    onClick={props.resetLocalTools}
+                  >
+                    {props.t('settings.reset')}
+                  </button>
+                </span>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="dia-plugin-card__switch"
+              role="switch"
+              aria-label={props.t('settings.localTools')}
+              aria-checked={state.localTools}
+              disabled={!state.writable || state.saving}
+              onClick={() => {
+                props.setLocalTools(!state.localTools)
+              }}
+            >
+              <span className="dia-plugin-card__switch-state">
+                {props.t(state.localTools ? 'settings.on' : 'settings.off')}
+              </span>
+              <span
+                className="dia-plugin-card__switch-track"
+                data-on={state.localTools || undefined}
+                aria-hidden="true"
+              >
+                <span className="dia-plugin-card__switch-thumb" />
+              </span>
+            </button>
+            <p className="dia-plugin-card__hint">{props.t('settings.localToolsHint')}</p>
+          </div>
           <div className="dia-plugin-card__footer">
             {state.failed ? (
               <p className="dia-plugin-card__failed" role="status">

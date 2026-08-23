@@ -18,6 +18,7 @@ import type {
   AnnotationConfig,
   MessageIdentity,
   OutboxImages,
+  ProtocolLocale,
   SessionIdentity,
   SubmissionId,
 } from '../shared/types.ts'
@@ -35,6 +36,7 @@ import {
 import { AnnotationController } from './controller.ts'
 import type { AnnotationInjected, UserAnnotationProps } from './contract.ts'
 import { AnnotationSettingsController } from './feature-toggle.ts'
+import { createFocusChatAdapter } from './focus-adapter.ts'
 import { HighlightManager } from './highlight.ts'
 import { AnnotationStorage } from './storage.ts'
 import type { StorageLike } from './storage.ts'
@@ -146,6 +148,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   )
   const featureEnabled = settingsController.feature()
   const autoAttachEnabled = settingsController.autoAttach()
+  const localToolsEnabled = settingsController.localTools()
   ctx.effect(() => () => settingsController.dispose(), 'dsh-annotation: settings controller')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-annotation: dictionaries')
   const annotationT = ctx.locale.bind(NS)
@@ -156,6 +159,19 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     document.head.append(style)
     return () => style.remove()
   }, 'dsh-annotation: styles')
+
+  // dsh-focus-chat 可选兼容：未安装时保持被动，适配失败不影响核心功能。
+  const focusAdapter = createFocusChatAdapter()
+  ctx.effect(() => {
+    focusAdapter.start()
+    return () => focusAdapter.dispose()
+  }, 'dsh-annotation: focus-chat adapter')
+
+  /** 模型协议语言：只读 DSH 当前 locale（已归一化为 zh/en，回退 en）。 */
+  const resolveProtocolLocale = (): ProtocolLocale => {
+    const locale = ctx.locale.getLocale?.().active
+    return locale === 'zh' ? 'zh' : 'en'
+  }
 
   const highlights = new HighlightManager()
   const controllers = new Map<
@@ -293,6 +309,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     origin: AnnotationController,
     overallRequirement: string,
     images: readonly SubmitImageAttachment[],
+    protocolLocale: ProtocolLocale,
   ): Promise<void> => {
     const snapshot = origin.getSnapshot()
     const retry = snapshot.outbox.find((item) => item.status === 'failed' || item.status === 'ready')
@@ -315,6 +332,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       targetId as unknown as SessionIdentity,
       overallRequirement,
       retry === undefined ? imageMetadata(images) : undefined,
+      protocolLocale,
     )
     const target = targetId === (origin.sessionId as unknown as SessionId) ? origin : controllerFor(targetId)
     if (target !== origin) {
@@ -439,7 +457,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
             inputTriggers.sessionOf(actx),
             serialization.signal,
           )
-          await submitAttached(controller, overallRequirement, images)
+          await submitAttached(controller, overallRequirement, images, resolveProtocolLocale())
           return { kind: 'success' }
         } catch (cause: unknown) {
           return { kind: 'error', text: failureMessage(cause) }
@@ -529,7 +547,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   const faceFor = (sessionId: SessionId): AnnotationInjected => {
     const controller = controllerFor(sessionId)
     return {
-      hooks: { annotations: controller },
+      hooks: { annotations: controller, localTools: localToolsEnabled },
       annotationT,
       beginSelection: (capture) => controller.beginSelection(capture),
       openAnnotation: (annotationId) => controller.openAnnotation(annotationId),

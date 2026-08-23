@@ -4,9 +4,12 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-23
+
 ### Changed
 
-- Renamed the plugin runtime identity to **dsh-annotation**: the npm package name, bundle row, settings namespace, settings card, internal command (`annotation_submit`), log prefixes, Slot ids, locale namespace, DOM data attributes, and CSS Custom Highlight names all use the new identity, while the development directory name and repository URL are unchanged.
+- Renamed the public repository to **ruisenbai/dsh-annotation**: package metadata URLs, documentation badges, clone and install instructions, support links, changelog links, and the license line now use the new repository name. GitHub redirects the old repository URLs, and the legacy protocol/storage identifiers intentionally keep their old names for compatibility.
+- Renamed the plugin runtime identity to **dsh-annotation**: the npm package name, bundle row, settings namespace, settings card, internal command (`annotation_submit`), log prefixes, Slot ids, locale namespace, DOM data attributes, and CSS Custom Highlight names all use the new identity.
 - Unified the user-visible Chinese terminology on 注解 and the internal domain model on annotation semantics (`comment` → `annotation`, `inlineComments` → `annotations`, `inline-comments-submit` → `annotation-submit`).
 - Upgraded the internal protocol to v2 (`protocolVersion: 2`, `source: "dsh-annotation"`, `annotation` field). New submissions only emit v2; legacy v1 payloads are still read and converted, historical messages are never rewritten, and legacy acknowledgement and reply markers remain authoritative reads while new messages only emit `dsh-annotation-*` markers.
 - Migrated browser storage to the `dsh-annotation:v1:<session-id>` namespace: legacy keys are validated, converted, and written to the new key before removal, and a failed migration keeps the legacy data. The legacy `inline-comments` settings namespace migrates the same way, and the legacy internal command names forward to the new handler through invisible aliases.
@@ -28,6 +31,15 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - The annotation summary box's fold button now keeps the same 6 px right margin from the visible card edge as the official task summary box (including the dsh-queue-plus takeover of QueueDock).
 - Locate source now survives the history-page race: after `loadOlder` resolves, the Client waits a few frames for the mounted assistant node to register its endpoint instead of failing a synchronous check, and the reveal re-measures once after scrolling an unrendered reply into view (lazy-rendered or `content-visibility` content).
 - Editing an existing annotation no longer positions or locates anything in the assistant body: the editor opens inline inside the annotation summary box (including marker-clicked edits and supplemental annotations), so a failed marker lookup can no longer strand the popup at the body's top-right corner.
+- The selection action bar now opens wherever the selection drag ends: `pointerup` is observed on the document in the capture phase, so releasing the mouse outside the assistant body (past the bubble edge, over other UI) still opens the bar for a selection that lies inside one assistant reply. Cross-message selections keep being rejected, and the existing dismiss paths (outside pointerdown, selection collapse, Escape) are unchanged.
+
+### Added
+
+- Empty-content annotations (highlight-only): an empty or whitespace-only annotation saves as `kind: "highlight-only"` and means “mark the quoted text only; review and respond to it”. The editor shows the empty-content hint and keeps Save enabled, the list/overview/chips display 仅标记原文 instead of a blank line, clearing an existing annotation converts it to highlight-only (deletion still requires the delete action), and highlight-only items participate in attachment, send, retry, processed confirmation, and per-annotation replies.
+- Compact “注解 ×N” summary (the only summary mode): the annotation summary box always shows the attached-annotation count near the official composer as a “注解 ×N” chip; clicking it pops the full annotation list upward (a drop-up panel anchored above the chip row, rounded on top, max-height with internal scrolling) instead of expanding downward. Hover or keyboard focus on the chip opens a read-only overview (ordinal, quote summary, annotation summary, highlight-only state, and draft/retry status) with max-height internal scrolling. The count updates on add/delete/attach/detach, resets after a successful send, survives failed sends, counts highlight-only items, and stays per-Session. The previous `summaryMode` setting was removed; the compact behavior is unconditional.
+- The plugin settings card is now named **注解** (zh) / **Annotations** (en) instead of the package id, and a new Host-backed `localTools` switch (default on) shows or hides the local data usage, export, and clear-drafts controls at the bottom of the annotation list; the toggle takes effect immediately through a reactive store.
+- DSH-locale model protocol: new submissions freeze `protocolLocale: "zh" | "en"` from the DSH locale at outbox creation; first send and retries reuse the frozen language, UI language switches never rewrite pending or sent content, and legacy records without the field keep the old English protocol. Reply parsing accepts 注解 N：/注解 N:/Annotation N: and legacy formats; association still rides the hidden stable marker.
+- Optional dsh-focus-chat compatibility (`src/client/focus-adapter.ts`): the adapter stays passive without the plugin (no service dependency, no pending startup), detects the focus view through its public DOM root, pauses marker/chip measurement for hidden nodes while the focus view is active, re-measures after view switches, and deduplicates normal-view markers by message id. Failures only disable focus enhancements.
 
 ## [0.1.3] - 2026-08-22
 
@@ -90,8 +102,9 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-inline-comments/compare/v0.1.3...HEAD
-[0.1.3]: https://github.com/ruisenbai/dsh-inline-comments/compare/v0.1.2...v0.1.3
-[0.1.2]: https://github.com/ruisenbai/dsh-inline-comments/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/ruisenbai/dsh-inline-comments/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/ruisenbai/dsh-inline-comments/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.1.3...v0.2.0
+[0.1.3]: https://github.com/ruisenbai/dsh-annotation/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/ruisenbai/dsh-annotation/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/ruisenbai/dsh-annotation/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/ruisenbai/dsh-annotation/releases/tag/v0.1.0

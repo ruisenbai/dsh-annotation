@@ -2,11 +2,12 @@ import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/clien
 import { createAnnotationId, createSubmissionId, submissionMessageId } from '../shared/ids.ts'
 import { parseModelAcknowledgements } from '../shared/model-ack.ts'
 import { parseAnnotationSource } from '../shared/protocol.ts'
-import { PROTOCOL_SOURCE, PROTOCOL_VERSION } from '../shared/types.ts'
+import { PROTOCOL_SOURCE, PROTOCOL_VERSION, FALLBACK_PROTOCOL_LOCALE } from '../shared/types.ts'
 import type {
   AnnotationConfig,
   AnnotationDraft,
   AnnotationId,
+  AnnotationKind,
   AnnotationStatus,
   AnnotationSubmissionPayload,
   DeliveryMode,
@@ -15,6 +16,7 @@ import type {
   OutboxImages,
   PersistedEditorDraft,
   PersistedSessionState,
+  ProtocolLocale,
   SessionIdentity,
   SubmissionId,
   SubmittedAnnotation,
@@ -282,8 +284,9 @@ export class AnnotationController {
   saveEditor(): AnnotationId {
     const editor = this.view.editor
     if (editor === null) throw new Error('no annotation editor is open')
+    // 空内容（含纯空白）表示仅标记原文；删除必须走删除操作。
     const annotation = editor.text.trim()
-    if (annotation.length === 0) throw new Error('annotation text is blank')
+    const kind: AnnotationKind = annotation.length === 0 ? 'highlight-only' : 'note'
     const time = this.now()
     let savedId: AnnotationId
     let annotations: AnnotationDraft[]
@@ -299,8 +302,10 @@ export class AnnotationController {
           messageId: editor.capture.messageId,
           messageSeq: editor.capture.messageSeq,
           responseVersion: editor.capture.responseVersion,
+          ...(editor.capture.blockIndex === undefined ? {} : { blockIndex: editor.capture.blockIndex }),
           quote: editor.capture.quote,
           annotation,
+          kind,
           ...(editor.capture.structure === undefined ? {} : { structure: editor.capture.structure }),
           createdAt: time,
           updatedAt: time,
@@ -318,6 +323,7 @@ export class AnnotationController {
           return Object.freeze({
             ...item,
             annotation,
+            kind,
             ...(capture === undefined
               ? {}
               : {
@@ -438,6 +444,7 @@ export class AnnotationController {
     targetSessionId: SessionIdentity,
     overallRequirement = '',
     images?: OutboxImages,
+    protocolLocale: ProtocolLocale = FALLBACK_PROTOCOL_LOCALE,
   ): OutboxEntry {
     const retry = this.view.outbox.find((item) => item.status === 'failed' || item.status === 'ready')
     if (retry !== undefined) return retry
@@ -453,6 +460,7 @@ export class AnnotationController {
         responseVersion: item.responseVersion,
         quote: item.quote,
         annotation: item.annotation,
+        kind: item.kind,
         ...(item.structure === undefined ? {} : { structure: item.structure }),
         createdAt: item.createdAt,
       }),
@@ -464,6 +472,7 @@ export class AnnotationController {
       submissionId,
       sessionId: targetSessionId,
       delivery,
+      protocolLocale,
       createdAt: this.now(),
       ...(overall.length === 0 ? {} : { overallRequirement: overall }),
       annotations: Object.freeze(annotations),

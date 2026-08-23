@@ -196,6 +196,7 @@ function Fixture() {
 
   const shared = {
     useAnnotations,
+    useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
     beginSelection: (capture: SelectionCapture) => controller.beginSelection(capture),
     openAnnotation: controller.openAnnotation.bind(controller),
     updateEditorText: controller.updateEditorText.bind(controller),
@@ -278,17 +279,6 @@ function Fixture() {
         <AnnotatedAssistantNode {...(assistantProps as unknown as AssistantAnnotationProps)} />
         <div className="browser-spacer" />
       </div>
-      <div className="browser-controls">
-        <button type="button" data-testid="seed-same-line" onClick={seedSameLine}>
-          Seed same-line markers
-        </button>
-        <button type="button" data-testid="settle-sent" onClick={settleSent}>
-          Settle durable send
-        </button>
-        <button type="button" data-testid="seed-failed" onClick={seedFailedSubmission}>
-          Seed failed submission
-        </button>
-      </div>
       <AnnotationDock {...(dockProps as unknown as InputAnnotationProps)} />
       <div className="browser-composer" data-composer-card>
         <textarea
@@ -308,6 +298,17 @@ function Fixture() {
           onClick={submitComposer}
         >
           Send
+        </button>
+      </div>
+      <div className="browser-controls">
+        <button type="button" data-testid="seed-same-line" onClick={seedSameLine}>
+          Seed same-line markers
+        </button>
+        <button type="button" data-testid="settle-sent" onClick={settleSent}>
+          Settle durable send
+        </button>
+        <button type="button" data-testid="seed-failed" onClick={seedFailedSubmission}>
+          Seed failed submission
         </button>
       </div>
     </main>

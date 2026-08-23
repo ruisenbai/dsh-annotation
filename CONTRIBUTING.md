@@ -12,8 +12,8 @@ Thank you for improving `dsh-annotation`.
 ## Development setup
 
 ```bash
-git clone https://github.com/ruisenbai/dsh-inline-comments.git
-cd dsh-inline-comments
+git clone https://github.com/ruisenbai/dsh-annotation.git
+cd dsh-annotation
 corepack enable
 pnpm install
 pnpm verify

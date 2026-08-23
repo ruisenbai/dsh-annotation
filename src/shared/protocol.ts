@@ -1,13 +1,21 @@
-import { MODEL_ACK_PREFIX, PROTOCOL_SOURCE, PROTOCOL_VERSION, REPLY_MARKER_PREFIX } from './types.ts'
+import {
+  FALLBACK_PROTOCOL_LOCALE,
+  MODEL_ACK_PREFIX,
+  PROTOCOL_SOURCE,
+  PROTOCOL_VERSION,
+  REPLY_MARKER_PREFIX,
+} from './types.ts'
 import type {
   AnnotationConfig,
   AnnotationId,
+  AnnotationKind,
   AnnotationMessageSource,
   AnnotationSubmissionPayload,
   CodeSelection,
   InlineCommentMessageSource,
   LegacyInlineAnnotationMessageSource,
   MessageIdentity,
+  ProtocolLocale,
   SessionIdentity,
   StructuredSelection,
   SubmissionId,
@@ -56,6 +64,13 @@ function id<T extends string>(value: unknown, field: string): T {
   const parsed = string(value, field)
   if (parsed.length > 256) throw new ProtocolError(`${field} is too long`)
   return parsed as T
+}
+
+/** 解析注解类型：显式 kind 优先，缺失或自相矛盾时按内容是否为空推断。 */
+export function resolveAnnotationKind(rawKind: unknown, annotation: string): AnnotationKind {
+  if (rawKind === 'highlight-only') return 'highlight-only'
+  if (rawKind === 'note' && annotation.trim().length > 0) return 'note'
+  return annotation.trim().length > 0 ? 'note' : 'highlight-only'
 }
 
 export function parseTextQuoteSelector(value: unknown, field: string): TextQuoteSelector {
@@ -111,6 +126,8 @@ export function parseSubmittedAnnotation(value: unknown, index: number): Submitt
   const source = record(value, field) as UnknownRecord & WireAnnotation
   const parsedStructure = parseStructuredSelection(source.structure, `${field}.structure`)
   const annotationText = source.annotation ?? source.comment
+  // 注解内容允许为空：空内容表示仅标记原文。
+  const annotation = string(annotationText, `${field}.annotation`, true)
   const parsed: SubmittedAnnotation = {
     annotationId: id<AnnotationId>(source.annotationId, `${field}.annotationId`),
     ordinal: integer(source.ordinal, `${field}.ordinal`, 1),
@@ -118,7 +135,8 @@ export function parseSubmittedAnnotation(value: unknown, index: number): Submitt
     messageSeq: integer(source.messageSeq, `${field}.messageSeq`),
     responseVersion: id<MessageIdentity>(source.responseVersion, `${field}.responseVersion`),
     quote: parseTextQuoteSelector(source.quote, `${field}.quote`),
-    annotation: string(annotationText, `${field}.annotation`),
+    annotation,
+    kind: resolveAnnotationKind(source.kind, annotation),
     createdAt: integer(source.createdAt, `${field}.createdAt`),
     ...(parsedStructure === undefined ? {} : { structure: parsedStructure }),
   }
@@ -155,12 +173,14 @@ export function parseSubmissionPayload(value: unknown): AnnotationSubmissionPayl
     throw new ProtocolError('delivery must be queue or steer')
   }
   const overallRequirement = optionalString(source.overallRequirement, 'overallRequirement')
+  const protocolLocale: ProtocolLocale = source.protocolLocale === 'zh' ? 'zh' : 'en'
   return Object.freeze({
     protocolVersion: PROTOCOL_VERSION,
     source: PROTOCOL_SOURCE,
     submissionId: id<SubmissionId>(source.submissionId, 'submissionId'),
     sessionId: id<SessionIdentity>(source.sessionId, 'sessionId'),
     delivery,
+    protocolLocale,
     createdAt: integer(source.createdAt, 'createdAt'),
     ...(overallRequirement === undefined ? {} : { overallRequirement }),
     annotations: Object.freeze(annotations),
@@ -219,8 +239,29 @@ export function replyMarkerFor(payload: AnnotationSubmissionPayload, item: Submi
   })} -->`
 }
 
+/** 中英文协议中“注解 N”段的显示前缀（回复识别也接受这些格式）。 */
+export function replyHeading(ordinal: number, protocolLocale: ProtocolLocale): string {
+  return protocolLocale === 'zh' ? `注解 ${ordinal}` : `Annotation ${ordinal}`
+}
+
+/** 回复文本中“注解 N”的识别候选（中英文与新旧格式）。 */
+export function replyHeadingNeedles(ordinal: number): readonly string[] {
+  return [`注解 ${ordinal}`, `Annotation ${ordinal}`]
+}
+
+/** 协议模板中“仅标记原文”的说明；机器标记与 ID 永远不本地化。 */
+function highlightOnlyLabel(protocolLocale: ProtocolLocale): string {
+  return protocolLocale === 'zh' ? '（仅标记原文）' : '(Highlight only)'
+}
+
 /** Produce the exact readable text sent to the model and retained in the standard user/message event. */
 export function formatSubmissionMessage(payload: AnnotationSubmissionPayload): string {
+  return payload.protocolLocale === 'zh'
+    ? formatSubmissionMessageZh(payload)
+    : formatSubmissionMessageEn(payload)
+}
+
+function formatSubmissionMessageZh(payload: AnnotationSubmissionPayload): string {
   const lines: string[] = [
     '[DSH 注解提交]',
     `Submission ID: ${payload.submissionId}`,
@@ -229,9 +270,10 @@ export function formatSubmissionMessage(payload: AnnotationSubmissionPayload): s
     '总体要求：',
     payload.overallRequirement?.trim() || '请按注解逐条处理，并保持未涉及的原文不变。',
     '',
-    '请按注解顺序逐条回答：',
+    '请按顺序逐条回应每一条注解：',
     '- 每段必须以「注解 N：」开头，N 为该注解的编号。',
     '- 不要合并不同注解；每个注解单独一段。',
+    '- 「仅标记原文」表示需要检查并回应对应原文；不允许因为注解内容为空而跳过该项。',
     '- 每段回答前先输出该注解的隐藏关联标记（HTML 注释，用户不可见）。',
     '',
   ]
@@ -244,7 +286,7 @@ export function formatSubmissionMessage(payload: AnnotationSubmissionPayload): s
       '被选中的原文：',
       item.quote.exact,
       '用户的注解：',
-      item.annotation,
+      item.kind === 'highlight-only' ? highlightOnlyLabel('zh') : item.annotation,
     )
     const label = structureLabel(item.structure)
     if (label !== null) lines.push(`Source coordinates: ${label}`)
@@ -261,6 +303,52 @@ export function formatSubmissionMessage(payload: AnnotationSubmissionPayload): s
   )
   return lines.join('\n')
 }
+
+function formatSubmissionMessageEn(payload: AnnotationSubmissionPayload): string {
+  const lines: string[] = [
+    '[DSH annotation submission]',
+    `Submission ID: ${payload.submissionId}`,
+    `Reply annotations: ${payload.annotations.length}`,
+    '',
+    'Overall requirement:',
+    payload.overallRequirement?.trim() || 'Handle every annotation in order and preserve unaffected content.',
+    '',
+    'Respond to every annotation in order.',
+    'Start each section with "Annotation N:".',
+    'Do not merge different annotations.',
+    '"Highlight only" means reviewing and responding to the selected text; never skip an item because its annotation content is empty.',
+    'Emit the annotation\u2019s hidden association marker (an HTML comment, invisible to the user) before each section.',
+    '',
+  ]
+  for (const item of payload.annotations) {
+    lines.push(
+      replyMarkerFor(payload, item),
+      `Annotation ${item.ordinal} (${item.annotationId})`,
+      `Reply message: ${item.messageId}`,
+      `Reply event seq: ${item.messageSeq}`,
+      'Selected text:',
+      item.quote.exact,
+      'User annotation:',
+      item.kind === 'highlight-only' ? highlightOnlyLabel('en') : item.annotation,
+    )
+    const label = structureLabel(item.structure)
+    if (label !== null) lines.push(`Source coordinates: ${label}`)
+    lines.push('')
+  }
+  lines.push(
+    'Processing acknowledgement:',
+    'Only include annotation ids you actually handled in processed; append one hidden HTML comment at the end of the reply:',
+    `<!-- ${MODEL_ACK_PREFIX}${JSON.stringify({
+      submissionId: payload.submissionId,
+      processed: ['annotation-id'],
+    })} -->`,
+    'Do not include annotation ids in processed unless your answer addresses them.',
+  )
+  return lines.join('\n')
+}
+
+/** 协议回退语言：DSH locale 无法识别或旧记录缺省时使用。 */
+export const fallbackProtocolLocale: ProtocolLocale = FALLBACK_PROTOCOL_LOCALE
 
 /** Text shown in the collapsed timeline row. */
 export function submissionSummary(payload: AnnotationSubmissionPayload, locale: 'zh' | 'en' = 'zh'): string {

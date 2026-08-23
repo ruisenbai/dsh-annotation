@@ -27,6 +27,13 @@ export type DeliveryMode = 'queue' | 'steer'
 export type AnnotationStatus = 'draft' | 'queued' | 'sent' | 'processed'
 export type OutboxStatus = 'ready' | 'sending' | 'accepted' | 'queued' | 'sent' | 'failed' | 'withdrawn'
 
+/** 注解类型：普通注解或仅标记原文。 */
+export type AnnotationKind = 'note' | 'highlight-only'
+/** 模型协议语言：随待发送记录冻结，重试期间不随界面语言改变。 */
+export type ProtocolLocale = 'zh' | 'en'
+/** 旧待发送记录缺少语言信息时继续使用的协议语言。 */
+export const FALLBACK_PROTOCOL_LOCALE: ProtocolLocale = 'en'
+
 /** Rendered-text selector retained beside the exact human-visible quote. */
 export interface TextQuoteSelector {
   readonly exact: string
@@ -60,6 +67,8 @@ export interface AnnotationSelectionCapture {
   readonly messageId: MessageIdentity
   readonly messageSeq: number
   readonly responseVersion: MessageIdentity
+  /** 内容块序号（浏览器本地定位提示，不进入线上协议）。 */
+  readonly blockIndex?: number
   readonly quote: TextQuoteSelector
   readonly structure?: StructuredSelection
   readonly rect: {
@@ -95,8 +104,10 @@ export interface SubmittedAnnotation {
   /** DSH has no mutable reply version; the finalized assistant message id is the version identity. */
   readonly responseVersion: MessageIdentity
   readonly quote: TextQuoteSelector
-  /** Human-authored annotation text written beside the quoted source. */
+  /** Human-authored annotation text written beside the quoted source; empty for highlight-only. */
   readonly annotation: string
+  /** 普通注解或仅标记原文；旧数据缺省时按内容是否为空推断。 */
+  readonly kind: AnnotationKind
   readonly structure?: StructuredSelection
   readonly createdAt: number
 }
@@ -115,6 +126,8 @@ export interface WireAnnotation {
   readonly annotation?: unknown
   /** v1 field; converted to `annotation` by the v2 model. */
   readonly comment?: unknown
+  /** 注解类型；缺失时按内容是否为空推断。 */
+  readonly kind?: unknown
 }
 
 /** Idempotent batch transported through the internal slash command. */
@@ -125,6 +138,8 @@ export interface AnnotationSubmissionPayload {
   readonly sessionId: SessionIdentity
   readonly delivery: DeliveryMode
   readonly createdAt: number
+  /** 协议语言：创建待发送记录时按 DSH 当前 locale 冻结；旧记录缺省为英文。 */
+  readonly protocolLocale: ProtocolLocale
   readonly overallRequirement?: string
   readonly annotations: readonly SubmittedAnnotation[]
 }

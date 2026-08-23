@@ -1,6 +1,6 @@
 {
   "name": "dsh-annotation",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Selection annotations for DeepSeek Harness assistant replies, sent through the official composer",
   "keywords": [
     "deepseek",
@@ -11,13 +11,13 @@
     "annotation",
     "review"
   ],
-  "homepage": "https://github.com/ruisenbai/dsh-inline-comments#readme",
+  "homepage": "https://github.com/ruisenbai/dsh-annotation#readme",
   "bugs": {
-    "url": "https://github.com/ruisenbai/dsh-inline-comments/issues"
+    "url": "https://github.com/ruisenbai/dsh-annotation/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ruisenbai/dsh-inline-comments.git"
+    "url": "git+https://github.com/ruisenbai/dsh-annotation.git"
   },
   "license": "MIT",
   "author": "dsh-annotation contributors",

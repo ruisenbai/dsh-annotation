@@ -1,3 +1,4 @@
+import { stripMachineMarkers } from '../shared/model-ack.ts'
 import type {
   AnnotationSelectionCapture,
   MessageIdentity,
@@ -6,6 +7,24 @@ import type {
 } from '../shared/types.ts'
 
 export type SelectionCapture = AnnotationSelectionCapture
+
+/** 文本块数组（data.blocks）中，位于指定渲染偏移之前的文本块下标（近似映射）。 */
+export function textBlockIndexOf(
+  blocks: readonly { kind: string; text?: unknown }[],
+  offset: number,
+): number | undefined {
+  let cursor = 0
+  let index = 0
+  for (const block of blocks) {
+    if (block.kind === 'text' && typeof block.text === 'string') {
+      const length = stripMachineMarkers(block.text).length
+      if (offset < cursor + length) return index
+      cursor += length
+    }
+    index += 1
+  }
+  return undefined
+}
 
 function acceptedTextNode(node: Node, root: HTMLElement): node is Text {
   if (node.nodeType !== Node.TEXT_NODE || node.textContent === null) return false

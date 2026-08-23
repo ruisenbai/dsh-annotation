@@ -21,7 +21,7 @@ import {
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import type {
@@ -157,8 +157,8 @@ function isInlineEditor(editor: EditorState | null): boolean {
   return rect.top === 0 && rect.left === 0 && rect.bottom === 0 && rect.right === 0
 }
 
-/** Dock-internal action face: the editor's own saveEditor wrapper is always passed explicitly. */
-type DockBoundActions = Omit<AnnotationBoundProps, 'useAnnotations' | 'saveEditor'>
+/** Dock-internal action face: the editor's own saveEditor wrapper and the reactive localTools hook are passed explicitly. */
+type DockBoundActions = Omit<AnnotationBoundProps, 'useAnnotations' | 'saveEditor' | 'useLocalTools'>
 
 function AnnotationEditor({
   view,
@@ -302,8 +302,8 @@ function AnnotationEditor({
             event.stopPropagation()
             if (event.shiftKey) return // Shift+Enter 换行，走 textarea 默认行为。
             event.preventDefault()
-            if (event.ctrlKey || event.metaKey || editor.text.trim().length > 0) save()
-            else requireDecision()
+            // 空内容允许保存：空内容表示仅标记原文。
+            save()
           }}
           onKeyUp={(event) => {
             if (
@@ -331,7 +331,7 @@ function AnnotationEditor({
             side="bottom"
             className="dia-icon-button"
             primary
-            disabled={editor.text.trim().length === 0 || longSelection}
+            disabled={longSelection}
             onActivate={save}
           >
             <IconCheckOutline16 size={14} />
@@ -353,6 +353,7 @@ function AnnotationEditor({
         <EditorSaveState view={view} t={t} />
         {decisionRequired && <span data-tone="error">{t('editor.chooseAction')}</span>}
       </div>
+      {editor.text.trim() === '' && <p className="dia-editor__hint">{t('editor.emptyHint')}</p>}
       {expanded && <p className="dia-editor__notice">{t('editor.expand')}</p>}
       {longSelection && (
         <div className="dia-editor__notice" data-tone="warning">
@@ -388,12 +389,14 @@ function AnnotationRow({
     item.status === 'queued' && !authoritativeQueueAnnotationIds(view).has(item.annotationId)
   const renderedStatus = awaitingAuthoritativeState ? t('status.submitted') : statusLabel(item.status, t)
   const editLabel = item.status === 'draft' ? t('list.edit') : t('editor.supplement')
+  const annotationCopy = item.annotation === '' ? t('highlightOnly') : item.annotation
   return (
     <div
       role="listitem"
-      aria-label={`#${item.ordinal} · ${renderedStatus} · ${item.quote.exact} · ${item.annotation}`}
+      aria-label={`#${item.ordinal} · ${renderedStatus} · ${item.quote.exact} · ${annotationCopy}`}
       className={`dia-item${view.activeAnnotationId === item.annotationId ? ' is-active' : ''}`}
       data-status={item.status}
+      data-kind={item.kind}
     >
       <div className="dia-item__main">
         <span className="dia-item__index" aria-hidden="true">
@@ -401,7 +404,9 @@ function AnnotationRow({
         </span>
         <span className="dia-item__copy">
           <q>{item.quote.exact}</q>
-          <span>{item.annotation}</span>
+          <span data-highlight-only={item.kind === 'highlight-only' ? 'true' : undefined}>
+            {annotationCopy}
+          </span>
         </span>
       </div>
       <div className="dia-item__actions">
@@ -596,10 +601,12 @@ function AnnotationPanel({
   view,
   archived,
   attached,
+  attachmentCount,
   attachmentDisabled,
   attachmentLabel,
   onToggleAttachment,
   saveEditor,
+  localTools,
   t,
   shellRef,
   ...actions
@@ -607,15 +614,18 @@ function AnnotationPanel({
   view: AnnotationView
   archived: boolean
   attached: boolean
+  attachmentCount: number
   attachmentDisabled: boolean
   attachmentLabel: string
   onToggleAttachment: () => void
   saveEditor: () => AnnotationId
+  localTools: boolean
   t: InputAnnotationProps['t']
   shellRef: RefObject<HTMLElement>
 } & DockBoundActions) {
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportState, setExportState] = useState<'idle' | 'done' | 'failed'>('idle')
+  const [chipPopover, setChipPopover] = useState<{ left: number; top: number } | null>(null)
   const listId = useId()
   const retry = view.outbox.find((item) => item.status === 'failed')
   const drafts = view.annotations.filter((item) => item.status === 'draft')
@@ -633,6 +643,21 @@ function AnnotationPanel({
     drafts.length > 0 ||
     (view.editor !== null && view.editor.text.trim() !== '') ||
     view.overallRequirementDraft.trim() !== ''
+  // “注解 ×N”的计数与概览只统计下一次发送会携带的已附着注解。
+  const retryIds = useMemo(
+    () => (retry === undefined ? null : new Set(retry.payload.annotations.map((item) => item.annotationId))),
+    [retry],
+  )
+  const overviewItems =
+    retryIds === null ? drafts : view.annotations.filter((item) => retryIds.has(item.annotationId))
+  const showChip = attached && attachmentCount > 0
+  const openChipPopover = () => {
+    const anchor = chipAnchorRef.current
+    if (anchor === null) return
+    const rect = anchor.getBoundingClientRect()
+    setChipPopover({ left: Math.max(12, rect.left), top: rect.bottom + 6 })
+  }
+  const chipAnchorRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!view.panelOpen) return undefined
@@ -665,17 +690,31 @@ function AnnotationPanel({
       <div className="dia-dock-body">
         <div className="dia-dock" data-attached={attached ? 'true' : 'false'}>
           <button
+            ref={chipAnchorRef}
             type="button"
             className="dia-dock__main"
             aria-controls={listId}
             aria-expanded={view.panelOpen}
+            aria-label={showChip ? t('compact.count', { count: attachmentCount }) : t('list.title')}
+            onPointerEnter={() => {
+              if (showChip) openChipPopover()
+            }}
+            onPointerLeave={() => setChipPopover(null)}
+            onFocus={() => {
+              if (showChip) openChipPopover()
+            }}
+            onBlur={() => setChipPopover(null)}
             onClick={() => actions.setPanelOpen(!view.panelOpen)}
           >
             <span className="dia-dock__icon" aria-hidden="true">
               <IconListPenOutline16 size={14} />
             </span>
-            <span className="dia-dock__title">{t('list.title')}</span>
-            <span className="dia-dock__summary">{panelSummary(view, retry !== undefined, t)}</span>
+            <span className={`dia-dock__title${showChip ? ' dia-dock__chip' : ''}`}>
+              {showChip ? t('compact.count', { count: attachmentCount }) : t('list.title')}
+            </span>
+            {!showChip && (
+              <span className="dia-dock__summary">{panelSummary(view, retry !== undefined, t)}</span>
+            )}
           </button>
           <div className="dia-dock__actions">
             <Tooltip label={attachmentLabel} side="top" delayMs={400}>
@@ -703,182 +742,208 @@ function AnnotationPanel({
             </button>
           </div>
         </div>
-
-        {isInlineEditor(view.editor) && (
-          <AnnotationEditor
-            key={editorKey(view.editor)}
-            inline
-            view={view}
-            t={t}
-            {...actions}
-            saveEditor={saveEditor}
-          />
-        )}
-
-        {view.panelOpen && (
-          <div id={listId} className="dia-inline-panel">
-            {archived && (
-              <div className="dia-inline-notice" data-tone="neutral">
-                <IconArchiveOutline20 size={16} />
-                <p>{t('archived.copyNotice')}</p>
-              </div>
-            )}
-            {retry !== undefined && (
-              <div className="dia-inline-notice" data-tone="error">
-                <IconWarningOutline16 size={16} />
-                <div>
-                  <p>{t('error.send')}</p>
-                  <code>{retry.payload.submissionId}</code>
-                  {retry.images !== undefined && (
-                    <p className="dia-inline-notice__detail">
-                      {t('error.imagesRequired', { count: retry.images.count })}
-                    </p>
-                  )}
-                  <button
-                    type="button"
-                    className="dia-text-button"
-                    onClick={() => actions.discardOutbox(retry.payload.submissionId as SubmissionId)}
-                  >
-                    {t('list.discard')}
-                  </button>
-                </div>
-              </div>
-            )}
-            {view.notice !== null && (
-              <p className={view.notice.level === 'error' ? 'dia-error' : 'dia-warning'} role="status">
-                {noticeText(view.notice.text, t)}
-              </p>
-            )}
-            {view.annotations.length === 0 ? (
-              <p className="dia-list__empty">{t('list.empty')}</p>
-            ) : (
-              <div className="dia-list">
-                <AnnotationGroup
-                  title={t('group.drafts')}
-                  state="warning"
-                  items={drafts}
-                  view={view}
-                  t={t}
-                  actions={actions}
-                />
-                <AnnotationGroup
-                  title={retry === undefined ? t('group.submitted') : t('group.retry')}
-                  state={retry === undefined ? 'ongoing' : 'error'}
-                  items={submitted}
-                  view={view}
-                  t={t}
-                  actions={actions}
-                />
-                <AnnotationGroup
-                  title={t('group.queued')}
-                  state="warning"
-                  items={queued}
-                  view={view}
-                  t={t}
-                  actions={actions}
-                />
-                <AnnotationGroup
-                  title={t('group.history')}
-                  state="done"
-                  items={history}
-                  view={view}
-                  t={t}
-                  actions={actions}
-                  collapsible
-                  initiallyOpen={drafts.length === 0 && submitted.length === 0 && queued.length === 0}
-                />
-              </div>
-            )}
-
-            {view.deletedDraft !== null && (
-              <div className="dia-undo" role="status">
-                <span>{t('list.deleted')}</span>
-                <button type="button" className="dia-text-button" onClick={actions.undoDelete}>
-                  {t('list.undo')}
+      </div>
+      {(view.panelOpen || isInlineEditor(view.editor)) && (
+        <div id={listId} className="dia-inline-panel dia-inline-panel--dropup">
+          {isInlineEditor(view.editor) && (
+            <AnnotationEditor
+              key={editorKey(view.editor)}
+              inline
+              view={view}
+              t={t}
+              {...actions}
+              saveEditor={saveEditor}
+            />
+          )}
+          {archived && (
+            <div className="dia-inline-notice" data-tone="neutral">
+              <IconArchiveOutline20 size={16} />
+              <p>{t('archived.copyNotice')}</p>
+            </div>
+          )}
+          {retry !== undefined && (
+            <div className="dia-inline-notice" data-tone="error">
+              <IconWarningOutline16 size={16} />
+              <div>
+                <p>{t('error.send')}</p>
+                <code>{retry.payload.submissionId}</code>
+                {retry.images !== undefined && (
+                  <p className="dia-inline-notice__detail">
+                    {t('error.imagesRequired', { count: retry.images.count })}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  className="dia-text-button"
+                  onClick={() => actions.discardOutbox(retry.payload.submissionId as SubmissionId)}
+                >
+                  {t('list.discard')}
                 </button>
               </div>
-            )}
-
-            <div className="dia-inline-panel__footer">
-              {immutable && (
-                <p className="dia-immutable-note">
-                  <IconDataOutline16 size={14} />
-                  {t('list.immutable')}
-                </p>
-              )}
-              <div className="dia-local-data">
-                <span>
-                  <IconDataOutline16 size={14} />
-                  {t('local.usage', { size: bytesLabel(view.storageBytes) })}
-                </span>
-                <div>
-                  <Tooltip label={t('local.export')} side="top" delayMs={500}>
-                    <button
-                      type="button"
-                      className="dia-row-action"
-                      aria-label={t('local.export')}
-                      onClick={exportData}
-                    >
-                      <IconDownloadOutline16 size={14} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip label={t('local.clear')} side="top" delayMs={500}>
-                    <button
-                      type="button"
-                      className="dia-row-action"
-                      data-danger="true"
-                      aria-label={t('local.clear')}
-                      disabled={!hasLocalDrafts}
-                      onClick={() => setConfirmClear(true)}
-                    >
-                      <IconTrashOutline16 size={14} />
-                    </button>
-                  </Tooltip>
-                </div>
-              </div>
-              {exportState !== 'idle' && (
-                <p className={exportState === 'failed' ? 'dia-error' : 'dia-local-status'} role="status">
-                  {exportState === 'done' ? t('local.exported') : t('local.exportFailed')}
-                </p>
-              )}
-              {confirmClear && (
-                <div className="dia-clear-confirm" role="alert">
-                  <span>{t('local.confirmClear')}</span>
-                  <button type="button" className="dia-text-button" onClick={() => setConfirmClear(false)}>
-                    {t('local.keep')}
-                  </button>
-                  <button
-                    type="button"
-                    className="dia-text-button"
-                    data-danger="true"
-                    onClick={() => {
-                      actions.clearLocalDrafts()
-                      setConfirmClear(false)
-                    }}
-                  >
-                    {t('local.confirm')}
-                  </button>
-                </div>
-              )}
-              {queuedSubmissions.length > 0 && (
-                <div className="dia-inline-panel__actions">
-                  {queuedSubmissions.map((entry) => (
-                    <Button
-                      key={entry.payload.submissionId}
-                      variant="outline"
-                      size="sm"
-                      icon={<IconCloseOutline16 size={14} />}
-                      onClick={() => void actions.withdraw(entry.payload.submissionId as SubmissionId)}
-                    >
-                      {t('list.withdraw')}
-                    </Button>
-                  ))}
-                </div>
-              )}
             </div>
+          )}
+          {view.notice !== null && (
+            <p className={view.notice.level === 'error' ? 'dia-error' : 'dia-warning'} role="status">
+              {noticeText(view.notice.text, t)}
+            </p>
+          )}
+          {view.annotations.length === 0 ? (
+            <p className="dia-list__empty">{t('list.empty')}</p>
+          ) : (
+            <div className="dia-list">
+              <AnnotationGroup
+                title={t('group.drafts')}
+                state="warning"
+                items={drafts}
+                view={view}
+                t={t}
+                actions={actions}
+              />
+              <AnnotationGroup
+                title={retry === undefined ? t('group.submitted') : t('group.retry')}
+                state={retry === undefined ? 'ongoing' : 'error'}
+                items={submitted}
+                view={view}
+                t={t}
+                actions={actions}
+              />
+              <AnnotationGroup
+                title={t('group.queued')}
+                state="warning"
+                items={queued}
+                view={view}
+                t={t}
+                actions={actions}
+              />
+              <AnnotationGroup
+                title={t('group.history')}
+                state="done"
+                items={history}
+                view={view}
+                t={t}
+                actions={actions}
+                collapsible
+                initiallyOpen={drafts.length === 0 && submitted.length === 0 && queued.length === 0}
+              />
+            </div>
+          )}
+
+          {view.deletedDraft !== null && (
+            <div className="dia-undo" role="status">
+              <span>{t('list.deleted')}</span>
+              <button type="button" className="dia-text-button" onClick={actions.undoDelete}>
+                {t('list.undo')}
+              </button>
+            </div>
+          )}
+
+          <div className="dia-inline-panel__footer">
+            {immutable && (
+              <p className="dia-immutable-note">
+                <IconDataOutline16 size={14} />
+                {t('list.immutable')}
+              </p>
+            )}
+            {localTools && (
+              <>
+                <div className="dia-local-data">
+                  <span>
+                    <IconDataOutline16 size={14} />
+                    {t('local.usage', { size: bytesLabel(view.storageBytes) })}
+                  </span>
+                  <div>
+                    <Tooltip label={t('local.export')} side="top" delayMs={500}>
+                      <button
+                        type="button"
+                        className="dia-row-action"
+                        aria-label={t('local.export')}
+                        onClick={exportData}
+                      >
+                        <IconDownloadOutline16 size={14} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip label={t('local.clear')} side="top" delayMs={500}>
+                      <button
+                        type="button"
+                        className="dia-row-action"
+                        data-danger="true"
+                        aria-label={t('local.clear')}
+                        disabled={!hasLocalDrafts}
+                        onClick={() => setConfirmClear(true)}
+                      >
+                        <IconTrashOutline16 size={14} />
+                      </button>
+                    </Tooltip>
+                  </div>
+                </div>
+                {exportState !== 'idle' && (
+                  <p className={exportState === 'failed' ? 'dia-error' : 'dia-local-status'} role="status">
+                    {exportState === 'done' ? t('local.exported') : t('local.exportFailed')}
+                  </p>
+                )}
+                {confirmClear && (
+                  <div className="dia-clear-confirm" role="alert">
+                    <span>{t('local.confirmClear')}</span>
+                    <button type="button" className="dia-text-button" onClick={() => setConfirmClear(false)}>
+                      {t('local.keep')}
+                    </button>
+                    <button
+                      type="button"
+                      className="dia-text-button"
+                      data-danger="true"
+                      onClick={() => {
+                        actions.clearLocalDrafts()
+                        setConfirmClear(false)
+                      }}
+                    >
+                      {t('local.confirm')}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+            {queuedSubmissions.length > 0 && (
+              <div className="dia-inline-panel__actions">
+                {queuedSubmissions.map((entry) => (
+                  <Button
+                    key={entry.payload.submissionId}
+                    variant="outline"
+                    size="sm"
+                    icon={<IconCloseOutline16 size={14} />}
+                    onClick={() => void actions.withdraw(entry.payload.submissionId as SubmissionId)}
+                  >
+                    {t('list.withdraw')}
+                  </Button>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
+      {chipPopover !== null && overviewItems.length > 0 && (
+        <aside
+          className="dia-hover dia-chip-overview"
+          role="tooltip"
+          aria-label={t('compact.overview')}
+          style={{ left: chipPopover.left, top: chipPopover.top }}
+        >
+          {overviewItems.map((item) => (
+            <div key={item.annotationId} className="dia-chip-overview__row" data-kind={item.kind}>
+              <span className="dia-chip-overview__index" aria-hidden="true">
+                #{item.ordinal}
+              </span>
+              <span className="dia-chip-overview__status">{statusLabel(item.status, t)}</span>
+              <q className="dia-chip-overview__quote">{item.quote.exact}</q>
+              <span
+                className="dia-chip-overview__annotation"
+                data-highlight-only={item.kind === 'highlight-only' ? 'true' : undefined}
+              >
+                {item.annotation === '' ? t('highlightOnly') : item.annotation}
+              </span>
+            </div>
+          ))}
+        </aside>
+      )}
     </section>
   )
 }
@@ -902,11 +967,13 @@ export function AnnotationDock({
   sessionId,
   input,
   t,
+  useLocalTools,
   saveEditor: controllerSaveEditor,
   ...actions
 }: InputAnnotationProps) {
   const view = useAnnotations((state) => state)
   const archived = useWorkspaces((state) => state.archivedSessionIds.includes(sessionId))
+  const localTools = useLocalTools((snapshot) => snapshot)
   const shellRef = useRef<HTMLElement>(null)
   const previousOutbox = useRef<Map<SubmissionId, ObservedOutboxState> | null>(null)
   const toastSeq = useRef(0)
@@ -1040,10 +1107,12 @@ export function AnnotationDock({
           view={view}
           archived={archived}
           attached={attached}
+          attachmentCount={attachmentCount}
           attachmentDisabled={attachmentDisabled}
           attachmentLabel={attachmentLabel}
           onToggleAttachment={toggleAttachment}
           saveEditor={saveEditor}
+          localTools={localTools}
           t={t}
           shellRef={shellRef}
           {...actions}

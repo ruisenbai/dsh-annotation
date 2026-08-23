@@ -51,6 +51,7 @@ The submission message-id namespace is a protocol compatibility identifier rathe
   "submissionId": "sub-UUID",
   "sessionId": "session-id",
   "delivery": "queue",
+  "protocolLocale": "zh",
   "createdAt": 1786716000000,
   "overallRequirement": "Reorganize the proposal using all annotations.",
   "annotations": []
@@ -58,6 +59,20 @@ The submission message-id namespace is a protocol compatibility identifier rathe
 ```
 
 `overallRequirement` carries the official composer text captured at submit time; it is omitted for annotation-only submissions. `delivery` is `queue`. Annotation ordinals must be contiguous from 1, annotation ids must be unique, and the array must not be empty. New submissions only emit v2; v1 payloads are still read.
+
+`protocolLocale` is frozen from the DSH locale when the pending record is created; a retry reuses the frozen payload, and a legacy record without the field defaults to `en` (the old protocol language). Sent history is never rewritten.
+
+## Annotation kinds
+
+```json
+{
+  "annotationId": "ann-UUID",
+  "annotation": "这里需要补充异常处理",
+  "kind": "note"
+}
+```
+
+`kind` is `note` (content non-empty) or `highlight-only` (empty or whitespace-only content). Legacy records without `kind` infer from the content: non-empty becomes `note`, empty becomes `highlight-only`. Highlight-only items mean “mark the quoted text only”: the model must review and respond to the selected text and never skip the item.
 
 Images never appear inside this JSON. Composer images travel as rc.2 command attachments: the outbox entry records only `{ count, mediaTypes, names }`, and the Host appends the admitted durable image blocks after the annotation text in the user-message content.
 

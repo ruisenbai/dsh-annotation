@@ -732,6 +732,13 @@ export const styles: string = `
   color: var(--dia-danger);
 }
 
+.dia-editor__hint {
+  margin: 4px 0 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
 .dia-editor__notice {
   display: flex;
   align-items: center;
@@ -876,7 +883,7 @@ export const styles: string = `
 .dia-dock-shell {
   box-sizing: border-box;
   flex: none;
-  overflow: hidden;
+  position: relative;
   width: calc(
     100% -
     var(--dsh-composer-side-clearance) -
@@ -963,6 +970,85 @@ export const styles: string = `
   line-height: 24px;
 }
 
+/* 紧凑模式下的“注解 ×N”入口：官方输入框按钮一致的胶囊外观。 */
+.dia-dock__title.dia-dock__chip {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  padding: 0 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dia-dock__main:hover .dia-dock__title.dia-dock__chip,
+.dia-dock__main:focus-visible .dia-dock__title.dia-dock__chip {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dia-chip-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(360px, 70vw);
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  white-space: normal;
+}
+
+.dia-chip-overview__row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  padding-top: 6px;
+}
+
+.dia-chip-overview__row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.dia-chip-overview__index {
+  font-weight: 600;
+}
+
+.dia-chip-overview__status {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.dia-chip-overview__quote {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--dsw-static-neutral-bluish-50);
+  font-size: 12px;
+  line-height: 18px;
+  border-left: 2px solid color-mix(in srgb, currentColor 40%, transparent);
+  padding-left: 6px;
+}
+
+.dia-chip-overview__annotation {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.dia-chip-overview__annotation[data-highlight-only='true'] {
+  color: var(--dsw-alias-label-tertiary);
+  font-style: italic;
+}
+
 .dia-dock__summary {
   flex: 1 1 auto;
   min-width: 0;
@@ -1011,6 +1097,24 @@ export const styles: string = `
   gap: 8px;
   border-top: 1px solid var(--dsw-alias-border-l1);
   padding-top: 8px;
+}
+
+/* 点击“注解 ×N”后向上弹出的完整列表：锚定在汇总框上方，圆角在上方。 */
+.dia-inline-panel--dropup {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 8;
+  box-sizing: border-box;
+  max-height: min(44vh, 480px);
+  overflow-y: auto;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: var(--dsw-specific-tip);
+  box-shadow: var(--dia-shadow);
+  padding: 10px 12px;
 }
 
 .dia-list {

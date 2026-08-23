@@ -217,6 +217,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
     locale: {
       register: () => () => undefined,
       bind: () => (key: string) => key,
+      getLocale: () => ({ active: 'zh' as const, locales: [], revision: 0 }),
     },
     sessions: {
       list: {
@@ -956,6 +957,28 @@ describe('Client plugin composer attachment lifecycle', () => {
       phase: 'plain',
       claim: null,
     })
+    await fixture.dispose()
+  })
+
+  it('sends an empty-content annotation as highlight-only with the DSH locale protocol', async () => {
+    const command = vi.fn().mockResolvedValue(remoteSuccess())
+    const fixture = fixtureContext(command)
+    apply(fixture.ctx)
+    const face = fixture.face()
+    // 空内容注解：仅标记原文。
+    face.beginSelection(capture(0, 'first'))
+    face.updateEditorText('   \n  ')
+    face.saveEditor()
+    expect(face.hooks.annotations.getSnapshot().annotations[0]).toMatchObject({
+      annotation: '',
+      kind: 'highlight-only',
+    })
+    expect(face.toggleComposerAttachment()).toBe(true)
+
+    await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
+    const outbox = face.hooks.annotations.getSnapshot().outbox[0]!
+    expect(outbox.payload.protocolLocale).toBe('zh')
+    expect(outbox.payload.annotations[0]).toMatchObject({ kind: 'highlight-only', annotation: '' })
     await fixture.dispose()
   })
 

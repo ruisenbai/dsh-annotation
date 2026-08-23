@@ -23,9 +23,17 @@ import {
   strippedOffset,
   stripMachineMarkers,
 } from '../../shared/model-ack.ts'
+import { replyHeadingNeedles } from '../../shared/protocol.ts'
 import type { AnnotationDraft, AnnotationId, MessageIdentity, TextQuoteSelector } from '../../shared/types.ts'
 import type { AssistantAnnotationProps } from '../contract.ts'
-import { captureSelection, rangeFromSelector, selectableTextNodes, textOffsetAtPoint } from '../selection.ts'
+import { FOCUS_CHANGED_EVENT, isDuplicatedByFocusView, isFocusViewHidden } from '../focus-adapter.ts'
+import {
+  captureSelection,
+  rangeFromSelector,
+  selectableTextNodes,
+  textBlockIndexOf,
+  textOffsetAtPoint,
+} from '../selection.ts'
 
 function sameAnnotations(left: readonly AnnotationDraft[], right: readonly AnnotationDraft[]): boolean {
   return left.length === right.length && left.every((item, index) => item === right[index])
@@ -251,7 +259,7 @@ function replyNeedle(ordinal: number): string {
  * Derive chip targets from raw model text. Only markers whose
  * submissionId+annotationId pair exists in the current Session survive;
  * unknown, duplicate, forged, and malformed markers are ignored and their
- * "注解 N" text stays plain Markdown.
+ * "注解 N"/"Annotation N" text stays plain Markdown.
  */
 function buildReplyChipTargets(
   blocks: readonly { kind: string; text?: unknown }[],
@@ -273,12 +281,24 @@ function buildReplyChipTargets(
       const annotation = known.get(key)
       if (annotation === undefined || seen.has(key)) continue
       seen.add(key)
-      const needle = replyNeedle(marker.ordinal)
       const searchFrom = blockStart + strippedOffset(marker.offset, spans)
-      const index = joined.indexOf(needle, searchFrom)
-      if (index < 0) continue
+      let found: { start: number; length: number } | null = null
+      for (const needle of replyHeadingNeedles(marker.ordinal)) {
+        const index = joined.indexOf(needle, searchFrom)
+        if (index >= 0) {
+          found = { start: index, length: needle.length }
+          break
+        }
+      }
+      if (found === null) continue
       targets.push(
-        Object.freeze({ key, annotation, ordinal: marker.ordinal, start: index, length: needle.length }),
+        Object.freeze({
+          key,
+          annotation,
+          ordinal: marker.ordinal,
+          start: found.start,
+          length: found.length,
+        }),
       )
     }
   }
@@ -357,10 +377,21 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     readonly capture: ReturnType<typeof captureSelection>
   } | null>(null)
   const [domRevision, setDomRevision] = useState(0)
+  const [focusDuplicated, setFocusDuplicated] = useState(false)
   const selectionBarRef = useRef<HTMLDivElement>(null)
   const data = node.data
   const messageId = data.finalNode?.messageId as unknown as MessageIdentity | undefined
   const messageSeq = data.finalNode?.seq
+
+  // dsh-focus-chat 聚焦切换：重新测量标记与芯片；普通视图的重复节点暂停展示。
+  useEffect(() => {
+    const onFocusChanged = () => setDomRevision((value) => value + 1)
+    window.addEventListener(FOCUS_CHANGED_EVENT, onFocusChanged)
+    return () => window.removeEventListener(FOCUS_CHANGED_EVENT, onFocusChanged)
+  }, [])
+  useEffect(() => {
+    setFocusDuplicated(isDuplicatedByFocusView(rootRef.current ?? document.body))
+  }, [domRevision, messageId])
   const annotations = useAnnotations(
     (view) =>
       messageId === undefined ? [] : view.annotations.filter((item) => item.messageId === messageId),
@@ -485,11 +516,13 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     const range = document.createRange()
     range.selectNodeContents(body)
     try {
-      beginSelection(captureSelection(body, range, messageId, messageSeq))
+      const capture = captureSelection(body, range, messageId, messageSeq)
+      const blockIndex = textBlockIndexOf(data.blocks, capture.quote.start)
+      beginSelection(blockIndex === undefined ? capture : { ...capture, blockIndex })
     } catch {
       // An assistant with only images or tool calls has no text annotation target.
     }
-  }, [beginSelection, messageId, messageSeq])
+  }, [beginSelection, data.blocks, messageId, messageSeq])
 
   useEffect(() => {
     if (messageId === undefined) return undefined
@@ -522,6 +555,11 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     const root = rootRef.current
     const body = bodyRef.current
     if (root === null || body === null || annotations.length === 0) {
+      setMarkerPositions((current) => (current.size === 0 ? current : new Map()))
+      return undefined
+    }
+    if (isFocusViewHidden(root)) {
+      // 聚焦模式下被隐藏或懒渲染的节点不参与位置计算。
       setMarkerPositions((current) => (current.size === 0 ? current : new Map()))
       return undefined
     }
@@ -655,11 +693,16 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     }
   }, [data.blocks, domRevision, geometryKey, markerGutter])
 
-  /** Overlay one React chip over each validated "注解 N" heading once streaming settles. */
+  /** Overlay one React chip over each validated "注解 N"/"Annotation N" heading once streaming settles. */
   useLayoutEffect(() => {
     const root = rootRef.current
     const body = bodyRef.current
     if (root === null || body === null || messageId === undefined || data.status === 'running') {
+      setReplyChips((current) => (current.length === 0 ? current : []))
+      return undefined
+    }
+    if (isFocusViewHidden(root)) {
+      // 聚焦模式下被隐藏的节点暂停芯片测量，恢复后重新测量。
       setReplyChips((current) => (current.length === 0 ? current : []))
       return undefined
     }
@@ -725,15 +768,22 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       const range = selected.getRangeAt(0)
       if (!body.contains(range.startContainer) || !body.contains(range.endContainer)) return
       try {
-        setSelectionBar({ capture: captureSelection(body, range, messageId, messageSeq) })
+        const capture = captureSelection(body, range, messageId, messageSeq)
+        const blockIndex = textBlockIndexOf(data.blocks, capture.quote.start)
+        setSelectionBar({
+          capture: blockIndex === undefined ? capture : { ...capture, blockIndex },
+        })
       } catch {
         // Selections crossing ignored or non-text content do not offer the selection bar.
       }
     }
-    body.addEventListener('pointerup', capture)
+    // A selection drag can be released anywhere in the page, so pointerup is observed on the
+    // document in the capture phase; the range checks below keep the bar per-message. keyup
+    // always fires on the focused element inside the body that owns the keyboard selection.
+    document.addEventListener('pointerup', capture, true)
     body.addEventListener('keyup', capture)
     return () => {
-      body.removeEventListener('pointerup', capture)
+      document.removeEventListener('pointerup', capture, true)
       body.removeEventListener('keyup', capture)
     }
   }, [messageId, messageSeq])
@@ -866,10 +916,15 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
           </span>
         )}
       </div>
-      {annotations.length > 0 && (
+      {!focusDuplicated && annotations.length > 0 && (
         <nav className="dia-markers" aria-label={t('list.title')}>
           {annotations.map((annotation) => (
-            <Tooltip key={annotation.annotationId} label={annotation.annotation} side="top" delayMs={300}>
+            <Tooltip
+              key={annotation.annotationId}
+              label={annotation.annotation === '' ? t('highlightOnly') : annotation.annotation}
+              side="top"
+              delayMs={300}
+            >
               <button
                 type="button"
                 className="dia-marker"
@@ -880,7 +935,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
                   top: markerPositions.get(annotation.annotationId)?.top ?? (annotation.ordinal - 1) * 30,
                   left: markerPositions.get(annotation.annotationId)?.left ?? 'calc(100% + 6px)',
                 }}
-                aria-label={`#${annotation.ordinal}: ${annotation.annotation}`}
+                aria-label={`#${annotation.ordinal}: ${annotation.annotation === '' ? t('highlightOnly') : annotation.annotation}`}
                 onClick={() => openAnnotation(annotation.annotationId)}
               >
                 <span>{annotation.ordinal}</span>
@@ -889,7 +944,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
           ))}
         </nav>
       )}
-      {replyChips.length > 0 && (
+      {!focusDuplicated && replyChips.length > 0 && (
         <nav className="dia-reply-chips">
           {replyChips.map((chip) => (
             <button
@@ -900,7 +955,8 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
               aria-label={t('reply.chipLabel', {
                 ordinal: chip.ordinal,
                 quote: chip.annotation.quote.exact,
-                annotation: chip.annotation.annotation,
+                annotation:
+                  chip.annotation.annotation === '' ? t('highlightOnly') : chip.annotation.annotation,
               })}
               onPointerEnter={() => setReplyHover(chip)}
               onPointerLeave={() => setReplyHover(null)}
@@ -923,12 +979,15 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         >
           <strong>{t('reply.chip', { ordinal: replyHover.ordinal })}</strong>
           <q>{replyHover.annotation.quote.exact}</q>
-          <p>{replyHover.annotation.annotation}</p>
+          <p data-highlight-only={replyHover.annotation.kind === 'highlight-only' ? 'true' : undefined}>
+            {replyHover.annotation.annotation === '' ? t('highlightOnly') : replyHover.annotation.annotation}
+          </p>
         </aside>
       )}
       {hover !== null && (
         <aside className="dia-hover" style={{ left: hover.x, top: hover.y }}>
-          <strong>#{hover.annotation.ordinal}</strong> {hover.annotation.annotation}
+          <strong>#{hover.annotation.ordinal}</strong>{' '}
+          {hover.annotation.annotation === '' ? t('highlightOnly') : hover.annotation.annotation}
         </aside>
       )}
       {selectionBar !== null && (

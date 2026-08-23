@@ -4,7 +4,11 @@ import type { SelectionCapture } from './selection.ts'
 import type { AnnotationId, MessageIdentity, SubmissionId } from '../shared/types.ts'
 
 export interface AnnotationInjected {
-  readonly hooks: { readonly annotations: HostObservable<AnnotationView> }
+  readonly hooks: {
+    readonly annotations: HostObservable<AnnotationView>
+    /** 本地数据控件显示开关（响应式，设置变化即时生效）。 */
+    readonly localTools: HostObservable<boolean>
+  }
   /** 注解界面的翻译函数，避免覆盖原消息渲染器自己的 t。 */
   readonly annotationT: PropsLocale<'dshAnnotation'>['t']
   readonly beginSelection: (capture: SelectionCapture) => void

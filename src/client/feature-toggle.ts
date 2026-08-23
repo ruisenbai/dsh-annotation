@@ -8,6 +8,7 @@ import {
 import {
   DEFAULT_ANNOTATION_AUTO_ATTACH,
   DEFAULT_ANNOTATION_ENABLED,
+  DEFAULT_ANNOTATION_LOCAL_TOOLS,
   LEGACY_ANNOTATION_ENABLED_STORAGE_KEY,
   type AnnotationSettings,
 } from '../shared/settings.ts'
@@ -26,6 +27,10 @@ export interface AnnotationSettingsCardState {
   readonly autoAttach: boolean
   /** Whether saving leaves a user-layer auto-attach value. */
   readonly autoAttachOverridden: boolean
+  /** 注解汇总框是否显示本地数据控件（删除与下载）。 */
+  readonly localTools: boolean
+  /** Whether saving leaves a user-layer local-tools value. */
+  readonly localToolsOverridden: boolean
   /** Whether the card holds a change that has not been saved. */
   readonly dirty: boolean
   /** Whether a settings write is in flight. */
@@ -48,6 +53,10 @@ export interface AnnotationSettingsInjected {
   readonly setAutoAttach: (enabled: boolean) => void
   /** Stage removal of the user auto-attach override. */
   readonly resetAutoAttach: () => void
+  /** Stage whether the summary box shows the local data tools. */
+  readonly setLocalTools: (enabled: boolean) => void
+  /** Stage removal of the user local-tools override. */
+  readonly resetLocalTools: () => void
   /** Persist the staged value. */
   readonly save: () => void
   /** Drop the staged value. */
@@ -87,8 +96,10 @@ function readLegacyEnabled(storage: LegacyEnabledStorage | undefined): boolean |
 export class AnnotationSettingsController {
   private readonly featureEnabled = createSnapshotStore(DEFAULT_ANNOTATION_ENABLED)
   private readonly autoAttachEnabled = createSnapshotStore(DEFAULT_ANNOTATION_AUTO_ATTACH)
+  private readonly localToolsEnabled = createSnapshotStore(DEFAULT_ANNOTATION_LOCAL_TOOLS)
   private stagedEnabled: StagedBoolean | undefined
   private stagedAutoAttach: StagedBoolean | undefined
+  private stagedLocalTools: StagedBoolean | undefined
   private saving = false
   private failed = false
   private readonly card: SnapshotStore<AnnotationSettingsCardState>
@@ -122,6 +133,11 @@ export class AnnotationSettingsController {
   /** @returns whether a newly saved annotation should arm the official composer. */
   autoAttach(): SnapshotStore<boolean> {
     return this.autoAttachEnabled
+  }
+
+  /** @returns whether the summary box shows the local data tools. */
+  localTools(): SnapshotStore<boolean> {
+    return this.localToolsEnabled
   }
 
   /** @returns the slot inject face for the plugin-configuration card. */
@@ -159,18 +175,38 @@ export class AnnotationSettingsController {
         this.failed = false
         this.publishCard()
       },
+      setLocalTools: (enabled) => {
+        if (this.disposed) return
+        this.stagedLocalTools =
+          enabled === this.effectiveLocalTools() ? undefined : { kind: 'set', value: enabled }
+        this.failed = false
+        this.publishCard()
+      },
+      resetLocalTools: () => {
+        if (this.disposed) return
+        this.stagedLocalTools =
+          this.storedLocalTools() === undefined
+            ? undefined
+            : { kind: 'clear', value: DEFAULT_ANNOTATION_LOCAL_TOOLS }
+        this.failed = false
+        this.publishCard()
+      },
       save: () => {
         this.startSave()
       },
       discard: () => {
         if (
           this.disposed ||
-          (this.stagedEnabled === undefined && this.stagedAutoAttach === undefined && !this.failed)
+          (this.stagedEnabled === undefined &&
+            this.stagedAutoAttach === undefined &&
+            this.stagedLocalTools === undefined &&
+            !this.failed)
         ) {
           return
         }
         this.stagedEnabled = undefined
         this.stagedAutoAttach = undefined
+        this.stagedLocalTools = undefined
         this.failed = false
         this.publishCard()
       },
@@ -207,12 +243,23 @@ export class AnnotationSettingsController {
       : DEFAULT_ANNOTATION_AUTO_ATTACH
   }
 
+  private effectiveLocalTools(): boolean {
+    const snapshot = this.scope.getSnapshot()
+    return snapshot.status === 'ready' && typeof snapshot.value?.localTools === 'boolean'
+      ? snapshot.value.localTools
+      : DEFAULT_ANNOTATION_LOCAL_TOOLS
+  }
+
   private storedEnabled(): boolean | undefined {
     return userBoolean(this.scope.getSnapshot().user, 'enabled')
   }
 
   private storedAutoAttach(): boolean | undefined {
     return userBoolean(this.scope.getSnapshot().user, 'autoAttach')
+  }
+
+  private storedLocalTools(): boolean | undefined {
+    return userBoolean(this.scope.getSnapshot().user, 'localTools')
   }
 
   private project(): AnnotationSettingsCardState {
@@ -228,7 +275,14 @@ export class AnnotationSettingsController {
       autoAttachOverridden:
         this.stagedAutoAttach?.kind === 'set' ||
         (this.stagedAutoAttach === undefined && this.storedAutoAttach() !== undefined),
-      dirty: this.stagedEnabled !== undefined || this.stagedAutoAttach !== undefined,
+      localTools: this.stagedLocalTools?.value ?? this.effectiveLocalTools(),
+      localToolsOverridden:
+        this.stagedLocalTools?.kind === 'set' ||
+        (this.stagedLocalTools === undefined && this.storedLocalTools() !== undefined),
+      dirty:
+        this.stagedEnabled !== undefined ||
+        this.stagedAutoAttach !== undefined ||
+        this.stagedLocalTools !== undefined,
       saving: this.saving,
       failed: this.failed,
     }
@@ -239,6 +293,7 @@ export class AnnotationSettingsController {
     this.syncLegacyPreference()
     this.featureEnabled.set(this.effectiveEnabled())
     this.autoAttachEnabled.set(this.effectiveAutoAttach())
+    this.localToolsEnabled.set(this.effectiveLocalTools())
     this.publishCard()
   }
 
@@ -298,7 +353,13 @@ export class AnnotationSettingsController {
   private async save(): Promise<void> {
     const stagedEnabled = this.stagedEnabled
     const stagedAutoAttach = this.stagedAutoAttach
-    if ((stagedEnabled === undefined && stagedAutoAttach === undefined) || this.saving) return
+    const stagedLocalTools = this.stagedLocalTools
+    if (
+      (stagedEnabled === undefined && stagedAutoAttach === undefined && stagedLocalTools === undefined) ||
+      this.saving
+    ) {
+      return
+    }
     this.saving = true
     this.failed = false
     this.publishCard()
@@ -310,11 +371,16 @@ export class AnnotationSettingsController {
       stagedAutoAttach === undefined
         ? true
         : await this.persistBoolean('autoAttach', stagedAutoAttach, () => this.storedAutoAttach())
+    const localToolsLanded =
+      stagedLocalTools === undefined
+        ? true
+        : await this.persistBoolean('localTools', stagedLocalTools, () => this.storedLocalTools())
     if (this.disposed) return
     if (enabledLanded && this.stagedEnabled === stagedEnabled) this.stagedEnabled = undefined
     if (autoAttachLanded && this.stagedAutoAttach === stagedAutoAttach) this.stagedAutoAttach = undefined
+    if (localToolsLanded && this.stagedLocalTools === stagedLocalTools) this.stagedLocalTools = undefined
     this.saving = false
-    this.failed = !enabledLanded || !autoAttachLanded
+    this.failed = !enabledLanded || !autoAttachLanded || !localToolsLanded
     this.publish()
   }
 

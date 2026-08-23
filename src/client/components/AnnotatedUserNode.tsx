@@ -71,7 +71,9 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
                   <code>{item.annotationId}</code>
                 </header>
                 <q>{item.quote.exact}</q>
-                <p>{item.annotation}</p>
+                <p data-highlight-only={item.kind === 'highlight-only' ? 'true' : undefined}>
+                  {item.annotation === '' ? t('highlightOnly') : item.annotation}
+                </p>
                 <button
                   type="button"
                   className="dia-text-button dia-timeline-item__locate"

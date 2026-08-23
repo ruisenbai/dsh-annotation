@@ -8,29 +8,33 @@ const assert = (condition, message) => {
   if (!condition) throw new Error(message)
 }
 
-async function selectExact(page, exact) {
-  await page.evaluate((selectedText) => {
-    const body = document.querySelector('.dia-assistant__body')
-    if (!(body instanceof HTMLElement)) throw new Error('assistant body is unavailable')
-    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT)
-    let node = walker.nextNode()
-    while (node !== null) {
-      const text = node.textContent ?? ''
-      const start = text.indexOf(selectedText)
-      if (start >= 0) {
-        const range = document.createRange()
-        range.setStart(node, start)
-        range.setEnd(node, start + selectedText.length)
-        const selection = window.getSelection()
-        selection?.removeAllRanges()
-        selection?.addRange(range)
-        ;(node.parentElement ?? body).dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
-        return
+async function selectExact(page, exact, release = 'inside') {
+  await page.evaluate(
+    ({ selectedText, release }) => {
+      const body = document.querySelector('.dia-assistant__body')
+      if (!(body instanceof HTMLElement)) throw new Error('assistant body is unavailable')
+      const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT)
+      let node = walker.nextNode()
+      while (node !== null) {
+        const text = node.textContent ?? ''
+        const start = text.indexOf(selectedText)
+        if (start >= 0) {
+          const range = document.createRange()
+          range.setStart(node, start)
+          range.setEnd(node, start + selectedText.length)
+          const selection = window.getSelection()
+          selection?.removeAllRanges()
+          selection?.addRange(range)
+          const target = release === 'outside' ? document.body : (node.parentElement ?? body)
+          target.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+          return
+        }
+        node = walker.nextNode()
       }
-      node = walker.nextNode()
-    }
-    throw new Error(`text not found: ${selectedText}`)
-  }, exact)
+      throw new Error(`text not found: ${selectedText}`)
+    },
+    { selectedText: exact, release },
+  )
 }
 
 const server = await createServer({
@@ -147,6 +151,15 @@ try {
     (await page.evaluate(() => window.getSelection()?.isCollapsed)) === false,
     'dismissal must not clear the selection',
   )
+
+  await selectExact(page, 'selected phrase', 'outside')
+  await selectionBar.waitFor()
+  assert(
+    (await page.evaluate(() => window.getSelection()?.toString())) === 'selected phrase',
+    'outside release must keep the selection alive',
+  )
+  await page.locator('h1').dispatchEvent('pointerdown')
+  await selectionBar.waitFor({ state: 'detached' })
 
   await selectExact(page, 'selected phrase')
   await selectionBar.waitFor()
@@ -365,6 +378,10 @@ try {
   )
 
   const firstMarkerTop = zoomLayout[0].top
+  // 收起向上弹出的注解列表，避免它覆盖正文顶部的推理折叠行。
+  if ((await page.locator('.dia-dock__main').getAttribute('aria-expanded')) === 'true') {
+    await page.locator('.dia-dock__main').click()
+  }
   await page.locator('.dia-assistant__reasoning [data-disclosure-row]').click()
   await page.waitForFunction(
     (before) => (document.querySelector('.dia-marker')?.getBoundingClientRect().top ?? before) > before + 5,

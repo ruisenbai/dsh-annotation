@@ -33,6 +33,7 @@ const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
     'settings.cardDescription': 'Selection comments and composer attachments.',
     'settings.toggle': 'Enable DSH Inline Comments',
     'settings.autoAttach': 'Attach new comments to the composer automatically',
+    'settings.localTools': 'Show local data tools',
     'settings.autoAttachHint': 'Saving a new comment attaches it to the official composer.',
     'settings.on': 'On',
     'settings.off': 'Off',
@@ -101,6 +102,10 @@ const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
     'list.discard': 'Discard this pending record',
     'reply.chip': `Annotation ${String(params?.ordinal)}`,
     'reply.chipLabel': `Annotation ${String(params?.ordinal)}: ${String(params?.quote)} · ${String(params?.annotation)}`,
+    'editor.emptyHint': 'Annotation content may be empty; empty means highlight only.',
+    highlightOnly: 'Highlight only',
+    'compact.count': `Annotations ×${String(params?.count)}`,
+    'compact.overview': 'Attached annotations overview',
   }
   return values[key] ?? key
 }
@@ -163,6 +168,8 @@ describe('plugin settings card', () => {
     overridden: false,
     autoAttach: true,
     autoAttachOverridden: false,
+    localTools: true,
+    localToolsOverridden: false,
     dirty: false,
     saving: false,
     failed: false,
@@ -176,6 +183,8 @@ describe('plugin settings card', () => {
       resetEnabled: vi.fn(),
       setAutoAttach: vi.fn(),
       resetAutoAttach: vi.fn(),
+      setLocalTools: vi.fn(),
+      resetLocalTools: vi.fn(),
       save: vi.fn(),
       discard: vi.fn(),
       t,
@@ -190,11 +199,13 @@ describe('plugin settings card', () => {
     fireEvent.click(screen.getByText('DSH Inline Comments'))
     fireEvent.click(screen.getByRole('switch', { name: 'Enable DSH Inline Comments' }))
     fireEvent.click(screen.getByRole('switch', { name: 'Attach new comments to the composer automatically' }))
+    fireEvent.click(screen.getByRole('switch', { name: 'Show local data tools' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
 
     expect(props.setEnabled).toHaveBeenCalledWith(false)
     expect(props.setAutoAttach).toHaveBeenCalledWith(false)
+    expect(props.setLocalTools).toHaveBeenCalledWith(false)
     expect(props.save).toHaveBeenCalledOnce()
     expect(props.discard).toHaveBeenCalledOnce()
     expect(screen.getByText('Unsaved')).toBeInTheDocument()
@@ -206,7 +217,7 @@ describe('plugin settings card', () => {
     fireEvent.click(screen.getByText('DSH Inline Comments'))
 
     expect(screen.getByText('This deployment stores settings read-only.')).toHaveAttribute('role', 'status')
-    expect(screen.getAllByRole('switch')).toHaveLength(2)
+    expect(screen.getAllByRole('switch')).toHaveLength(3)
     for (const control of screen.getAllByRole('switch')) expect(control).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Reset to default' })).toBeDisabled()
     expect(screen.getByText('The deployment did not accept this value.')).toBeInTheDocument()
@@ -228,6 +239,7 @@ describe('inline comment presentation', () => {
     }
     const props = {
       node: { data: { source: { kind: 'user', inlineComments: payload }, content: [] } },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       navigate,
       renderMessageImages: () => null,
@@ -254,6 +266,7 @@ describe('inline comment presentation', () => {
           content: [{ type: 'image', attachment: userAttachment }],
         },
       },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(baseView()),
       navigate: vi.fn(async () => true),
       renderMessageImages: renderUserImages,
@@ -286,6 +299,7 @@ describe('inline comment presentation', () => {
       openFile: vi.fn(),
       renderMessageImages: renderAssistantImages,
       fileMentions: vi.fn(),
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(baseView()),
       beginSelection: vi.fn(),
       openAnnotation: vi.fn(),
@@ -330,6 +344,7 @@ describe('inline comment presentation', () => {
     const props = {
       sessionId: payload.sessionId,
       session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
         selector({ archivedSessionIds: [] }),
@@ -342,6 +357,7 @@ describe('inline comment presentation', () => {
 
     const emptyProps = {
       ...props,
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(baseView()),
     } as unknown as InputAnnotationProps
     rerender(<TestAnnotationDock {...emptyProps} />)
@@ -372,6 +388,7 @@ describe('inline comment presentation', () => {
     const props = {
       sessionId: payload.sessionId,
       session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
         selector({ archivedSessionIds: [] }),
@@ -459,6 +476,7 @@ describe('inline comment presentation', () => {
         phase: 'claimed',
         claim: { token: COMPOSER_ATTACHMENT_TOKEN },
       },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
         selector({ archivedSessionIds: [] }),
@@ -514,6 +532,7 @@ describe('inline comment presentation', () => {
     const props = {
       sessionId: payload.sessionId,
       session,
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
         selector({ archivedSessionIds: archived ? [payload.sessionId] : [] }),
@@ -548,6 +567,7 @@ describe('inline comment presentation', () => {
     const baseProps = {
       sessionId: payload.sessionId,
       session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
         selector({ archivedSessionIds: [] }),
       setPanelOpen: vi.fn(),
@@ -621,6 +641,7 @@ describe('inline comment presentation', () => {
     const baseProps = {
       sessionId: payload.sessionId,
       session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
         selector({ archivedSessionIds: [] }),
       setPanelOpen: vi.fn(),
@@ -709,6 +730,7 @@ describe('inline comment presentation', () => {
     const props = {
       sessionId: payload.sessionId,
       session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
         selector({ archivedSessionIds: [] }),
@@ -771,6 +793,7 @@ describe('inline comment presentation', () => {
       openFile: vi.fn(),
       renderMessageImages: () => null,
       fileMentions: vi.fn(),
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       beginSelection,
       openAnnotation: vi.fn(),
@@ -809,6 +832,58 @@ describe('inline comment presentation', () => {
     selection.removeAllRanges()
   })
 
+  it('opens the selection bar when the pointer is released outside the assistant body', () => {
+    const beginSelection = vi.fn()
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 20, left: 40, right: 150, bottom: 42, width: 110, height: 22 }),
+    })
+    const view = baseView()
+    const props = {
+      node: {
+        data: {
+          status: 'closed',
+          blocks: [{ kind: 'text', text: 'Alpha selected text omega' }],
+          finalNode: { messageId: 'assistant-outside-release-test', seq: 9 },
+        },
+        location: { kind: 'root' },
+      },
+      useTurnData: () => undefined,
+      openFile: vi.fn(),
+      renderMessageImages: () => null,
+      fileMentions: vi.fn(),
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      beginSelection,
+      openAnnotation: vi.fn(),
+      registerEndpoint: vi.fn(() => () => undefined),
+      updateHighlightRanges: vi.fn(),
+      activateHighlight: vi.fn(),
+      removeHighlights: vi.fn(),
+      t,
+    } as unknown as AssistantAnnotationProps
+    render(<AnnotatedAssistantNode {...props} />)
+
+    const paragraph = screen.getByText('Alpha selected text omega')
+    const text = paragraph.firstChild!
+    const range = document.createRange()
+    range.setStart(text, 6)
+    range.setEnd(text, 19)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    fireEvent.pointerUp(document.body)
+
+    const bar = screen.getByRole('toolbar', { name: 'Selection actions' })
+    expect(bar).toHaveTextContent('Add annotation')
+    expect(selection.isCollapsed).toBe(false)
+    fireEvent.click(within(bar).getByRole('button', { name: 'Add annotation' }))
+    expect(beginSelection).toHaveBeenCalledWith(
+      expect.objectContaining({ quote: expect.objectContaining({ exact: 'selected text' }) }),
+    )
+    selection.removeAllRanges()
+  })
+
   it('copies the selection from the action bar and keeps the selection alive', async () => {
     const beginSelection = vi.fn()
     const writeText = vi.fn().mockResolvedValue(undefined)
@@ -831,6 +906,7 @@ describe('inline comment presentation', () => {
       openFile: vi.fn(),
       renderMessageImages: () => null,
       fileMentions: vi.fn(),
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       beginSelection,
       openAnnotation: vi.fn(),
@@ -883,6 +959,7 @@ describe('inline comment presentation', () => {
       openFile: vi.fn(),
       renderMessageImages: () => null,
       fileMentions: vi.fn(),
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       beginSelection: vi.fn(),
       openAnnotation: vi.fn(),
@@ -991,6 +1068,7 @@ describe('inline comment presentation', () => {
         openFile: vi.fn(),
         renderMessageImages: () => null,
         fileMentions: vi.fn(),
+        useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
         useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
         beginSelection: vi.fn(),
         openAnnotation: vi.fn(),
@@ -1087,6 +1165,7 @@ describe('inline comment presentation', () => {
         openFile: vi.fn(),
         renderMessageImages: () => null,
         fileMentions: vi.fn(),
+        useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
         useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
         beginSelection: vi.fn(),
         openAnnotation: vi.fn(),
@@ -1188,6 +1267,7 @@ describe('inline comment presentation', () => {
       openFile: vi.fn(),
       renderMessageImages: () => null,
       fileMentions: vi.fn(),
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       beginSelection: vi.fn(),
       openAnnotation: vi.fn(),
@@ -1312,6 +1392,7 @@ describe('inline comment presentation', () => {
     const props = {
       sessionId: payload.sessionId,
       session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
         selector({ archivedSessionIds: [] }),
@@ -1366,6 +1447,7 @@ describe('inline comment presentation', () => {
     const props = {
       sessionId: payload.sessionId,
       session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
         selector({ archivedSessionIds: [] }),
@@ -1408,6 +1490,7 @@ describe('inline comment presentation', () => {
     const props = {
       sessionId: payload.sessionId,
       session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
         selector({ archivedSessionIds: [] }),
@@ -1455,6 +1538,7 @@ describe('inline comment presentation', () => {
     const props = {
       sessionId: payload.sessionId,
       session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
         selector({ archivedSessionIds: [] }),
@@ -1472,12 +1556,12 @@ describe('inline comment presentation', () => {
       </>,
     )
 
-    // 编辑已有注解不再定位正文：编辑器直接内嵌在注解汇总框内。
+    // 编辑已有注解不再定位正文：编辑器直接内嵌在注解汇总框的向上弹出列表中。
     const editor = screen.getByRole('dialog', { name: 'Edit comment' })
     expect(editor).toHaveClass('dia-editor--inline')
     expect(editor).not.toHaveStyle({ top: expect.any(String), left: expect.any(String) })
-    expect(editor.closest('.dia-dock-shell')).not.toBeNull()
-    const deleteButton = screen.getByRole('button', { name: 'Delete' })
+    expect(editor.closest('.dia-inline-panel--dropup')).not.toBeNull()
+    const deleteButton = within(editor).getByRole('button', { name: 'Delete' })
     expect(deleteButton).toHaveAttribute('data-danger', 'true')
     fireEvent.click(deleteButton)
     expect(deleteDraft).toHaveBeenCalledOnce()
@@ -1504,6 +1588,7 @@ function assistantPropsFor(
     openFile: vi.fn(),
     renderMessageImages: () => null,
     fileMentions: vi.fn(),
+    useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
     useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
     beginSelection: vi.fn(),
     openAnnotation,
@@ -1648,6 +1733,7 @@ describe('annotation editor input methods', () => {
     const props = {
       sessionId: payload.sessionId,
       session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
         selector({ archivedSessionIds: [] }),
@@ -1691,6 +1777,7 @@ describe('annotation editor input methods', () => {
     const props = {
       sessionId: payload.sessionId,
       session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
         selector({ archivedSessionIds: [] }),
@@ -1734,6 +1821,7 @@ describe('annotation editor input methods', () => {
     const props = {
       sessionId: payload.sessionId,
       session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
       useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
         selector({ archivedSessionIds: [] }),
@@ -1756,5 +1844,190 @@ describe('annotation editor input methods', () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(document.activeElement).not.toBe(composer)
     expect(composer.value).toBe('draft text')
+  })
+})
+
+describe('highlight-only annotations and compact summary', () => {
+  function editorView(rect = { top: 40, left: 80, right: 180, bottom: 64 }): AnnotationView {
+    const payload = fixturePayload()
+    return {
+      ...baseView(),
+      editor: {
+        kind: 'new' as const,
+        capture: {
+          messageId: payload.annotations[0]!.messageId,
+          messageSeq: payload.annotations[0]!.messageSeq,
+          responseVersion: payload.annotations[0]!.responseVersion,
+          quote: payload.annotations[0]!.quote,
+          rect,
+        },
+        text: '',
+        longSelectionConfirmed: true,
+      },
+    }
+  }
+
+  it('keeps the save action enabled for empty content and shows the empty hint', () => {
+    const payload = fixturePayload()
+    const saveEditor = vi.fn(() => payload.annotations[0]!.annotationId)
+    const view = editorView()
+    const props = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      closeEditor: vi.fn(() => true),
+      saveEditor,
+      updateEditorText: vi.fn(),
+      confirmLongSelection: vi.fn(),
+      t,
+    } as unknown as InputAnnotationProps
+    render(<TestAnnotationDock {...props} />)
+
+    expect(screen.getByRole('button', { name: 'Save comment' })).not.toBeDisabled()
+    expect(
+      screen.getByText('Annotation content may be empty; empty means highlight only.'),
+    ).toBeInTheDocument()
+
+    fireEvent.keyDown(screen.getByLabelText('Your annotation'), { key: 'Enter' })
+    expect(saveEditor).toHaveBeenCalledOnce()
+  })
+
+  it('shows 仅标记原文 in the list instead of a blank line', () => {
+    const payload = fixturePayload()
+    const annotation = {
+      ...payload.annotations[0]!,
+      annotation: '',
+      kind: 'highlight-only' as const,
+      status: 'draft' as const,
+      updatedAt: payload.createdAt,
+    }
+    const view: AnnotationView = { ...baseView(), annotations: [annotation], panelOpen: true }
+    const props = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      setPanelOpen: vi.fn(),
+      openAnnotation: vi.fn(),
+      deleteDraft: vi.fn(),
+      navigate: vi.fn(async () => true),
+      t,
+    } as unknown as InputAnnotationProps
+    render(<TestAnnotationDock {...props} />)
+
+    expect(screen.getByText('Highlight only')).toBeInTheDocument()
+  })
+
+  it('renders the compact 注解 ×N chip with a hover overview of attached annotations', () => {
+    const payload = fixturePayload()
+    const annotation = {
+      ...payload.annotations[0]!,
+      annotation: '',
+      kind: 'highlight-only' as const,
+      status: 'draft' as const,
+      updatedAt: payload.createdAt,
+    }
+    const view: AnnotationView = { ...baseView(), annotations: [annotation] }
+    const props = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      input: {
+        ...idleInput,
+        draft: COMPOSER_ATTACHMENT_TOKEN,
+        draftRev: 2,
+        phase: 'claimed',
+        claim: { token: COMPOSER_ATTACHMENT_TOKEN },
+      },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      setPanelOpen: vi.fn(),
+      openAnnotation: vi.fn(),
+      deleteDraft: vi.fn(),
+      navigate: vi.fn(async () => true),
+      t,
+    } as unknown as InputAnnotationProps
+    render(<TestAnnotationDock {...props} />)
+
+    const chip = screen.getByRole('button', { name: 'Annotations ×1' })
+    expect(chip).toHaveTextContent('Annotations ×1')
+
+    fireEvent.focus(chip)
+    expect(screen.getByRole('tooltip', { name: 'Attached annotations overview' })).toBeInTheDocument()
+    expect(screen.getByText('selected source')).toBeInTheDocument()
+    expect(screen.getByText('Highlight only')).toBeInTheDocument()
+    fireEvent.blur(chip)
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
+
+  it('keeps the full list reachable from the compact chip', () => {
+    const payload = fixturePayload()
+    const annotation = {
+      ...payload.annotations[0]!,
+      status: 'draft' as const,
+      updatedAt: payload.createdAt,
+    }
+    const view: AnnotationView = { ...baseView(), annotations: [annotation] }
+    const setPanelOpen = vi.fn()
+    const props = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      input: {
+        ...idleInput,
+        draft: COMPOSER_ATTACHMENT_TOKEN,
+        draftRev: 2,
+        phase: 'claimed',
+        claim: { token: COMPOSER_ATTACHMENT_TOKEN },
+      },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      setPanelOpen,
+      openAnnotation: vi.fn(),
+      deleteDraft: vi.fn(),
+      navigate: vi.fn(async () => true),
+      t,
+    } as unknown as InputAnnotationProps
+    render(<TestAnnotationDock {...props} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Annotations ×1' }))
+    expect(setPanelOpen).toHaveBeenCalledWith(true)
+  })
+
+  it('hides the local data tools when the setting is off', () => {
+    const payload = fixturePayload()
+    const annotation = {
+      ...payload.annotations[0]!,
+      status: 'draft' as const,
+      updatedAt: payload.createdAt,
+    }
+    const view: AnnotationView = { ...baseView(), annotations: [annotation], panelOpen: true }
+    const props = {
+      sessionId: payload.sessionId,
+      session: { pending: [], running: false },
+      useLocalTools: (selector: (value: boolean) => unknown) => selector(false),
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
+      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
+        selector({ archivedSessionIds: [] }),
+      setPanelOpen: vi.fn(),
+      openAnnotation: vi.fn(),
+      deleteDraft: vi.fn(),
+      navigate: vi.fn(async () => true),
+      t,
+    } as unknown as InputAnnotationProps
+    render(<TestAnnotationDock {...props} />)
+
+    expect(screen.queryByText('Local data · 0 B')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Export local data' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Clear drafts' })).not.toBeInTheDocument()
+    // 列表本身仍然可用。
+    expect(screen.getByText('Ready to attach')).toBeInTheDocument()
   })
 })

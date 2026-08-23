@@ -28,7 +28,7 @@ import { LEGACY_ANNOTATION_ENABLED_STORAGE_KEY, type AnnotationSettings } from '
 
 function settingsScope(initial?: boolean, writable = true, initialAutoAttach?: boolean) {
   const listeners = new Set<() => void>()
-  let user: { enabled?: boolean; autoAttach?: boolean } = {
+  let user: { enabled?: boolean; autoAttach?: boolean; localTools?: boolean } = {
     ...(initial === undefined ? {} : { enabled: initial }),
     ...(initialAutoAttach === undefined ? {} : { autoAttach: initialAutoAttach }),
   }
@@ -38,7 +38,11 @@ function settingsScope(initial?: boolean, writable = true, initialAutoAttach?: b
   let releaseWrite: (() => void) | undefined
   const snapshot = (): SettingsScopeSnapshot<AnnotationSettings> => ({
     status: 'ready',
-    value: { enabled: user.enabled ?? true, autoAttach: user.autoAttach ?? true },
+    value: {
+      enabled: user.enabled ?? true,
+      autoAttach: user.autoAttach ?? true,
+      localTools: user.localTools ?? true,
+    },
     base: undefined,
     user,
     revision,
@@ -64,19 +68,23 @@ function settingsScope(initial?: boolean, writable = true, initialAutoAttach?: b
     async set(field, value) {
       await waitForRelease()
       if (writeMode === 'throw') throw new Error('settings transport failed')
-      if (
-        writeMode === 'accept' &&
-        (field === 'enabled' || field === 'autoAttach') &&
-        typeof value === 'boolean'
-      ) {
-        user = { ...user, [field]: value }
+      if (writeMode === 'accept') {
+        if (
+          (field === 'enabled' || field === 'autoAttach' || field === 'localTools') &&
+          typeof value === 'boolean'
+        ) {
+          user = { ...user, [field]: value }
+        }
       }
       publish()
     },
     async unset(field) {
       await waitForRelease()
       if (writeMode === 'throw') throw new Error('settings transport failed')
-      if (writeMode === 'accept' && (field === 'enabled' || field === 'autoAttach')) {
+      if (
+        writeMode === 'accept' &&
+        (field === 'enabled' || field === 'autoAttach' || field === 'localTools')
+      ) {
         const next = { ...user }
         delete next[field]
         user = next
@@ -333,6 +341,39 @@ describe('Host-backed feature setting', () => {
       writable: false,
       autoAttach: true,
     })
+    await controller.dispose()
+  })
+
+  it('defaults the local data tools on and persists a disabled override', async () => {
+    const fixture = settingsScope()
+    const controller = new AnnotationSettingsController(fixture.scope)
+    const face = controller.inject()
+
+    expect(controller.localTools().getSnapshot()).toBe(true)
+    expect(face.hooks.settingsCard.getSnapshot()).toMatchObject({
+      localTools: true,
+      localToolsOverridden: false,
+      dirty: false,
+    })
+
+    face.setLocalTools(false)
+    expect(controller.localTools().getSnapshot()).toBe(true)
+    expect(face.hooks.settingsCard.getSnapshot()).toMatchObject({
+      localTools: false,
+      localToolsOverridden: true,
+      dirty: true,
+    })
+
+    face.save()
+    await settle()
+    expect(controller.localTools().getSnapshot()).toBe(false)
+    expect(fixture.user()).toMatchObject({ localTools: false })
+
+    face.resetLocalTools()
+    face.save()
+    await settle()
+    expect(controller.localTools().getSnapshot()).toBe(true)
+    expect(fixture.user()).not.toHaveProperty('localTools')
     await controller.dispose()
   })
 })

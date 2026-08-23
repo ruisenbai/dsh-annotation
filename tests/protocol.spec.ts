@@ -5,6 +5,7 @@ import {
   parseAnnotationSource,
   parseInlineCommentSource,
   parseSubmissionPayload,
+  parseSubmittedAnnotation,
   ProtocolError,
   submissionSummary,
   validateSubmissionLimits,
@@ -98,7 +99,7 @@ describe('annotation wire protocol', () => {
     expect(text).toContain('Explain this claim.')
     expect(text).toContain('ann-test-1')
     expect(text).toContain('注解 1')
-    expect(text).toContain('请按注解顺序逐条回答')
+    expect(text).toContain('请按顺序逐条回应每一条注解')
     expect(text).toContain(
       '<!-- dsh-annotation-reply:{"submissionId":"sub-test","annotationId":"ann-test-1","ordinal":1} -->',
     )
@@ -106,6 +107,51 @@ describe('annotation wire protocol', () => {
       '<!-- dsh-annotation:{"submissionId":"sub-test","processed":["annotation-id"]} -->',
     )
     expect(text).not.toContain('dsh-inline-comments:')
+  })
+
+  it('uses the Chinese protocol template when the payload locale is zh', () => {
+    const text = formatSubmissionMessage(fixturePayload({ protocolLocale: 'zh' }))
+    expect(text).toContain('[DSH 注解提交]')
+    expect(text).toContain('「注解 N：」')
+    expect(text).not.toContain('Annotation 1:')
+  })
+
+  it('uses the English protocol template when the payload locale is en', () => {
+    const text = formatSubmissionMessage(fixturePayload({ protocolLocale: 'en' }))
+    expect(text).toContain('[DSH annotation submission]')
+    expect(text).toContain('Respond to every annotation in order.')
+    expect(text).toContain('Start each section with "Annotation N:".')
+    expect(text).toContain('"Highlight only" means reviewing and responding to the selected text')
+    expect(text).not.toContain('注解')
+  })
+
+  it('marks highlight-only items in the prompt so the model never skips them', () => {
+    const payload = fixturePayload({ protocolLocale: 'en' })
+    const highlight = {
+      ...payload.annotations[0]!,
+      annotation: '',
+      kind: 'highlight-only' as const,
+    }
+    const text = formatSubmissionMessage({ ...payload, annotations: [highlight] })
+    expect(text).toContain('(Highlight only)')
+    expect(text).toContain('never skip an item because its annotation content is empty')
+  })
+
+  it('infers the annotation kind from content when kind is missing or inconsistent', () => {
+    const item = fixturePayload().annotations[0]!
+    expect(parseSubmittedAnnotation({ ...item, kind: undefined }, 0).kind).toBe('note')
+    expect(parseSubmittedAnnotation({ ...item, annotation: '', kind: undefined }, 0).kind).toBe(
+      'highlight-only',
+    )
+    // 显式 kind 与内容自相矛盾时按内容修正。
+    expect(parseSubmittedAnnotation({ ...item, annotation: '', kind: 'note' }, 0).kind).toBe('highlight-only')
+    expect(parseSubmittedAnnotation({ ...item, kind: 'highlight-only' }, 0).kind).toBe('highlight-only')
+  })
+
+  it('defaults missing protocolLocale to the legacy English protocol', () => {
+    const parsed = parseSubmissionPayload(fixtureV1Payload())
+    expect(parsed.protocolLocale).toBe('en')
+    expect(parsed.annotations[0]).toMatchObject({ kind: 'note', annotation: 'Legacy comment.' })
   })
 
   it('reads current and legacy provenance sources and builds summaries', () => {

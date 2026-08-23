@@ -1,6 +1,17 @@
 packages:
   - .
 
+allowBuilds:
+  # Cross-platform boundary for the persistent PTY backend, including ConPTY on Windows.
+  node-pty: true
+  # JSONL durability calls MoveFileExW with write-through publication on Windows.
+  koffi: true
+  # First-party workspace script (registry build of the harness package).
+  '@deepseek-ai/dsh-subprocess-local': true
+  # Optional LLM API backend no-op lifecycle scripts; deny, install still succeeds.
+  '@google/genai': false
+  protobufjs: false
+
 minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-agent-presets@0.1.1-rc.2'
   - '@deepseek-ai/dsh-api-remotes@0.1.1-rc.2'

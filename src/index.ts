@@ -11,6 +11,7 @@ import {
   ANNOTATION_SETTINGS_NAMESPACE,
   DEFAULT_ANNOTATION_AUTO_ATTACH,
   DEFAULT_ANNOTATION_ENABLED,
+  DEFAULT_ANNOTATION_LOCAL_TOOLS,
   LEGACY_ANNOTATION_SETTINGS_NAMESPACES,
   type AnnotationSettings,
 } from './shared/settings.ts'
@@ -32,6 +33,7 @@ export const Config: Schema<Config> = Schema.object({
 const SettingsSchema: Schema<AnnotationSettings> = Schema.object({
   enabled: Schema.boolean().default(DEFAULT_ANNOTATION_ENABLED),
   autoAttach: Schema.boolean().default(DEFAULT_ANNOTATION_AUTO_ATTACH),
+  localTools: Schema.boolean().default(DEFAULT_ANNOTATION_LOCAL_TOOLS),
 })
 
 /** Register the Host command bridge and optional user-settings section. */

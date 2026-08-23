@@ -4,8 +4,8 @@ Package name: `dsh-annotation`
 
 [简体中文](README.md)
 
-[![CI](https://github.com/ruisenbai/dsh-inline-comments/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ruisenbai/dsh-inline-comments/actions/workflows/ci.yml)
-[![GitHub Release](https://img.shields.io/github/v/release/ruisenbai/dsh-inline-comments)](https://github.com/ruisenbai/dsh-inline-comments/releases)
+[![CI](https://github.com/ruisenbai/dsh-annotation/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ruisenbai/dsh-annotation/actions/workflows/ci.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/ruisenbai/dsh-annotation)](https://github.com/ruisenbai/dsh-annotation/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%5E22.19%20%7C%7C%20%3E%3D24-43853d.svg)](package.json)
 
@@ -75,8 +75,8 @@ Need a break from annotations? Turn the feature off under **Settings → Plugins
 ### Build from a clone
 
 ```bash
-git clone https://github.com/ruisenbai/dsh-inline-comments.git
-cd dsh-inline-comments
+git clone https://github.com/ruisenbai/dsh-annotation.git
+cd dsh-annotation
 corepack enable
 pnpm install
 pnpm verify
@@ -96,14 +96,14 @@ Open the DSH Web URL and select text in a finalized assistant reply. A small act
 Each `v*.*.*` tag builds an installable tarball and attaches it to GitHub Releases. Download it and install the prebuilt package without running repository build scripts:
 
 ```bash
-gh release download v0.1.3 --repo ruisenbai/dsh-inline-comments --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-annotation-0.1.3.tgz
+gh release download v0.2.0 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
+dsh plugin --profile web add ./dsh-annotation-0.2.0.tgz
 ```
 
 A pinned Git dependency also works when the profile explicitly allows this trusted package to run its `prepare` build:
 
 ```bash
-dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comments.git#v0.1.3
+dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.2.0
 ```
 
 ## Settings

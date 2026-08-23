@@ -4,8 +4,8 @@
 
 [English](README.en.md)
 
-[![CI](https://github.com/ruisenbai/dsh-inline-comments/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ruisenbai/dsh-inline-comments/actions/workflows/ci.yml)
-[![GitHub Release](https://img.shields.io/github/v/release/ruisenbai/dsh-inline-comments)](https://github.com/ruisenbai/dsh-inline-comments/releases)
+[![CI](https://github.com/ruisenbai/dsh-annotation/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ruisenbai/dsh-annotation/actions/workflows/ci.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/ruisenbai/dsh-annotation)](https://github.com/ruisenbai/dsh-annotation/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%5E22.19%20%7C%7C%20%3E%3D24-43853d.svg)](package.json)
 
@@ -39,7 +39,7 @@
 
 ## 功能
 
-- 在一条已完成的助手回复内选中文字后，弹出带“添加注解”和“复制”两个按钮的小浮条。蓝色选区保持不消失，随时可以按 Ctrl+C 复制；点击其它地方或按 Esc 浮条消失。
+- 在一条已完成的助手回复内选中文字后，弹出带“添加注解”和“复制”两个按钮的小浮条；即使拖选结束、松开鼠标时指针已在正文区域外，浮条也会照常出现。蓝色选区保持不消失，随时可以按 Ctrl+C 复制；点击其它地方或按 Esc 浮条消失。
 - 在选区旁直接显示紧凑输入框，右侧只有取消和保存图标。空内容点击外部会关闭；有内容点击外部会保持打开、显示红边并震动，直到选择一个图标操作。
 - 输入停止 400ms 后自动保存编辑中内容并显示本地保存状态；刷新后可恢复，但不会因此变成已提交注解。
 - 编辑器完整处理中文输入法：组合输入期间的 Enter 只完成选词，组合刚结束产生的同一次 Enter 不保存，普通 Enter 保存，Shift+Enter 换行，组合期间的 Escape 不关闭编辑器；组合输入事件不会传到官方输入框。
@@ -54,8 +54,12 @@
 - 模型回复逐条对照：Host 提示词要求模型按注解顺序逐条回答、每段以“注解 N：”开头、不合并注解，并在每段前输出隐藏的 `dsh-annotation-reply` 关联标记、结尾输出 `dsh-annotation` acknowledgement 标记。Client 按文字 Range 定位“注解 N”，在对应位置覆盖 React 芯片；悬浮或键盘聚焦显示注解编号、被选中的原文和用户填写的注解。
 - 回复标记只控制显示：只识别当前会话真实存在的 submissionId + annotationId，未知、重复、伪造和格式错误的标记直接忽略；模型未按格式输出时保留普通“注解 N”文字；acknowledgement 标记才更新“已处理”状态。
 - 自定义用户节点同时显示总体要求、注解汇总框、官方图片缩略图和官方图片查看器。
+- 支持空内容注解（仅标记原文）：选中原文后可以不填内容直接保存，只包含空格/换行时同样按空内容处理；编辑器提示“注解内容可留空，留空表示仅标记原文”，保存按钮在空内容时仍然可用，注解列表、紧凑概览和回复芯片显示“仅标记原文”而不是空白；清空已有注解后保存表示转成“仅标记原文”，删除仍必须使用删除操作；仅标记原文同样计入附着数量并参与发送、重试、已处理确认和逐条回复。
+- 注解 ×N 紧凑概览：输入框上方始终只显示“注解 ×N”，点击后完整注解列表向上弹出（悬浮在输入框上方的面板），不再提供完整/紧凑模式切换；数量只统计下一次发送会携带的已附着注解，新增、删除、附着、取消附着、发送成功（清零）与失败（保持不变）都会实时更新；悬浮或键盘聚焦“注解 ×N”显示只读概览（注解编号、原文摘要、注解摘要、仅标记原文状态、已附着/发送中/等待重试状态），内容较多时限制最大高度并内部滚动；没有已附着注解时隐藏入口，切换会话只显示当前会话数量。
+- 模型协议跟随 DSH 中英文环境：创建待发送记录时按 DSH 当前 locale（zh/en，无法识别时回退英文）冻结 `protocolLocale`，首次发送与重试使用相同语言，重试期间切换界面语言不改变已生成内容，旧待发送记录与已发送历史继续按旧英文协议处理；回复解析同时识别“注解 N：”“注解 N:”“Annotation N:”等格式，实际关联以隐藏的稳定注解标识为准。
+- 可选兼容 dsh-focus-chat：未安装时插件正常启动、不等待任何服务；安装后聚焦视图切换时，隐藏消息的原文标记与回复芯片暂停测量、消息重建后自动恢复并按消息标识去重，注解草稿与已发送记录不丢失；兼容逻辑单独封装，适配失败只关闭聚焦增强，不影响核心功能。
 - 对齐官方 Web 的助手正文流、思考过程折叠行、停止标记、输入区 Dock、图标按钮尺寸、表单字号、语义颜色、浮层表面和用户消息气泡，同时为“定位原文”保留最初的地图定位图标。
-- 支持撤销最近一次草稿删除、导出当前 Session 恢复 JSON、清空未提交草稿，并显示本地存储占用。
+- 支持撤销最近一次草稿删除、导出当前 Session 恢复 JSON、清空未提交草稿，并显示本地存储占用；这些本地数据控件显示在注解汇总框底部，可在插件配置中关闭“显示本地数据控件”后隐藏。
 - 保存完整原文、前后文选择器、助手消息 ID、事件序号、注解 ID 与提交 ID。
 - 对代码记录语言与起止行；对表格记录起止行列。
 - 选区重叠时合并到原有草稿，避免高亮堆叠歧义。
@@ -74,8 +78,8 @@
 ### 从源码构建
 
 ```bash
-git clone https://github.com/ruisenbai/dsh-inline-comments.git
-cd dsh-inline-comments
+git clone https://github.com/ruisenbai/dsh-annotation.git
+cd dsh-annotation
 corepack enable
 pnpm install
 pnpm verify
@@ -95,19 +99,19 @@ dsh web --profile web
 每个 `v*.*.*` 标签都会构建可安装 Tarball 并附加到 GitHub Release。下载后可以直接安装预构建包，无需执行仓库构建脚本：
 
 ```bash
-gh release download v0.1.3 --repo ruisenbai/dsh-inline-comments --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-annotation-0.1.3.tgz
+gh release download v0.2.0 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
+dsh plugin --profile web add ./dsh-annotation-0.2.0.tgz
 ```
 
 如果 Profile 明确允许这个可信包执行 `prepare` 构建，也可以安装固定标签的 Git 依赖：
 
 ```bash
-dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comments.git#v0.1.3
+dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.2.0
 ```
 
 ## 设置
 
-**设置 → 插件 → 插件配置** 中提供可展开的 **dsh-annotation** 卡片，其中有“启用 DSH 注解”和“新增注解后自动附着到输入框”两个开关，默认都开启。修改会先在卡片中暂存，点击“保存”后写入 Host 的 `dsh-annotation` 设置 namespace，并对这个 Host 提供的所有 Session 生效。关闭插件后会拆掉助手渲染器外面的注解层，并恢复用户消息渲染器；选区操作条、数字标记、注解列表、注解操作、隐藏传输视图和输入框附加状态都会移除，同时保留输入框中的可见文本。草稿、编辑中内容、Outbox 状态和已提交历史都不会删除；重新开启后会恢复。关闭自动附加后，新注解只保存为本地草稿，标题栏回形针仍可手动附加。
+**设置 → 插件 → 插件配置** 中提供可展开的 **注解** 卡片，其中有“启用 DSH 注解”“新增注解后自动附着到输入框”和“显示本地数据控件”三个开关，默认都开启。修改会先在卡片中暂存，点击“保存”后写入 Host 的 `dsh-annotation` 设置 namespace，并对这个 Host 提供的所有 Session 生效。关闭插件后会拆掉助手渲染器外面的注解层，并恢复用户消息渲染器；选区操作条、数字标记、注解列表、注解操作、隐藏传输视图和输入框附加状态都会移除，同时保留输入框中的可见文本。草稿、编辑中内容、Outbox 状态和已提交历史都不会删除；重新开启后会恢复。关闭自动附加后，新注解只保存为本地草稿，标题栏回形针仍可手动附加。关闭“显示本地数据控件”后，注解汇总框底部的本地存储占用、导出和清空草稿控件不再显示。
 
 “恢复默认”会分别清除对应字段的用户层覆盖，并重新采用默认开启值。设置由 DSH 的 settings provider 持久化；升级时会把旧 `inline-comments` 设置 namespace 中的用户值迁移到新 namespace，成功后才清除旧值。0.1.3 首次启动时会保留并迁移有效的旧版浏览器启用开关，Host 接受后才删除旧 key。每个 Session 的注解草稿仍按[隐私与持久化](#隐私与持久化)所述保存在浏览器中。
 
@@ -130,6 +134,11 @@ dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-inline-comment
 
 插件不会根据等待时长、轮次结束或界面时序推测“已处理”。
 
+## 注解类型
+
+- **普通注解（note）：**内容非空，模型根据用户填写的内容回应。
+- **仅标记原文（highlight-only）：**内容为空或只有空白字符，模型直接检查并回应被标记的原文；不允许因为注解内容为空而跳过该项。旧数据缺少类型时按内容是否为空推断，已发送历史不重写。
+
 ## 配置
 
 Bundle 会插入一个 `dsh-annotation` 行。可在当前 Profile Composition 中覆盖：
@@ -146,7 +155,7 @@ Host 与 Client 共享同一个 Cordis 行配置，因此修改 `commandName` �
 
 ## 协议与兼容
 
-新提交只生成 v2 协议（`protocolVersion: 2`、`source: "dsh-annotation"`、注解字段为 `annotation`）；旧 v1 数据继续读取，旧 `comment` 字段读取后转换成新的内部模型。历史消息不重写；旧版 acknowledgement 和回复标记继续识别，新消息只生成 `dsh-annotation-*` 标记。本地存储使用 `dsh-annotation:v1:<session-id>` 命名空间，启动时优先读取新存储，否则迁移并校验旧存储，迁移成功后才删除旧数据。详见[兼容性说明](docs/compatibility.md)和[数据模型](docs/data-model.md)。
+新提交只生成 v2 协议（`protocolVersion: 2`、`source: "dsh-annotation"`、注解字段为 `annotation`、`kind` 与 `protocolLocale`）；旧 v1 数据继续读取，旧 `comment` 字段读取后转换成新的内部模型，缺少 `kind` 时按内容是否为空推断，缺少 `protocolLocale` 时按旧版英文协议处理。历史消息不重写；旧版 acknowledgement 和回复标记继续识别，新消息只生成 `dsh-annotation-*` 标记。本地存储使用 `dsh-annotation:v1:<session-id>` 命名空间，启动时优先读取新存储，否则迁移并校验旧存储，迁移成功后才删除旧数据。详见[兼容性说明](docs/compatibility.md)和[数据模型](docs/data-model.md)。
 
 ## 隐私与持久化
 
@@ -155,8 +164,8 @@ Host 与 Client 共享同一个 Cordis 行配置，因此修改 `commandName` �
 ## 模型体验
 
 - **提交前：**不产生 Prompt、Token 或 KV Cache 影响。
-- **提交时：**写入一条标准用户消息，包含官方输入框文本、完整批次、稳定 ID、原文、注解、结构坐标和官方图片附件。
-- **逐条回答：**提示词要求模型按注解顺序逐条回答，每段以“注解 N：”开头并先输出隐藏关联标记；Client 渲染前隐藏标记，并在对应位置覆盖注解芯片。
+- **提交时：**写入一条标准用户消息，包含官方输入框文本、完整批次、稳定 ID、原文、注解、注解类型、结构坐标、协议语言和官方图片附件。
+- **逐条回答：**提示词按 DSH 当前语言生成中文或英文协议：中文要求每段以“注解 N：”开头，英文要求每段以 “Annotation N:” 开头，并先输出隐藏关联标记；“仅标记原文”明确要求直接检查并回应对应原文，不允许跳过。Client 渲染前隐藏标记，并在对应位置覆盖注解芯片。
 - **处理确认：**消息要求模型在确实处理后返回一个列出注解 ID 的 acknowledgement 标记。Client 渲染前隐藏标记，但原始模型文本仍可重放。
 - **Token：**成本随完整选区和注解增长；插件不做静默截断。超出字节限制会在入队前拒绝。
 - **KV Cache：**Steer 或 Follow-up 与普通用户消息一样改变后续模型上下文。

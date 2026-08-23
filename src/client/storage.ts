@@ -67,10 +67,13 @@ function parseAnnotation(value: unknown, index: number): AnnotationDraft {
     throw new Error('invalid submissionId')
   if (source.supplementalTo !== undefined && typeof source.supplementalTo !== 'string')
     throw new Error('invalid supplementalTo')
+  if (source.blockIndex !== undefined && !Number.isSafeInteger(source.blockIndex))
+    throw new Error('invalid blockIndex')
   return Object.freeze({
     ...submitted,
     status: source.status as AnnotationStatus,
     updatedAt: source.updatedAt as number,
+    ...(source.blockIndex === undefined ? {} : { blockIndex: source.blockIndex as number }),
     ...(source.submissionId === undefined ? {} : { submissionId: source.submissionId as SubmissionId }),
     ...(source.supplementalTo === undefined ? {} : { supplementalTo: source.supplementalTo as AnnotationId }),
   })
@@ -156,10 +159,14 @@ function parseCapture(value: unknown, field: string): AnnotationSelectionCapture
     throw new Error(`${field}.rect must contain finite coordinates`)
   }
   const parsedStructure = parseStructuredSelection(source.structure, `${field}.structure`)
+  if (source.blockIndex !== undefined && !Number.isSafeInteger(source.blockIndex)) {
+    throw new Error(`${field}.blockIndex must be a safe integer`)
+  }
   return Object.freeze({
     messageId,
     messageSeq: source.messageSeq as number,
     responseVersion,
+    ...(source.blockIndex === undefined ? {} : { blockIndex: source.blockIndex as number }),
     quote: parseTextQuoteSelector(source.quote, `${field}.quote`),
     ...(parsedStructure === undefined ? {} : { structure: parsedStructure }),
     rect: Object.freeze({

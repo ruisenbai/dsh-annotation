@@ -16,6 +16,7 @@ export function fixturePayload(
     submissionId: 'sub-test' as SubmissionId,
     sessionId: 'session-test' as SessionIdentity,
     delivery: 'queue',
+    protocolLocale: 'zh',
     createdAt: 1_700_000_000_000,
     overallRequirement: 'Rewrite the proposal coherently.',
     annotations: [
@@ -27,6 +28,7 @@ export function fixturePayload(
         responseVersion: messageId,
         quote: { exact: 'selected source', prefix: 'before ', suffix: ' after', start: 7, end: 22 },
         annotation: 'Explain this claim.',
+        kind: 'note',
         createdAt: 1_700_000_000_000,
       },
     ],
@@ -34,7 +36,7 @@ export function fixturePayload(
   }
 }
 
-/** A pre-rename v1 payload: `comment` fields and no `source`. */
+/** A pre-rename v1 payload: `comment` fields, no `source`, no kind or protocolLocale. */
 export function fixtureV1Payload(): unknown {
   const messageId = 'assistant-message-1'
   return {

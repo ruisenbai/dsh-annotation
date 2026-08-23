@@ -1,10 +1,12 @@
 export const zh = {
-  'settings.title': 'dsh-annotation',
+  'settings.title': '注解',
   'settings.description': '在会话中显示选区操作、注解编号、注解列表和发送附加功能。关闭后保留本地数据。',
   'settings.cardDescription': '选区注解与官方输入框附加功能。',
   'settings.toggle': '启用 DSH 注解',
   'settings.autoAttach': '新增注解后自动附着到输入框',
   'settings.autoAttachHint': '开启后，保存新注解会立即附着到官方输入框；按 Enter 时会与输入内容一起发送。',
+  'settings.localTools': '显示本地数据控件',
+  'settings.localToolsHint': '在注解汇总框中显示本地数据占用、导出与清空草稿。',
   'settings.on': '已开启',
   'settings.off': '已关闭',
   'settings.expand': '展开设置',
@@ -25,6 +27,7 @@ export const zh = {
   'editor.editTitle': '编辑注解',
   'editor.annotationLabel': '你的注解',
   'editor.placeholder': '说明这里要怎么改，或者写下你的疑问',
+  'editor.emptyHint': '注解内容可留空，留空表示仅标记原文。',
   'editor.shortcut': 'Enter 保存 · Shift+Enter 换行',
   'editor.autosaving': '正在保存到本地…',
   'editor.autosaved': '已自动保存到本地',
@@ -87,6 +90,9 @@ export const zh = {
   'status.queued': '已排队',
   'status.sent': '已发送',
   'status.processed': '已处理',
+  highlightOnly: '仅标记原文',
+  'compact.count': '注解 ×{count}',
+  'compact.overview': '已附着注解概览',
   'timeline.summary': '基于上一条回复添加了 {count} 条注解',
   'timeline.previousVersion': '来自固定的上一回复版本',
   'error.storage': '浏览器无法保存草稿；请保留本页并检查站点存储权限。',
@@ -124,7 +130,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 export const en = {
-  'settings.title': 'dsh-annotation',
+  'settings.title': 'Annotations',
   'settings.description':
     'Show selection actions, annotation markers, the annotation list, and composer attachments. Local data is retained when disabled.',
   'settings.cardDescription': 'Selection annotations and official-composer attachments.',
@@ -132,6 +138,9 @@ export const en = {
   'settings.autoAttach': 'Attach new annotations to the composer automatically',
   'settings.autoAttachHint':
     'When enabled, saving a new annotation immediately attaches it to the official composer so Enter sends it with the composer text.',
+  'settings.localTools': 'Show local data tools',
+  'settings.localToolsHint':
+    'Show local storage usage, export, and clear-drafts controls in the annotation summary box.',
   'settings.on': 'On',
   'settings.off': 'Off',
   'settings.expand': 'Show settings',
@@ -152,6 +161,7 @@ export const en = {
   'editor.editTitle': 'Edit annotation',
   'editor.annotationLabel': 'Your annotation',
   'editor.placeholder': 'Explain what to change or ask a question',
+  'editor.emptyHint': 'Annotation content may be empty; empty means highlight only.',
   'editor.shortcut': 'Enter to save · Shift+Enter for a new line',
   'editor.autosaving': 'Saving locally…',
   'editor.autosaved': 'Automatically saved locally',
@@ -215,6 +225,9 @@ export const en = {
   'status.queued': 'Queued',
   'status.sent': 'Sent',
   'status.processed': 'Processed',
+  highlightOnly: 'Highlight only',
+  'compact.count': 'Annotations ×{count}',
+  'compact.overview': 'Attached annotations overview',
   'timeline.summary': 'Added {count} annotations to an earlier reply',
   'timeline.previousVersion': 'From a fixed earlier reply version',
   'error.storage': 'Drafts could not be stored. Keep this page open and check site storage permissions.',
