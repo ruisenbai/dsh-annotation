@@ -4,6 +4,12 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-23
+
+### Fixed
+
+- Sending attached annotations no longer fails with `cannot get property "remote" without inject`: the submission command is now executed through the session AgentContext that `claim.submit` receives (`actx`), which is the only context that carries the scoped `commands/execute` remote. Reading the remote from the plugin's root client context threw in the real Web runtime (the fixture provided it, so browser regressions passed) and surfaced as the send-failed Toast with the raw Cordis error. The slash-command re-check inside `claim.submit` uses the same scope context, and the session `command()` fallback stays for runtimes without the remote.
+
 ## [0.2.0] - 2026-08-23
 
 ### Changed
@@ -102,7 +108,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/ruisenbai/dsh-annotation/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/ruisenbai/dsh-annotation/compare/v0.1.1...v0.1.2

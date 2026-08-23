@@ -274,13 +274,20 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     return controller
   }
 
-  /** Execute one slash-command line through the rc.2 official command interface, images included. */
+  /**
+   * Execute one slash-command line through the rc.2 official command interface, images included.
+   *
+   * The remote face lives only on session AgentContexts (`claim.submit` receives
+   * one as `actx`); the plugin's root client context does not declare `remote`,
+   * so reading it there throws "cannot get property … without inject".
+   */
   const executeCommand = async (
+    scopeCtx: ClientContext,
     targetId: SessionId,
     line: string,
     images: readonly SubmitImageAttachment[],
   ): Promise<CommandOutcome> => {
-    const remoteCommands = (ctx.remote as { commands?: CommandRemoteFace } | undefined)?.commands
+    const remoteCommands = (scopeCtx as { remote?: { commands?: CommandRemoteFace } }).remote?.commands
     if (remoteCommands !== undefined) {
       const result = await remoteCommands.execute(
         targetId,
@@ -306,6 +313,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   }
 
   const submitAttached = async (
+    scopeCtx: ClientContext,
     origin: AnnotationController,
     overallRequirement: string,
     images: readonly SubmitImageAttachment[],
@@ -364,6 +372,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     let outcome: CommandOutcome
     try {
       outcome = await executeCommand(
+        scopeCtx,
         targetId,
         encodeSubmissionCommand(config.commandName, entry.payload),
         images,
@@ -433,7 +442,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         // interface without creating an outbox or marking annotations sent.
         const visible = stripComposerToken(args.trim() === '' ? visibleComposerDraft(state) : args).trim()
         if (visible.startsWith('/')) {
-          return executeCommand(sessionId, visible, images).then(
+          return executeCommand(actx, sessionId, visible, images).then(
             (outcome) =>
               outcome.ok ? { kind: 'success' as const } : { kind: 'error' as const, text: outcome.errorText },
             (cause: unknown) => ({ kind: 'error' as const, text: failureMessage(cause) }),
@@ -457,7 +466,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
             inputTriggers.sessionOf(actx),
             serialization.signal,
           )
-          await submitAttached(controller, overallRequirement, images, resolveProtocolLocale())
+          await submitAttached(actx, controller, overallRequirement, images, resolveProtocolLocale())
           return { kind: 'success' }
         } catch (cause: unknown) {
           return { kind: 'error', text: failureMessage(cause) }

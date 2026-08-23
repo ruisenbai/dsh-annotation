@@ -173,6 +173,11 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       }
       return undefined
     },
+    remote: {
+      commands: {
+        execute: command,
+      },
+    },
   } as unknown as ClientContext
   const input = {
     state: {
@@ -209,11 +214,6 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
     updateQueue: vi.fn(),
   }
   const ctx = {
-    remote: {
-      commands: {
-        execute: command,
-      },
-    },
     locale: {
       register: () => () => undefined,
       bind: () => (key: string) => key,
@@ -633,6 +633,21 @@ describe('Client plugin composer attachment lifecycle', () => {
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
     expect(face.hooks.annotations.getSnapshot().outbox[0]?.payload.overallRequirement).toBeUndefined()
     expect(command).toHaveBeenCalledOnce()
+    await fixture.dispose()
+  })
+
+  it('routes the submission through the session AgentContext remote face', async () => {
+    const command = vi.fn().mockResolvedValue(remoteSuccess())
+    const fixture = fixtureContext(command)
+    apply(fixture.ctx)
+    const face = fixture.face()
+    saveAnnotation(face)
+
+    expect(face.toggleComposerAttachment()).toBe(true)
+    await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
+    // The remote face receives (agentId, line, images); the session fallback would receive the line first.
+    expect(command.mock.calls[0]?.[0]).toBe('session-test')
+    expect(String(command.mock.calls[0]?.[1])).toContain('annotation_submit')
     await fixture.dispose()
   })
 
