@@ -96,14 +96,14 @@ Open the DSH Web URL and select text in a finalized assistant reply. A small act
 Each `v*.*.*` tag builds an installable tarball and attaches it to GitHub Releases. Download it and install the prebuilt package without running repository build scripts:
 
 ```bash
-gh release download v0.2.1 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-annotation-0.2.1.tgz
+gh release download v0.2.2 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
+dsh plugin --profile web add ./dsh-annotation-0.2.2.tgz
 ```
 
 A pinned Git dependency also works when the profile explicitly allows this trusted package to run its `prepare` build:
 
 ```bash
-dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.2.1
+dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.2.2
 ```
 
 ## Settings

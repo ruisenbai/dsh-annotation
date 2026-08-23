@@ -596,7 +596,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(retried.payload.submissionId).toBe(failed.payload.submissionId)
     expect(retried.payload.delivery).toBe('queue')
     expect(retried).toMatchObject({ status: 'accepted', attempts: 2 })
-    expect(command.mock.calls[1]?.[1]).toBe(command.mock.calls[0]?.[1])
+    expect(command.mock.calls[1]?.[0]).toBe(command.mock.calls[0]?.[0])
     expect(fixture.inputSnapshot()).toMatchObject({ draft: '', phase: 'plain' })
     await fixture.dispose()
   })
@@ -645,9 +645,9 @@ describe('Client plugin composer attachment lifecycle', () => {
 
     expect(face.toggleComposerAttachment()).toBe(true)
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
-    // The remote face receives (agentId, line, images); the session fallback would receive the line first.
-    expect(command.mock.calls[0]?.[0]).toBe('session-test')
-    expect(String(command.mock.calls[0]?.[1])).toContain('annotation_submit')
+    // The Agent-scoped remote already owns the Session id and accepts exactly (line, images).
+    expect(String(command.mock.calls[0]?.[0])).toContain('annotation_submit')
+    expect(command.mock.calls[0]?.[1]).toEqual([])
     await fixture.dispose()
   })
 
@@ -726,8 +726,8 @@ describe('Client plugin composer attachment lifecycle', () => {
     await expect(fixture.submitComposer([image])).resolves.toEqual({ kind: 'success' })
 
     expect(command).toHaveBeenCalledOnce()
-    expect(command.mock.calls[0]?.[0]).toBe('session-test')
-    expect(command.mock.calls[0]?.[2]).toEqual([image])
+    expect(String(command.mock.calls[0]?.[0])).toContain('annotation_submit')
+    expect(command.mock.calls[0]?.[1]).toEqual([image])
     const outbox = face.hooks.annotations.getSnapshot().outbox[0]!
     expect(outbox.images).toEqual({ count: 1, mediaTypes: ['image/png'], names: ['shot.png'] })
     expect(JSON.stringify(outbox)).not.toContain('aGVsbG8=')
@@ -866,9 +866,8 @@ describe('Client plugin composer attachment lifecycle', () => {
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
 
     expect(command).toHaveBeenCalledOnce()
-    expect(command.mock.calls[0]?.[0]).toBe('session-test')
-    expect(command.mock.calls[0]?.[1]).toBe('/goal finish the report')
-    expect(command.mock.calls[0]?.[2]).toEqual([])
+    expect(command.mock.calls[0]?.[0]).toBe('/goal finish the report')
+    expect(command.mock.calls[0]?.[1]).toEqual([])
     expect(face.hooks.annotations.getSnapshot().outbox).toHaveLength(0)
     expect(face.hooks.annotations.getSnapshot().annotations[0]).toMatchObject({ status: 'draft' })
     await fixture.dispose()
@@ -889,7 +888,7 @@ describe('Client plugin composer attachment lifecycle', () => {
       text: 'command was not matched',
     })
 
-    expect(command).toHaveBeenCalledWith('session-test', '/goal finish the report', [image])
+    expect(command).toHaveBeenCalledWith('/goal finish the report', [image])
     expect(face.hooks.annotations.getSnapshot().outbox).toHaveLength(0)
     expect(face.hooks.annotations.getSnapshot().annotations[0]?.status).toBe('draft')
     expect(fixture.inputSnapshot()).toMatchObject({ phase: 'claimed' })

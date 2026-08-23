@@ -97,7 +97,6 @@ interface WireImageAttachment {
 /** Structural mirror of the mounted `commands/execute` remote, typed without the attachment package. */
 interface CommandRemoteFace {
   execute(
-    agentId: SessionId,
     line: string,
     images: readonly WireImageAttachment[],
     signal?: AbortSignal,
@@ -277,9 +276,10 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   /**
    * Execute one slash-command line through the rc.2 official command interface, images included.
    *
-   * The remote face lives only on session AgentContexts (`claim.submit` receives
-   * one as `actx`); the plugin's root client context does not declare `remote`,
-   * so reading it there throws "cannot get property … without inject".
+   * The scoped remote face lives only on session AgentContexts (`claim.submit`
+   * receives one as `actx`). Its Agent id is supplied by that context, so
+   * `commands.execute` accepts only `(line, images)`; passing the id again shifts
+   * the line into the `images` field and the Client API rejects it.
    */
   const executeCommand = async (
     scopeCtx: ClientContext,
@@ -287,23 +287,20 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     line: string,
     images: readonly SubmitImageAttachment[],
   ): Promise<CommandOutcome> => {
-    const remoteCommands = (scopeCtx as { remote?: { commands?: CommandRemoteFace } }).remote?.commands
+    const binding = sessions.binding(targetId)
+    if (binding === undefined) {
+      return { ok: false, errorText: `Target Session ${String(targetId)} is unavailable` }
+    }
+    const targetCtx = sessions.scopeOf(scopeCtx) === targetId ? scopeCtx : binding.ctx
+    const remoteCommands = (targetCtx as { remote?: { commands?: CommandRemoteFace } }).remote?.commands
     if (remoteCommands !== undefined) {
-      const result = await remoteCommands.execute(
-        targetId,
-        line,
-        images as unknown as readonly WireImageAttachment[],
-      )
+      const result = await remoteCommands.execute(line, images as unknown as readonly WireImageAttachment[])
       if (!result.ok) return { ok: false, errorText: transportMessage(result) }
       const value = result.value
       if (value === undefined) return { ok: false, errorText: 'command was not matched' }
       if (value.result.kind === 'error')
         return { ok: false, errorText: value.result.text ?? 'command failed' }
       return { ok: true, errorText: '' }
-    }
-    const binding = sessions.binding(targetId)
-    if (binding === undefined) {
-      return { ok: false, errorText: `Target Session ${String(targetId)} is unavailable` }
     }
     if (images.length > 0) return { ok: false, errorText: 'image attachments are unavailable' }
     const result = await binding.session.command(line)

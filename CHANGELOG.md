@@ -4,6 +4,12 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-23
+
+### Fixed
+
+- Empty-composer and image submissions no longer fail with `Client API: commands/execute rejected "images"`: the `commands/execute` face on a Session AgentContext is already Agent-scoped and accepts `(line, images)`, not the root Remote form `(agentId, line, images)`. Passing the Session id again shifted the command line into the validated `images` field. The command bridge now calls the scoped two-argument face and uses the target Session context for cross-Session retries.
+
 ## [0.2.1] - 2026-08-23
 
 ### Fixed
@@ -108,7 +114,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/ruisenbai/dsh-annotation/compare/v0.1.2...v0.1.3
