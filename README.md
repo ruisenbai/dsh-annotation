@@ -99,14 +99,14 @@ dsh web --profile web
 每个 `v*.*.*` 标签都会构建可安装 Tarball 并附加到 GitHub Release。下载后可以直接安装预构建包，无需执行仓库构建脚本：
 
 ```bash
-gh release download v0.2.0 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-annotation-0.2.0.tgz
+gh release download v0.2.1 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
+dsh plugin --profile web add ./dsh-annotation-0.2.1.tgz
 ```
 
 如果 Profile 明确允许这个可信包执行 `prepare` 构建，也可以安装固定标签的 Git 依赖：
 
 ```bash
-dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.2.0
+dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.2.1
 ```
 
 ## 设置
