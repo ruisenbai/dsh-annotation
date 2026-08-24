@@ -1033,6 +1033,7 @@ export const styles: string = `
 
 .dia-chip-overview {
   display: flex;
+  transform: translateY(-100%);
   flex-direction: column;
   gap: 6px;
   width: min(360px, 70vw);

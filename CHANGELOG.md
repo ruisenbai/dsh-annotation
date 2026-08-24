@@ -4,6 +4,12 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-08-23
+
+### Fixed
+
+- The read-only preview shown when hovering or focusing the attached `Annotations ×N` summary button now always opens six pixels above the button. Its anchor uses the button's top edge and translates by the preview's full height, so varying annotation counts never make it expand downward over the composer.
+
 ## [0.2.3] - 2026-08-23
 
 ### Changed
@@ -120,7 +126,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.0...v0.2.1

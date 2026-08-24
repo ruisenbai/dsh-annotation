@@ -2052,9 +2052,21 @@ describe('highlight-only annotations and compact summary', () => {
 
     const chip = screen.getByRole('button', { name: 'Annotations ×1' })
     expect(chip).toHaveTextContent('Annotations ×1')
+    vi.spyOn(chip, 'getBoundingClientRect').mockReturnValue({
+      top: 300,
+      left: 120,
+      right: 260,
+      bottom: 336,
+      width: 140,
+      height: 36,
+      x: 120,
+      y: 300,
+      toJSON: () => undefined,
+    })
 
     fireEvent.focus(chip)
-    expect(screen.getByRole('tooltip', { name: 'Attached annotations overview' })).toBeInTheDocument()
+    const overview = screen.getByRole('tooltip', { name: 'Attached annotations overview' })
+    expect(overview).toHaveStyle({ top: '294px', left: '120px' })
     expect(screen.getByText('selected source')).toBeInTheDocument()
     expect(screen.getByText('Highlight only')).toBeInTheDocument()
     fireEvent.blur(chip)

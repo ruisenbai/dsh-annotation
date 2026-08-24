@@ -54,6 +54,7 @@ Need a break from annotations? Turn the feature off under **Settings → Plugins
 - Per-annotation model replies: the Host prompt asks the model to answer each annotation in order, start every paragraph with "Annotation N:", never merge annotations, emit a hidden `dsh-annotation-reply` marker before each paragraph, and end with the `dsh-annotation` acknowledgement marker. The Client locates each "Annotation N" by text Range and overlays a React chip; hovering or keyboard focus shows the annotation number, the selected source text, and the user's annotation.
 - Reply markers only control display: the Client accepts only submissionId + annotationId pairs that exist in the current Session, ignores unknown, duplicate, forged, and malformed markers, keeps plain "Annotation N" text when the model breaks format, associates multiple batches in one reply by annotationId, and never mutates business state from reply markers — only acknowledgements update the processed status.
 - The custom user node shows the overall requirement, the annotation summary box, and official image thumbnails through the official image viewer.
+- The read-only overview for an attached `Annotations ×N` summary button always opens upward on hover or keyboard focus, with an internally scrolling height limit for larger batches.
 - Match the official Web assistant flow, reasoning disclosure, stopped marker, composer docks, icon-action geometry, form typography, semantic colors, floating surfaces, and user-message bubbles while retaining the original map-pin glyph for Locate source.
 - Undo one draft deletion, export current-Session recovery JSON, clear unsubmitted drafts, and inspect local storage usage from the composer list.
 - Preserve the exact quote, prefix/suffix selector, assistant message id, event sequence, annotation id, and submission id.
@@ -96,14 +97,14 @@ Open the DSH Web URL and select text in a finalized assistant reply. A small act
 Each `v*.*.*` tag builds an installable tarball and attaches it to GitHub Releases. Download it and install the prebuilt package without running repository build scripts:
 
 ```bash
-gh release download v0.2.3 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-annotation-0.2.3.tgz
+gh release download v0.2.4 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
+dsh plugin --profile web add ./dsh-annotation-0.2.4.tgz
 ```
 
 A pinned Git dependency also works when the profile explicitly allows this trusted package to run its `prepare` build:
 
 ```bash
-dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.2.3
+dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.2.4
 ```
 
 ## Settings

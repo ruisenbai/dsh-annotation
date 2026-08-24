@@ -249,6 +249,20 @@ try {
   const autoDetach = page.getByRole('button', { name: 'Detach 1 annotations' })
   await autoDetach.waitFor()
   assert((await autoDetach.count()) === 1, 'saving a new annotation must attach it by default')
+  const attachedChip = page.getByRole('button', { name: 'Annotations ×1' })
+  await attachedChip.hover()
+  const attachedOverview = page.locator('.dia-chip-overview')
+  await attachedOverview.waitFor()
+  const overviewPlacement = await page.evaluate(() => {
+    const chip = document.querySelector('.dia-dock__main')?.getBoundingClientRect()
+    const overview = document.querySelector('.dia-chip-overview')?.getBoundingClientRect()
+    if (chip === undefined || overview === undefined) return null
+    return { gap: chip.top - overview.bottom }
+  })
+  assert(
+    overviewPlacement !== null && Math.abs(overviewPlacement.gap - 6) < 1,
+    `an attached-annotation hover overview must open six pixels above the summary button, received ${JSON.stringify(overviewPlacement)}`,
+  )
   await autoDetach.click()
   await page.getByRole('button', { name: 'Attach 1 annotations to the next send' }).waitFor()
   await page.locator('.browser-scroller').evaluate((element) => {
@@ -612,7 +626,7 @@ try {
 
   assert(failures.length === 0, `browser console errors:\n${failures.join('\n')}`)
   console.log(
-    'browser regression passed: selection action bar with copy, compact editor, autosave, default auto-attach, official action geometry and hover, marker-anchored preview and editing with delete, mobile markers, dark mode, zoom, reasoning, attach toggle, Enter submission, attachment-only retry, authoritative Toasts, locate',
+    'browser regression passed: selection action bar with copy, compact editor, autosave, default auto-attach, upward attachment overview, official action geometry and hover, marker-anchored preview and editing with delete, mobile markers, dark mode, zoom, reasoning, attach toggle, Enter submission, attachment-only retry, authoritative Toasts, locate',
   )
   await context.close()
 } finally {

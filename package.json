@@ -1,6 +1,6 @@
 {
   "name": "dsh-annotation",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Selection annotations for DeepSeek Harness assistant replies, sent through the official composer",
   "keywords": [
     "deepseek",

@@ -772,7 +772,7 @@ function AnnotationPanel({
     const anchor = chipAnchorRef.current
     if (anchor === null) return
     const rect = anchor.getBoundingClientRect()
-    setChipPopover({ left: Math.max(12, rect.left), top: rect.bottom + 6 })
+    setChipPopover({ left: Math.max(12, rect.left), top: rect.top - 6 })
   }
   const chipAnchorRef = useRef<HTMLButtonElement>(null)
 
