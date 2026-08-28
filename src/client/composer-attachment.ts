@@ -1,4 +1,4 @@
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { InputTriggerController } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { CommandClaim } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'

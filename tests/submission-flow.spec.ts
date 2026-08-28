@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandInvocation } from '@deepseek-ai/dsh-commands'
-import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
-import { AnnotationController } from '../src/client/controller.ts'
+import { AnnotationController, type AnnotationReconciliationSnapshot } from '../src/client/controller.ts'
 import { AnnotationStorage } from '../src/client/storage.ts'
 import { createAnnotationCommand } from '../src/host/command.ts'
 import { encodeSubmissionCommand } from '../src/shared/codec.ts'
@@ -23,12 +22,12 @@ class MemoryStorage {
   }
 }
 
-function snapshot(nodes: unknown[], queue: unknown[] = []): ConversationSnapshot {
+function snapshot(nodes: unknown[], queue: unknown[] = []): AnnotationReconciliationSnapshot {
   return {
     chat: { nodes: new Map(nodes.map((node, index) => [String(index), node])) },
     queue,
     hasMore: false,
-  } as unknown as ConversationSnapshot
+  } as unknown as AnnotationReconciliationSnapshot
 }
 
 describe('browser-to-Host submission flow', () => {

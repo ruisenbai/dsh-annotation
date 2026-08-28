@@ -1,18 +1,10 @@
 import { defineConfig } from 'tsdown'
+import platformModules from './client-platform.json' with { type: 'json' }
 
 const packageId = 'dsh-annotation'
-const platformModules = [
-  'react',
-  'react/jsx-runtime',
-  'react-dom',
-  'react-dom/client',
-  '@deepseek-ai/cordis',
-  '@deepseek-ai/dsh-client-runtime/client',
-  '@deepseek-ai/dsh-client-ui-input-trigger/client',
-  '@deepseek-ai/dsh-client-ui-settings/client',
-  '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-ui-primitives',
-]
+const platformModuleSet = new Set(platformModules)
+const isClientExternal = (specifier: string): boolean =>
+  platformModuleSet.has(specifier) || specifier.startsWith('@deepseek-ai/dsh-')
 
 const shared = {
   outDir: 'lib',
@@ -36,7 +28,11 @@ export default defineConfig([
     entry: { client: 'lib/types/client/index.js' },
     format: ['cjs'],
     platform: 'browser',
-    deps: { neverBundle: platformModules, onlyBundle: false },
+    deps: {
+      neverBundle: isClientExternal,
+      alwaysBundle: (specifier) => !isClientExternal(specifier),
+      onlyBundle: false,
+    },
     outputOptions: {
       entryFileNames: 'client.js',
       banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(packageId)}, factory: (require) => {`,

@@ -2,6 +2,25 @@ import { access, readFile } from 'node:fs/promises'
 
 const root = new URL('../', import.meta.url)
 const manifest = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
+const platformModules = JSON.parse(await readFile(new URL('client-platform.json', root), 'utf8'))
+const expectedPlatformModules = [
+  'react',
+  'react/jsx-runtime',
+  'react-dom',
+  'react-dom/client',
+  '@deepseek-ai/cordis',
+  '@deepseek-ai/dsh-client-store',
+  '@deepseek-ai/dsh-client-ui-slots',
+  '@deepseek-ai/dsh-client-ui-primitives',
+]
+if (JSON.stringify(platformModules) !== JSON.stringify(expectedPlatformModules)) {
+  throw new Error('client-platform.json does not match the DSH 0.1.2-alpha.1 platform modules')
+}
+for (const [name, range] of Object.entries(manifest.peerDependencies ?? {})) {
+  if (manifest.devDependencies?.[name] !== range) {
+    throw new Error(`peer and development ranges differ for ${name}`)
+  }
+}
 const required = [
   'lib/index.js',
   'lib/invariant.js',
@@ -18,6 +37,22 @@ if (
   !client.includes(`id: ${JSON.stringify(manifest.name)}`)
 ) {
   throw new Error('client bundle does not register with the DSH module loader')
+}
+const declaredExternals = manifest.dsh?.client?.external ?? []
+if (!Array.isArray(declaredExternals) || declaredExternals.some((value) => typeof value !== 'string')) {
+  throw new Error('package.json dsh.client.external must be an array of module specifiers')
+}
+const requests = new Set(
+  [...client.matchAll(/\brequire\(\s*(['"])([^'"]+)\1\s*\)/g)].map((match) => match[2]),
+)
+const allowedRequests = new Set([...platformModules, ...declaredExternals])
+const undeclaredRequests = [...requests].filter((request) => !allowedRequests.has(request)).sort()
+if (undeclaredRequests.length > 0) {
+  throw new Error(`client bundle requests undeclared modules: ${undeclaredRequests.join(', ')}`)
+}
+const unusedExternals = declaredExternals.filter((request) => !requests.has(request))
+if (unusedExternals.length > 0) {
+  throw new Error(`package.json declares unused client externals: ${unusedExternals.join(', ')}`)
 }
 const patch = await readFile(new URL('cordis.patch.yml', root), 'utf8')
 if (!patch.includes(`name: ${manifest.name}`)) {

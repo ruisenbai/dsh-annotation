@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
-vi.mock('@deepseek-ai/dsh-client-runtime/client', () => ({
+vi.mock('@deepseek-ai/dsh-client-store', () => ({
   createSnapshotStore<T>(initial: T, options?: { persist?: { name: string } }) {
     const key = options?.persist?.name
     let value = initial
@@ -36,18 +37,21 @@ import type {
   SubmitImageAttachment,
   SubmitOutcome,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import { apply } from '../src/client/index.tsx'
+import { apply, inject } from '../src/client/index.tsx'
 import { COMPOSER_ATTACHMENT_TOKEN } from '../src/client/composer-attachment.ts'
+import { AnnotationController, type AnnotationReconciliationSnapshot } from '../src/client/controller.ts'
 import type { AnnotationInjected } from '../src/client/contract.ts'
+import { AnnotationStorage } from '../src/client/storage.ts'
+import { DEFAULT_CONFIG } from '../src/shared/config.ts'
 import { LEGACY_ANNOTATION_ENABLED_STORAGE_KEY } from '../src/shared/settings.ts'
-import type { MessageIdentity } from '../src/shared/types.ts'
+import type { MessageIdentity, SessionIdentity } from '../src/shared/types.ts'
 
-function emptySnapshot(): ConversationSnapshot {
+function emptySnapshot(): AnnotationReconciliationSnapshot {
   return {
     chat: { nodes: new Map() },
     queue: [],
     hasMore: false,
-  } as unknown as ConversationSnapshot
+  } as unknown as AnnotationReconciliationSnapshot
 }
 
 function imageAttachment(name = 'shot.png'): SubmitImageAttachment {
@@ -69,7 +73,9 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
   const slotListeners = new Set<(key: string) => void>()
   const listListeners = new Set<() => void>()
   const unsubscribeSession = vi.fn()
+  const unsubscribeChat = vi.fn()
   const sessionListeners = new Set<() => void>()
+  const chatListeners = new Set<() => void>()
   const inputListeners = new Set<() => void>()
   const inputNotice = vi.fn()
   const settingsListeners = new Set<() => void>()
@@ -112,8 +118,14 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       publishSettings()
     },
   }
-  let sessionSnapshot = emptySnapshot()
+  const initialSnapshot = emptySnapshot()
+  let sessionSnapshot = {
+    queue: initialSnapshot.queue,
+    hasMore: initialSnapshot.hasMore,
+  }
+  let chatSnapshot = initialSnapshot.chat
   let listed = true
+  let remoteCommandsAvailable = true
   let claim: CommandClaim | null = null
   let inputState = {
     draft: '',
@@ -173,11 +185,6 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       }
       return undefined
     },
-    remote: {
-      commands: {
-        execute: command,
-      },
-    },
   } as unknown as ClientContext
   const input = {
     state: {
@@ -214,6 +221,10 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
     updateQueue: vi.fn(),
   }
   const ctx = {
+    get(name: string) {
+      if (name === 'remote.commands' && remoteCommandsAvailable) return { execute: command }
+      return undefined
+    },
     locale: {
       register: () => () => undefined,
       bind: () => (key: string) => key,
@@ -229,6 +240,20 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       },
       binding: () => ({ sessionId: 'session-test', session, ctx: actx }),
       scopeOf: (candidate: unknown) => (candidate === actx ? ('session-test' as SessionId) : undefined),
+    },
+    uiConversation: {
+      binding: () => ({
+        target: () => ({
+          getSnapshot: () => chatSnapshot,
+          subscribe(listener: () => void) {
+            chatListeners.add(listener)
+            return () => {
+              chatListeners.delete(listener)
+              unsubscribeChat()
+            }
+          },
+        }),
+      }),
     },
     conversation: { input: { for: () => input } },
     inputTriggers: {
@@ -279,11 +304,11 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
   } as unknown as ClientContext
   return {
     ctx,
-    face() {
+    face(sessionId = 'session-test' as SessionId) {
       const dock = registrations.find((entry) => entry.options.name === 'conversation.input.dock')
       if (dock === undefined || typeof dock.options.inject !== 'function')
         throw new Error('dock was not registered')
-      return dock.options.inject('session-test' as SessionId) as AnnotationInjected
+      return dock.options.inject(sessionId) as AnnotationInjected
     },
     async setPluginEnabled(enabled: boolean) {
       const setting = registrations.find((entry) => entry.options.name === 'settings.plugin.item')
@@ -393,9 +418,16 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       }
       return outcome
     },
-    setSnapshot(snapshot: ConversationSnapshot, notify = true) {
+    setSessionSnapshot(snapshot: Pick<AnnotationReconciliationSnapshot, 'queue' | 'hasMore'>, notify = true) {
       sessionSnapshot = snapshot
       if (notify) for (const listener of sessionListeners) listener()
+    },
+    setChatSnapshot(snapshot: AnnotationReconciliationSnapshot['chat'], notify = true) {
+      chatSnapshot = snapshot
+      if (notify) for (const listener of chatListeners) listener()
+    },
+    disableRemoteCommands() {
+      remoteCommandsAvailable = false
     },
     session,
     removeSession() {
@@ -403,6 +435,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       for (const listener of listListeners) listener()
     },
     unsubscribeSession,
+    unsubscribeChat,
     async dispose() {
       for (const dispose of disposers.reverse()) await dispose()
     },
@@ -424,6 +457,41 @@ function saveAnnotation(face: AnnotationInjected, start = 0, exact = 'first', an
   face.beginSelection(capture(start, exact))
   face.updateEditorText(annotation)
   face.saveEditor()
+}
+
+function seedCrossSessionOutbox() {
+  const navigation = {
+    getSnapshot: () => ({ hasMore: false }),
+    loadOlder: async () => undefined,
+  }
+  const originId = 'session-test' as SessionIdentity
+  const targetId = 'session-other' as SessionIdentity
+  const origin = new AnnotationController(
+    originId,
+    new AnnotationStorage(localStorage, originId),
+    navigation,
+    DEFAULT_CONFIG,
+  )
+  origin.beginSelection(capture(0, 'first'))
+  origin.updateEditorText('Revise this.')
+  origin.saveEditor()
+  const entry = origin.createOutbox('queue', targetId, '', undefined, 'zh')
+  const queued = {
+    ...emptySnapshot(),
+    queue: [{ messageId: entry.messageId }],
+  } as unknown as AnnotationReconciliationSnapshot
+  origin.reconcile(queued)
+  const target = new AnnotationController(
+    targetId,
+    new AnnotationStorage(localStorage, targetId),
+    navigation,
+    DEFAULT_CONFIG,
+  )
+  target.adoptOutbox(entry)
+  target.reconcile(queued)
+  origin.dispose()
+  target.dispose()
+  return entry
 }
 
 beforeEach(() => localStorage.clear())
@@ -596,7 +664,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(retried.payload.submissionId).toBe(failed.payload.submissionId)
     expect(retried.payload.delivery).toBe('queue')
     expect(retried).toMatchObject({ status: 'accepted', attempts: 2 })
-    expect(command.mock.calls[1]?.[0]).toBe(command.mock.calls[0]?.[0])
+    expect(command.mock.calls[1]?.[1]).toBe(command.mock.calls[0]?.[1])
     expect(fixture.inputSnapshot()).toMatchObject({ draft: '', phase: 'plain' })
     await fixture.dispose()
   })
@@ -636,7 +704,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.dispose()
   })
 
-  it('routes the submission through the session AgentContext remote face', async () => {
+  it('addresses the target Session through the root command Remote', async () => {
     const command = vi.fn().mockResolvedValue(remoteSuccess())
     const fixture = fixtureContext(command)
     apply(fixture.ctx)
@@ -645,9 +713,44 @@ describe('Client plugin composer attachment lifecycle', () => {
 
     expect(face.toggleComposerAttachment()).toBe(true)
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
-    // The Agent-scoped remote already owns the Session id and accepts exactly (line, images).
+    expect(command.mock.calls[0]?.[0]).toBe('session-test')
+    expect(String(command.mock.calls[0]?.[1])).toContain('annotation_submit')
+    expect(command.mock.calls[0]?.[2]).toEqual([])
+    await fixture.dispose()
+  })
+
+  it('keeps the root command Remote optional and falls back for image-free submissions', async () => {
+    expect(inject).not.toContain('remote')
+    expect(inject).not.toContain('remote.commands')
+    const command = vi.fn().mockResolvedValue({ ok: true, value: { matched: true } })
+    const fixture = fixtureContext(command)
+    fixture.disableRemoteCommands()
+    apply(fixture.ctx)
+    const face = fixture.face()
+    saveAnnotation(face)
+
+    expect(face.toggleComposerAttachment()).toBe(true)
+    await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
+    expect(command).toHaveBeenCalledOnce()
     expect(String(command.mock.calls[0]?.[0])).toContain('annotation_submit')
-    expect(command.mock.calls[0]?.[1]).toEqual([])
+    expect(command.mock.calls[0]).toHaveLength(1)
+    await fixture.dispose()
+  })
+
+  it('rejects images when only the image-free Session command fallback is available', async () => {
+    const command = vi.fn()
+    const fixture = fixtureContext(command)
+    fixture.disableRemoteCommands()
+    apply(fixture.ctx)
+    const face = fixture.face()
+    saveAnnotation(face)
+
+    expect(face.toggleComposerAttachment()).toBe(true)
+    await expect(fixture.submitComposer([imageAttachment()])).resolves.toEqual({
+      kind: 'error',
+      text: 'image attachments are unavailable',
+    })
+    expect(command).not.toHaveBeenCalled()
     await fixture.dispose()
   })
 
@@ -726,8 +829,9 @@ describe('Client plugin composer attachment lifecycle', () => {
     await expect(fixture.submitComposer([image])).resolves.toEqual({ kind: 'success' })
 
     expect(command).toHaveBeenCalledOnce()
-    expect(String(command.mock.calls[0]?.[0])).toContain('annotation_submit')
-    expect(command.mock.calls[0]?.[1]).toEqual([image])
+    expect(command.mock.calls[0]?.[0]).toBe('session-test')
+    expect(String(command.mock.calls[0]?.[1])).toContain('annotation_submit')
+    expect(command.mock.calls[0]?.[2]).toEqual([image])
     const outbox = face.hooks.annotations.getSnapshot().outbox[0]!
     expect(outbox.images).toEqual({ count: 1, mediaTypes: ['image/png'], names: ['shot.png'] })
     expect(JSON.stringify(outbox)).not.toContain('aGVsbG8=')
@@ -866,8 +970,9 @@ describe('Client plugin composer attachment lifecycle', () => {
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
 
     expect(command).toHaveBeenCalledOnce()
-    expect(command.mock.calls[0]?.[0]).toBe('/goal finish the report')
-    expect(command.mock.calls[0]?.[1]).toEqual([])
+    expect(command.mock.calls[0]?.[0]).toBe('session-test')
+    expect(command.mock.calls[0]?.[1]).toBe('/goal finish the report')
+    expect(command.mock.calls[0]?.[2]).toEqual([])
     expect(face.hooks.annotations.getSnapshot().outbox).toHaveLength(0)
     expect(face.hooks.annotations.getSnapshot().annotations[0]).toMatchObject({ status: 'draft' })
     await fixture.dispose()
@@ -888,7 +993,7 @@ describe('Client plugin composer attachment lifecycle', () => {
       text: 'command was not matched',
     })
 
-    expect(command).toHaveBeenCalledWith('/goal finish the report', [image])
+    expect(command).toHaveBeenCalledWith('session-test', '/goal finish the report', [image])
     expect(face.hooks.annotations.getSnapshot().outbox).toHaveLength(0)
     expect(face.hooks.annotations.getSnapshot().annotations[0]?.status).toBe('draft')
     expect(fixture.inputSnapshot()).toMatchObject({ phase: 'claimed' })
@@ -996,6 +1101,40 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.dispose()
   })
 
+  it('reconciles Session queue and Chat history notifications independently', async () => {
+    const command = vi.fn().mockResolvedValue(remoteSuccess())
+    const fixture = fixtureContext(command)
+    apply(fixture.ctx)
+    const face = fixture.face()
+    saveAnnotation(face)
+    face.toggleComposerAttachment()
+    await fixture.submitComposer()
+    const accepted = face.hooks.annotations.getSnapshot().outbox[0]!
+
+    fixture.setSessionSnapshot({
+      queue: [{ messageId: accepted.messageId }],
+      hasMore: false,
+    })
+    expect(face.hooks.annotations.getSnapshot().outbox[0]?.status).toBe('queued')
+
+    fixture.setChatSnapshot({
+      nodes: new Map([
+        [
+          'user',
+          {
+            kind: 'user',
+            data: { source: { kind: 'user', annotationSubmission: accepted.payload } },
+          },
+        ],
+      ]),
+    })
+    expect(face.hooks.annotations.getSnapshot()).toMatchObject({
+      outbox: [{ status: 'sent' }],
+      annotations: [{ status: 'sent' }],
+    })
+    await fixture.dispose()
+  })
+
   it('converges a stale withdrawal to durable sent history without removing provenance', async () => {
     const command = vi.fn().mockResolvedValue(remoteSuccess())
     const fixture = fixtureContext(command)
@@ -1010,27 +1149,24 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.submitComposer()
     const accepted = face.hooks.annotations.getSnapshot().outbox[0]!
 
-    fixture.setSnapshot({
-      ...emptySnapshot(),
+    fixture.setSessionSnapshot({
       queue: [{ messageId: accepted.messageId }],
-    } as unknown as ConversationSnapshot)
+      hasMore: false,
+    })
     expect(face.hooks.annotations.getSnapshot().outbox[0]?.status).toBe('queued')
 
-    fixture.setSnapshot(
+    fixture.setChatSnapshot(
       {
-        ...emptySnapshot(),
-        chat: {
-          nodes: new Map([
-            [
-              'user',
-              {
-                kind: 'user',
-                data: { source: { kind: 'user', annotationSubmission: accepted.payload } },
-              },
-            ],
-          ]),
-        },
-      } as unknown as ConversationSnapshot,
+        nodes: new Map([
+          [
+            'user',
+            {
+              kind: 'user',
+              data: { source: { kind: 'user', annotationSubmission: accepted.payload } },
+            },
+          ],
+        ]),
+      },
       false,
     )
     await face.withdraw(accepted.payload.submissionId)
@@ -1042,12 +1178,53 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.dispose()
   })
 
-  it('disposes a Session controller when the authoritative list removes that Session', async () => {
+  it('persists a cross-Session withdrawal before the target controller is opened', async () => {
+    const entry = seedCrossSessionOutbox()
+    const fixture = fixtureContext(vi.fn())
+    fixture.setSessionSnapshot(
+      {
+        queue: [{ messageId: entry.messageId }],
+        hasMore: false,
+      },
+      false,
+    )
+    fixture.session.updateQueue.mockImplementation(async () => {
+      fixture.setSessionSnapshot({ queue: [], hasMore: false }, false)
+      return { ok: true, value: undefined }
+    })
+    apply(fixture.ctx)
+    const origin = fixture.face()
+
+    await origin.withdraw(entry.payload.submissionId)
+    const target = fixture.face('session-other' as SessionId)
+
+    const originSnapshot = origin.hooks.annotations.getSnapshot()
+    const targetSnapshot = target.hooks.annotations.getSnapshot()
+    expect(originSnapshot).toMatchObject({
+      outbox: [{ status: 'withdrawn' }],
+      annotations: [{ status: 'draft' }],
+    })
+    expect(targetSnapshot).toMatchObject({
+      outbox: [{ status: 'withdrawn' }],
+      annotations: [{ status: 'draft' }],
+    })
+    expect(originSnapshot.annotations[0]).not.toHaveProperty('submissionId')
+    expect(targetSnapshot.annotations[0]).not.toHaveProperty('submissionId')
+    await fixture.dispose()
+  })
+
+  it('disposes both Session sources when the authoritative list removes that Session', async () => {
     const fixture = fixtureContext(vi.fn())
     apply(fixture.ctx)
-    fixture.face()
+    const face = fixture.face()
+    const before = face.hooks.annotations.getSnapshot()
     fixture.removeSession()
+
     expect(fixture.unsubscribeSession).toHaveBeenCalledOnce()
+    expect(fixture.unsubscribeChat).toHaveBeenCalledOnce()
+    fixture.setSessionSnapshot({ queue: [{ messageId: 'late' }], hasMore: false })
+    fixture.setChatSnapshot({ nodes: new Map() })
+    expect(face.hooks.annotations.getSnapshot()).toBe(before)
     await fixture.dispose()
   })
 

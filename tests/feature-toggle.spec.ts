@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 
-vi.mock('@deepseek-ai/dsh-client-runtime/client', () => ({
+vi.mock('@deepseek-ai/dsh-client-store', () => ({
   createSnapshotStore<T>(initial: T) {
     let value = initial
     const listeners = new Set<() => void>()
@@ -64,6 +64,9 @@ function settingsScope(initial?: boolean, writable = true, initialAutoAttach?: b
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
+    },
+    async mutate() {
+      throw new Error('unexpected settings mutate')
     },
     async set(field, value) {
       await waitForRelease()

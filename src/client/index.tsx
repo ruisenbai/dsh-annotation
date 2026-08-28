@@ -1,7 +1,11 @@
 /** Browser half: selection capture, durable provenance cards, and local draft recovery. */
 
-import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   CommandClaim,
   InputTriggerServiceContract,
@@ -10,6 +14,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { resolveConfig, LEGACY_COMMAND_NAMES } from '../shared/config.ts'
 import { encodeSubmissionCommand } from '../shared/codec.ts'
@@ -33,7 +38,7 @@ import {
   stripComposerToken,
   visibleComposerDraft,
 } from './composer-attachment.ts'
-import { AnnotationController } from './controller.ts'
+import { AnnotationController, type AnnotationReconciliationSnapshot } from './controller.ts'
 import type { AnnotationInjected, UserAnnotationProps } from './contract.ts'
 import { AnnotationSettingsController } from './feature-toggle.ts'
 import { createFocusChatAdapter } from './focus-adapter.ts'
@@ -50,7 +55,18 @@ import { HiddenCommandRow } from './components/HiddenCommandRow.tsx'
 import { AnnotationPluginCard } from './components/AnnotationPluginCard.tsx'
 
 const NS = 'dshAnnotation'
-export const inject = ['slots', 'sessions', 'locale', 'conversation', 'inputTriggers', 'settingsScope']
+const EMPTY_CHAT_NODES: AnnotationReconciliationSnapshot['chat']['nodes'] = {
+  values: () => [],
+}
+export const inject = [
+  'slots',
+  'sessions',
+  'uiConversation',
+  'locale',
+  'conversation',
+  'inputTriggers',
+  'settingsScope',
+]
 
 function UserNode(props: UserAnnotationProps<'user'>) {
   return <AnnotatedUserNode {...props} />
@@ -97,6 +113,7 @@ interface WireImageAttachment {
 /** Structural mirror of the mounted `commands/execute` remote, typed without the attachment package. */
 interface CommandRemoteFace {
   execute(
+    sessionId: SessionId,
     line: string,
     images: readonly WireImageAttachment[],
     signal?: AbortSignal,
@@ -255,16 +272,30 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       binding.session,
       config,
     )
+    const chat = ctx.uiConversation.binding(binding).target('chat')
+    let reconciledSession: ReturnType<typeof binding.session.getSnapshot> | undefined
+    let reconciledChat: ChatSnapshot | undefined
     const reconcile = () => {
-      controller.reconcile(binding.session.getSnapshot())
+      const sessionSnapshot = binding.session.getSnapshot()
+      const chatSnapshot = chat.getSnapshot()
+      if (sessionSnapshot === reconciledSession && chatSnapshot === reconciledChat) return
+      reconciledSession = sessionSnapshot
+      reconciledChat = chatSnapshot
+      controller.reconcile({
+        chat: { nodes: chatSnapshot?.nodes ?? EMPTY_CHAT_NODES },
+        queue: sessionSnapshot.queue,
+        hasMore: sessionSnapshot.hasMore,
+      })
       syncMirrors(controller)
     }
-    const unsubscribe = binding.session.subscribe(reconcile)
+    const unsubscribeSession = binding.session.subscribe(reconcile)
+    const unsubscribeChat = chat.subscribe(reconcile)
     controllers.set(sessionId, {
       controller,
       commandReleased: false,
       dispose: () => {
-        unsubscribe()
+        unsubscribeChat()
+        unsubscribeSession()
         controller.dispose()
       },
     })
@@ -273,16 +304,8 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     return controller
   }
 
-  /**
-   * Execute one slash-command line through the rc.2 official command interface, images included.
-   *
-   * The scoped remote face lives only on session AgentContexts (`claim.submit`
-   * receives one as `actx`). Its Agent id is supplied by that context, so
-   * `commands.execute` accepts only `(line, images)`; passing the id again shifts
-   * the line into the `images` field and the Client API rejects it.
-   */
+  /** Execute one slash-command line through the Session-addressed command Remote, images included. */
   const executeCommand = async (
-    scopeCtx: ClientContext,
     targetId: SessionId,
     line: string,
     images: readonly SubmitImageAttachment[],
@@ -291,10 +314,13 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     if (binding === undefined) {
       return { ok: false, errorText: `Target Session ${String(targetId)} is unavailable` }
     }
-    const targetCtx = sessions.scopeOf(scopeCtx) === targetId ? scopeCtx : binding.ctx
-    const remoteCommands = (targetCtx as { remote?: { commands?: CommandRemoteFace } }).remote?.commands
+    const remoteCommands = ctx.get('remote.commands') as CommandRemoteFace | undefined
     if (remoteCommands !== undefined) {
-      const result = await remoteCommands.execute(line, images as unknown as readonly WireImageAttachment[])
+      const result = await remoteCommands.execute(
+        targetId,
+        line,
+        images as unknown as readonly WireImageAttachment[],
+      )
       if (!result.ok) return { ok: false, errorText: transportMessage(result) }
       const value = result.value
       if (value === undefined) return { ok: false, errorText: 'command was not matched' }
@@ -310,7 +336,6 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   }
 
   const submitAttached = async (
-    scopeCtx: ClientContext,
     origin: AnnotationController,
     overallRequirement: string,
     images: readonly SubmitImageAttachment[],
@@ -369,7 +394,6 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     let outcome: CommandOutcome
     try {
       outcome = await executeCommand(
-        scopeCtx,
         targetId,
         encodeSubmissionCommand(config.commandName, entry.payload),
         images,
@@ -398,26 +422,31 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       origin.setNotice('error', 'Target Session is unavailable')
       return
     }
+    const target = targetId === (origin.sessionId as unknown as SessionId) ? origin : controllerFor(targetId)
     const result = await binding.session.updateQueue(entry.messageId as unknown as MessageId, {
       kind: 'remove',
     })
-    const target =
-      targetId === (origin.sessionId as unknown as SessionId) ? origin : controllers.get(targetId)?.controller
     if (!result.ok) {
       if (result.error.code === 'queue-item-not-found') {
-        target?.reconcile(binding.session.getSnapshot())
-        if (target !== undefined && target !== origin) {
+        const sessionSnapshot = binding.session.getSnapshot()
+        const chatSnapshot = ctx.uiConversation.binding(binding).target('chat').getSnapshot()
+        target.reconcile({
+          chat: { nodes: chatSnapshot?.nodes ?? EMPTY_CHAT_NODES },
+          queue: sessionSnapshot.queue,
+          hasMore: sessionSnapshot.hasMore,
+        })
+        if (target !== origin) {
           origin.syncSubmissionState(target.getSnapshot(), submissionId, target.sessionId)
         }
         origin.markQueueClaimed(submissionId)
-        if (target !== undefined && target !== origin) target.markQueueClaimed(submissionId)
+        if (target !== origin) target.markQueueClaimed(submissionId)
         return
       }
       origin.setNotice('error', transportMessage(result))
       return
     }
     origin.markWithdrawn(submissionId)
-    if (target !== undefined && target !== origin) target.markWithdrawn(submissionId)
+    if (target !== origin) target.markWithdrawn(submissionId)
   }
 
   const claimFor = (sessionId: SessionId): CommandClaim =>
@@ -439,7 +468,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         // interface without creating an outbox or marking annotations sent.
         const visible = stripComposerToken(args.trim() === '' ? visibleComposerDraft(state) : args).trim()
         if (visible.startsWith('/')) {
-          return executeCommand(actx, sessionId, visible, images).then(
+          return executeCommand(sessionId, visible, images).then(
             (outcome) =>
               outcome.ok ? { kind: 'success' as const } : { kind: 'error' as const, text: outcome.errorText },
             (cause: unknown) => ({ kind: 'error' as const, text: failureMessage(cause) }),
@@ -463,7 +492,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
             inputTriggers.sessionOf(actx),
             serialization.signal,
           )
-          await submitAttached(actx, controller, overallRequirement, images, resolveProtocolLocale())
+          await submitAttached(controller, overallRequirement, images, resolveProtocolLocale())
           return { kind: 'success' }
         } catch (cause: unknown) {
           return { kind: 'error', text: failureMessage(cause) }

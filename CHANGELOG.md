@@ -4,6 +4,18 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-28
+
+### Changed
+
+- Raised the reviewed DeepSeek Harness baseline to `0.1.2-alpha.1` and moved the browser integration from the removed client runtime to session-controller snapshots, the Chat conversation target, the shared client store, and the Session-addressed command Remote. Annotation behavior, protocol v2, persisted storage, command names, and legacy reads remain unchanged.
+
+### Fixed
+
+- Cross-Session withdrawal now materializes and persists the target mirror before removing the queued message, so reopening the target cannot leave annotations stuck as accepted.
+- The root command Remote remains optional for image-free submissions, preserving the Session command fallback in partial Client compositions.
+- Bundle verification now rejects browser module requests outside the exact DSH platform baseline and declared Client externals.
+
 ## [0.2.4] - 2026-08-23
 
 ### Fixed
@@ -126,7 +138,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.1...v0.2.2

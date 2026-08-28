@@ -16,7 +16,7 @@ import {
   MarkdownText,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import {
   machineMarkerSpans,
   parseReplyMarkers,
@@ -434,7 +434,13 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     () => (mentionOwner === undefined ? undefined : fileMentions(mentionOwner)),
     [fileMentions, mentionOwner],
   )
-  const codeLabels = useMemo(() => ({ copyLabel: t('code.copy'), copiedLabel: t('code.copied') }), [t])
+  const markdownLabels = useMemo(
+    () => ({
+      code: { copyLabel: t('code.copy'), copiedLabel: t('code.copied') },
+      footnotes: t('markdown.footnotes'),
+    }),
+    [t],
+  )
 
   const reveal = useCallback((annotationId: AnnotationId) => {
     setRevealRequest({ annotationId })
@@ -871,7 +877,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
                   key={`text:${index}`}
                   text={stripMachineMarkers(block.text)}
                   streaming={data.status === 'running'}
-                  codeLabels={codeLabels}
+                  labels={markdownLabels}
                   fileMentions={mentions}
                 />
               )

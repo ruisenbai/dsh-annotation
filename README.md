@@ -13,7 +13,7 @@
 
 > **交互来源说明：**本插件独立、非官方地复刻了 ChatGPT 的正文注解功能，并将这套体验带到 DeepSeek Harness。复制的是使用流程，不是 OpenAI 的源码、素材、API 或品牌；本项目与 OpenAI 无隶属或官方合作关系。
 
-> **兼容性提示：**项目要求 DeepSeek Harness `0.1.1-rc.2` 或更高的 `0.1.x` 预发布版本。DSH 仍处于预发布阶段。当前没有助手正文内部 Slot，本插件会原地装饰已有助手渲染器，不再占用 `assistant-step`；用户与 steering 消息仍使用优先级覆盖。升级 DSH 前请阅读[兼容性说明](docs/compatibility.md)。
+> **兼容性提示：**当前源码仅适配 DeepSeek Harness `0.1.2-alpha.1`。DSH 仍处于预发布阶段。当前没有助手正文内部 Slot，本插件会原地装饰已有助手渲染器，不占用 `assistant-step`；用户与 steering 消息仍使用优先级覆盖。升级 DSH 前请阅读[兼容性说明](docs/compatibility.md)。
 
 ## 界面预览
 
@@ -47,10 +47,10 @@
 - 将两行注解记录分成“待附着”“确认结果/待重试”“权威队列”“已发送”四类，并复用 DSH 官方按钮、状态点、图标、Tooltip 和 Toast。
 - 新注解保存成功后默认附加到官方输入框；也可以在插件配置中关闭自动附加，或随时点击标题栏回形针手动切换。切换不会展开列表，也不会立即发送；已附加时，未发送集合会随编辑、删除和新增实时变化。
 - 官方输入框是唯一任务输入和发送入口。官方文本加注解、官方图片加注解，或只有注解，都会形成一条任务和一次模型执行。
-- 文字、注解和图片合并发送：内部命令声明 `images = true`，图片经 rc.2 标准命令附件走官方附件通道（Base64 不进注解 JSON、不拼进命令字符串），Host 收到持久化图片块后生成一条“总体要求 + 编号注解 + 官方图片”的用户消息。
+- 文字、注解和图片合并发送：内部命令声明 `images = true`，Client 通过带 Session ID 的 `commands/execute` Remote 发送标准命令附件（Base64 不进注解 JSON、不拼进命令字符串），Host 收到持久化图片块后生成一条“总体要求 + 编号注解 + 官方图片”的用户消息。
 - 发送成功后清空文字和图片并把注解标记为已发送；失败时文字、图片和注解全部保留，重试沿用同一个 submissionId，Host 对相同 submissionId 只采用首次成功结果。
 - outbox 只保存图片数量、媒体类型和摘要，不保存 Base64；页面刷新后图片无法恢复时，插件拒绝静默改成无图片提交，提示重新选择相同图片或放弃该条待发送记录。
-- 斜杠命令自动放行：附着状态下输入以 `/` 开头的内容时，插件暂时释放官方输入 claim 并移除零宽占位符，`/goal`、`/model` 等命令正常走 rc.2 官方管线；离开命令状态后自动重新附着。`claim.submit()` 内会再次检查斜杠命令，竞态时直接走官方会话命令接口，不创建 outbox、不发送注解、不把注解标记成已发送；命令失败时命令文字、图片和注解全部保留。
+- 斜杠命令自动放行：附着状态下输入以 `/` 开头的内容时，插件暂时释放官方输入 claim 并移除零宽占位符，`/goal`、`/model` 等命令正常走官方管线；离开命令状态后自动重新附着。`claim.submit()` 内会再次检查斜杠命令，竞态时直接走带 Session ID 的官方命令 Remote，不创建 outbox、不发送注解、不把注解标记成已发送；命令失败时命令文字、图片和注解全部保留。
 - 模型回复逐条对照：Host 提示词要求模型按注解顺序逐条回答、每段以“注解 N：”开头、不合并注解，并在每段前输出隐藏的 `dsh-annotation-reply` 关联标记、结尾输出 `dsh-annotation` acknowledgement 标记。Client 按文字 Range 定位“注解 N”，在对应位置覆盖 React 芯片；悬浮或键盘聚焦显示注解编号、被选中的原文和用户填写的注解。
 - 回复标记只控制显示：只识别当前会话真实存在的 submissionId + annotationId，未知、重复、伪造和格式错误的标记直接忽略；模型未按格式输出时保留普通“注解 N”文字；acknowledgement 标记才更新“已处理”状态。
 - 自定义用户节点同时显示总体要求、注解汇总框、官方图片缩略图和官方图片查看器。
@@ -77,6 +77,8 @@
 
 ### 从源码构建
 
+如果 `0.1.2-alpha.1` 依赖尚未发布到 npm，本地验证可按[兼容性说明](docs/compatibility.md)使用对应 DSH 标签的临时源码覆盖；正式发布前仍须改用完整的 Tarball 覆盖验证。不要把本机 `file:` 路径写入清单或锁文件。
+
 ```bash
 git clone https://github.com/ruisenbai/dsh-annotation.git
 cd dsh-annotation
@@ -96,17 +98,19 @@ dsh web --profile web
 
 ### 安装 GitHub Release
 
-每个 `v*.*.*` 标签都会构建可安装 Tarball 并附加到 GitHub Release。下载后可以直接安装预构建包，无需执行仓库构建脚本：
+`v0.3.0` 是首个适配 DSH `0.1.2-alpha.1` 的 GitHub Release；`v0.2.4` 仍适配 DSH `0.1.1-rc.2`。
+
+每个 `v*.*.*` GitHub Release 都提供可安装 Tarball。下载后可以直接安装预构建包，无需执行仓库构建脚本：
 
 ```bash
-gh release download v0.2.4 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-annotation-0.2.4.tgz
+gh release download v0.3.0 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
+dsh plugin --profile web add ./dsh-annotation-0.3.0.tgz
 ```
 
 如果 Profile 明确允许这个可信包执行 `prepare` 构建，也可以安装固定标签的 Git 依赖：
 
 ```bash
-dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.2.4
+dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.3.0
 ```
 
 ## 设置
@@ -119,7 +123,7 @@ dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git
 
 自动附加默认开启，因此新注解保存成功后，回形针会直接进入已附加状态。未附加时，注解保持在浏览器本地并继续可编辑；已附加时，未发送集合会实时跟随编辑、删除和新增，直到官方输入框通过 Enter 或发送按钮提交。提交事务会冻结一份不可变提交内容，只有在命令成功后才清空官方输入框，之后新增的注解归属于下一次任务。点击回形针可手动附加或取消附加，不改动文本、光标或列表展开状态。
 
-插件不会把传输已接受直接显示成已排队。只有 `ConversationSnapshot.queue` 包含稳定消息 ID 后才显示“已排队”Toast 和撤回操作；持久化 `user/message` 出现后改为“已发送”并移除撤回。失败的事务会保留官方输入框内容、图片、附加状态、不可变提交内容和提交 ID，供稍后安全重试。
+插件不会把传输已接受直接显示成已排队。只有 `SessionSnapshot.queue` 包含稳定消息 ID 后才显示“已排队”Toast 和撤回操作；Chat 目标中出现持久化 `user/message` 后改为“已发送”并移除撤回。失败的事务会保留官方输入框内容、图片、附加状态、不可变提交内容和提交 ID，供稍后安全重试。
 
 无论自动附着开关处于什么状态：斜杠命令都不携带注解，输入法选词都不触发发送，发送失败都不丢失数据。
 
@@ -189,7 +193,7 @@ CI 会在 Node 22.19 与 24 上执行类型检查、Lint、单元测试、生产
 
 ## 已知限制
 
-- DSH 暂无助手 Markdown 内部 Slot。本插件通过 rc.2 的 `ctx.slots.entries()` 原地装饰现有 `assistant-step` 组件并合并其 inject，不新增该 keyed 单元，因此与 dsh-smooth-stream 等同类装饰可以组合；`user` 与 `steering` 仍以优先级 `-100` 覆盖。Slot 条目结构变化时需要重新兼容验证。
+- DSH 暂无助手 Markdown 内部 Slot。本插件通过 `ctx.slots.entries()` 原地装饰现有 `assistant-step` 组件并合并其 inject，不新增该 keyed 单元，因此与 dsh-smooth-stream 等同类装饰可以组合；`user` 与 `steering` 仍以优先级 `-100` 覆盖。Slot 条目结构变化时需要重新兼容验证。
 - 未发送草稿只存在当前浏览器，不会跨设备同步；已发送批次可从 Session 日志恢复。
 - 模型确认属于协作协议。模型遗漏或破坏标记时，状态保持“已发送”，不会猜测为“已处理”；模型未按格式输出时，回复中的“注解 N”保持普通文字。
 - 页面刷新后，官方输入框中的未发送图片无法恢复；此时重试带图片的批次会被拒绝，需重新选择相同图片或放弃该条待发送记录。

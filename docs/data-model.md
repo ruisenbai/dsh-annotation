@@ -74,7 +74,7 @@ The submission message-id namespace is a protocol compatibility identifier rathe
 
 `kind` is `note` (content non-empty) or `highlight-only` (empty or whitespace-only content). Legacy records without `kind` infer from the content: non-empty becomes `note`, empty becomes `highlight-only`. Highlight-only items mean “mark the quoted text only”: the model must review and respond to the selected text and never skip the item.
 
-Images never appear inside this JSON. Composer images travel as rc.2 command attachments: the outbox entry records only `{ count, mediaTypes, names }`, and the Host appends the admitted durable image blocks after the annotation text in the user-message content.
+Images never appear inside this JSON. Composer images travel as standard command attachments through `commands/execute(sessionId, line, images)`: the outbox entry records only `{ count, mediaTypes, names }`, and the Host appends the admitted durable image blocks after the annotation text in the user-message content.
 
 ## Browser persistence
 
@@ -129,7 +129,7 @@ ready/queued -> withdrawn (only after successful queue removal or discard)
 queued -> accepted (queue was claimed before durable history became visible)
 ```
 
-`accepted` records a successful command response without claiming that the authoritative Inbox contains the batch. `queued` requires the stable message id in the target Session's current `ConversationSnapshot.queue`; only this state exposes withdrawal. When that snapshot stops listing the message before durable history becomes visible, the target returns to `accepted`. A queue-removal response that reports an already claimed item forces the same reconciliation immediately. `sent` requires the durable annotation `user/message`, and neither a late transport success nor a late transport failure can demote either authoritative state.
+`accepted` records a successful command response without claiming that the authoritative Inbox contains the batch. `queued` requires the stable message id in the target Session's current `SessionSnapshot.queue`; only this state exposes withdrawal. When that snapshot stops listing the message before durable Chat history becomes visible, the target returns to `accepted`. A queue-removal response that reports an already claimed item forces the same reconciliation immediately. `sent` requires the durable annotation `user/message`, and neither a late transport success nor a late transport failure can demote either authoritative state.
 
 A client-side item-count or size rejection occurs before any Host call and leaves new annotations as drafts. A refresh-loss image guard also refuses before any Host call when a recorded image batch has no images in the composer. A transport failure is ambiguous and therefore remains retryable with the same id: the official composer draft and armed attachment stay in place. Loading a persisted `sending` or still-unobserved `accepted` entry converts it to `failed`, preserving the frozen payload after a refresh or tab crash and making the same id retryable. Host deduplication resolves a retry that arrived after an unseen successful admission.
 

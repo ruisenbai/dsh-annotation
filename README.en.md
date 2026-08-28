@@ -13,7 +13,7 @@ Long AI replies are much easier to review when each note can sit beside the exac
 
 > **Interaction origin:** this plugin is an independent, unofficial recreation of ChatGPT's inline commenting feature for DeepSeek Harness. It copies the workflow, not OpenAI source code, assets, APIs, or branding, and it is not affiliated with or endorsed by OpenAI.
 
-> **Compatibility:** this project requires DeepSeek Harness `0.1.1-rc.2` or a later `0.1.x` prerelease. DSH is pre-release software. Because DSH does not yet expose an inline assistant-body slot, the plugin decorates the existing assistant renderer in place without occupying `assistant-step`; user and steering rows still use priority shadowing. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
+> **Compatibility:** the current source targets DeepSeek Harness `0.1.2-alpha.1` exactly. DSH is pre-release software. Because DSH does not yet expose an inline assistant-body slot, the plugin decorates the existing assistant renderer in place without occupying `assistant-step`; user and steering rows still use priority shadowing. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
 
 ## Preview
 
@@ -47,10 +47,10 @@ Need a break from annotations? Turn the feature off under **Settings → Plugins
 - Group two-line rows into ready-to-attach, delivery-outcome/retry, authoritatively queued, and sent sections; use official DSH buttons, state dots, icons, tooltips, and Toasts.
 - Saving a new annotation attaches it to the official composer by default. Turn automatic attachment off in Plugin configuration when preferred, or use the header paperclip at any time. Toggling neither expands nor sends; armed annotations follow the live draft set until the official composer submits.
 - Use the official composer as the only task input and Send surface. Ordinary text plus annotations plus images, or annotations alone, produce one task and one model execution.
-- Text, annotations, and images travel in one submission: the internal command declares `images = true`, images ride the rc.2 standard command attachments through the official attachment channel (base64 never enters the annotation JSON or the internal command string), and the Host builds one user message as overall requirement + numbered annotations + official image blocks.
+- Text, annotations, and images travel in one submission: the internal command declares `images = true`, and the Client sends standard command attachments through the Session-addressed `commands/execute` Remote (base64 never enters the annotation JSON or the internal command string). The Host builds one user message as overall requirement + numbered annotations + official image blocks.
 - Success clears the text and images and marks the annotations sent. Failure retains the text, images, and annotations; retries reuse the same submission id, and the Host keeps only the first successful result per submission id.
 - The outbox stores only image count, media types, and a summary — never base64. After a refresh, when the images cannot be recovered, the plugin refuses to silently resubmit without images and prompts the user to re-select the same images or discard the pending record.
-- Slash commands are released automatically: while attached, composer content starting with `/` releases the official input claim and removes the zero-width token, so `/goal`, `/model`, and friends run through the rc.2 official pipeline; leaving command state re-attaches. `claim.submit()` re-checks slash commands to defeat the Enter race — a raced command routes through the official Session command interface without creating an outbox, sending annotations, or marking them sent, and a failed command keeps its text, images, and annotations.
+- Slash commands are released automatically: while attached, composer content starting with `/` releases the official input claim and removes the zero-width token, so `/goal`, `/model`, and friends run through the official pipeline; leaving command state re-attaches. `claim.submit()` re-checks slash commands to defeat the Enter race — a raced command routes through the Session-addressed command Remote without creating an outbox, sending annotations, or marking them sent, and a failed command keeps its text, images, and annotations.
 - Per-annotation model replies: the Host prompt asks the model to answer each annotation in order, start every paragraph with "Annotation N:", never merge annotations, emit a hidden `dsh-annotation-reply` marker before each paragraph, and end with the `dsh-annotation` acknowledgement marker. The Client locates each "Annotation N" by text Range and overlays a React chip; hovering or keyboard focus shows the annotation number, the selected source text, and the user's annotation.
 - Reply markers only control display: the Client accepts only submissionId + annotationId pairs that exist in the current Session, ignores unknown, duplicate, forged, and malformed markers, keeps plain "Annotation N" text when the model breaks format, associates multiple batches in one reply by annotationId, and never mutates business state from reply markers — only acknowledgements update the processed status.
 - The custom user node shows the overall requirement, the annotation summary box, and official image thumbnails through the official image viewer.
@@ -75,6 +75,8 @@ Need a break from annotations? Turn the feature off under **Settings → Plugins
 
 ### Build from a clone
 
+If the `0.1.2-alpha.1` dependencies are not yet on npm, local verification may use a disposable source overlay from the matching DSH tag as described in [Compatibility](docs/compatibility.md); release verification must still use the complete tarball family. Never commit machine-local `file:` paths to the manifest or lockfile.
+
 ```bash
 git clone https://github.com/ruisenbai/dsh-annotation.git
 cd dsh-annotation
@@ -94,30 +96,32 @@ Open the DSH Web URL and select text in a finalized assistant reply. A small act
 
 ### Install a GitHub release
 
-Each `v*.*.*` tag builds an installable tarball and attaches it to GitHub Releases. Download it and install the prebuilt package without running repository build scripts:
+`v0.3.0` is the first GitHub release for DSH `0.1.2-alpha.1`; `v0.2.4` remains available for DSH `0.1.1-rc.2`.
+
+Each `v*.*.*` GitHub release provides an installable tarball. Download it and install the prebuilt package without running repository build scripts:
 
 ```bash
-gh release download v0.2.4 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-annotation-0.2.4.tgz
+gh release download v0.3.0 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
+dsh plugin --profile web add ./dsh-annotation-0.3.0.tgz
 ```
 
 A pinned Git dependency also works when the profile explicitly allows this trusted package to run its `prepare` build:
 
 ```bash
-dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.2.4
+dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.3.0
 ```
 
 ## Settings
 
-**Settings → Plugins → Plugin configuration** contains an expandable **dsh-annotation** card with two switches: plugin enablement and automatic composer attachment for new annotations. Both default to on. Edits remain staged until **Save** writes the Host's `dsh-annotation` settings namespace, then apply to every Session served by that Host. Disabling the plugin removes the assistant decoration and restores the user renderers, removes the selection action bar, markers, annotation list, annotation action, hidden transport view, and composer attachment, and preserves visible composer text. Drafts, unfinished editor text, outbox state, and submitted history remain stored and return when the switch is enabled again. Disabling automatic attachment leaves new annotations as local drafts; the header paperclip still attaches them manually.
+**Settings → Plugins → Plugin configuration** contains an expandable **dsh-annotation** card with three switches: plugin enablement, automatic composer attachment for new annotations, and local-data controls. All three default to on. Edits remain staged until **Save** writes the Host's `dsh-annotation` settings namespace, then apply to every Session served by that Host. Disabling the plugin removes the assistant decoration and restores the user renderers, removes the selection action bar, markers, annotation list, annotation action, hidden transport view, and composer attachment, and preserves visible composer text. Drafts, unfinished editor text, outbox state, and submitted history remain stored and return when the switch is enabled again. Disabling automatic attachment leaves new annotations as local drafts; the header paperclip still attaches them manually. Disabling local-data controls hides storage usage, export, and draft-clearing actions from the annotation summary.
 
-**Reset to default** clears the selected field's user-layer override and restores its on-by-default value. The DSH settings provider persists both settings. During the rename upgrade, user values from the legacy `inline-comments` settings namespace migrate into the new namespace, and the legacy section is cleared only after the new write succeeds. On the first 0.1.3 load, a valid legacy browser enablement switch remains effective until the Host accepts it, then its old key is removed. Per-Session annotation drafts remain browser-local as described under [Privacy and persistence](#privacy-and-persistence).
+**Reset to default** clears the selected field's user-layer override and restores its on-by-default value. The DSH settings provider persists all three settings. During the rename upgrade, user values from the legacy `inline-comments` settings namespace migrate into the new namespace, and the legacy section is cleared only after the new write succeeds. On the first 0.1.3 load, a valid legacy browser enablement switch remains effective until the Host accepts it, then its old key is removed. Per-Session annotation drafts remain browser-local as described under [Privacy and persistence](#privacy-and-persistence).
 
 ## Delivery behavior
 
 Automatic attachment is on by default, so saving a new annotation immediately arms the paperclip. Unarmed annotations remain browser-local and editable. Armed annotations follow the live unsent set: edits, deletions, and new drafts apply until the official composer submits through Enter or Send. The submit transaction then freezes one immutable payload, clears the official draft only after command success, and leaves later annotations for the next task. Clicking the paperclip manually attaches or detaches without changing text, cursor position, or panel expansion.
 
-Transport acceptance is not presented as queue admission. The queued Toast appears only after `ConversationSnapshot.queue` contains the stable message id, and its withdrawal control remains available only in that state. A durable `user/message` changes the result to sent and removes withdrawal. A failed transaction retains the official draft, images, armed state, immutable payload, and submission id for retry.
+Transport acceptance is not presented as queue admission. The queued Toast appears only after `SessionSnapshot.queue` contains the stable message id, and its withdrawal control remains available only in that state. A durable `user/message` in the Chat target changes the result to sent and removes withdrawal. A failed transaction retains the official draft, images, armed state, immutable payload, and submission id for retry.
 
 Regardless of the automatic-attachment switch: slash commands never carry annotations, input-method word selection never triggers a send, and a failed send never loses data.
 
@@ -182,7 +186,7 @@ The CI workflow runs type checking, linting, unit tests, a production bundle, ar
 
 ## Known limitations and deferred work
 
-- DSH has no public slot inside assistant Markdown. Through rc.2's `ctx.slots.entries()`, this plugin decorates existing `assistant-step` components in place and composes their inject faces without adding another keyed entry — so it composes with same-style decorators such as dsh-smooth-stream; `user` and `steering` remain priority `-100` shadows. Slot-entry changes require a compatibility review.
+- DSH has no public slot inside assistant Markdown. Through `ctx.slots.entries()`, this plugin decorates existing `assistant-step` components in place and composes their inject faces without adding another keyed entry — so it composes with same-style decorators such as dsh-smooth-stream; `user` and `steering` remain priority `-100` shadows. Slot-entry changes require a compatibility review.
 - Browser-local drafts do not synchronize between devices or browser profiles. Sent batches reconstruct from the Session log on any client.
 - The machine acknowledgement is cooperative. If the model omits or corrupts it, annotations remain `sent` rather than being guessed as processed; if the model breaks the reply format, its "Annotation N" text stays plain.
 - After a page refresh, unsent composer images cannot be recovered. Retrying a recorded image batch without images is refused; re-select the same images or discard the pending record.

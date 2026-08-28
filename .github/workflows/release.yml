@@ -7,42 +7,52 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 11.7.0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.x
-          cache: pnpm
-          registry-url: https://registry.npmjs.org
-      - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Verify tag matches package version
+        id: version
         run: |
           version="$(node -p "require('./package.json').version")"
           test "v${version}" = "${GITHUB_REF_NAME}"
+          echo "value=${version}" >> "${GITHUB_OUTPUT}"
+      - name: Detect a prebuilt GitHub release asset
+        id: prebuilt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset="dsh-annotation-${{ steps.version.outputs.value }}.tgz"
+          if gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name' 2>/dev/null | grep -Fxq "${asset}"; then
+            echo 'available=true' >> "${GITHUB_OUTPUT}"
+          else
+            echo 'available=false' >> "${GITHUB_OUTPUT}"
+          fi
+      - uses: pnpm/action-setup@v6
+        if: steps.prebuilt.outputs.available != 'true'
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v7
+        if: steps.prebuilt.outputs.available != 'true'
+        with:
+          node-version: 24.x
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --strict-peer-dependencies --ignore-scripts
+        if: steps.prebuilt.outputs.available != 'true'
       - name: Install Chromium
+        if: steps.prebuilt.outputs.available != 'true'
         run: pnpm exec playwright install --with-deps chromium
       - name: Run browser regressions
+        if: steps.prebuilt.outputs.available != 'true'
         run: pnpm test:browser
-      - run: pnpm test:coverage
-      - run: mkdir -p artifacts && pnpm pack --pack-destination artifacts
+      - if: steps.prebuilt.outputs.available != 'true'
+        run: pnpm test:coverage
+      - if: steps.prebuilt.outputs.available != 'true'
+        run: mkdir -p artifacts && pnpm pack --pack-destination artifacts
       - name: Create GitHub release
+        if: steps.prebuilt.outputs.available != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "${GITHUB_REF_NAME}" artifacts/*.tgz --verify-tag --generate-notes
-      - name: Publish to npm when NPM_TOKEN is configured
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo 'NPM_TOKEN is not configured; skipping npm publication.'
-            exit 0
-          fi
-          npm publish artifacts/*.tgz --access public --provenance

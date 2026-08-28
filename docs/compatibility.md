@@ -4,14 +4,16 @@
 
 | Component                | Supported baseline                                                                  |
 | ------------------------ | ----------------------------------------------------------------------------------- |
-| DeepSeek Harness         | `>=0.1.1-rc.2 <0.2.0`                                                               |
-| Development declarations | `0.1.1-rc.2`                                                                        |
+| DeepSeek Harness         | `0.1.2-alpha.1`                                                                     |
+| Development declarations | `0.1.2-alpha.1`                                                                     |
 | Cordis                   | `^4.0.1`                                                                            |
 | Node.js                  | `^22.19.0` or `>=24`                                                                |
 | React                    | `^18.2.0`                                                                           |
 | Browser                  | Current Chromium-based DSH Web target; other modern browsers retain marker fallback |
 
-DSH has no external compatibility promise before `0.2.0`. The peer range expresses the reviewed release window, not an automatic guarantee for every prerelease.
+DSH has no external compatibility promise before `0.2.0`. The exact peer versions limit this adaptation to the reviewed prerelease because assistant decoration still depends on mutable Slot entries.
+
+The `0.1.2-alpha.1` DSH package family is not available from npm. GitHub release artifacts for this baseline are built and verified against the matching checkout's declarations and static browser inputs through a disposable source overlay. Machine-local `file:` URLs, workspace links, and temporary overlay lockfiles are verification inputs and must not enter the published plugin manifest or lockfile. Until the alpha family is published, the checked-in lockfile remains the last registry-resolvable `0.1.1-rc.2` graph and is not used for alpha verification; regenerate it from the registry before restoring registry-based CI or publishing this plugin to npm.
 
 ## Plugin configuration integration
 
@@ -40,17 +42,19 @@ The plugin uses two different integration mechanisms:
 
 For assistant rows, the decorator keeps the existing component as the body renderer, composes the existing `inject` face with the annotation face, and restores both fields when the feature is disabled or unloaded. It also watches `slots/changed`, so an assistant renderer registered later, including `dsh-smooth-stream`, is decorated without a same-key registration.
 
-A DSH upgrade is compatible only if `StoredEntry.component`, `StoredEntry.inject`, `ctx.slots.entries()`, the public owner props, standard Slot hooks, primitives, and queue/session methods used by these integrations remain compatible. The CI type check catches declaration drift; a real Web smoke must catch rendering or lifecycle drift.
+Reconciliation combines two `0.1.2` sources without changing annotation state rules: Chat nodes come from `ctx.uiConversation.binding(binding).target('chat')`, while queue membership and older-history availability come from `binding.session.getSnapshot()`. The controller subscribes to both sources and reconciles only when either snapshot identity changes.
+
+A DSH upgrade is compatible only if `StoredEntry.component`, `StoredEntry.inject`, `ctx.slots.entries()`, the public owner props, standard Slot hooks, Chat target snapshots, primitives, and queue/session methods used by these integrations remain compatible. The CI type check catches declaration drift; a real Web smoke must catch rendering or lifecycle drift.
 
 The internal command is registered through the public command registry. DSH currently has no non-discoverable command flag, so the transport command can appear in slash-command discovery. Invoking it manually without a valid payload fails validation and does not reach the model.
 
-Composer attachment relies on the `inputTriggers` service and its scoped `slash/input-begin-command` and `slash/input-consume-token` events, on `CommandClaim.images` and the composer image serialization path, and on the mounted `commands/execute` Remote (with the `binding.session.command` fallback). An upgrade is compatible only while those bail events keep their current claim-and-span semantics, the input machine accepts a claimed token at draft position zero, image-carrying claims deliver `SubmitImageAttachment[]` to `claim.submit()`, and the command Remote admits image attachments into durable blocks. Slash-command release observes the input state store; it never installs global keyboard listeners, so it does not interfere with other plugins.
+Composer attachment relies on the `inputTriggers` service and its scoped `slash/input-begin-command` and `slash/input-consume-token` events, on `CommandClaim.images` and the composer image serialization path, and on the root `commands/execute(sessionId, line, images)` Remote (with the `binding.session.command` fallback for image-free commands). An upgrade is compatible only while those bail events keep their current claim-and-span semantics, the input machine accepts a claimed token at draft position zero, image-carrying claims deliver `SubmitImageAttachment[]` to `claim.submit()`, and the command Remote admits image attachments into durable blocks. Slash-command release observes the input state store; it never installs global keyboard listeners, so it does not interfere with other plugins.
 
 ## Upgrade checklist
 
 1. Update every direct `@deepseek-ai/dsh-*` development dependency and the complete `@deepseek-ai/dsh` development environment to one release.
-2. Run `pnpm install`, then require `pnpm peers check` to report no issue.
-3. Run `pnpm verify`, `pnpm test:browser`, `pnpm test:coverage`, and `pnpm pack`.
+2. Regenerate the lockfile and run `pnpm install --frozen-lockfile --strict-peer-dependencies` when that release is on npm. For an unpublished DSH release, pack the complete DSH, vendor, and Landlock families, apply every tarball through a disposable override, and run the disposable install with strict peer enforcement without committing the override or generated lockfile.
+3. Run `pnpm verify`, `pnpm test:browser`, `pnpm test:coverage`, and `pnpm pack` against that installed release.
 4. Install the tarball into a disposable DSH Web profile.
 5. Verify finalized Markdown, code, tables, images, reasoning, file mentions, streaming completion, and interruption rendering, plus reply-chip overlay after streaming settles.
 6. Exercise idle, running, blocking confirmation, withdrawal, transport retry, refresh recovery, default automatic attachment, manual attach/detach, Enter submission with composer text, annotation-only submission, text+annotation+image submission, image-retry refusal after refresh, slash-command release and the Enter race, and legacy overall-requirement migration.

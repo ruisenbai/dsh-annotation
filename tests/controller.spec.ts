@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
-import { AnnotationController } from '../src/client/controller.ts'
+import { AnnotationController, type AnnotationReconciliationSnapshot } from '../src/client/controller.ts'
 import { AnnotationStorage } from '../src/client/storage.ts'
 import { DEFAULT_CONFIG } from '../src/shared/config.ts'
 import type { AnnotationId, MessageIdentity, SessionIdentity } from '../src/shared/types.ts'
@@ -30,12 +29,16 @@ function capture(start = 5, end = 11): SelectionCapture {
   }
 }
 
-function snapshot(nodes: unknown[] = [], queue: unknown[] = [], hasMore = false): ConversationSnapshot {
+function snapshot(
+  nodes: unknown[] = [],
+  queue: unknown[] = [],
+  hasMore = false,
+): AnnotationReconciliationSnapshot {
   return {
     chat: { nodes: new Map(nodes.map((node, index) => [String(index), node])) },
     queue,
     hasMore,
-  } as unknown as ConversationSnapshot
+  } as unknown as AnnotationReconciliationSnapshot
 }
 
 function harness(memory = new MemoryStorage(), sessionId = 'session-test' as SessionIdentity) {

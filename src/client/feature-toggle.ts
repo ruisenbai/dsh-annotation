@@ -1,10 +1,7 @@
 /** Host-backed feature setting and staged plugin-configuration card state. */
 
-import {
-  createSnapshotStore,
-  type SettingsScope,
-  type SnapshotStore,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   DEFAULT_ANNOTATION_AUTO_ATTACH,
   DEFAULT_ANNOTATION_ENABLED,

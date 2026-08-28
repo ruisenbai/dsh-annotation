@@ -1,4 +1,3 @@
-import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import { createAnnotationId, createSubmissionId, submissionMessageId } from '../shared/ids.ts'
 import { parseModelAcknowledgements } from '../shared/model-ack.ts'
 import { parseAnnotationSource } from '../shared/protocol.ts'
@@ -45,8 +44,18 @@ export interface AnnotationView {
   readonly storageBytes: number
 }
 
+export interface AnnotationReconciliationSnapshot {
+  readonly chat: {
+    readonly nodes: {
+      values(): Iterable<unknown>
+    }
+  }
+  readonly queue: readonly { readonly messageId: unknown }[]
+  readonly hasMore: boolean
+}
+
 export interface AnnotationNavigationSession {
-  getSnapshot(): Pick<ConversationSnapshot, 'hasMore'>
+  getSnapshot(): Pick<AnnotationReconciliationSnapshot, 'hasMore'>
   loadOlder(): Promise<void>
 }
 
@@ -619,7 +628,7 @@ export class AnnotationController {
     })
   }
 
-  reconcile(snapshot: ConversationSnapshot): void {
+  reconcile(snapshot: AnnotationReconciliationSnapshot): void {
     const submissions = new Map<SubmissionId, AnnotationSubmissionPayload>()
     const acknowledgements = new Map<SubmissionId, Set<AnnotationId>>()
     let latestAssistantMessageId: MessageIdentity | null = null
