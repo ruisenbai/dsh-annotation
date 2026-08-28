@@ -29,7 +29,7 @@ Do not replace the contributor copyright in `LICENSE` unless the project has a s
    For an unpublished DSH baseline, use the disposable source-overlay procedure in `docs/compatibility.md` to run the same type, lint, unit, coverage, build, bundle, package, and browser checks without committing local paths or its generated lockfile.
 
 4. Inspect the tarball file list and test-install it into a disposable DSH Web profile.
-5. Commit and push the release source. When the registry path is available, push an annotated `v<version>` tag and let the Release workflow build the tarball. For an unpublished baseline, create a draft GitHub Release with the locally verified tarball and the pushed commit as its target; the workflow recognizes that exact prebuilt asset instead of attempting a registry install.
-6. Confirm the workflow accepts the tag and asset, then publish the draft and verify the public download.
+5. Commit and push the release source. When the registry path is available, push an annotated `v<version>` tag and let the Release workflow build both the versioned tarball and the stable `dsh-annotation.tgz` alias used by plugin catalogs. For an unpublished baseline, create a draft GitHub Release with the locally verified versioned tarball, an identical `dsh-annotation.tgz` copy, and the pushed commit as its target; the workflow recognizes those prebuilt assets instead of attempting a registry install.
+6. Confirm the workflow accepts the tag and both assets, then publish the draft and verify the public downloads.
 
-The tag must exactly match `v` plus the package version. The workflow rejects mismatches and prebuilt assets whose filename does not match the package version.
+The tag must exactly match `v` plus the package version. The workflow rejects mismatches and prebuilt releases missing either the versioned filename or stable alias.

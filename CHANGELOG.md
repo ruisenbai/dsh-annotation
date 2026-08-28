@@ -4,6 +4,10 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+### Changed
+
+- GitHub Releases now include a stable `dsh-annotation.tgz` asset alias so plugin catalogs can follow the latest release without hard-coding a versioned URL.
+
 ## [0.3.0] - 2026-08-28
 
 ### Changed

@@ -24,8 +24,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          asset="dsh-annotation-${{ steps.version.outputs.value }}.tgz"
-          if gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name' 2>/dev/null | grep -Fxq "${asset}"; then
+          versioned="dsh-annotation-${{ steps.version.outputs.value }}.tgz"
+          assets="$(gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          if grep -Fxq "${versioned}" <<<"${assets}" && grep -Fxq 'dsh-annotation.tgz' <<<"${assets}"; then
             echo 'available=true' >> "${GITHUB_OUTPUT}"
           else
             echo 'available=false' >> "${GITHUB_OUTPUT}"
@@ -50,7 +51,10 @@ jobs:
       - if: steps.prebuilt.outputs.available != 'true'
         run: pnpm test:coverage
       - if: steps.prebuilt.outputs.available != 'true'
-        run: mkdir -p artifacts && pnpm pack --pack-destination artifacts
+        run: |
+          mkdir -p artifacts
+          pnpm pack --pack-destination artifacts
+          cp "artifacts/dsh-annotation-${{ steps.version.outputs.value }}.tgz" artifacts/dsh-annotation.tgz
       - name: Create GitHub release
         if: steps.prebuilt.outputs.available != 'true'
         env:
