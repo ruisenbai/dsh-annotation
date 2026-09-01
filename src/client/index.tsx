@@ -427,7 +427,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       kind: 'remove',
     })
     if (!result.ok) {
-      if (result.error.code === 'queue-item-not-found') {
+      if (result.error.code === 'session/queue-item-not-found') {
         const sessionSnapshot = binding.session.getSnapshot()
         const chatSnapshot = ctx.uiConversation.binding(binding).target('chat').getSnapshot()
         target.reconcile({

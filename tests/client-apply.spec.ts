@@ -1140,7 +1140,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     const fixture = fixtureContext(command)
     fixture.session.updateQueue.mockResolvedValue({
       ok: false,
-      error: { code: 'queue-item-not-found', message: 'already claimed', details: {} },
+      error: { code: 'session/queue-item-not-found', message: 'already claimed', details: {} },
     })
     apply(fixture.ctx)
     const face = fixture.face()

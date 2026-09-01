@@ -4,8 +4,14 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-01
+
 ### Changed
 
+- Raised the reviewed DeepSeek Harness baseline to `0.1.2-alpha.3`. The `0.1.2-alpha.3` family is available from npm, so the checked-in lockfile is again a registry-resolvable graph and the disposable source-overlay verification procedure is retired. Annotation behavior, protocol v2, persisted storage, command names, and legacy reads remain unchanged.
+- The Host settings registration now passes the plain namespace string: DSH `0.1.2-alpha.3` removed the `settingsNamespace` brand helper and validates namespaces at the `register`/`update`/`replace` boundary instead.
+- Withdrawal now recognizes the namespaced `session/queue-item-not-found` Remote failure code introduced with DSH's shared `RemoteResult` vocabulary.
+- Test workers now disable Node's process-wide Web Storage on Node ≥25 so jsdom storage is not shadowed during local runs; the supported CI matrix (Node 22.19/24) is unchanged.
 - GitHub Releases now include a stable `dsh-annotation.tgz` asset alias so plugin catalogs can follow the latest release without hard-coding a versioned URL.
 
 ## [0.3.0] - 2026-08-28

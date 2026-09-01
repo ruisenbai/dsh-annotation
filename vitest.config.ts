@@ -1,7 +1,11 @@
 import { defineConfig } from 'vitest/config'
 
+/** Node ≥25 ships process-wide Web Storage that shadows jsdom storage; disable it when present. */
+const execArgv = process.allowedNodeEnvironmentFlags.has('--webstorage') ? ['--no-webstorage'] : []
+
 export default defineConfig({
   test: {
+    execArgv,
     server: {
       deps: {
         inline: [/@deepseek-ai\/dsh-client-ui-primitives/, /katex/],

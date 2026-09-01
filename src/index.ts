@@ -3,8 +3,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-commands'
-import type { SettingsNamespace, SettingsProvider } from '@deepseek-ai/dsh-settings'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import { createAnnotationCommand, createLegacyAnnotationAliases } from './host/command.ts'
 import { DEFAULT_CONFIG, resolveConfig } from './shared/config.ts'
 import {
@@ -48,11 +47,11 @@ export function apply(ctx: Context, input: Config): void {
   }
   ctx.inject(['settings'], (settingsCtx) => {
     const settings = settingsCtx.settings as SettingsProvider
-    settings.register(settingsNamespace(ANNOTATION_SETTINGS_NAMESPACE), SettingsSchema)
+    settings.register(ANNOTATION_SETTINGS_NAMESPACE, SettingsSchema)
     // Legacy namespaces stay registered only to read and clear their stored
     // user sections; no plugin card is keyed to them, so they render nothing.
     for (const legacy of LEGACY_ANNOTATION_SETTINGS_NAMESPACES) {
-      settings.register(settingsNamespace(legacy), SettingsSchema)
+      settings.register(legacy, SettingsSchema)
     }
     migrateLegacySettings(settings)
   })
@@ -66,12 +65,11 @@ export function apply(ctx: Context, input: Config): void {
 function migrateLegacySettings(settings: SettingsProvider): void {
   void Promise.resolve().then(async () => {
     for (const legacy of LEGACY_ANNOTATION_SETTINGS_NAMESPACES) {
-      const legacyNs = settingsNamespace(legacy)
-      const user = userSection(settings, legacyNs)
+      const user = userSection(settings, legacy)
       if (user === null || Object.keys(user).length === 0) continue
       try {
-        await settings.update(settingsNamespace(ANNOTATION_SETTINGS_NAMESPACE), user)
-        await settings.replace(legacyNs, {})
+        await settings.update(ANNOTATION_SETTINGS_NAMESPACE, user)
+        await settings.replace(legacy, {})
       } catch {
         // Legacy values remain stored for a later load to retry.
       }
@@ -79,7 +77,7 @@ function migrateLegacySettings(settings: SettingsProvider): void {
   })
 }
 
-function userSection(settings: SettingsProvider, ns: SettingsNamespace): Record<string, unknown> | null {
+function userSection(settings: SettingsProvider, ns: string): Record<string, unknown> | null {
   const descriptor = settings.describe().find((item) => item.ns === ns)
   const user = descriptor?.user
   if (typeof user !== 'object' || user === null || Array.isArray(user)) return null
