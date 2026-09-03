@@ -4,8 +4,8 @@
 
 | Component                | Supported baseline                                                                  |
 | ------------------------ | ----------------------------------------------------------------------------------- |
-| DeepSeek Harness         | `0.1.2-alpha.3`                                                                     |
-| Development declarations | `0.1.2-alpha.3`                                                                     |
+| DeepSeek Harness         | `0.1.2-rc.1`                                                                        |
+| Development declarations | `0.1.2-rc.1`                                                                        |
 | Cordis                   | `^4.0.1`                                                                            |
 | Node.js                  | `^22.19.0` or `>=24`                                                                |
 | React                    | `^18.2.0`                                                                           |
@@ -13,7 +13,7 @@
 
 DSH has no external compatibility promise before `0.2.0`. The exact peer versions limit this adaptation to the reviewed prerelease because assistant decoration still depends on mutable Slot entries.
 
-The `0.1.2-alpha.3` DSH package family is available from npm, so the checked-in lockfile is a registry-resolvable `0.1.2-alpha.3` graph: install with `pnpm install --frozen-lockfile --strict-peer-dependencies` and run the normal verification sequence. Machine-local `file:` URLs, workspace links, and overlay lockfiles from earlier unpublished baselines are no longer verification inputs and must never enter the published plugin manifest or lockfile.
+The `0.1.2-rc.1` DSH package family is available from npm, so the checked-in lockfile is a registry-resolvable `0.1.2-rc.1` graph: install with `pnpm install --frozen-lockfile --strict-peer-dependencies` and run the normal verification sequence. Machine-local `file:` URLs, workspace links, and overlay lockfiles from earlier unpublished baselines are no longer verification inputs and must never enter the published plugin manifest or lockfile.
 
 ## Plugin configuration integration
 

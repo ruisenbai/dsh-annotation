@@ -22,7 +22,7 @@ function fakeAgent(events: unknown[] = []) {
   const agent = {
     id: 'session-test',
     inbox: { nextTurn, nextStep },
-    session: { events },
+    session: { snapshotEvents: () => events },
     followup,
     steer,
   } as unknown as Agent

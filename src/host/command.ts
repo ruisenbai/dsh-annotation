@@ -55,7 +55,9 @@ function decodePayload(rawInput: string, config: AnnotationConfig): AnnotationSu
 function hasMessage(agent: Agent, messageId: string): boolean {
   if (agent.inbox.nextTurn.some((message) => message.id === messageId)) return true
   if (agent.inbox.nextStep.some((message) => message.id === messageId)) return true
-  return agent.session.events.some((event) => event.type === 'user/message' && event.data.id === messageId)
+  return agent.session
+    .snapshotEvents()
+    .some((event) => event.type === 'user/message' && event.data.id === messageId)
 }
 
 function createAnnotationMessage(

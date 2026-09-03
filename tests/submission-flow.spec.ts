@@ -57,7 +57,7 @@ describe('browser-to-Host submission flow', () => {
     const agent = {
       id: sessionId,
       inbox: { nextTurn, nextStep: [] },
-      session: { events: [] },
+      session: { snapshotEvents: () => [] },
       followup: vi.fn((message: UserMessage) => nextTurn.push(message)),
       steer: vi.fn(),
     } as unknown as Agent

@@ -4,6 +4,14 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-01
+
+### Changed
+
+- Raised the reviewed DeepSeek Harness baseline to `0.1.2-rc.1` (peer and development declarations, lockfile, bundle verification, docs). Annotation behavior, protocol v2, persisted storage, command names, and legacy reads remain unchanged.
+- The Host idempotency scan now reads `Session.snapshotEvents()` because DSH `0.1.2-rc.1` replaced the `Session.events` getter with the snapshot reader.
+- The Cordis peer range now follows the `0.1.2-rc.1` family at `^4.0.2`.
+
 ## [0.4.0] - 2026-09-01
 
 ### Changed

@@ -13,7 +13,7 @@ Long AI replies are much easier to review when each note can sit beside the exac
 
 > **Interaction origin:** this plugin is an independent, unofficial recreation of ChatGPT's inline commenting feature for DeepSeek Harness. It copies the workflow, not OpenAI source code, assets, APIs, or branding, and it is not affiliated with or endorsed by OpenAI.
 
-> **Compatibility:** the current source targets DeepSeek Harness `0.1.2-alpha.3` exactly. DSH is pre-release software. Because DSH does not yet expose an inline assistant-body slot, the plugin decorates the existing assistant renderer in place without occupying `assistant-step`; user and steering rows still use priority shadowing. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
+> **Compatibility:** the current source targets DeepSeek Harness `0.1.2-rc.1` exactly. DSH is pre-release software. Because DSH does not yet expose an inline assistant-body slot, the plugin decorates the existing assistant renderer in place without occupying `assistant-step`; user and steering rows still use priority shadowing. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
 
 ## Preview
 
@@ -75,7 +75,7 @@ Need a break from annotations? Turn the feature off under **Settings → Plugins
 
 ### Build from a clone
 
-The `0.1.2-alpha.3` dependencies are on npm, so `pnpm install` resolves the complete dependency graph from the registry. Never commit machine-local `file:` paths to the manifest or lockfile.
+The `0.1.2-rc.1` dependencies are on npm, so `pnpm install` resolves the complete dependency graph from the registry. Never commit machine-local `file:` paths to the manifest or lockfile.
 
 ```bash
 git clone https://github.com/ruisenbai/dsh-annotation.git
@@ -96,7 +96,7 @@ Open the DSH Web URL and select text in a finalized assistant reply. A small act
 
 ### Install a GitHub release
 
-`v0.4.0` targets DSH `0.1.2-alpha.3`; `v0.3.0` targets DSH `0.1.2-alpha.1`; `v0.2.4` remains available for DSH `0.1.1-rc.2`.
+`v0.5.0` targets DSH `0.1.2-rc.1`; `v0.4.0` targets DSH `0.1.2-alpha.3`; `v0.3.0` targets DSH `0.1.2-alpha.1`; `v0.2.4` remains available for DSH `0.1.1-rc.2`.
 
 Each `v*.*.*` GitHub release provides an installable tarball. Download it and install the prebuilt package without running repository build scripts:
 

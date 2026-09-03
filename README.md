@@ -13,7 +13,7 @@
 
 > **交互来源说明：**本插件独立、非官方地复刻了 ChatGPT 的正文注解功能，并将这套体验带到 DeepSeek Harness。复制的是使用流程，不是 OpenAI 的源码、素材、API 或品牌；本项目与 OpenAI 无隶属或官方合作关系。
 
-> **兼容性提示：**当前源码仅适配 DeepSeek Harness `0.1.2-alpha.3`。DSH 仍处于预发布阶段。当前没有助手正文内部 Slot，本插件会原地装饰已有助手渲染器，不占用 `assistant-step`；用户与 steering 消息仍使用优先级覆盖。升级 DSH 前请阅读[兼容性说明](docs/compatibility.md)。
+> **兼容性提示：**当前源码仅适配 DeepSeek Harness `0.1.2-rc.1`。DSH 仍处于预发布阶段。当前没有助手正文内部 Slot，本插件会原地装饰已有助手渲染器，不占用 `assistant-step`；用户与 steering 消息仍使用优先级覆盖。升级 DSH 前请阅读[兼容性说明](docs/compatibility.md)。
 
 ## 界面预览
 
@@ -77,7 +77,7 @@
 
 ### 从源码构建
 
-`0.1.2-alpha.3` 依赖已发布到 npm，`pnpm install` 会直接从 registry 解析完整依赖图。不要把本机 `file:` 路径写入清单或锁文件。
+`0.1.2-rc.1` 依赖已发布到 npm，`pnpm install` 会直接从 registry 解析完整依赖图。不要把本机 `file:` 路径写入清单或锁文件。
 
 ```bash
 git clone https://github.com/ruisenbai/dsh-annotation.git
@@ -98,7 +98,7 @@ dsh web --profile web
 
 ### 安装 GitHub Release
 
-`v0.4.0` 适配 DSH `0.1.2-alpha.3`；`v0.3.0` 适配 DSH `0.1.2-alpha.1`；`v0.2.4` 仍适配 DSH `0.1.1-rc.2`。
+`v0.5.0` 适配 DSH `0.1.2-rc.1`；`v0.4.0` 适配 DSH `0.1.2-alpha.3`；`v0.3.0` 适配 DSH `0.1.2-alpha.1`；`v0.2.4` 仍适配 DSH `0.1.1-rc.2`。
 
 每个 `v*.*.*` GitHub Release 都提供可安装 Tarball。下载后可以直接安装预构建包，无需执行仓库构建脚本：
 

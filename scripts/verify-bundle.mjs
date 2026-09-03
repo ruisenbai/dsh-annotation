@@ -14,7 +14,7 @@ const expectedPlatformModules = [
   '@deepseek-ai/dsh-client-ui-primitives',
 ]
 if (JSON.stringify(platformModules) !== JSON.stringify(expectedPlatformModules)) {
-  throw new Error('client-platform.json does not match the DSH 0.1.2-alpha.3 platform modules')
+  throw new Error('client-platform.json does not match the DSH 0.1.2-rc.1 platform modules')
 }
 for (const [name, range] of Object.entries(manifest.peerDependencies ?? {})) {
   if (manifest.devDependencies?.[name] !== range) {
