@@ -30,7 +30,7 @@ Do not replace the contributor copyright in `LICENSE` unless the project has a s
 
 4. Inspect the tarball file list and test-install it into a disposable DSH Web profile.
 5. Commit and push the release source. When the registry path is available, push an annotated `v<version>` tag and let the Release workflow build both the versioned tarball and the stable `dsh-annotation.tgz` alias used by plugin catalogs. For an unpublished baseline, create a draft GitHub Release with the locally verified versioned tarball, an identical `dsh-annotation.tgz` copy, and the pushed commit as its target; the workflow recognizes those prebuilt assets instead of attempting a registry install.
-6. Confirm the workflow accepts the tag and both assets, then publish the draft and verify the public downloads.
+6. Confirm the workflow accepts the tag and both assets, then publish the draft and verify the public downloads. The public Release body must state the exact `engines.dsh` host requirement and link `docs/compatibility.md`; generated notes alone are insufficient.
 7. For a catalog update, confirm `engines.dsh` matches every lockstep DSH peer, keep `screenshots.json` at 1-8 repository-owned images, and update only `data/plugins/ruisenbai__dsh-annotation.yml` in `awesome-dsh-plugin`. Set and keep its category at `session` and preserve its stable tarball alias. Do not commit the generated catalog READMEs; the catalog regenerates them on `main` after the pull request merges.
 
 The tag must exactly match `v` plus the package version. The workflow rejects mismatches and prebuilt releases missing either the versioned filename or stable alias.
