@@ -83,6 +83,8 @@ Need a break from annotations? Turn the feature off under **Settings → Plugins
 - Node.js `^22.19.0` or `>=24.0.0`
 - A `web` profile
 
+When `dsh --version` differs, choose the mapped plugin release below or change to the required host version; do not bypass the version constraint with a forced install or disabled peer checks.
+
 ### Install a GitHub release (recommended)
 
 Every GitHub Release contains a prebuilt tarball that needs no local build. The stable alias always points at the latest release:

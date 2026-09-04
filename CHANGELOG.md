@@ -4,12 +4,12 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
-## [0.5.1] - 2026-09-03
+## [0.5.1] - 2026-09-04
 
 ### Changed
 
 - Declared the exact DSH Web `0.1.2-rc.1` host requirement through `engines.dsh`, matching lockstep peers, installation guidance, and the compatibility reference; the Cordis reference now matches the `^4.0.2` manifest range.
-- Positioned the plugin under **Sessions & Messages** for marketplace discovery and added repository-owned storefront screenshot metadata.
+- Documented the **Sessions & Messages** marketplace placement and added repository-owned storefront screenshot metadata.
 - Bundle verification now enforces the host declaration, lockstep peer agreement, and the curated screenshot files.
 
 ## [0.5.0] - 2026-09-01

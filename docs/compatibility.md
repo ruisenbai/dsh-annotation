@@ -12,13 +12,13 @@
 | React                    | `^18.2.0`                                                                           |
 | Browser                  | Current Chromium-based DSH Web target; other modern browsers retain marker fallback |
 
-The release manifest declares `engines.dsh: "0.1.2-rc.1"`, and every lockstep `@deepseek-ai/dsh-*` peer uses the same exact version. DSH has no external compatibility promise before `0.2.0`, so this plugin does not claim compatibility with a different prerelease. Desktop clients must embed the same DSH host version.
+The release manifest declares `engines.dsh: "0.1.2-rc.1"`, and every lockstep `@deepseek-ai/dsh-*` peer uses the same exact version. DSH has no external compatibility promise before `0.2.0`, so this plugin does not claim compatibility with a different prerelease. Desktop clients must embed the same DSH host version. When the installed host differs, select the matching plugin release from the README compatibility map or change hosts; forced installation and disabled peer checks are not supported.
 
 The `0.1.2-rc.1` DSH package family is available from npm, so the checked-in lockfile is a registry-resolvable `0.1.2-rc.1` graph: install with `pnpm install --frozen-lockfile --strict-peer-dependencies` and run the normal verification sequence. Machine-local `file:` URLs, workspace links, and overlay lockfiles from earlier unpublished baselines are not verification inputs and must never enter the published plugin manifest or lockfile.
 
 ## Marketplace placement
 
-The catalog category is **Sessions & Messages** (`session`). The plugin annotates assistant messages, persists drafts per Session, submits one user message through the official composer, and reconciles queue and durable message state; visual decoration supports that message workflow rather than acting as a theme or general appearance extension.
+The catalog submission uses **Sessions & Messages** (`session`). The plugin annotates assistant messages, persists drafts per Session, submits one user message through the official composer, and reconciles queue and durable message state; visual decoration supports that message workflow rather than acting as a theme or general appearance extension.
 
 The repository-owned `screenshots.json` lists the five curated images that storefronts should present. The catalog entry uses the stable `dsh-annotation.tgz` GitHub Release alias, so installation never depends on a local source build.
 
