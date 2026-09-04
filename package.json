@@ -1,6 +1,6 @@
 {
   "name": "dsh-annotation",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Inline annotations for DeepSeek Harness Session messages, submitted through the official composer",
   "keywords": [
     "deepseek",
@@ -102,11 +102,11 @@
     "prepack": "pnpm run verify"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.1",
     "lucide-react": "0.468.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/schemastery": "^3.18.2",
     "@deepseek-ai/dsh-agent": "0.1.2-rc.1",
     "@deepseek-ai/dsh-api-remotes": "0.1.2-rc.1",
     "@deepseek-ai/dsh-api-session-controller": "0.1.2-rc.1",
@@ -124,6 +124,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/schemastery": "^3.18.2",
     "@deepseek-ai/dsh": "0.1.2-rc.1",
     "@deepseek-ai/dsh-agent": "0.1.2-rc.1",
     "@deepseek-ai/dsh-api-remotes": "0.1.2-rc.1",

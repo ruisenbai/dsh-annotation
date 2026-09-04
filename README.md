@@ -97,7 +97,7 @@ dsh plugin --profile web add ./dsh-annotation.tgz
 dsh web
 ```
 
-如果 DSH Web 已在运行，请在安装后重启。`v0.5.1` 和 `v0.5.0` 适配 DSH `0.1.2-rc.1`；`v0.4.0` 适配 DSH `0.1.2-alpha.3`；`v0.3.0` 适配 DSH `0.1.2-alpha.1`；`v0.2.4` 适配 DSH `0.1.1-rc.2`。
+如果 DSH Web 已在运行，请在安装后重启。`v0.5.2`、`v0.5.1` 和 `v0.5.0` 适配 DSH `0.1.2-rc.1`；`v0.4.0` 适配 DSH `0.1.2-alpha.3`；`v0.3.0` 适配 DSH `0.1.2-alpha.1`；`v0.2.4` 适配 DSH `0.1.1-rc.2`。
 
 ### 从源码构建
 

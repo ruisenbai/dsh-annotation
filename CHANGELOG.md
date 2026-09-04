@@ -4,6 +4,13 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-09-04
+
+### Changed
+
+- Moved `@deepseek-ai/schemastery` from a bundled dependency to matching `^3.18.2` peer and development declarations, so the plugin reuses the rc.1 host runtime instead of installing a second official package copy.
+- Standardized the marketplace label as **Sessions & Messages** / **会话与消息**, documented recovery from host-version mismatch, and required public Release notes to state the exact host requirement.
+
 ## [0.5.1] - 2026-09-04
 
 ### Changed
@@ -164,7 +171,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.3.0...v0.4.0
