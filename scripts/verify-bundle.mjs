@@ -2,6 +2,10 @@ import { access, readFile } from 'node:fs/promises'
 
 const root = new URL('../', import.meta.url)
 const manifest = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
+const expectedDshVersion = '0.1.2-rc.1'
+if (manifest.engines?.dsh !== expectedDshVersion) {
+  throw new Error(`package.json engines.dsh must be ${expectedDshVersion}`)
+}
 const platformModules = JSON.parse(await readFile(new URL('client-platform.json', root), 'utf8'))
 const expectedPlatformModules = [
   'react',
@@ -20,6 +24,9 @@ for (const [name, range] of Object.entries(manifest.peerDependencies ?? {})) {
   if (manifest.devDependencies?.[name] !== range) {
     throw new Error(`peer and development ranges differ for ${name}`)
   }
+  if (name.startsWith('@deepseek-ai/dsh-') && range !== expectedDshVersion) {
+    throw new Error(`lockstep DSH peer ${name} must match engines.dsh`)
+  }
 }
 const required = [
   'lib/index.js',
@@ -28,8 +35,22 @@ const required = [
   'lib/types/index.d.ts',
   'lib/types/client/index.d.ts',
   'cordis.patch.yml',
+  'screenshots.json',
 ]
 await Promise.all(required.map((path) => access(new URL(path, root))))
+
+const screenshots = JSON.parse(await readFile(new URL('screenshots.json', root), 'utf8'))
+if (
+  !Array.isArray(screenshots) ||
+  screenshots.length < 1 ||
+  screenshots.length > 8 ||
+  screenshots.some(
+    (path) => typeof path !== 'string' || path.startsWith('/') || path.split('/').includes('..'),
+  )
+) {
+  throw new Error('screenshots.json must list 1-8 repository-relative image paths')
+}
+await Promise.all(screenshots.map((path) => access(new URL(path, root))))
 
 const client = await readFile(new URL('lib/client.js', root), 'utf8')
 if (

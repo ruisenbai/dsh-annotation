@@ -13,7 +13,11 @@
 
 > **交互来源说明：**本插件独立、非官方地复刻了 ChatGPT 的正文注解功能，并将这套体验带到 DeepSeek Harness。复制的是使用流程，不是 OpenAI 的源码、素材、API 或品牌；本项目与 OpenAI 无隶属或官方合作关系。
 
-> **兼容性提示：**当前源码仅适配 DeepSeek Harness `0.1.2-rc.1`。DSH 仍处于预发布阶段。当前没有助手正文内部 Slot，本插件会原地装饰已有助手渲染器，不占用 `assistant-step`；用户与 steering 消息仍使用优先级覆盖。升级 DSH 前请阅读[兼容性说明](docs/compatibility.md)。
+> **市场定位：会话和消息。** 本插件用于审阅一个 Session 内的助手消息，并通过官方输入框提交带注解的用户消息；它不是主题或通用外观插件。
+>
+> **宿主要求：**需要 DSH Web `0.1.2-rc.1`。发行包通过 `engines.dsh` 和同版本线 `@deepseek-ai/dsh-*` peer 声明这一精确要求；桌面客户端也必须内置该版本。DSH 仍处于预发布阶段，升级前请阅读[兼容性说明](docs/compatibility.md)。
+>
+> **实现兼容性：**DSH 当前没有助手正文内部 Slot，本插件会原地装饰已有助手渲染器，不占用 `assistant-step`；用户与 steering 消息仍使用优先级覆盖。
 
 ## 界面预览
 
@@ -73,7 +77,25 @@
 - 只有模型明确返回对应注解 ID，状态才从“已发送”变为“已处理”。
 - 浏览器不支持 CSS Custom Highlight API 时，仍保留编号标记和定位能力。
 
-## 快速开始
+## 安装
+
+### 要求
+
+- DSH Web `0.1.2-rc.1`（精确版本；运行 `dsh --version` 检查，桌面客户端还要检查其内置宿主版本）
+- Node.js `^22.19.0` 或 `>=24.0.0`
+- `web` Profile
+
+### 安装 GitHub Release（推荐）
+
+每个 GitHub Release 都提供无需本地构建的预构建 Tarball。稳定别名始终指向最新发行版：
+
+```bash
+curl -fL -o dsh-annotation.tgz https://github.com/ruisenbai/dsh-annotation/releases/latest/download/dsh-annotation.tgz
+dsh plugin --profile web add ./dsh-annotation.tgz
+dsh web
+```
+
+如果 DSH Web 已在运行，请在安装后重启。`v0.5.1` 和 `v0.5.0` 适配 DSH `0.1.2-rc.1`；`v0.4.0` 适配 DSH `0.1.2-alpha.3`；`v0.3.0` 适配 DSH `0.1.2-alpha.1`；`v0.2.4` 适配 DSH `0.1.1-rc.2`。
 
 ### 从源码构建
 
@@ -85,33 +107,11 @@ cd dsh-annotation
 corepack enable
 pnpm install
 pnpm verify
-```
-
-把构建后的目录安装到 Web Profile：
-
-```bash
 dsh plugin --profile web add .
-dsh web --profile web
+dsh web
 ```
 
 打开 DSH Web 页面，在一条已完成回复中选中文字，会出现带“添加注解”和“复制”的小浮条；选区保持可选，Ctrl+C 也能复制。点击“添加注解”打开紧凑输入框，填写意见后按 Enter 或点击对号创建草稿。草稿会出现在官方输入框上方，并默认附加到官方输入框；填写可选任务文本、附加图片后，按官方 Enter 或点击发送按钮，会把文字、注解和图片一起发送。若不想自动附加，可在插件配置中关闭对应开关，之后仍可用标题栏回形针手动附加。附着状态下输入斜杠命令时，注解会暂时让路，命令正常执行，注解不丢失。
-
-### 安装 GitHub Release
-
-`v0.5.0` 适配 DSH `0.1.2-rc.1`；`v0.4.0` 适配 DSH `0.1.2-alpha.3`；`v0.3.0` 适配 DSH `0.1.2-alpha.1`；`v0.2.4` 仍适配 DSH `0.1.1-rc.2`。
-
-每个 `v*.*.*` GitHub Release 都提供可安装 Tarball。下载后可以直接安装预构建包，无需执行仓库构建脚本：
-
-```bash
-gh release download v0.3.0 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-annotation-0.3.0.tgz
-```
-
-如果 Profile 明确允许这个可信包执行 `prepare` 构建，也可以安装固定标签的 Git 依赖：
-
-```bash
-dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.3.0
-```
 
 ## 设置
 

@@ -13,7 +13,11 @@ Long AI replies are much easier to review when each note can sit beside the exac
 
 > **Interaction origin:** this plugin is an independent, unofficial recreation of ChatGPT's inline commenting feature for DeepSeek Harness. It copies the workflow, not OpenAI source code, assets, APIs, or branding, and it is not affiliated with or endorsed by OpenAI.
 
-> **Compatibility:** the current source targets DeepSeek Harness `0.1.2-rc.1` exactly. DSH is pre-release software. Because DSH does not yet expose an inline assistant-body slot, the plugin decorates the existing assistant renderer in place without occupying `assistant-step`; user and steering rows still use priority shadowing. Review [Compatibility](docs/compatibility.md) before upgrading DSH.
+> **Market category: Sessions & Messages.** The plugin reviews assistant messages within one Session and submits annotated user messages through the official composer; it is not a theme or general appearance plugin.
+>
+> **Host requirement:** DSH Web `0.1.2-rc.1` is required. The release manifest states this exact requirement through `engines.dsh` and lockstep `@deepseek-ai/dsh-*` peers; desktop clients must embed the same version. DSH is pre-release software, so review [Compatibility](docs/compatibility.md) before upgrading.
+>
+> **Integration compatibility:** DSH does not expose an inline assistant-body slot. The plugin decorates the existing assistant renderer in place without occupying `assistant-step`; user and steering rows use priority shadowing.
 
 ## Preview
 
@@ -71,7 +75,25 @@ Need a break from annotations? Turn the feature off under **Settings → Plugins
 - Advance `sent` to `processed` only when the model explicitly returns annotation ids in the requested acknowledgement marker.
 - Fall back to numbered markers when the CSS Custom Highlight API is unavailable.
 
-## Quick start
+## Install
+
+### Requirements
+
+- DSH Web `0.1.2-rc.1` exactly (run `dsh --version`; for a desktop client, also check its embedded host version)
+- Node.js `^22.19.0` or `>=24.0.0`
+- A `web` profile
+
+### Install a GitHub release (recommended)
+
+Every GitHub Release contains a prebuilt tarball that needs no local build. The stable alias always points at the latest release:
+
+```bash
+curl -fL -o dsh-annotation.tgz https://github.com/ruisenbai/dsh-annotation/releases/latest/download/dsh-annotation.tgz
+dsh plugin --profile web add ./dsh-annotation.tgz
+dsh web
+```
+
+Restart DSH Web after installation when it is already running. `v0.5.1` and `v0.5.0` target DSH `0.1.2-rc.1`; `v0.4.0` targets DSH `0.1.2-alpha.3`; `v0.3.0` targets DSH `0.1.2-alpha.1`; `v0.2.4` targets DSH `0.1.1-rc.2`.
 
 ### Build from a clone
 
@@ -83,33 +105,11 @@ cd dsh-annotation
 corepack enable
 pnpm install
 pnpm verify
-```
-
-Install the built folder into a Web profile:
-
-```bash
 dsh plugin --profile web add .
-dsh web --profile web
+dsh web
 ```
 
 Open the DSH Web URL and select text in a finalized assistant reply. A small action bar appears with Add annotation and Copy; the selection stays alive so Ctrl+C also works. Choose Add annotation to open the compact input, type the note, and press Enter or use its check icon to create the draft. Drafts appear above and attach to the official composer by default. Enter optional task text, attach images, then use the official Enter key or Send button to submit text, annotations, and images together. Turn automatic attachment off in Plugin configuration if desired; the header paperclip remains available for manual attachment. While attached, a slash command temporarily releases the claim: the command runs normally and the annotations are kept.
-
-### Install a GitHub release
-
-`v0.5.0` targets DSH `0.1.2-rc.1`; `v0.4.0` targets DSH `0.1.2-alpha.3`; `v0.3.0` targets DSH `0.1.2-alpha.1`; `v0.2.4` remains available for DSH `0.1.1-rc.2`.
-
-Each `v*.*.*` GitHub release provides an installable tarball. Download it and install the prebuilt package without running repository build scripts:
-
-```bash
-gh release download v0.3.0 --repo ruisenbai/dsh-annotation --pattern '*.tgz'
-dsh plugin --profile web add ./dsh-annotation-0.3.0.tgz
-```
-
-A pinned Git dependency also works when the profile explicitly allows this trusted package to run its `prepare` build:
-
-```bash
-dsh plugin --profile web add git+https://github.com/ruisenbai/dsh-annotation.git#v0.3.0
-```
 
 ## Settings
 

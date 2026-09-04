@@ -4,6 +4,14 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-03
+
+### Changed
+
+- Declared the exact DSH Web `0.1.2-rc.1` host requirement through `engines.dsh`, matching lockstep peers, installation guidance, and the compatibility reference; the Cordis reference now matches the `^4.0.2` manifest range.
+- Positioned the plugin under **Sessions & Messages** for marketplace discovery and added repository-owned storefront screenshot metadata.
+- Bundle verification now enforces the host declaration, lockstep peer agreement, and the curated screenshot files.
+
 ## [0.5.0] - 2026-09-01
 
 ### Changed
@@ -156,7 +164,10 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.2...v0.2.3

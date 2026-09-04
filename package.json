@@ -1,7 +1,7 @@
 {
   "name": "dsh-annotation",
-  "version": "0.5.0",
-  "description": "Selection annotations for DeepSeek Harness assistant replies, sent through the official composer",
+  "version": "0.5.1",
+  "description": "Inline annotations for DeepSeek Harness Session messages, submitted through the official composer",
   "keywords": [
     "deepseek",
     "deepseek-harness",
@@ -9,7 +9,9 @@
     "dsh-plugins",
     "cordis",
     "annotation",
-    "review"
+    "review",
+    "session",
+    "messages"
   ],
   "homepage": "https://github.com/ruisenbai/dsh-annotation#readme",
   "bugs": {
@@ -45,6 +47,7 @@
     "lib/client.js",
     "lib/types/**/*.d.ts",
     "cordis.patch.yml",
+    "screenshots.json",
     "README.md",
     "README.en.md",
     "CHANGELOG.md",
@@ -78,7 +81,8 @@
     }
   },
   "engines": {
-    "node": "^22.19.0 || >=24.0.0"
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": "0.1.2-rc.1"
   },
   "packageManager": "pnpm@11.7.0",
   "scripts": {

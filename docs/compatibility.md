@@ -1,19 +1,26 @@
 # Compatibility
 
-## Supported baseline
+## Host requirement
 
 | Component                | Supported baseline                                                                  |
 | ------------------------ | ----------------------------------------------------------------------------------- |
-| DeepSeek Harness         | `0.1.2-rc.1`                                                                        |
+| DeepSeek Harness host    | `0.1.2-rc.1` exactly                                                                |
+| `engines.dsh`            | `0.1.2-rc.1`                                                                        |
 | Development declarations | `0.1.2-rc.1`                                                                        |
-| Cordis                   | `^4.0.1`                                                                            |
+| Cordis                   | `^4.0.2`                                                                            |
 | Node.js                  | `^22.19.0` or `>=24`                                                                |
 | React                    | `^18.2.0`                                                                           |
 | Browser                  | Current Chromium-based DSH Web target; other modern browsers retain marker fallback |
 
-DSH has no external compatibility promise before `0.2.0`. The exact peer versions limit this adaptation to the reviewed prerelease because assistant decoration still depends on mutable Slot entries.
+The release manifest declares `engines.dsh: "0.1.2-rc.1"`, and every lockstep `@deepseek-ai/dsh-*` peer uses the same exact version. DSH has no external compatibility promise before `0.2.0`, so this plugin does not claim compatibility with a different prerelease. Desktop clients must embed the same DSH host version.
 
-The `0.1.2-rc.1` DSH package family is available from npm, so the checked-in lockfile is a registry-resolvable `0.1.2-rc.1` graph: install with `pnpm install --frozen-lockfile --strict-peer-dependencies` and run the normal verification sequence. Machine-local `file:` URLs, workspace links, and overlay lockfiles from earlier unpublished baselines are no longer verification inputs and must never enter the published plugin manifest or lockfile.
+The `0.1.2-rc.1` DSH package family is available from npm, so the checked-in lockfile is a registry-resolvable `0.1.2-rc.1` graph: install with `pnpm install --frozen-lockfile --strict-peer-dependencies` and run the normal verification sequence. Machine-local `file:` URLs, workspace links, and overlay lockfiles from earlier unpublished baselines are not verification inputs and must never enter the published plugin manifest or lockfile.
+
+## Marketplace placement
+
+The catalog category is **Sessions & Messages** (`session`). The plugin annotates assistant messages, persists drafts per Session, submits one user message through the official composer, and reconciles queue and durable message state; visual decoration supports that message workflow rather than acting as a theme or general appearance extension.
+
+The repository-owned `screenshots.json` lists the five curated images that storefronts should present. The catalog entry uses the stable `dsh-annotation.tgz` GitHub Release alias, so installation never depends on a local source build.
 
 ## Plugin configuration integration
 
