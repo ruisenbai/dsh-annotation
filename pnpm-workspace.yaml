@@ -6,6 +6,8 @@ strictPeerDependencies: true
 saveExact: true
 
 allowBuilds:
+  # esbuild 安装并校验当前平台的构建二进制。
+  esbuild: true
   # Cross-platform boundary for the persistent PTY backend, including ConPTY on Windows.
   node-pty: true
   # JSONL durability calls MoveFileExW with write-through publication on Windows.

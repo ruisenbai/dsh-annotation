@@ -1,7 +1,7 @@
 /** Create an isolated plugin checkout whose official dependencies use verified host tarballs. */
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 
@@ -70,7 +70,15 @@ writeFileSync(
   join(output, 'package.json'),
   `${JSON.stringify({ ...manifest, devDependencies: { ...sourceVersions, ...manifest.devDependencies } }, null, 2)}\n`,
 )
-const workspace = `${readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')}\n# Optional external model CLIs are outside annotation verification.\nignoredOptionalDependencies:\n  - '@anthropic-ai/claude-agent-sdk-*'\n  - '@openai/codex-*'\n`
+// pnpm 11.7 对 file 包按完整路径准入；这里只允许已核对的 node-pty 辅助程序权限修复脚本。
+const subprocessName = '@deepseek-ai/dsh-subprocess-local'
+const subprocessPath = relative(output, fileURLToPath(overrides[subprocessName])).split(sep).join('/')
+const subprocessBuild = `${subprocessName}@file:${subprocessPath}`
+const workspaceSource = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8').replace(
+  /^allowBuilds:$/m,
+  `allowBuilds:\n  ${JSON.stringify(subprocessBuild)}: true`,
+)
+const workspace = `${workspaceSource}\n# Optional external model CLIs are outside annotation verification.\nignoredOptionalDependencies:\n  - '@anthropic-ai/claude-agent-sdk-*'\n  - '@openai/codex-*'\n`
 writeFileSync(
   join(output, 'pnpm-workspace.yaml'),
   `${workspace}\noverrides:\n${Object.entries(overrides)
