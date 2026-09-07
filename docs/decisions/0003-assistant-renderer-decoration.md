@@ -4,11 +4,11 @@ Status: accepted with compatibility risk
 
 ## Context
 
-Exact inline annotation requires a stable DOM root around assistant content, browser Range capture, persistent highlight reconstruction, and quote click handling. DSH 0.1.2-rc.1 has no additive slot inside the assistant body.
+Exact inline annotation requires a stable DOM root around assistant content, browser Range capture, persistent highlight reconstruction, and quote click handling. DSH `0.1.3-alpha.1` has no additive slot inside the assistant body.
 
 Registering another `conversation.chat.node:assistant-step` entry can collide with a renderer plugin at the same priority. `dsh-smooth-stream` owns that keyed cell at priority `-100`, so two independent replacements cannot load together.
 
-DSH 0.1.2-rc.1 exposes the registered ledger through `ctx.slots.entries()`. A stored entry keeps mutable `component` and `inject` fields, which allows behavior to be composed without claiming another keyed cell.
+DSH exposes the registered ledger through `ctx.slots.entries()`. A stored entry keeps mutable `component` and `inject` fields, which allows behavior to be composed without claiming another keyed cell. Its `0.1.3-alpha.1` Markdown renderer displays HTML literally, so plugin protocol comments require filtering before that renderer receives them.
 
 ## Decision
 
@@ -20,12 +20,14 @@ Do not register an `assistant-step` entry. Decorate every existing assistant ent
 4. listen for `slots/changed` and decorate assistant entries registered later;
 5. restore both fields when the feature is disabled or the plugin unloads, but only when they still point to this plugin's values.
 
-The inner renderer keeps its own locale binding and all runtime props. The annotation layer uses a separately bound translation function. DOM changes inside the renderer trigger range and marker reconstruction, while live-region and Think text do not enter persisted quote offsets.
+The inner renderer keeps its own locale binding and receives a display projection of text and reasoning blocks with this plugin's acknowledgement and reply markers removed, including legacy prefixes. The outer annotation layer receives the original node for acknowledgement parsing and uses a separately bound translation function. Nodes and blocks without markers retain their original references. The projection changes no Session event or persisted history and leaves the Host's Markdown policy unchanged.
+
+While a block is streaming, a trailing unclosed comment is hidden only after it contains a complete recognized plugin prefix. Finalized unclosed comments remain literal text and do not count as acknowledgements. The Host accumulates one text stream within one block; filtering does not join separate blocks. DOM changes inside the renderer trigger range and marker reconstruction, while live-region and Think text do not enter persisted quote offsets.
 
 ## Consequences
 
 - `dsh-annotation` no longer occupies `assistant-step`, so it can run with `dsh-smooth-stream` without a same-key, same-priority registration error.
 - Markdown, images, Think, streaming, and interruption behavior stay owned by the selected assistant renderer.
-- The plugin depends on DSH 0.1.2-rc.1's stored-entry fields and mutation behavior; every DSH upgrade still needs type checks and a real Web smoke test.
+- The plugin depends on DSH's stored-entry fields, block accumulation, and mutation behavior; every DSH upgrade still needs type checks and a real Web smoke test.
 - If another plugin replaces the same stored fields without preserving the current values, cleanup can only restore fields that this decorator still owns.
 - A public assistant-body decoration Slot should replace this mechanism when DSH provides one.

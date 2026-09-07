@@ -13,6 +13,10 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - User and steering text use the official `projectUserText` projection, preserving file, Session, and skill reference labels after the removal of `MessageText`.
 - Documented provenance requirements for unpublished DSH packages and kept GitHub Release tarballs as the sole publication channel.
 
+### Fixed
+
+- Prevented annotation acknowledgement and reply HTML markers from appearing as literal text in the DSH `0.1.3-alpha.1` assistant renderer. Only the inner renderer receives filtered text and reasoning blocks; acknowledgement parsing and persisted Session history retain the original content.
+
 ## [0.5.2] - 2026-09-04
 
 ### Changed

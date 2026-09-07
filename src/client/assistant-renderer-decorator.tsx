@@ -1,4 +1,4 @@
-import { createElement, memo, type ComponentType, type ReactNode } from 'react'
+import { createElement, memo, useMemo, type ComponentType, type ReactNode } from 'react'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ChatNodeViewProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -6,6 +6,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AnnotationBoundProps, AnnotationInjected, AssistantAnnotationProps } from './contract.ts'
 import { AnnotatedAssistantNode } from './components/AnnotatedAssistantNode.tsx'
+import { stripMachineMarkersForDisplay } from '../shared/model-ack.ts'
 
 type BaseAssistantProps = ChatNodeViewProps<'assistant-step'>
 type DecoratedAssistantProps = BaseAssistantProps & AnnotationBoundProps
@@ -38,8 +39,19 @@ function wrapAssistantRenderer(inner: ComponentType<BaseAssistantProps>) {
   const DecoratedAssistantRenderer = memo(function DecoratedAssistantRenderer(
     props: DecoratedAssistantProps,
   ) {
-    // 先生成原渲染器元素，保留它自己的 conversation 翻译函数和全部运行时属性。
-    const content = createElement(inner, props as BaseAssistantProps)
+    const displayNode = useMemo(() => {
+      let changed = false
+      const blocks = props.node.data.blocks.map((block) => {
+        if (block.kind !== 'text' && block.kind !== 'reasoning') return block
+        const text = stripMachineMarkersForDisplay(block.text, props.node.data.status === 'running')
+        if (text === block.text) return block
+        changed = true
+        return { ...block, text }
+      })
+      return changed ? { ...props.node, data: { ...props.node.data, blocks } } : props.node
+    }, [props.node])
+    // 官方 Markdown 按字面展示 HTML；仅为内层渲染器去掉插件标记，外层继续读取原始回执。
+    const content = createElement(inner, { ...props, node: displayNode } as BaseAssistantProps)
     return createElement(AnnotatedAssistantNode, {
       ...props,
       t: props.annotationT,

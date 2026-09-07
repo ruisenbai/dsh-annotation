@@ -56,6 +56,8 @@ The plugin uses two different integration mechanisms:
 
 For assistant rows, the decorator keeps the existing component as the body renderer, composes the existing `inject` face with the annotation face, and restores both fields when the feature is disabled or unloaded. It also watches `slots/changed`, so an assistant renderer registered later, including `dsh-smooth-stream`, is decorated without a same-key registration.
 
+DSH `0.1.3-alpha.1` renders HTML as literal text. The decorator removes this plugin's acknowledgement and reply comments, including legacy prefixes, from the text and reasoning blocks sent to the inner renderer. The outer annotation parser and persisted Session content retain the raw markers. Unmarked nodes keep their original references, and the Host's Markdown policy is unchanged. [Decision 0003](decisions/0003-assistant-renderer-decoration.md) defines the streaming and incomplete-marker rules.
+
 Reconciliation reads Chat nodes from `ctx.uiConversation.binding(binding).target('chat')`, while queue membership and older-history availability come from `binding.session.getSnapshot()`. The controller subscribes to both sources and reconciles only when either snapshot identity changes.
 
 A DSH upgrade is compatible only if `StoredEntry.component`, `StoredEntry.inject`, `ctx.slots.entries()`, the public owner props, standard Slot hooks, Chat target snapshots, primitives, and queue/session methods used by these integrations remain compatible. The CI type check catches declaration drift; a real Web smoke must catch rendering or lifecycle drift.
