@@ -131,7 +131,7 @@ DSH currently has no additive slot inside `AssistantMarkdown`. The Client theref
 
 The assistant integration reads the Slot ledger through `ctx.slots.entries()`, wraps each existing `assistant-step` component, and composes its `inject` result rather than registering another keyed occupant. The original renderer remains responsible for Markdown, Think, images, streaming, interruption state, and any renderer-specific behavior. The outer annotation layer owns selection roots, the action bar, highlights, reply chips, and quote markers. It rebuilds ranges and geometry when the inner renderer changes its DOM. A `slots/changed` listener handles assistant entries added later; disable and unload restore each component and inject factory when they are still owned by this decorator. Because the plugin adds no `assistant-step` occupant and no keyed slot, it composes with dsh-smooth-stream.
 
-Lower priority wins in DSH keyed slots. The user and steering replacements use public `MessageText` and the official image renderer. Additive entries are used where available:
+Lower priority wins in DSH keyed slots. The user and steering replacements use public `projectUserText` with the Host's reference labels and skill names, the official image renderer, and file name/size cards. Additive entries are used where available:
 
 - `conversation.input.dock` for the grouped task-style annotation list, the header attachment toggle, local-data controls, and the compact selection-positioned editor;
 - `conversation.chat.assistant-actions` for a keyboard-accessible whole-reply annotation action;

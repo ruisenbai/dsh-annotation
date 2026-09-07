@@ -570,9 +570,15 @@ describe('annotation controller', () => {
     saveDraft(controller)
     const entry = controller.createOutbox('queue', 'session-test' as SessionIdentity, '', {
       count: 2,
+      kinds: ['image', 'image'],
       mediaTypes: ['image/png', 'image/jpeg'],
       names: ['shot.png'],
     })
-    expect(entry.images).toEqual({ count: 2, mediaTypes: ['image/png', 'image/jpeg'], names: ['shot.png'] })
+    expect(entry.attachments).toEqual({
+      count: 2,
+      kinds: ['image', 'image'],
+      mediaTypes: ['image/png', 'image/jpeg'],
+      names: ['shot.png'],
+    })
   })
 })

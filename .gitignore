@@ -11,3 +11,5 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+.host-source/

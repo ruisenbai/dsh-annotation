@@ -1630,6 +1630,50 @@ button.dia-group__heading:focus-visible {
   gap: 8px;
 }
 
+.dia-message-attachments {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dia-file-attachment {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 280px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.dia-file-attachment__icon {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+}
+
+.dia-file-attachment__content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dia-file-attachment__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+}
+
+.dia-file-attachment__size {
+  color: var(--dsw-alias-label-dimmed);
+  font-size: 12px;
+}
+
 .dia-user {
   width: fit-content;
   max-width: min(525px, 82%);

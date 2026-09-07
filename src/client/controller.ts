@@ -12,7 +12,7 @@ import type {
   DeliveryMode,
   MessageIdentity,
   OutboxEntry,
-  OutboxImages,
+  OutboxAttachments,
   PersistedEditorDraft,
   PersistedSessionState,
   ProtocolLocale,
@@ -486,7 +486,7 @@ export class AnnotationController {
     delivery: DeliveryMode,
     targetSessionId: SessionIdentity,
     overallRequirement = '',
-    images?: OutboxImages,
+    attachments?: OutboxAttachments,
     protocolLocale: ProtocolLocale = FALLBACK_PROTOCOL_LOCALE,
   ): OutboxEntry {
     const retry = this.view.outbox.find((item) => item.status === 'failed' || item.status === 'ready')
@@ -526,7 +526,7 @@ export class AnnotationController {
       messageId: submissionMessageId(submissionId),
       status: 'ready',
       attempts: 0,
-      ...(images === undefined ? {} : { images }),
+      ...(attachments === undefined ? {} : { attachments }),
     })
     const selected = new Set(drafts.map((item) => item.annotationId))
     const nextAnnotations = this.view.annotations.map((item) =>

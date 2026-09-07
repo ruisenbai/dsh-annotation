@@ -49,7 +49,7 @@ describe('draft storage', () => {
     expect(storage.usageBytes()).toBe(0)
   })
 
-  it('persists outbox image metadata without base64 bytes', () => {
+  it('reads legacy image-only outbox metadata without base64 bytes', () => {
     const memory = new MemoryStorage()
     const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
     const payload = fixturePayload({ sessionId: 'session-1' as SessionIdentity })
@@ -77,6 +77,73 @@ describe('draft storage', () => {
     expect(JSON.stringify(restored)).not.toContain('base64')
     expect(JSON.stringify(restored)).not.toContain('iVBOR')
   })
+
+  it('reloads ordered attachment metadata and discards untrusted byte and receipt fields', () => {
+    const memory = new MemoryStorage()
+    const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+    const payload = fixturePayload({ sessionId: 'session-1' as SessionIdentity })
+    memory.values.set(
+      storage.key,
+      JSON.stringify({
+        ...emptyPersistedState(),
+        outbox: [
+          {
+            payload,
+            targetSessionId: payload.sessionId,
+            messageId: 'dsh-inline-annotations:sub-test',
+            status: 'failed',
+            attempts: 1,
+            attachments: {
+              count: 2,
+              kinds: ['image', 'file'],
+              mediaTypes: ['image/png'],
+              names: ['shot.png'],
+              data: 'aGVsbG8=',
+              receiptId: 'expired-upload-receipt',
+            },
+          },
+        ],
+      }),
+    )
+
+    const state = storage.load()
+    expect(state.outbox[0]?.attachments).toEqual({
+      count: 2,
+      kinds: ['image', 'file'],
+      mediaTypes: ['image/png'],
+      names: ['shot.png'],
+    })
+    expect(storage.save(state)).toBe(true)
+    expect(memory.values.get(storage.key)).not.toContain('aGVsbG8=')
+    expect(memory.values.get(storage.key)).not.toContain('expired-upload-receipt')
+  })
+
+  it.each([['file'], ['image', 'audio'], ['image', 'file', 'file']])(
+    'rejects stored attachment kinds that do not describe the recorded count: %j',
+    (...kinds) => {
+      const memory = new MemoryStorage()
+      const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+      const payload = fixturePayload({ sessionId: 'session-1' as SessionIdentity })
+      memory.values.set(
+        storage.key,
+        JSON.stringify({
+          ...emptyPersistedState(),
+          outbox: [
+            {
+              payload,
+              targetSessionId: payload.sessionId,
+              messageId: 'dsh-inline-annotations:sub-test',
+              status: 'failed',
+              attempts: 1,
+              attachments: { count: 2, kinds, mediaTypes: [], names: [] },
+            },
+          ],
+        }),
+      )
+      expect(storage.load()).toEqual(emptyPersistedState())
+      expect(storage.lastError()).toBe('invalid outbox attachment kinds')
+    },
+  )
 
   it('moves pre-rename session data from either legacy key to the new namespace', () => {
     const memory = new MemoryStorage()

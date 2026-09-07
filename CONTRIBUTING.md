@@ -14,12 +14,9 @@ Thank you for improving `dsh-annotation`.
 ```bash
 git clone https://github.com/ruisenbai/dsh-annotation.git
 cd dsh-annotation
-corepack enable
-pnpm install
-pnpm verify
 ```
 
-See [Development](docs/development.md) for Web smoke testing and packaging.
+Follow [Install and verify](docs/development.md#install-and-verify) to build the pinned official DSH baseline and prepare an isolated plugin environment. The checked-in lockfile records an older host and cannot verify this release with a direct `pnpm install`. Keep temporary dependency declarations, tarball overrides, and the generated lockfile outside the source repository. The same guide covers Web smoke testing and packaging with the original release manifest.
 
 ## Change expectations
 
@@ -36,7 +33,7 @@ See [Development](docs/development.md) for Web smoke testing and packaging.
 
 1. Create a focused branch from `main`.
 2. Use clear commits; Conventional Commit prefixes such as `feat:`, `fix:`, `docs:`, and `test:` are welcome.
-3. Run:
+3. Run these checks in the prepared verification directory:
 
    ```bash
    pnpm typecheck

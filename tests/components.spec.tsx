@@ -99,7 +99,7 @@ const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
     'selection.toolbar': 'Selection actions',
     'selection.annotate': 'Add annotation',
     'selection.copy': 'Copy',
-    'error.imagesRequired': `Re-select the ${String(params?.count)} images or discard the record.`,
+    'error.attachmentsRequired': `Re-select the ${String(params?.count)} attachments or discard the record.`,
     'list.discard': 'Discard this pending record',
     'reply.chip': `Annotation ${String(params?.ordinal)}`,
     'reply.chipLabel': `Annotation ${String(params?.ordinal)}: ${String(params?.quote)} · ${String(params?.annotation)}`,
@@ -131,7 +131,7 @@ function baseView(): AnnotationView {
 
 const idleInput = {
   draft: '',
-  imageIds: [],
+  attachmentIds: [],
   draftRev: 0,
   phase: 'plain',
   occurrences: [],
@@ -258,6 +258,80 @@ describe('inline comment presentation', () => {
     expect(navigate).toHaveBeenCalledWith(payload.annotations[0]?.annotationId)
   })
 
+  it.each(['user', 'steering'] as const)(
+    'preserves official reference chips in ordinary %s messages',
+    (kind) => {
+      const props = {
+        node: {
+          kind,
+          data: {
+            source: { kind: 'user' },
+            content: [
+              { type: 'text', text: 'Compare @' },
+              { type: 'text', text: '会话一 /review @src/note.md /unresolved' },
+            ],
+            referenceLabels: ['会话一'],
+            skillNames: ['review'],
+          },
+        },
+        renderMessageImages: () => null,
+        t,
+      } as unknown as UserAnnotationProps<typeof kind>
+      const { container } = render(<AnnotatedUserNode {...props} />)
+      expect(container).toHaveTextContent('Compare 会话一 /review note.md /unresolved')
+      expect(
+        Array.from(container.querySelectorAll('[data-ref-chip]')).map((chip) => [
+          chip.getAttribute('data-ref-chip'),
+          chip.textContent,
+        ]),
+      ).toEqual([
+        ['session', '会话一'],
+        ['skill', '/review'],
+        ['file', 'note.md'],
+      ])
+    },
+  )
+
+  it('preserves image and file order in an annotation submission', () => {
+    const payload = fixturePayload()
+    const file = { attachmentId: 'file-1', name: 'notes.pdf', bytes: 2048 }
+    const renderMessageImages = vi.fn(() => <span data-testid="ordered-image">image</span>)
+    const props = {
+      node: {
+        data: {
+          source: { kind: 'user', annotationSubmission: payload },
+          content: [
+            { type: 'image', attachment: { attachmentId: 'image-1' } },
+            { type: 'file', attachment: file },
+            { type: 'image', attachment: { attachmentId: 'image-2' } },
+          ],
+        },
+      },
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(baseView()),
+      navigate: vi.fn(async () => true),
+      renderMessageImages,
+      t,
+    } as unknown as UserAnnotationProps<'user'>
+    const { container } = render(<AnnotatedUserNode {...props} />)
+    expect(screen.getByTitle('notes.pdf')).toHaveTextContent('2.0KB')
+    const row = container.querySelector('[data-message-attachments]')!
+    expect(Array.from(row.children).map((child) => child.textContent)).toEqual([
+      'image',
+      'notes.pdf2.0KB',
+      'image',
+    ])
+    expect(renderMessageImages).toHaveBeenNthCalledWith(1, {
+      images: [{ attachment: { attachmentId: 'image-1' } }],
+      align: 'end',
+      compact: true,
+    })
+    expect(renderMessageImages).toHaveBeenNthCalledWith(2, {
+      images: [{ attachment: { attachmentId: 'image-2' } }],
+      align: 'end',
+      compact: true,
+    })
+  })
+
   it('delegates historical images through the conversation image renderer', () => {
     const userAttachment = { attachmentId: 'user-image' }
     const renderUserImages = vi.fn(() => <div data-testid="user-images" />)
@@ -280,6 +354,7 @@ describe('inline comment presentation', () => {
     expect(renderUserImages).toHaveBeenCalledWith({
       images: [{ attachment: userAttachment }],
       align: 'end',
+      compact: false,
     })
     cleanup()
 
@@ -1884,26 +1959,39 @@ describe('annotation editor input methods', () => {
       ensureComposerAttachment,
       t,
     } as unknown as InputAnnotationProps
-    const tree = (
-      <div data-composer-card>
-        <textarea aria-label="Official composer" value="draft text" onChange={() => undefined} />
+    const tree = () => (
+      <div data-composer-seat>
+        <div data-composer-card>
+          <div
+            data-composer-input
+            contentEditable
+            suppressContentEditableWarning
+            role="textbox"
+            aria-label="Official composer"
+          >
+            draft text
+          </div>
+        </div>
         <TestAnnotationDock {...props} />
       </div>
     )
-    const { rerender } = render(tree)
+    const { rerender } = render(tree())
 
-    const composer = screen.getByLabelText<HTMLTextAreaElement>('Official composer')
+    const composer = screen.getByLabelText<HTMLElement>('Official composer')
     composer.focus()
-    composer.setSelectionRange(3, 3)
+    document.getSelection()!.setBaseAndExtent(composer.firstChild!, 3, composer.firstChild!, 3)
+    fireEvent(document, new Event('selectionchange'))
+    screen.getByLabelText('Your annotation').focus()
     fireEvent.click(screen.getByRole('button', { name: 'Save comment' }))
     expect(saveEditor).toHaveBeenCalledOnce()
     expect(ensureComposerAttachment).toHaveBeenCalledOnce()
 
     view = baseView()
-    rerender(tree)
+    rerender(tree())
     await waitFor(() => expect(document.activeElement).toBe(composer))
-    expect(composer.value).toBe('draft text')
-    expect(composer.selectionStart).toBe(3)
+    expect(composer.textContent).toBe('draft text')
+    expect(document.getSelection()?.anchorOffset).toBe(3)
+    expect(document.getSelection()?.focusOffset).toBe(3)
   })
 
   it('does not force focus after editing an existing annotation', async () => {
@@ -1927,18 +2015,28 @@ describe('annotation editor input methods', () => {
       t,
     } as unknown as InputAnnotationProps
     const tree = (
-      <div data-composer-card>
-        <textarea aria-label="Official composer" value="draft text" onChange={() => undefined} />
+      <div data-composer-seat>
+        <div data-composer-card>
+          <div
+            data-composer-input
+            contentEditable
+            suppressContentEditableWarning
+            role="textbox"
+            aria-label="Official composer"
+          >
+            draft text
+          </div>
+        </div>
         <TestAnnotationDock {...props} />
       </div>
     )
     render(tree)
 
-    const composer = screen.getByLabelText<HTMLTextAreaElement>('Official composer')
+    const composer = screen.getByLabelText<HTMLElement>('Official composer')
     fireEvent.click(screen.getByRole('button', { name: 'Save comment' }))
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(document.activeElement).not.toBe(composer)
-    expect(composer.value).toBe('draft text')
+    expect(composer.textContent).toBe('draft text')
   })
 })
 

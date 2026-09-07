@@ -4,6 +4,15 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-07
+
+### Changed
+
+- Raised the exact DeepSeek Harness requirement to `0.1.3-alpha.1` across the manifest, dependencies, bundle verification, and compatibility guidance.
+- Adapted annotation submissions to the Host's unified image/file attachments and focus and caret restoration in the Lexical contenteditable composer. Protocol v2, per-Session annotation storage, stable submission ids, and legacy annotation reads remain supported.
+- User and steering text use the official `projectUserText` projection, preserving file, Session, and skill reference labels after the removal of `MessageText`.
+- Documented provenance requirements for unpublished DSH packages and kept GitHub Release tarballs as the sole publication channel.
+
 ## [0.5.2] - 2026-09-04
 
 ### Changed
@@ -171,7 +180,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.4.0...v0.5.0

@@ -1,11 +1,13 @@
-import { useMemo } from 'react'
+import { Fragment, useMemo } from 'react'
 import {
+  DocumentFileIcon,
+  fileSizeText,
   IconCheckOutline14,
   IconChevronDownOutline14,
   IconChevronRightOutline14,
   IconListPenOutline16,
   IconQueueOutline14,
-  MessageText,
+  projectUserText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { parseAnnotationSource } from '../../shared/protocol.ts'
 import type { AnnotationId, AnnotationStatus } from '../../shared/types.ts'
@@ -100,17 +102,39 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
   t,
 }: UserAnnotationProps<Key>) {
   const payload = parseAnnotationSource(node.data.source)
-  const images = node.data.content.flatMap((block) =>
-    block.type === 'image' ? [{ attachment: block.attachment }] : [],
-  )
+  const referenceLabels = node.data.referenceLabels ?? []
+  const skillNames = node.data.skillNames ?? []
+  const attachments = node.data.content.filter((block) => block.type === 'image' || block.type === 'file')
+  const attachmentRow =
+    attachments.length === 0 ? null : (
+      <div className="dia-message-attachments" data-message-attachments>
+        {attachments.map((block, index) =>
+          block.type === 'image' ? (
+            <Fragment key={`image:${index}`}>
+              {renderMessageImages({
+                images: [{ attachment: block.attachment }],
+                align: 'end',
+                compact: attachments.length > 1,
+              })}
+            </Fragment>
+          ) : (
+            <span key={`file:${index}`} className="dia-file-attachment" title={block.attachment.name}>
+              <DocumentFileIcon className="dia-file-attachment__icon" />
+              <span className="dia-file-attachment__content">
+                <span className="dia-file-attachment__name">{block.attachment.name}</span>
+                <span className="dia-file-attachment__size">{fileSizeText(block.attachment.bytes)}</span>
+              </span>
+            </span>
+          ),
+        )}
+      </div>
+    )
   if (payload !== null) {
     const requirement = payload.overallRequirement?.trim() ?? ''
     return (
       <div className="dia-user-submission">
         {requirement !== '' && (
-          <article className="dia-user">
-            <MessageText text={requirement} />
-          </article>
+          <article className="dia-user">{projectUserText(requirement, referenceLabels, skillNames)}</article>
         )}
         <AnnotationSubmissionRow
           payload={payload}
@@ -118,17 +142,15 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
           navigate={navigate}
           t={t}
         />
-        {renderMessageImages({ images, align: 'end' })}
+        {attachmentRow}
       </div>
     )
   }
   const texts = node.data.content.flatMap((block) => (block.type === 'text' ? [block.text] : []))
   return (
     <article className="dia-user">
-      {texts.map((text, index) => (
-        <MessageText key={`text:${index}`} text={text} />
-      ))}
-      {renderMessageImages({ images, align: 'end' })}
+      {projectUserText(texts.join(''), referenceLabels, skillNames)}
+      {attachmentRow}
     </article>
   )
 }

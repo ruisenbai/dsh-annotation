@@ -34,7 +34,7 @@ vi.mock('@deepseek-ai/dsh-client-store', () => ({
 }))
 import type {
   CommandClaim,
-  SubmitImageAttachment,
+  SubmitAttachment,
   SubmitOutcome,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { apply, inject } from '../src/client/index.tsx'
@@ -54,8 +54,12 @@ function emptySnapshot(): AnnotationReconciliationSnapshot {
   } as unknown as AnnotationReconciliationSnapshot
 }
 
-function imageAttachment(name = 'shot.png'): SubmitImageAttachment {
-  return { mediaType: 'image/png', data: 'aGVsbG8=', name }
+function imageAttachment(name = 'shot.png'): SubmitAttachment {
+  return { type: 'image', mediaType: 'image/png', data: 'aGVsbG8=', name }
+}
+
+function fileAttachment(receiptId = 'upload-receipt-1'): SubmitAttachment {
+  return { type: 'file', receiptId }
 }
 
 function remoteSuccess() {
@@ -129,7 +133,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
   let claim: CommandClaim | null = null
   let inputState = {
     draft: '',
-    imageIds: [] as string[],
+    attachmentIds: [] as string[],
     draftRev: 0,
     phase: 'plain' as 'plain' | 'claimed' | 'submitting',
     claim: null as CommandClaim | null,
@@ -393,10 +397,10 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       })
       publishInput({ ...inputState, draft, draftRev: inputState.draftRev + 1, occurrences })
     },
-    setImages(ids: string[]) {
-      publishInput({ ...inputState, imageIds: ids })
+    setAttachments(ids: string[]) {
+      publishInput({ ...inputState, attachmentIds: ids })
     },
-    async submitComposer(images: readonly SubmitImageAttachment[] = []): Promise<SubmitOutcome> {
+    async submitComposer(images: readonly SubmitAttachment[] = []): Promise<SubmitOutcome> {
       if (claim === null) throw new Error('composer is not claimed')
       const current = claim
       const args = inputState.draft.startsWith(COMPOSER_ATTACHMENT_TOKEN)
@@ -737,22 +741,25 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.dispose()
   })
 
-  it('rejects images when only the image-free Session command fallback is available', async () => {
-    const command = vi.fn()
-    const fixture = fixtureContext(command)
-    fixture.disableRemoteCommands()
-    apply(fixture.ctx)
-    const face = fixture.face()
-    saveAnnotation(face)
+  it.each([imageAttachment(), fileAttachment()])(
+    'rejects $type attachments when only the text-only Session command fallback is available',
+    async (attachment) => {
+      const command = vi.fn()
+      const fixture = fixtureContext(command)
+      fixture.disableRemoteCommands()
+      apply(fixture.ctx)
+      const face = fixture.face()
+      saveAnnotation(face)
 
-    expect(face.toggleComposerAttachment()).toBe(true)
-    await expect(fixture.submitComposer([imageAttachment()])).resolves.toEqual({
-      kind: 'error',
-      text: 'image attachments are unavailable',
-    })
-    expect(command).not.toHaveBeenCalled()
-    await fixture.dispose()
-  })
+      expect(face.toggleComposerAttachment()).toBe(true)
+      await expect(fixture.submitComposer([attachment])).resolves.toEqual({
+        kind: 'error',
+        text: 'attachments are unavailable',
+      })
+      expect(command).not.toHaveBeenCalled()
+      await fixture.dispose()
+    },
+  )
 
   it('freezes the live draft set only when the official composer submits', async () => {
     const command = vi.fn().mockResolvedValue(remoteSuccess())
@@ -814,16 +821,16 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.dispose()
   })
 
-  it('declares image capability and sends composer text, annotations, and images in one submission', async () => {
+  it('declares attachment capability and sends composer text, annotations, and images in one submission', async () => {
     const command = vi.fn().mockResolvedValue(remoteSuccess())
     const fixture = fixtureContext(command)
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
     expect(face.toggleComposerAttachment()).toBe(true)
-    expect(fixture.inputSnapshot().claim).toMatchObject({ images: true })
+    expect(fixture.inputSnapshot().claim).toMatchObject({ attachments: true })
     fixture.setComposerText('Rewrite with this screenshot.')
-    fixture.setImages(['image-1'])
+    fixture.setAttachments(['image-1'])
     const image = imageAttachment()
 
     await expect(fixture.submitComposer([image])).resolves.toEqual({ kind: 'success' })
@@ -833,7 +840,12 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(String(command.mock.calls[0]?.[1])).toContain('annotation_submit')
     expect(command.mock.calls[0]?.[2]).toEqual([image])
     const outbox = face.hooks.annotations.getSnapshot().outbox[0]!
-    expect(outbox.images).toEqual({ count: 1, mediaTypes: ['image/png'], names: ['shot.png'] })
+    expect(outbox.attachments).toEqual({
+      count: 1,
+      kinds: ['image'],
+      mediaTypes: ['image/png'],
+      names: ['shot.png'],
+    })
     expect(JSON.stringify(outbox)).not.toContain('aGVsbG8=')
     expect(face.hooks.annotations.getSnapshot().annotations[0]?.status).toBe('queued')
     expect(fixture.inputSnapshot()).toMatchObject({ draft: '', phase: 'plain' })
@@ -859,6 +871,119 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.dispose()
   })
 
+  it('forwards ordered image and file attachments without persisting bytes or upload receipts', async () => {
+    const command = vi.fn().mockResolvedValue(remoteSuccess())
+    const fixture = fixtureContext(command)
+    apply(fixture.ctx)
+    const face = fixture.face()
+    saveAnnotation(face)
+    expect(face.toggleComposerAttachment()).toBe(true)
+    fixture.setComposerText('Use this screenshot and document.')
+    const attachments = [imageAttachment(), fileAttachment()]
+
+    await expect(fixture.submitComposer(attachments)).resolves.toEqual({ kind: 'success' })
+
+    expect(command.mock.calls[0]?.[2]).toEqual(attachments)
+    const outbox = face.hooks.annotations.getSnapshot().outbox[0]!
+    expect(outbox.attachments).toEqual({
+      count: 2,
+      kinds: ['image', 'file'],
+      mediaTypes: ['image/png'],
+      names: ['shot.png'],
+    })
+    expect(outbox).not.toHaveProperty('images')
+    const persisted = localStorage.getItem('dsh-annotation:v1:session-test')!
+    expect(persisted).not.toContain('aGVsbG8=')
+    expect(persisted).not.toContain('receiptId')
+    expect(persisted).not.toContain('upload-receipt-1')
+    await fixture.dispose()
+  })
+
+  it('requires all original attachment kinds after refresh and accepts a newly uploaded file receipt', async () => {
+    const command = vi.fn().mockRejectedValueOnce(new Error('offline'))
+    const first = fixtureContext(command)
+    apply(first.ctx)
+    saveAnnotation(first.face())
+    expect(first.face().toggleComposerAttachment()).toBe(true)
+    await expect(first.submitComposer([imageAttachment(), fileAttachment()])).resolves.toEqual({
+      kind: 'error',
+      text: 'offline',
+    })
+    const submissionId = first.face().hooks.annotations.getSnapshot().outbox[0]!.payload.submissionId
+    await first.dispose()
+
+    const refreshed = fixtureContext(command)
+    apply(refreshed.ctx)
+    const face = refreshed.face()
+    expect(face.toggleComposerAttachment()).toBe(true)
+    for (const attachments of [[], [imageAttachment()], [fileAttachment(), imageAttachment()]]) {
+      await expect(refreshed.submitComposer(attachments)).resolves.toEqual({
+        kind: 'error',
+        text: 'error.attachmentsRequired',
+      })
+    }
+    expect(command).toHaveBeenCalledOnce()
+    expect(face.hooks.annotations.getSnapshot().outbox[0]).toMatchObject({ attempts: 1, status: 'failed' })
+
+    command.mockResolvedValueOnce(remoteSuccess())
+    const replacements = [imageAttachment(), fileAttachment('fresh-upload-receipt')]
+    await expect(refreshed.submitComposer(replacements)).resolves.toEqual({ kind: 'success' })
+    expect(command.mock.calls[1]?.[2]).toEqual(replacements)
+    expect(face.hooks.annotations.getSnapshot().outbox[0]!.payload.submissionId).toBe(submissionId)
+    expect(localStorage.getItem('dsh-annotation:v1:session-test')).not.toContain('fresh-upload-receipt')
+    await refreshed.dispose()
+  })
+
+  it('retains the attachment guard for pending image batches written before 0.6.0', async () => {
+    const command = vi.fn().mockRejectedValueOnce(new Error('offline'))
+    const first = fixtureContext(command)
+    apply(first.ctx)
+    saveAnnotation(first.face())
+    expect(first.face().toggleComposerAttachment()).toBe(true)
+    await first.submitComposer([imageAttachment()])
+    await first.dispose()
+    const key = 'dsh-annotation:v1:session-test'
+    const stored = JSON.parse(localStorage.getItem(key)!)
+    stored.outbox[0].images = { count: 1, mediaTypes: ['image/png'], names: ['shot.png'] }
+    delete stored.outbox[0].attachments
+    localStorage.setItem(key, JSON.stringify(stored))
+
+    const refreshed = fixtureContext(command)
+    apply(refreshed.ctx)
+    expect(refreshed.face().toggleComposerAttachment()).toBe(true)
+    await expect(refreshed.submitComposer([fileAttachment()])).resolves.toEqual({
+      kind: 'error',
+      text: 'error.attachmentsRequired',
+    })
+    expect(command).toHaveBeenCalledOnce()
+    command.mockResolvedValueOnce(remoteSuccess())
+    await expect(refreshed.submitComposer([imageAttachment()])).resolves.toEqual({ kind: 'success' })
+    await refreshed.dispose()
+  })
+
+  it('rejects new attachments added to an immutable retry that originally had none', async () => {
+    const command = vi.fn().mockRejectedValueOnce(new Error('offline'))
+    const fixture = fixtureContext(command)
+    apply(fixture.ctx)
+    const face = fixture.face()
+    saveAnnotation(face)
+    expect(face.toggleComposerAttachment()).toBe(true)
+    await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'error', text: 'offline' })
+    const submissionId = face.hooks.annotations.getSnapshot().outbox[0]!.payload.submissionId
+
+    await expect(fixture.submitComposer([fileAttachment()])).resolves.toEqual({
+      kind: 'error',
+      text: 'error.retryAttachmentsAdded',
+    })
+    expect(command).toHaveBeenCalledOnce()
+    expect(face.hooks.annotations.getSnapshot().outbox[0]).toMatchObject({ attempts: 1, status: 'failed' })
+
+    command.mockResolvedValueOnce(remoteSuccess())
+    await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
+    expect(face.hooks.annotations.getSnapshot().outbox[0]!.payload.submissionId).toBe(submissionId)
+    await fixture.dispose()
+  })
+
   it('never silently resubmits a recorded image batch without images after a refresh', async () => {
     const command = vi.fn().mockRejectedValueOnce(new Error('offline'))
     const fixture = fixtureContext(command)
@@ -874,14 +999,17 @@ describe('Client plugin composer attachment lifecycle', () => {
     })
     expect(face.hooks.annotations.getSnapshot().outbox[0]).toMatchObject({
       status: 'failed',
-      images: { count: 1 },
+      attachments: { count: 1, kinds: ['image'] },
     })
 
     // The page refresh cleared draft images; retrying without them must refuse.
     fixture.setComposerText('Retry without image.')
-    await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'error', text: 'error.imagesRequired' })
+    await expect(fixture.submitComposer()).resolves.toEqual({
+      kind: 'error',
+      text: 'error.attachmentsRequired',
+    })
     expect(face.hooks.annotations.getSnapshot()).toMatchObject({
-      notice: { level: 'error', text: 'error.imagesRequired' },
+      notice: { level: 'error', text: 'error.attachmentsRequired' },
       outbox: [{ status: 'failed', attempts: 1 }],
     })
 

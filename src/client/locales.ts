@@ -101,8 +101,9 @@ export const zh = {
   'error.locate': '未能在已加载历史中定位原文。',
   'error.payload': '注解内容超过当前部署允许的提交大小。',
   'error.items': '注解数量超过当前部署允许的单批上限。',
-  'error.imagesRequired':
-    '上次发送包含 {count} 张图片，刷新后已无法恢复；请重新选择相同图片，或放弃这条待发送记录。',
+  'error.attachmentsRequired':
+    '上次发送包含 {count} 个附件；请按原顺序重新选择相同附件，或放弃这条待发送记录。',
+  'error.retryAttachmentsAdded': '这条待发送记录没有附件；请移除当前附件后重试，或放弃这条记录重新发送。',
   'error.emptySubmit': '注解已清空；请再次按 Enter 发送输入框内容。',
   'action.annotate': '注解这条回复',
   'image.label': '图片',
@@ -237,8 +238,10 @@ export const en = {
   'error.locate': 'The source text was not found in the loaded history.',
   'error.payload': 'The annotations exceed this deployment’s submission-size limit.',
   'error.items': 'The annotation count exceeds this deployment’s per-batch limit.',
-  'error.imagesRequired':
-    'The last send included {count} images that a refresh could not restore. Re-select the same images, or discard this pending record.',
+  'error.attachmentsRequired':
+    'The last send included {count} attachments. Re-select the same attachments in their original order, or discard this pending record.',
+  'error.retryAttachmentsAdded':
+    'This pending record has no attachments. Remove the current attachments to retry, or discard the record and send a new batch.',
   'error.emptySubmit': 'Annotations were cleared; press Enter again to send the composer text.',
   'action.annotate': 'Annotate this reply',
   'image.label': 'Image',
