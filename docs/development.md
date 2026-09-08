@@ -5,11 +5,19 @@
 - Node.js `^22.19.0` or `>=24`;
 - Corepack;
 - pnpm `11.7.0`;
-- a DeepSeek Harness `0.1.3-alpha.1` checkout or installation for Web verification.
+- a DeepSeek Harness `0.1.3-alpha.2` checkout or installation for Web verification.
 
 ## Install and verify
 
-Use one exact DSH `0.1.3-alpha.1` family, including the complete `@deepseek-ai/dsh` development environment. [source-baseline.json](../source-baseline.json) pins the official source commit. Check [Dependency source](compatibility.md#dependency-source) before installing. The checked-in lockfile records the older `0.1.2-rc.1` graph; verification of this release uses a disposable source install. Never commit its `file:` overrides or generated lockfile.
+Use one exact DSH `0.1.3-alpha.2` family, including the complete `@deepseek-ai/dsh` development environment. [source-baseline.json](../source-baseline.json) pins the official source commit. Check [Dependency source](compatibility.md#dependency-source) before installing. The checked-in lockfile resolves the published registry family and its explicit peer closure:
+
+```bash
+pnpm install --frozen-lockfile --strict-peer-dependencies
+```
+
+## Official source verification
+
+The release also supports an independent verification against the pinned official source tree. Use this path to confirm artifact provenance or when registry artifacts are unavailable. Never commit its `file:` overrides or generated lockfile.
 
 Start in the plugin repository. Set `ANNOTATION_HOST` to a clean official checkout at the pinned commit, then build and pack its runtime families into a temporary directory:
 
@@ -34,7 +42,7 @@ pnpm install --no-frozen-lockfile --strict-peer-dependencies
 pnpm exec prettier --write pnpm-workspace.yaml package.json
 ```
 
-The helper requires a new output directory, checks the pinned Host commit and DSH package versions, and copies plugin sources without the old lockfile. It adds every provided official package to the temporary development dependencies and pins resolution to local tarballs through workspace overrides. Explicit development entries satisfy peers that would otherwise query npm. Only the two generated configuration files are formatted after installation. pnpm settings, including strict peer enforcement and disabled automatic peer installation, live in `pnpm-workspace.yaml`. The source repository's manifest and lockfile remain unchanged. The [CI workflow](https://github.com/ruisenbai/dsh-annotation/blob/main/.github/workflows/ci.yml) builds the same pinned Host and checks the isolated plugin on Node 22.19 and 24.
+The helper requires a new output directory, checks the pinned Host commit and DSH package versions, and copies plugin sources without the registry lockfile. It adds every provided official package to the temporary development dependencies and pins resolution to local tarballs through workspace overrides. Explicit development entries satisfy peers that would otherwise query npm. Only the two generated configuration files are formatted after installation. pnpm settings, including strict peer enforcement and disabled automatic peer installation, live in `pnpm-workspace.yaml`. The source repository's manifest and lockfile remain unchanged. The [CI workflow](https://github.com/ruisenbai/dsh-annotation/blob/main/.github/workflows/ci.yml) builds the same pinned Host and checks the isolated plugin on Node 22.19 and 24.
 
 The temporary install skips optional platform binaries in the `@anthropic-ai/claude-agent-sdk-*` and `@openai/codex-*` families; it does not verify those Claude or Codex CLI backends. All official DSH packages, strict peer checks, and other native and browser dependencies remain included. Real-model verification requires a configured DSH provider and credentials; when it cannot run, report that limit separately from build, unit, and browser results.
 
@@ -47,7 +55,7 @@ pnpm test:browser
 pnpm test:coverage
 ```
 
-`tsc` emits declarations and intermediate JavaScript to `lib/types`. `tsdown` produces ESM Host entries and wraps the browser CJS artifact in `window.__ModuleLoader__.load(...)`. `client-platform.json` pins the exact modules supplied by the DSH `0.1.3-alpha.1` browser loader; ordinary third-party Client libraries are bundled instead of becoming loader requests. DSH requires the factory bundle at `lib/client.js` even though generic Node tooling classifies `.js` under `type: module`; `publint` therefore gates errors while the DSH-specific verifier owns this intentional format. `scripts/verify-bundle.mjs` asserts the required artifacts, module-loader registration, declared module closure, matching peer/development ranges, DSH manifest, and Cordis patch.
+`tsc` emits declarations and intermediate JavaScript to `lib/types`. `tsdown` produces ESM Host entries and wraps the browser CJS artifact in `window.__ModuleLoader__.load(...)`. `client-platform.json` pins the exact modules supplied by the DSH `0.1.3-alpha.2` browser loader; ordinary third-party Client libraries are bundled instead of becoming loader requests. DSH requires the factory bundle at `lib/client.js` even though generic Node tooling classifies `.js` under `type: module`; `publint` therefore gates errors while the DSH-specific verifier owns this intentional format. `scripts/verify-bundle.mjs` asserts the required artifacts, module-loader registration, declared module closure, matching peer/development ranges, DSH manifest, and Cordis patch.
 
 ## Test layout
 
@@ -58,6 +66,7 @@ pnpm test:coverage
 - `storage.spec.ts`: the `dsh-annotation:v1:` namespace, legacy migration, v1 payload conversion, attachment metadata, legacy image metadata, and fail-closed recovery;
 - `selection.spec.ts` and `highlight.spec.ts`: DOM selectors, relocation, coordinates, and browser highlight fallback;
 - `components.spec.tsx`: user-visible timeline, compact editor, input-method handling, composer focus restore, reply chips, grouped list, marker geometry, source centering, and the plugin-configuration card;
+- `market-update.spec.ts`: public dsh-market capability discovery, version checks, update progress, force eligibility, rollback, refresh, restart, endpoint rejection, and quiescent disposal;
 - `feature-toggle.spec.ts`: staged Host writes for enablement and automatic attachment, legacy preference migration, failure recovery, and quiescent disposal;
 - `scripts/browser-test.mjs` with `tests/browser/fixture.tsx`: real Chromium coverage for autosave, default automatic attachment, official Enter submission, action-button geometry and hover, outside-click decisions, mobile overflow, dark mode, zoom, reasoning disclosure, and source centering;
 - `client-apply.spec.ts`: Host-backed plugin setting registration, automatic and manual composer attachment, slash-command release and the Enter race, text+annotation+image/file submission, missing or mismatched attachment refusal, assistant decorator composition and restoration, user-renderer disable/restore, composer detachment, reference serialization, local limits, transport failure, and immutable retry;
@@ -74,7 +83,7 @@ pnpm exec vitest run tests/controller.spec.ts
 Complete [Packaging](#packaging) first, then install that tarball into a disposable profile on the declared DSH host. DSH serves the package's built `lib/client.js`:
 
 ```bash
-dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-0.6.0.tgz
+dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-0.7.0.tgz
 dsh web --profile annotation-dev
 ```
 
@@ -97,7 +106,8 @@ Minimum manual matrix:
 13. enable `dsh-smooth-stream` at the same time and confirm both streaming and annotations work without a duplicate `assistant-step` load error;
 14. save the disabled automatic-attachment switch under **Settings → Plugins → Plugin configuration**, confirm newly saved annotations remain detached while composer focus still returns, then attach them manually with the paperclip;
 15. save the disabled plugin switch and confirm the existing assistant renderer remains, its annotation layer disappears, user renderers return, an armed claim preserves visible text, and drafts return after saving the enabled switch;
-16. unload the plugin and confirm its styles, user/steering Slot entries, assistant decoration, and controls disappear.
+16. with dsh-market `1.45.0` or later installed, check for an update from the annotation card, observe progress, confirm force appears only after a release-age or unchanged-version failure, and exercise any advertised refresh, rollback, and restart actions; repeat without the public API and confirm the card only directs users to Plugin Market;
+17. unload the plugin and confirm its styles, user/steering Slot entries, assistant decoration, update polling, and controls disappear.
 
 ## Packaging
 
@@ -113,8 +123,8 @@ pnpm --config.ignoreScripts=true pack --pack-destination artifacts
 Inspect the resulting tarball rather than invoking pack again:
 
 ```bash
-tar -tzf artifacts/dsh-annotation-0.6.0.tgz
-tar -xOf artifacts/dsh-annotation-0.6.0.tgz package/package.json
+tar -tzf artifacts/dsh-annotation-0.7.0.tgz
+tar -xOf artifacts/dsh-annotation-0.7.0.tgz package/package.json
 ```
 
 The package must contain `lib/index.js`, `lib/invariant.js`, `lib/client.js`, declarations under `lib/types`, `cordis.patch.yml`, `source-baseline.json`, README files and images under `docs/assets`, the changelog, and the license. Compare its `package.json` with the source repository's manifest before release.

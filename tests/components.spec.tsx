@@ -17,6 +17,7 @@ import type {
   UserAnnotationProps,
 } from '../src/client/contract.ts'
 import type { AnnotationLocaleKey } from '../src/client/locales.ts'
+import type { MarketUpdateState } from '../src/client/market-update.ts'
 import { styles } from '../src/client/styles.ts'
 import { fixturePayload } from './fixtures.ts'
 
@@ -47,6 +48,32 @@ const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
     'settings.discard': 'Discard',
     'settings.unsaved': 'Unsaved',
     'settings.saveFailed': 'The deployment did not accept this value.',
+    'settings.updateTitle': 'Plugin update',
+    'settings.updateDescription': 'Check through the public market API.',
+    'settings.updateIdle': 'Updates have not been checked.',
+    'settings.updateChecking': 'Checking for updates…',
+    'settings.marketUnavailable': 'The market API is unavailable.',
+    'settings.marketFallback': 'Open Settings → Plugin Market.',
+    'settings.marketBeta': 'Beta API',
+    'settings.updateCurrent': 'This is the latest version.',
+    'settings.updateAvailable': 'A new version is available.',
+    'settings.updating': 'Installing the update…',
+    'settings.updatingPercent': `Installing the update… ${String(params?.percent)}%`,
+    'settings.updateSucceeded': 'The update is installed.',
+    'settings.updateFailed': 'The update failed.',
+    'settings.rollingBack': 'Rolling back the update…',
+    'settings.rolledBack': 'The previous version has been restored.',
+    'settings.restarting': 'Requesting a Host restart…',
+    'settings.installedVersion': `Installed ${String(params?.version)}`,
+    'settings.latestVersion': `Latest ${String(params?.version)}`,
+    'settings.checkUpdate': 'Check for updates',
+    'settings.checkAgain': 'Check again',
+    'settings.installUpdate': 'Install update',
+    'settings.forceUpdate': 'Update anyway',
+    'settings.rollback': 'Roll back',
+    'settings.refresh': 'Refresh page',
+    'settings.restart': 'Restart Host',
+    'settings.restartManaged': 'Restart it from the Host.',
     'timeline.summary': `Added ${String(params?.count)} inline comments`,
     'list.locate': 'Locate source',
     'status.draft': 'Ready to send',
@@ -177,10 +204,32 @@ describe('plugin settings card', () => {
     failed: false,
   }
 
-  function cardProps(overrides: Partial<typeof state> = {}) {
+  const marketState: MarketUpdateState = {
+    phase: 'idle',
+    marketVersion: null,
+    stability: null,
+    installedVersion: null,
+    latestVersion: null,
+    source: null,
+    progressPercent: null,
+    progressDetail: null,
+    error: null,
+    forceAllowed: false,
+    rollbackAvailable: false,
+    refreshRequired: false,
+    restartRequired: false,
+    restartSupported: false,
+  }
+
+  function cardProps(
+    overrides: Partial<typeof state> = {},
+    marketOverrides: Partial<typeof marketState> = {},
+  ) {
     const snapshot = { ...state, ...overrides }
+    const marketSnapshot = { ...marketState, ...marketOverrides }
     return {
       useSettingsCard: <S,>(selector: (value: typeof snapshot) => S) => selector(snapshot),
+      useMarketUpdate: <S,>(selector: (value: typeof marketSnapshot) => S) => selector(marketSnapshot),
       setEnabled: vi.fn(),
       resetEnabled: vi.fn(),
       setAutoAttach: vi.fn(),
@@ -189,6 +238,11 @@ describe('plugin settings card', () => {
       resetLocalTools: vi.fn(),
       save: vi.fn(),
       discard: vi.fn(),
+      checkUpdate: vi.fn(),
+      installUpdate: vi.fn(),
+      rollbackUpdate: vi.fn(),
+      restartHost: vi.fn(),
+      refreshClient: vi.fn(),
       t,
     } as unknown as AnnotationPluginCardProps
   }
@@ -223,6 +277,37 @@ describe('plugin settings card', () => {
     for (const control of screen.getAllByRole('switch')) expect(control).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Reset to default' })).toBeDisabled()
     expect(screen.getByText('The deployment did not accept this value.')).toBeInTheDocument()
+  })
+
+  it('renders capability-gated market update actions', () => {
+    const props = cardProps(
+      {},
+      {
+        phase: 'available',
+        stability: 'beta',
+        installedVersion: '0.6.0',
+        latestVersion: '0.7.0',
+      },
+    )
+    render(<AnnotationPluginCard {...props} />)
+    fireEvent.click(screen.getByText('DSH Inline Comments'))
+
+    expect(screen.getByText('Beta API')).toBeInTheDocument()
+    expect(screen.getByText('Installed 0.6.0')).toBeInTheDocument()
+    expect(screen.getByText('Latest 0.7.0')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Install update' }))
+    expect(props.installUpdate).toHaveBeenCalledWith()
+    expect(screen.queryByRole('button', { name: 'Restart Host' })).not.toBeInTheDocument()
+  })
+
+  it('falls back to Plugin Market when the public API is unavailable', () => {
+    const props = cardProps({}, { phase: 'unavailable' })
+    render(<AnnotationPluginCard {...props} />)
+    fireEvent.click(screen.getByText('DSH Inline Comments'))
+
+    expect(screen.getByText('Open Settings → Plugin Market.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
+    expect(props.checkUpdate).toHaveBeenCalledOnce()
   })
 })
 

@@ -41,6 +41,7 @@ import {
 import { AnnotationController, type AnnotationReconciliationSnapshot } from './controller.ts'
 import type { AnnotationInjected, UserAnnotationProps } from './contract.ts'
 import { AnnotationSettingsController } from './feature-toggle.ts'
+import { MarketUpdateController } from './market-update.ts'
 import { createFocusChatAdapter } from './focus-adapter.ts'
 import { HighlightManager } from './highlight.ts'
 import { AnnotationStorage } from './storage.ts'
@@ -160,7 +161,9 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   const featureEnabled = settingsController.feature()
   const autoAttachEnabled = settingsController.autoAttach()
   const localToolsEnabled = settingsController.localTools()
+  const marketUpdateController = new MarketUpdateController()
   ctx.effect(() => () => settingsController.dispose(), 'dsh-annotation: settings controller')
+  ctx.effect(() => () => marketUpdateController.dispose(), 'dsh-annotation: market update controller')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-annotation: dictionaries')
   const annotationT = ctx.locale.bind(NS)
   ctx.effect(() => {
@@ -618,7 +621,11 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         name: 'settings.plugin.item',
         key: ANNOTATION_SETTINGS_NAMESPACE,
         locale: NS,
-        inject: () => settingsController.inject(),
+        inject: () => {
+          const settings = settingsController.inject()
+          const market = marketUpdateController.inject()
+          return { ...settings, ...market, hooks: { ...settings.hooks, ...market.hooks } }
+        },
       },
       AnnotationPluginCard,
     ),

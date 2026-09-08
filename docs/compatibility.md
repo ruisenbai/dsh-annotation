@@ -4,29 +4,35 @@
 
 | Component                | Supported baseline                                                                  |
 | ------------------------ | ----------------------------------------------------------------------------------- |
-| DeepSeek Harness host    | `0.1.3-alpha.1` exactly                                                             |
-| `engines.dsh`            | `0.1.3-alpha.1`                                                                     |
-| Development declarations | `0.1.3-alpha.1`                                                                     |
+| DeepSeek Harness host    | `0.1.3-alpha.2` exactly                                                             |
+| `engines.dsh`            | `0.1.3-alpha.2`                                                                     |
+| Development declarations | `0.1.3-alpha.2`                                                                     |
 | Cordis                   | `^4.0.2`                                                                            |
 | Node.js                  | `^22.19.0` or `>=24`                                                                |
 | React                    | `^18.2.0`                                                                           |
 | Browser                  | Current Chromium-based DSH Web target; other modern browsers retain marker fallback |
 
-The release manifest declares `engines.dsh: "0.1.3-alpha.1"`, and every lockstep `@deepseek-ai/dsh-*` peer uses the same exact version. DSH has no external compatibility promise before `0.2.0`, so this plugin does not claim compatibility with a different prerelease. Desktop clients must embed the same DSH host version. When the installed host differs, select the matching plugin release from the README compatibility map or change hosts; forced installation and disabled peer checks are not supported.
+The release manifest declares `engines.dsh: "0.1.3-alpha.2"`, and every lockstep `@deepseek-ai/dsh-*` peer uses the same exact version. DSH has no external compatibility promise before `0.2.0`, so this plugin does not claim compatibility with a different prerelease. Desktop clients must embed the same DSH host version. When the installed host differs, select the matching plugin release from the README compatibility map or change hosts; forced installation and disabled peer checks are not supported.
 
 ## Dependency source
 
-Every DSH dependency used for verification must identify the same `0.1.3-alpha.1` source generation. [source-baseline.json](../source-baseline.json) pins the official repository, release tag, and commit. When the complete family is published on npm, refresh the registry lockfile and install with `pnpm install --frozen-lockfile --strict-peer-dependencies`. A local checkout reporting that version is not sufficient evidence that its npm packages exist.
+Every DSH dependency used for verification must identify the same `0.1.3-alpha.2` source generation. [source-baseline.json](../source-baseline.json) pins the official repository, release tag, and commit. The checked-in lockfile resolves the published npm family, and `pnpm install --frozen-lockfile --strict-peer-dependencies` verifies its complete peer closure. A local checkout reporting that version is not sufficient evidence that its npm packages exist.
 
 For an unpublished family, use verifiable official source or official artifacts in a disposable directory. Confirm the repository, source commit or artifact URL, package names, and package versions before deriving integrity values. Include the DSH and vendored Cordis package families and the Landlock entry package, and enforce strict peers in the temporary install. Machine-local `file:` URLs, workspace links, and generated overlay lockfiles must never enter the released plugin manifest or checked-in lockfile. Record the actual source and commands in the release verification evidence; an old lockfile or a successful build against a different host does not verify this baseline.
 
-The source verification helper checks the pinned checkout commit, clean tracked files, DSH tarball versions, and required direct official packages before preparing a separate plugin directory. It omits the checked-in `0.1.2-rc.1` lockfile, supplies all provided official packages as temporary development dependencies, and adds tarball overrides. The old lockfile is retained as a historical record and is not a `0.1.3-alpha.1` verification input. Restore the source manifest after verification and before packaging so those temporary dependency entries do not enter the release. [Development](development.md#install-and-verify) owns the complete procedure.
+The source verification helper provides independent provenance checks: it checks the pinned checkout commit, clean tracked files, DSH tarball versions, and required direct official packages before preparing a separate plugin directory. It omits the registry lockfile, supplies all provided official packages as temporary development dependencies, and adds tarball overrides. Restore the source manifest after verification and before packaging so those temporary dependency entries do not enter the release. [Development](development.md#official-source-verification) owns the complete procedure.
 
 ## Marketplace placement
 
 The catalog submission uses **Sessions & Messages** (`session`). The plugin annotates assistant messages, persists drafts per Session, submits one user message through the official composer, and reconciles queue and durable message state; visual decoration supports that message workflow rather than acting as a theme or general appearance extension.
 
 The repository-owned `screenshots.json` lists the five curated images that storefronts should present. The catalog entry uses the stable `dsh-annotation.tgz` GitHub Release alias, so installation never depends on a local source build.
+
+## Marketplace update API
+
+The plugin configuration card integrates with dsh-market `dsh-market/update-api/v1`, introduced by dsh-market `1.45.0`. This API is optional and currently reports beta stability. The Client discovers capabilities before every first use, validates the schema and all endpoint paths, and only accepts same-origin `/dsh-market/api/v1/*` endpoints. It never imports dsh-market code or calls its legacy private routes.
+
+The card checks only the installed `dsh-annotation` package. Update progress comes from the operation endpoint. Force is offered only after `RELEASE_TOO_FRESH` or `VERSION_UNCHANGED`; rollback remains tied to the originating operation; refresh follows `refreshRequired`; restart is visible only when both `features.restart` and `restart.supported` are true. When discovery is unavailable, users are directed to **Settings → Plugin Market**. Client disposal aborts the active request or polling delay and waits for settlement.
 
 ## Plugin configuration integration
 
@@ -56,7 +62,7 @@ The plugin uses two different integration mechanisms:
 
 For assistant rows, the decorator keeps the existing component as the body renderer, composes the existing `inject` face with the annotation face, and restores both fields when the feature is disabled or unloaded. It also watches `slots/changed`, so an assistant renderer registered later, including `dsh-smooth-stream`, is decorated without a same-key registration.
 
-DSH `0.1.3-alpha.1` renders HTML as literal text. The decorator removes this plugin's acknowledgement and reply comments, including legacy prefixes, from the text and reasoning blocks sent to the inner renderer. The outer annotation parser and persisted Session content retain the raw markers. Unmarked nodes keep their original references, and the Host's Markdown policy is unchanged. [Decision 0003](decisions/0003-assistant-renderer-decoration.md) defines the streaming and incomplete-marker rules.
+DSH `0.1.3-alpha.2` renders HTML as literal text. The decorator removes this plugin's acknowledgement and reply comments, including legacy prefixes, from the text and reasoning blocks sent to the inner renderer. The outer annotation parser and persisted Session content retain the raw markers. Unmarked nodes keep their original references, and the Host's Markdown policy is unchanged. [Decision 0003](decisions/0003-assistant-renderer-decoration.md) defines the streaming and incomplete-marker rules.
 
 Reconciliation reads Chat nodes from `ctx.uiConversation.binding(binding).target('chat')`, while queue membership and older-history availability come from `binding.session.getSnapshot()`. The controller subscribes to both sources and reconciles only when either snapshot identity changes.
 
@@ -78,8 +84,9 @@ Focus restoration locates the Lexical contenteditable through DSH's composer DOM
 6. Exercise idle, running, blocking confirmation, withdrawal, transport retry, refresh recovery, default automatic attachment, manual attach/detach, Enter submission with composer text, annotation-only submission, mixed image/file submission in original order, retry refusal for missing or mismatched attachments, legacy image-only outbox recovery, slash-command release and the Enter race, and legacy overall-requirement migration.
 7. Save the disabled automatic-attachment switch and confirm new annotations remain detached while the paperclip still attaches them manually, and that Lexical focus and the caret return after saving without altering text or reference chips. Confirm a Session switch, text change, or deliberate focus change cancels a pending restore. Then save the disabled plugin switch; confirm official renderers return, controls and highlights disappear, an armed claim detaches without changing visible text, an in-flight submission releases its claim once transport settles, and drafts return after saving the enabled switch.
 8. Confirm the Slot ledger has no plugin-owned `assistant-step` entry, the existing assistant component and inject face are decorated exactly once, the two `-100` user/steering entries win their cells, and disable or unload restores the original assistant fields. Repeat with `dsh-smooth-stream` enabled.
-9. Confirm the settings page shows exactly one annotation card (visible title 注解/Annotations, keyed `settings.plugin.item:dsh-annotation` with the three switches `enabled`, `autoAttach`, and `localTools`), legacy namespaces render nothing, and the profile contains exactly one runtime entry named `dsh-annotation`.
-10. Record the verified DSH version in this file and the changelog.
+9. Confirm the settings page shows exactly one annotation card (visible title 注解/Annotations, keyed `settings.plugin.item:dsh-annotation` with the three switches `enabled`, `autoAttach`, and `localTools`), the switches use the official alpha.2 primitive, legacy namespaces render nothing, and the profile contains exactly one runtime entry named `dsh-annotation`.
+10. With dsh-market `1.45.0` or later installed, verify capability discovery, version check, progress, eligible force, rollback, refresh, and capability-gated restart. Remove the public API and confirm no legacy update route is called.
+11. Record the verified DSH version in this file and the changelog.
 
 ## Browser behavior
 

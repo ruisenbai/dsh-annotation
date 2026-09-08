@@ -2,6 +2,7 @@ node_modules/
 lib/
 coverage/
 artifacts/
+.playwright-mcp/
 dist/
 .verify-home/
 .verify-install/
