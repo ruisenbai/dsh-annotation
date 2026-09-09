@@ -30,7 +30,7 @@ pnpm install --frozen-lockfile
 pnpm run build:official
 pnpm run release:pack --family dsh --out "$ANNOTATION_WORK/dsh-pack" --concurrency 4
 pnpm run release:pack --family vendor --out "$ANNOTATION_WORK/vendor-pack" --concurrency 4
-pnpm --dir native/landlock-run/packages/entry pack --pack-destination "$ANNOTATION_WORK/native-pack"
+pnpm --dir native/system/packages/entry pack --pack-destination "$ANNOTATION_WORK/native-pack"
 cd "$ANNOTATION_SOURCE"
 node scripts/prepare-source-verification.mjs --harness "$ANNOTATION_HOST" \
   --from "$ANNOTATION_WORK/dsh-pack" \

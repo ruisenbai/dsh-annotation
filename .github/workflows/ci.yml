@@ -37,7 +37,7 @@ jobs:
         run: |
           pnpm run release:pack --family dsh --out "${RUNNER_TEMP}/dsh-pack" --concurrency 4
           pnpm run release:pack --family vendor --out "${RUNNER_TEMP}/vendor-pack" --concurrency 4
-          pnpm --dir native/landlock-run/packages/entry pack --pack-destination "${RUNNER_TEMP}/native-pack"
+          pnpm --dir native/system/packages/entry pack --pack-destination "${RUNNER_TEMP}/native-pack"
       - uses: actions/upload-artifact@v7
         with:
           name: official-host-tarballs

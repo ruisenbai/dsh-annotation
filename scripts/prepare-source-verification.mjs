@@ -51,7 +51,7 @@ for (const directory of values.from.map((path) => resolve(path))) {
 for (const name of Object.keys(manifest.devDependencies).filter((name) => name.startsWith('@deepseek-ai/'))) {
   if (!overrides[name]) throw new Error(`Missing official dependency tarball: ${name}`)
 }
-if (!overrides['@deepseek-ai/node-addon-landlock-run']) throw new Error('Missing Landlock entry tarball')
+if (!overrides['@deepseek-ai/node-addon-system']) throw new Error('Missing Landlock entry tarball')
 
 // 临时目录不覆盖源仓库，也不沿用旧宿主版本的锁文件。
 mkdirSync(output)
