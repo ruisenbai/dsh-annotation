@@ -103,7 +103,7 @@
     "prepack": "pnpm run verify"
   },
   "dependencies": {
-    "lucide-react": "0.468.0"
+    "lucide-react": "1.41.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
