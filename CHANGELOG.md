@@ -4,6 +4,13 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-09
+
+### Changed
+
+- Raised the exact DeepSeek Harness requirement to `0.1.5-alpha.1` across the manifest, lockstep peers, registry lockfile, CI source commit, bundle baseline, and compatibility guidance.
+- Added `@deepseek-ai/dsh-client-ui-dockkit` to the pinned browser platform module list and its bundle verification, matching the `0.1.5-alpha.1` Web loader's shared module table. No plugin source changed: the `0.1.5-alpha.1` Slot, settings, renderer, and command declarations used by this plugin are unchanged, and annotation protocol v2, browser persistence, submission ids, command aliases, and durable Session reads remain as in `0.7.0`.
+
 ## [0.7.0] - 2026-09-08
 
 ### Added
@@ -196,7 +203,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.1...v0.5.2

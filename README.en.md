@@ -15,7 +15,7 @@ Long AI replies are much easier to review when each note can sit beside the exac
 
 > **Market category: Sessions & Messages.** The plugin reviews assistant messages within one Session and submits annotated user messages through the official composer; it is not a theme or general appearance plugin.
 >
-> **Host requirement:** DSH Web `0.1.3-alpha.2` is required. The release manifest states this exact requirement through `engines.dsh` and lockstep `@deepseek-ai/dsh-*` peers; desktop clients must embed the same version. DSH is pre-release software, so review [Compatibility](docs/compatibility.md) before upgrading.
+> **Host requirement:** DSH Web `0.1.5-alpha.1` is required. The release manifest states this exact requirement through `engines.dsh` and lockstep `@deepseek-ai/dsh-*` peers; desktop clients must embed the same version. DSH is pre-release software, so review [Compatibility](docs/compatibility.md) before upgrading.
 >
 > **Integration compatibility:** DSH does not expose an inline assistant-body slot. The plugin decorates the existing assistant renderer in place without occupying `assistant-step`; user and steering rows use priority shadowing.
 
@@ -61,7 +61,7 @@ Need a break from annotations? Turn the feature off under **Settings → Plugins
 - The read-only overview for an attached `Annotations ×N` summary button always opens upward on hover or keyboard focus, with an internally scrolling height limit for larger batches.
 - Match the official Web assistant flow, reasoning disclosure, stopped marker, composer docks, icon-action geometry, form typography, semantic colors, floating surfaces, and user-message bubbles while retaining the original map-pin glyph for Locate source.
 - Undo one draft deletion, export current-Session recovery JSON, clear unsubmitted drafts, and inspect local storage usage from the composer list.
-- Use DSH `0.1.3-alpha.2` `Switch` and `Tag` primitives in the plugin card, and use dsh-market's public update API to check the installed version, install with progress, offer force only after eligible failures, and expose rollback, refresh, or Host restart when supported.
+- Use DSH `0.1.5-alpha.1` `Switch` and `Tag` primitives in the plugin card, and use dsh-market's public update API to check the installed version, install with progress, offer force only after eligible failures, and expose rollback, refresh, or Host restart when supported.
 - Preserve the exact quote, prefix/suffix selector, assistant message id, event sequence, annotation id, and submission id.
 - Capture language and line coordinates for code, or row/column coordinates for tables.
 - Merge overlapping selections into the existing draft instead of stacking ambiguous highlights.
@@ -80,7 +80,7 @@ Need a break from annotations? Turn the feature off under **Settings → Plugins
 
 ### Requirements
 
-- DSH Web `0.1.3-alpha.2` exactly (run `dsh --version`; for a desktop client, also check its embedded host version)
+- DSH Web `0.1.5-alpha.1` exactly (run `dsh --version`; for a desktop client, also check its embedded host version)
 - Node.js `^22.19.0` or `>=24.0.0`
 - A `web` profile
 
@@ -96,11 +96,11 @@ dsh plugin --profile web add ./dsh-annotation.tgz
 dsh web
 ```
 
-Restart DSH Web after installation when it is already running. `v0.7.0` targets DSH `0.1.3-alpha.2`; `v0.6.0` targets DSH `0.1.3-alpha.1`; `v0.5.2`, `v0.5.1`, and `v0.5.0` target DSH `0.1.2-rc.1`; `v0.4.0` targets DSH `0.1.2-alpha.3`; `v0.3.0` targets DSH `0.1.2-alpha.1`; `v0.2.4` targets DSH `0.1.1-rc.2`.
+Restart DSH Web after installation when it is already running. `v0.8.0` targets DSH `0.1.5-alpha.1`; `v0.7.0` targets DSH `0.1.3-alpha.2`; `v0.6.0` targets DSH `0.1.3-alpha.1`; `v0.5.2`, `v0.5.1`, and `v0.5.0` target DSH `0.1.2-rc.1`; `v0.4.0` targets DSH `0.1.2-alpha.3`; `v0.3.0` targets DSH `0.1.2-alpha.1`; `v0.2.4` targets DSH `0.1.1-rc.2`.
 
 ### Build from a clone
 
-Source builds require the complete DSH `0.1.3-alpha.2` dependency family. Prepare the matching dependencies and run the checks in the [development guide](docs/development.md#install-and-verify). Dependencies unavailable from npm must come from verifiable official source or official artifacts and must be built and installed in a disposable directory; never commit machine-local `file:` paths or a temporary lockfile to the release manifest.
+Source builds require the complete DSH `0.1.5-alpha.1` dependency family. Prepare the matching dependencies and run the checks in the [development guide](docs/development.md#install-and-verify). Dependencies unavailable from npm must come from verifiable official source or official artifacts and must be built and installed in a disposable directory; never commit machine-local `file:` paths or a temporary lockfile to the release manifest.
 
 Open the DSH Web URL and select text in a finalized assistant reply. A small action bar appears with Add annotation and Copy; the selection stays alive so Ctrl+C also works. Choose Add annotation to open the compact input, type the note, and press Enter or use its check icon to create the draft. Drafts appear above and attach to the official composer by default. Enter optional task text, attach images or files, then use the official Enter key or Send button to submit text, annotations, and attachments together. Turn automatic attachment off in Plugin configuration if desired; the header paperclip remains available for manual attachment. While attached, a slash command temporarily releases the claim: the command runs normally and the annotations are kept.
 
