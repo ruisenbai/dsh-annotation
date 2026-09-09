@@ -4,6 +4,7 @@ import {
   parseModelAcknowledgements,
   parseReplyMarkers,
   stripMachineMarkers,
+  stripMachineMarkersForDisplay,
   stripModelAcknowledgementMarkers,
   strippedOffset,
 } from '../src/shared/model-ack.ts'
@@ -52,6 +53,18 @@ describe('model acknowledgements', () => {
     const raw =
       '<!-- dsh-inline-annotations-reply:{"submissionId":"s","annotationId":"a","ordinal":1} -->\n注解 1：'
     expect(stripMachineMarkers(raw)).toBe('注解 1：')
+  })
+
+  it('preserves ordinary prose, whitespace, and unrelated HTML comments in the display projection', () => {
+    const raw = '\n\nOrdinary **text**  \n<!-- other-plugin:{"data":1} -->  '
+    expect(stripMachineMarkersForDisplay(raw)).toBe(raw)
+  })
+
+  it('hides an unfinished plugin marker during streaming without removing preceding prose', () => {
+    const raw = '正文\n<!-- dsh-annotation-reply:{"submissionId":"sub-x"'
+    expect(stripMachineMarkersForDisplay(raw, true)).toBe('正文\n')
+    expect(stripMachineMarkersForDisplay(raw)).toBe(raw)
+    expect(stripMachineMarkersForDisplay('正文<!-- ordinary comment', true)).toBe('正文<!-- ordinary comment')
   })
 })
 

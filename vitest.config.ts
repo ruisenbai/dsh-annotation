@@ -20,7 +20,7 @@ export default defineConfig({
       include: [
         'src/shared/{codec,config,ids,model-ack,protocol}.ts',
         'src/host/**/*.ts',
-        'src/client/{controller,highlight,selection,storage}.ts',
+        'src/client/{controller,highlight,market-update,selection,storage}.ts',
       ],
       thresholds: {
         lines: 78,

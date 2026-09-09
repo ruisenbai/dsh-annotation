@@ -115,6 +115,29 @@ export function stripMachineMarkers(text: string): string {
     .trimEnd()
 }
 
+/**
+ * 生成展示用正文；原始文本仍用于回执解析，普通正文保持原样。
+ * @param text - 模型返回的累计原文。
+ * @param streaming - 是否需要隐藏末尾尚未接收完整的插件协议标记。
+ * @returns 去除插件标记后的展示文本。
+ */
+export function stripMachineMarkersForDisplay(text: string, streaming = false): string {
+  let visible = text
+  if (streaming) {
+    const start = text.lastIndexOf('<!--')
+    if (start >= 0) {
+      const tail = text.slice(start + 4).trimStart()
+      if (
+        !tail.includes('-->') &&
+        [...ACK_PREFIXES, ...REPLY_PREFIXES].some((prefix) => tail.startsWith(prefix))
+      ) {
+        visible = text.slice(0, start)
+      }
+    }
+  }
+  return machineMarkerSpans(visible).length === 0 ? visible : stripMachineMarkers(visible)
+}
+
 /** Exposed for diagnostics and tests without duplicating the protocol token. */
 export const modelAcknowledgementPrefix = MODEL_ACK_PREFIX
 

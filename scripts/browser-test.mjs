@@ -1,8 +1,11 @@
 import { fileURLToPath } from 'node:url'
+import { mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import { chromium } from 'playwright'
 import { createServer } from 'vite'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
+const artifacts = join(root, 'artifacts', 'browser')
 const failures = []
 const assert = (condition, message) => {
   if (!condition) throw new Error(message)
@@ -64,7 +67,9 @@ const server = await createServer({
 })
 
 let browser
+let page
 try {
+  await mkdir(artifacts, { recursive: true })
   await server.listen()
   const address = server.httpServer?.address()
   if (address === null || typeof address === 'string' || address === undefined) {
@@ -73,12 +78,19 @@ try {
   browser = await chromium.launch({ headless: true })
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'dark' })
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-  const page = await context.newPage()
+  page = await context.newPage()
   page.on('pageerror', (error) => failures.push(error.message))
   page.on('console', (message) => {
     if (message.type() === 'error') failures.push(message.text())
   })
   await page.goto(`http://127.0.0.1:${address.port}/`, { waitUntil: 'networkidle' })
+
+  const composer = page.getByRole('textbox', { name: 'Official composer' })
+  await composer.fill('draft text')
+  await composer.press('Home')
+  await composer.press('ArrowRight')
+  await composer.press('ArrowRight')
+  await composer.press('ArrowRight')
 
   const paragraph = page.locator('.dia-assistant__body p').last()
   await paragraph.scrollIntoViewIfNeeded()
@@ -245,6 +257,32 @@ try {
   const animationName = await input.evaluate((element) => getComputedStyle(element).animationName)
   assert(animationName.startsWith('dia-editor-shake-'), 'dirty editor must shake after an outside click')
   await dialog.getByRole('button', { name: 'Save annotation' }).click()
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-composer-input]')
+    const selection = document.getSelection()
+    if (root === null || document.activeElement !== root || root.textContent !== '\u200Bdraft text')
+      return false
+    if (
+      selection?.focusNode === null ||
+      selection?.focusNode === undefined ||
+      !root.contains(selection.focusNode)
+    )
+      return false
+    const range = document.createRange()
+    range.selectNodeContents(root)
+    range.setEnd(selection.focusNode, selection.focusOffset)
+    return selection.isCollapsed && range.toString().length === 4
+  })
+  await page.keyboard.insertText('X')
+  await page.waitForFunction(
+    () => document.querySelector('[data-composer-input]')?.textContent === '\u200BdraXft text',
+  )
+  assert(
+    (await composer.getAttribute('data-lexical-editor')) === 'true',
+    'focus recovery must preserve the real Lexical editor and its insertion point',
+  )
+  await page.screenshot({ path: join(artifacts, 'lexical-composer-focus.png'), fullPage: true })
+  await composer.fill('')
   await dialog.waitFor({ state: 'detached' })
   const autoDetach = page.getByRole('button', { name: 'Detach 1 annotations' })
   await autoDetach.waitFor()
@@ -593,7 +631,7 @@ try {
     .filter({ hasText: '5 annotations queued; withdraw remains available in the list' })
     .waitFor()
   assert(
-    (await page.getByRole('textbox', { name: 'Official composer' }).inputValue()) === '',
+    (await page.getByRole('textbox', { name: 'Official composer' }).textContent()) === '',
     'one official submission must clear the composer text',
   )
   if ((await dockMain.getAttribute('aria-expanded')) !== 'true') await dockMain.click()
@@ -625,10 +663,18 @@ try {
     .waitFor()
 
   assert(failures.length === 0, `browser console errors:\n${failures.join('\n')}`)
+  await page.getByRole('alert').waitFor({ state: 'detached' })
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = '1'
+  })
+  await page.screenshot({ path: join(artifacts, 'annotation-submission.png'), fullPage: true })
   console.log(
     'browser regression passed: selection action bar with copy, compact editor, autosave, default auto-attach, upward attachment overview, official action geometry and hover, marker-anchored preview and editing with delete, mobile markers, dark mode, zoom, reasoning, attach toggle, Enter submission, attachment-only retry, authoritative Toasts, locate',
   )
   await context.close()
+} catch (error) {
+  await page?.screenshot({ path: join(artifacts, 'failure.png'), fullPage: true })
+  throw error
 } finally {
   await browser?.close()
   await server.close()

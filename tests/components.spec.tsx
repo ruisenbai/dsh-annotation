@@ -17,6 +17,7 @@ import type {
   UserAnnotationProps,
 } from '../src/client/contract.ts'
 import type { AnnotationLocaleKey } from '../src/client/locales.ts'
+import type { MarketUpdateState } from '../src/client/market-update.ts'
 import { styles } from '../src/client/styles.ts'
 import { fixturePayload } from './fixtures.ts'
 
@@ -47,6 +48,32 @@ const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
     'settings.discard': 'Discard',
     'settings.unsaved': 'Unsaved',
     'settings.saveFailed': 'The deployment did not accept this value.',
+    'settings.updateTitle': 'Plugin update',
+    'settings.updateDescription': 'Check through the public market API.',
+    'settings.updateIdle': 'Updates have not been checked.',
+    'settings.updateChecking': 'Checking for updates…',
+    'settings.marketUnavailable': 'The market API is unavailable.',
+    'settings.marketFallback': 'Open Settings → Plugin Market.',
+    'settings.marketBeta': 'Beta API',
+    'settings.updateCurrent': 'This is the latest version.',
+    'settings.updateAvailable': 'A new version is available.',
+    'settings.updating': 'Installing the update…',
+    'settings.updatingPercent': `Installing the update… ${String(params?.percent)}%`,
+    'settings.updateSucceeded': 'The update is installed.',
+    'settings.updateFailed': 'The update failed.',
+    'settings.rollingBack': 'Rolling back the update…',
+    'settings.rolledBack': 'The previous version has been restored.',
+    'settings.restarting': 'Requesting a Host restart…',
+    'settings.installedVersion': `Installed ${String(params?.version)}`,
+    'settings.latestVersion': `Latest ${String(params?.version)}`,
+    'settings.checkUpdate': 'Check for updates',
+    'settings.checkAgain': 'Check again',
+    'settings.installUpdate': 'Install update',
+    'settings.forceUpdate': 'Update anyway',
+    'settings.rollback': 'Roll back',
+    'settings.refresh': 'Refresh page',
+    'settings.restart': 'Restart Host',
+    'settings.restartManaged': 'Restart it from the Host.',
     'timeline.summary': `Added ${String(params?.count)} inline comments`,
     'list.locate': 'Locate source',
     'status.draft': 'Ready to send',
@@ -99,7 +126,7 @@ const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
     'selection.toolbar': 'Selection actions',
     'selection.annotate': 'Add annotation',
     'selection.copy': 'Copy',
-    'error.imagesRequired': `Re-select the ${String(params?.count)} images or discard the record.`,
+    'error.attachmentsRequired': `Re-select the ${String(params?.count)} attachments or discard the record.`,
     'list.discard': 'Discard this pending record',
     'reply.chip': `Annotation ${String(params?.ordinal)}`,
     'reply.chipLabel': `Annotation ${String(params?.ordinal)}: ${String(params?.quote)} · ${String(params?.annotation)}`,
@@ -131,7 +158,7 @@ function baseView(): AnnotationView {
 
 const idleInput = {
   draft: '',
-  imageIds: [],
+  attachmentIds: [],
   draftRev: 0,
   phase: 'plain',
   occurrences: [],
@@ -177,10 +204,32 @@ describe('plugin settings card', () => {
     failed: false,
   }
 
-  function cardProps(overrides: Partial<typeof state> = {}) {
+  const marketState: MarketUpdateState = {
+    phase: 'idle',
+    marketVersion: null,
+    stability: null,
+    installedVersion: null,
+    latestVersion: null,
+    source: null,
+    progressPercent: null,
+    progressDetail: null,
+    error: null,
+    forceAllowed: false,
+    rollbackAvailable: false,
+    refreshRequired: false,
+    restartRequired: false,
+    restartSupported: false,
+  }
+
+  function cardProps(
+    overrides: Partial<typeof state> = {},
+    marketOverrides: Partial<typeof marketState> = {},
+  ) {
     const snapshot = { ...state, ...overrides }
+    const marketSnapshot = { ...marketState, ...marketOverrides }
     return {
       useSettingsCard: <S,>(selector: (value: typeof snapshot) => S) => selector(snapshot),
+      useMarketUpdate: <S,>(selector: (value: typeof marketSnapshot) => S) => selector(marketSnapshot),
       setEnabled: vi.fn(),
       resetEnabled: vi.fn(),
       setAutoAttach: vi.fn(),
@@ -189,6 +238,11 @@ describe('plugin settings card', () => {
       resetLocalTools: vi.fn(),
       save: vi.fn(),
       discard: vi.fn(),
+      checkUpdate: vi.fn(),
+      installUpdate: vi.fn(),
+      rollbackUpdate: vi.fn(),
+      restartHost: vi.fn(),
+      refreshClient: vi.fn(),
       t,
     } as unknown as AnnotationPluginCardProps
   }
@@ -224,6 +278,37 @@ describe('plugin settings card', () => {
     expect(screen.getByRole('button', { name: 'Reset to default' })).toBeDisabled()
     expect(screen.getByText('The deployment did not accept this value.')).toBeInTheDocument()
   })
+
+  it('renders capability-gated market update actions', () => {
+    const props = cardProps(
+      {},
+      {
+        phase: 'available',
+        stability: 'beta',
+        installedVersion: '0.6.0',
+        latestVersion: '0.7.0',
+      },
+    )
+    render(<AnnotationPluginCard {...props} />)
+    fireEvent.click(screen.getByText('DSH Inline Comments'))
+
+    expect(screen.getByText('Beta API')).toBeInTheDocument()
+    expect(screen.getByText('Installed 0.6.0')).toBeInTheDocument()
+    expect(screen.getByText('Latest 0.7.0')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Install update' }))
+    expect(props.installUpdate).toHaveBeenCalledWith()
+    expect(screen.queryByRole('button', { name: 'Restart Host' })).not.toBeInTheDocument()
+  })
+
+  it('falls back to Plugin Market when the public API is unavailable', () => {
+    const props = cardProps({}, { phase: 'unavailable' })
+    render(<AnnotationPluginCard {...props} />)
+    fireEvent.click(screen.getByText('DSH Inline Comments'))
+
+    expect(screen.getByText('Open Settings → Plugin Market.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
+    expect(props.checkUpdate).toHaveBeenCalledOnce()
+  })
 })
 
 describe('inline comment presentation', () => {
@@ -258,6 +343,80 @@ describe('inline comment presentation', () => {
     expect(navigate).toHaveBeenCalledWith(payload.annotations[0]?.annotationId)
   })
 
+  it.each(['user', 'steering'] as const)(
+    'preserves official reference chips in ordinary %s messages',
+    (kind) => {
+      const props = {
+        node: {
+          kind,
+          data: {
+            source: { kind: 'user' },
+            content: [
+              { type: 'text', text: 'Compare @' },
+              { type: 'text', text: '会话一 /review @src/note.md /unresolved' },
+            ],
+            referenceLabels: ['会话一'],
+            skillNames: ['review'],
+          },
+        },
+        renderMessageImages: () => null,
+        t,
+      } as unknown as UserAnnotationProps<typeof kind>
+      const { container } = render(<AnnotatedUserNode {...props} />)
+      expect(container).toHaveTextContent('Compare 会话一 /review note.md /unresolved')
+      expect(
+        Array.from(container.querySelectorAll('[data-ref-chip]')).map((chip) => [
+          chip.getAttribute('data-ref-chip'),
+          chip.textContent,
+        ]),
+      ).toEqual([
+        ['session', '会话一'],
+        ['skill', '/review'],
+        ['file', 'note.md'],
+      ])
+    },
+  )
+
+  it('preserves image and file order in an annotation submission', () => {
+    const payload = fixturePayload()
+    const file = { attachmentId: 'file-1', name: 'notes.pdf', bytes: 2048 }
+    const renderMessageImages = vi.fn(() => <span data-testid="ordered-image">image</span>)
+    const props = {
+      node: {
+        data: {
+          source: { kind: 'user', annotationSubmission: payload },
+          content: [
+            { type: 'image', attachment: { attachmentId: 'image-1' } },
+            { type: 'file', attachment: file },
+            { type: 'image', attachment: { attachmentId: 'image-2' } },
+          ],
+        },
+      },
+      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(baseView()),
+      navigate: vi.fn(async () => true),
+      renderMessageImages,
+      t,
+    } as unknown as UserAnnotationProps<'user'>
+    const { container } = render(<AnnotatedUserNode {...props} />)
+    expect(screen.getByTitle('notes.pdf')).toHaveTextContent('2.0KB')
+    const row = container.querySelector('[data-message-attachments]')!
+    expect(Array.from(row.children).map((child) => child.textContent)).toEqual([
+      'image',
+      'notes.pdf2.0KB',
+      'image',
+    ])
+    expect(renderMessageImages).toHaveBeenNthCalledWith(1, {
+      images: [{ attachment: { attachmentId: 'image-1' } }],
+      align: 'end',
+      compact: true,
+    })
+    expect(renderMessageImages).toHaveBeenNthCalledWith(2, {
+      images: [{ attachment: { attachmentId: 'image-2' } }],
+      align: 'end',
+      compact: true,
+    })
+  })
+
   it('delegates historical images through the conversation image renderer', () => {
     const userAttachment = { attachmentId: 'user-image' }
     const renderUserImages = vi.fn(() => <div data-testid="user-images" />)
@@ -280,6 +439,7 @@ describe('inline comment presentation', () => {
     expect(renderUserImages).toHaveBeenCalledWith({
       images: [{ attachment: userAttachment }],
       align: 'end',
+      compact: false,
     })
     cleanup()
 
@@ -1884,26 +2044,39 @@ describe('annotation editor input methods', () => {
       ensureComposerAttachment,
       t,
     } as unknown as InputAnnotationProps
-    const tree = (
-      <div data-composer-card>
-        <textarea aria-label="Official composer" value="draft text" onChange={() => undefined} />
+    const tree = () => (
+      <div data-composer-seat>
+        <div data-composer-card>
+          <div
+            data-composer-input
+            contentEditable
+            suppressContentEditableWarning
+            role="textbox"
+            aria-label="Official composer"
+          >
+            draft text
+          </div>
+        </div>
         <TestAnnotationDock {...props} />
       </div>
     )
-    const { rerender } = render(tree)
+    const { rerender } = render(tree())
 
-    const composer = screen.getByLabelText<HTMLTextAreaElement>('Official composer')
+    const composer = screen.getByLabelText<HTMLElement>('Official composer')
     composer.focus()
-    composer.setSelectionRange(3, 3)
+    document.getSelection()!.setBaseAndExtent(composer.firstChild!, 3, composer.firstChild!, 3)
+    fireEvent(document, new Event('selectionchange'))
+    screen.getByLabelText('Your annotation').focus()
     fireEvent.click(screen.getByRole('button', { name: 'Save comment' }))
     expect(saveEditor).toHaveBeenCalledOnce()
     expect(ensureComposerAttachment).toHaveBeenCalledOnce()
 
     view = baseView()
-    rerender(tree)
+    rerender(tree())
     await waitFor(() => expect(document.activeElement).toBe(composer))
-    expect(composer.value).toBe('draft text')
-    expect(composer.selectionStart).toBe(3)
+    expect(composer.textContent).toBe('draft text')
+    expect(document.getSelection()?.anchorOffset).toBe(3)
+    expect(document.getSelection()?.focusOffset).toBe(3)
   })
 
   it('does not force focus after editing an existing annotation', async () => {
@@ -1927,18 +2100,28 @@ describe('annotation editor input methods', () => {
       t,
     } as unknown as InputAnnotationProps
     const tree = (
-      <div data-composer-card>
-        <textarea aria-label="Official composer" value="draft text" onChange={() => undefined} />
+      <div data-composer-seat>
+        <div data-composer-card>
+          <div
+            data-composer-input
+            contentEditable
+            suppressContentEditableWarning
+            role="textbox"
+            aria-label="Official composer"
+          >
+            draft text
+          </div>
+        </div>
         <TestAnnotationDock {...props} />
       </div>
     )
     render(tree)
 
-    const composer = screen.getByLabelText<HTMLTextAreaElement>('Official composer')
+    const composer = screen.getByLabelText<HTMLElement>('Official composer')
     fireEvent.click(screen.getByRole('button', { name: 'Save comment' }))
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(document.activeElement).not.toBe(composer)
-    expect(composer.value).toBe('draft text')
+    expect(composer.textContent).toBe('draft text')
   })
 })
 

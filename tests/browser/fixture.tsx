@@ -12,6 +12,7 @@ import { DEFAULT_CONFIG } from '../../src/shared/config.ts'
 import type { MessageIdentity, SessionIdentity } from '../../src/shared/types.ts'
 import { COMPOSER_ATTACHMENT_TOKEN } from '../../src/client/composer-attachment.ts'
 import type { SelectionCapture } from '../../src/client/selection.ts'
+import { BrowserComposer } from './Composer.tsx'
 
 const MESSAGE_ID = 'browser-assistant-message' as MessageIdentity
 const SESSION_ID = 'browser-session' as SessionIdentity
@@ -103,7 +104,8 @@ body { margin: 0; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-l
 .browser-spacer { height: 390px; }
 .browser-controls { display: flex; gap: 8px; margin: 12px 0; }
 .browser-composer { display: flex; gap: 8px; margin-top: 8px; padding: 10px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 14px; background: var(--dsw-alias-bg-layer-1); }
-.browser-composer textarea { min-height: 56px; flex: 1; resize: vertical; border: 0; background: transparent; color: inherit; font: inherit; }
+.browser-composer [data-composer-input] { min-height: 56px; flex: 1; border: 0; background: transparent; color: inherit; font: inherit; outline: none; white-space: pre-wrap; }
+.browser-composer p { margin: 0; }
 `
 
 function translate(key: keyof typeof en, params?: Record<string, unknown>): string {
@@ -259,7 +261,7 @@ function Fixture() {
     session: { pending: [], running: false },
     input: {
       draft: attached ? COMPOSER_ATTACHMENT_TOKEN + composerText : composerText,
-      imageIds: [],
+      attachmentIds: [],
       draftRev: 1,
       phase: attached ? 'claimed' : 'plain',
       ...(attached ? { claim: { token: COMPOSER_ATTACHMENT_TOKEN } } : {}),
@@ -279,26 +281,29 @@ function Fixture() {
         <AnnotatedAssistantNode {...(assistantProps as unknown as AssistantAnnotationProps)} />
         <div className="browser-spacer" />
       </div>
-      <AnnotationDock {...(dockProps as unknown as InputAnnotationProps)} />
-      <div className="browser-composer" data-composer-card>
-        <textarea
-          aria-label="Official composer"
-          value={composerText}
-          onChange={(event) => setComposerText(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter' || event.shiftKey) return
-            event.preventDefault()
-            submitComposer()
-          }}
-        />
-        <button
-          type="button"
-          aria-label="Send official task"
-          disabled={!attached && composerText.trim() === ''}
-          onClick={submitComposer}
-        >
-          Send
-        </button>
+      <div data-composer-seat>
+        <AnnotationDock {...(dockProps as unknown as InputAnnotationProps)} />
+        <div className="browser-composer" data-composer-card>
+          <BrowserComposer
+            text={attached ? COMPOSER_ATTACHMENT_TOKEN + composerText : composerText}
+            onText={(text) =>
+              setComposerText(
+                text.startsWith(COMPOSER_ATTACHMENT_TOKEN)
+                  ? text.slice(COMPOSER_ATTACHMENT_TOKEN.length)
+                  : text,
+              )
+            }
+            onSubmit={submitComposer}
+          />
+          <button
+            type="button"
+            aria-label="Send official task"
+            disabled={!attached && composerText.trim() === ''}
+            onClick={submitComposer}
+          >
+            Send
+          </button>
+        </div>
       </div>
       <div className="browser-controls">
         <button type="button" data-testid="seed-same-line" onClick={seedSameLine}>

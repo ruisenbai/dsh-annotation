@@ -181,11 +181,16 @@ export interface AnnotationDraft extends SubmittedAnnotation {
   readonly supplementalTo?: AnnotationId
 }
 
-/** Composer image metadata retained for refresh-safe retries; never the base64 bytes. */
+/** Legacy composer image metadata; retained when reading existing pending submissions. */
 export interface OutboxImages {
   readonly count: number
   readonly mediaTypes: readonly string[]
   readonly names: readonly string[]
+}
+
+/** Retry metadata excludes attachment bytes and temporary file-upload receipts. */
+export interface OutboxAttachments extends OutboxImages {
+  readonly kinds: readonly ('image' | 'file')[]
 }
 
 /** Immutable retry record. The payload never changes after its first attempt. */
@@ -196,7 +201,9 @@ export interface OutboxEntry {
   readonly status: OutboxStatus
   readonly attempts: number
   readonly lastError?: string
-  /** Present exactly when the original submission carried composer images. */
+  /** Metadata for attachments carried by the original submission. */
+  readonly attachments?: OutboxAttachments
+  /** Image-only metadata written by plugin versions before 0.6.0. */
   readonly images?: OutboxImages
 }
 

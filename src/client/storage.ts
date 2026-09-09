@@ -11,6 +11,7 @@ import type {
   AnnotationStatus,
   MessageIdentity,
   OutboxEntry,
+  OutboxAttachments,
   OutboxImages,
   OutboxStatus,
   PersistedEditorDraft,
@@ -97,6 +98,23 @@ function parseOutboxImages(value: unknown): OutboxImages | undefined {
   })
 }
 
+function parseOutboxAttachments(value: unknown): OutboxAttachments | undefined {
+  const metadata = parseOutboxImages(value)
+  if (metadata === undefined) return undefined
+  const source = value as Record<string, unknown>
+  if (
+    !Array.isArray(source.kinds) ||
+    source.kinds.length !== metadata.count ||
+    !source.kinds.every((kind) => kind === 'image' || kind === 'file')
+  ) {
+    throw new Error('invalid outbox attachment kinds')
+  }
+  return Object.freeze({
+    ...metadata,
+    kinds: Object.freeze(source.kinds as ('image' | 'file')[]),
+  })
+}
+
 function parseOutbox(value: unknown): OutboxEntry {
   if (typeof value !== 'object' || value === null || Array.isArray(value))
     throw new Error('outbox entry must be an object')
@@ -115,6 +133,7 @@ function parseOutbox(value: unknown): OutboxEntry {
   if (source.lastError !== undefined && typeof source.lastError !== 'string')
     throw new Error('invalid lastError')
   const images = parseOutboxImages(source.images)
+  const attachments = parseOutboxAttachments(source.attachments)
   const interrupted = source.status === 'sending' || source.status === 'accepted'
   return Object.freeze({
     payload,
@@ -123,6 +142,7 @@ function parseOutbox(value: unknown): OutboxEntry {
     status: interrupted ? 'failed' : (source.status as OutboxStatus),
     attempts: source.attempts as number,
     ...(images === undefined ? {} : { images }),
+    ...(attachments === undefined ? {} : { attachments }),
     ...(interrupted
       ? { lastError: 'Submission outcome was not observed; retry with the same submission id.' }
       : source.lastError === undefined

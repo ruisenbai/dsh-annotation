@@ -67,6 +67,7 @@ describe('browser-to-Host submission flow', () => {
       commandId: 'command-integration',
       agent,
       rawInput: line.slice(line.indexOf(' ') + 1),
+      attachments: [],
       signal: new AbortController().signal,
     } as unknown as CommandInvocation)
 

@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { describe, expect, it, vi } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandInvocation } from '@deepseek-ai/dsh-commands'
-import type { ImageBlock } from '@deepseek-ai/dsh-llm'
+import type { FileBlock, ImageBlock } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { encodeSubmissionCommand } from '../src/shared/codec.ts'
 import { DEFAULT_CONFIG } from '../src/shared/config.ts'
@@ -36,10 +36,17 @@ function imageBlock(attachmentId: string): ImageBlock {
   } as unknown as ImageBlock
 }
 
+function fileBlock(attachmentId: string): FileBlock {
+  return {
+    type: 'file',
+    attachment: { attachmentId, name: 'notes.txt', mediaType: 'text/plain', bytes: 12 },
+  } as unknown as FileBlock
+}
+
 function invocation(
   agent: Agent,
   rawInput: string,
-  attachments: readonly ImageBlock[] = [],
+  attachments: readonly (ImageBlock | FileBlock)[] = [],
 ): CommandInvocation {
   return {
     commandId: 'command-test',
@@ -102,14 +109,15 @@ describe('Host annotation command', () => {
     expect(fake.followup).not.toHaveBeenCalled()
   })
 
-  it('appends admitted image blocks after the annotation text in one user message', () => {
+  it('appends admitted image and file blocks in their original order after the annotation text', () => {
     const fake = fakeAgent()
-    const images = [imageBlock('image-1'), imageBlock('image-2')]
+    const images = [imageBlock('image-1'), fileBlock('file-1'), imageBlock('image-2')]
     submitAnnotationPayload(fake.agent, fixturePayload(), images)
-    expect(fake.nextTurn[0]?.content).toHaveLength(3)
+    expect(fake.nextTurn[0]?.content).toHaveLength(4)
     expect(fake.nextTurn[0]?.content[0]).toMatchObject({ type: 'text' })
     expect(fake.nextTurn[0]?.content[1]).toBe(images[0])
     expect(fake.nextTurn[0]?.content[2]).toBe(images[1])
+    expect(fake.nextTurn[0]?.content[3]).toBe(images[2])
   })
 
   it('decodes the browser command and suppresses raw payload recording', async () => {
@@ -119,20 +127,21 @@ describe('Host annotation command', () => {
     const line = encodeSubmissionCommand(DEFAULT_CONFIG.commandName, payload)
     const rawInput = line.slice(line.indexOf(' ') + 1)
     expect(definition.recordInput).toBe(false)
-    expect(definition.input).toMatchObject({ images: true })
+    expect(definition.input).toMatchObject({ attachments: true })
     expect(definition.handler(invocation(fake.agent, rawInput))).toMatchObject({ kind: 'success' })
     expect(fake.nextTurn).toHaveLength(1)
   })
 
-  it('hands admitted durable image blocks to the handler', () => {
+  it('hands admitted durable image and file blocks to the handler', () => {
     const fake = fakeAgent()
     const payload = fixturePayload()
     const definition = createAnnotationCommand(DEFAULT_CONFIG)
     const line = encodeSubmissionCommand(DEFAULT_CONFIG.commandName, payload)
     const rawInput = line.slice(line.indexOf(' ') + 1)
-    const images = [imageBlock('image-1')]
+    const images = [imageBlock('image-1'), fileBlock('file-1')]
     definition.handler(invocation(fake.agent, rawInput, images))
     expect(fake.nextTurn[0]?.content[1]).toBe(images[0])
+    expect(fake.nextTurn[0]?.content[2]).toBe(images[1])
   })
 
   it('forwards legacy command aliases to the new handler without duplicate business code', () => {
@@ -144,6 +153,7 @@ describe('Host annotation command', () => {
       'inline_annotations_submit',
     ])
     for (const alias of aliases) {
+      expect(alias.input).toMatchObject({ attachments: true })
       const line = encodeSubmissionCommand(alias.name, payload)
       const rawInput = line.slice(line.indexOf(' ') + 1)
       expect(alias.handler(invocation(fake.agent, rawInput))).toMatchObject({ kind: 'success' })

@@ -31,7 +31,8 @@ import type {
   OutboxStatus,
   SubmissionId,
 } from '../../shared/types.ts'
-import { COMPOSER_ATTACHMENT_TOKEN, hasComposerAttachment } from '../composer-attachment.ts'
+import { hasComposerAttachment } from '../composer-attachment.ts'
+import { composerInput, createComposerFocus, type ComposerFocusRequest } from '../composer-focus.ts'
 import type { AnnotationBoundProps, InputAnnotationProps } from '../contract.ts'
 import type { AnnotationView, EditorState } from '../controller.ts'
 import { MapPin } from '../icons.ts'
@@ -884,9 +885,9 @@ function AnnotationPanel({
               <div>
                 <p>{t('error.send')}</p>
                 <code>{retry.payload.submissionId}</code>
-                {retry.images !== undefined && (
+                {(retry.attachments ?? retry.images) !== undefined && (
                   <p className="dia-inline-notice__detail">
-                    {t('error.imagesRequired', { count: retry.images.count })}
+                    {t('error.attachmentsRequired', { count: (retry.attachments ?? retry.images)?.count })}
                   </p>
                 )}
                 <button
@@ -1065,18 +1066,6 @@ function AnnotationPanel({
   )
 }
 
-interface ComposerCaret {
-  readonly start: number
-  readonly end: number
-  readonly direction: 'forward' | 'backward' | 'none' | null
-}
-
-function composerTextarea(shell: HTMLElement | null): HTMLTextAreaElement | null {
-  const card = shell?.closest<HTMLElement>('[data-composer-card]')
-  const textarea = card?.querySelector<HTMLTextAreaElement>('textarea')
-  return textarea ?? null
-}
-
 /** Composer dock list plus the Session-owned selection editor. */
 export function AnnotationDock({
   useAnnotations,
@@ -1092,12 +1081,14 @@ export function AnnotationDock({
   const archived = useWorkspaces((state) => state.archivedSessionIds.includes(sessionId))
   const localTools = useLocalTools((snapshot) => snapshot)
   const shellRef = useRef<HTMLElement>(null)
+  const composerAnchorRef = useRef<HTMLSpanElement>(null)
+  const composerFocus = useRef<ReturnType<typeof createComposerFocus> | null>(null)
   const previousOutbox = useRef<Map<SubmissionId, ObservedOutboxState> | null>(null)
   const toastSeq = useRef(0)
   const [submissionToast, setSubmissionToast] = useState<SubmissionToastState | null>(null)
   const [pendingFocus, setPendingFocus] = useState<{
-    textarea: HTMLTextAreaElement | null
-    caret: ComposerCaret | null
+    sessionId: typeof sessionId
+    request: ComposerFocusRequest
   } | null>(null)
   const failed = view.outbox.some((item) => item.status === 'failed')
   const dockVisible =
@@ -1129,6 +1120,13 @@ export function AnnotationDock({
   useEffect(() => {
     previousOutbox.current = null
     setSubmissionToast(null)
+    setPendingFocus(null)
+    const focus = createComposerFocus(() => composerInput(composerAnchorRef.current))
+    composerFocus.current = focus
+    return () => {
+      focus.dispose()
+      composerFocus.current = null
+    }
   }, [sessionId])
 
   useEffect(() => {
@@ -1147,81 +1145,42 @@ export function AnnotationDock({
    * 组件卸载（会话切换）时清理，绝不抢焦点；也不改写输入框已有文字。
    */
   useEffect(() => {
-    if (pendingFocus === null || view.editor !== null) return undefined
+    if (pendingFocus === null || pendingFocus.sessionId !== sessionId || view.editor !== null)
+      return undefined
     let cancelled = false
     let frame = 0
     void Promise.resolve().then(() => {
       if (cancelled) return
       frame = requestAnimationFrame(() => {
         if (cancelled) return
-        const captured = pendingFocus.textarea
-        const textarea =
-          captured !== null && captured.isConnected ? captured : composerTextarea(shellRef.current)
-        if (textarea === null || !textarea.isConnected) return
-        textarea.focus({ preventScroll: true })
-        const caret = pendingFocus.caret
-        if (caret === null) {
-          textarea.setSelectionRange(textarea.value.length, textarea.value.length)
-          return
-        }
-        textarea.setSelectionRange(
-          caret.start,
-          caret.end,
-          caret.direction === null ? 'none' : caret.direction,
-        )
+        composerFocus.current?.restore(pendingFocus.request)
+        setPendingFocus(null)
       })
     })
     return () => {
       cancelled = true
       cancelAnimationFrame(frame)
     }
-  }, [pendingFocus, view.editor])
+  }, [pendingFocus, sessionId, view.editor])
 
   const toggleAttachment = () => {
-    const active = document.activeElement
-    const textarea = active instanceof HTMLTextAreaElement ? active : null
-    const selection =
-      textarea === null
-        ? null
-        : {
-            start: textarea.selectionStart,
-            end: textarea.selectionEnd,
-            direction: textarea.selectionDirection,
-          }
-    if (!actions.toggleComposerAttachment() || textarea === null || selection === null) return
-    const offset = attached ? -COMPOSER_ATTACHMENT_TOKEN.length : COMPOSER_ATTACHMENT_TOKEN.length
-    requestAnimationFrame(() => {
-      if (!textarea.isConnected) return
-      textarea.focus({ preventScroll: true })
-      textarea.setSelectionRange(
-        Math.max(0, selection.start + offset),
-        Math.max(0, selection.end + offset),
-        selection.direction,
-      )
-    })
+    const request = composerFocus.current?.capture()
+    if (actions.toggleComposerAttachment() && request != null) setPendingFocus({ sessionId, request })
   }
 
   const saveEditor = () => {
     const isNew = view.editor?.kind === 'new'
     const shouldAttach = isNew && actions.autoAttachEnabled() && !archived && !attached
-    const caretElement = composerTextarea(shellRef.current)
-    const captured: ComposerCaret | null =
-      caretElement === null
-        ? null
-        : {
-            start: caretElement.selectionStart,
-            end: caretElement.selectionEnd,
-            direction: caretElement.selectionDirection,
-          }
+    const request = composerFocus.current?.capture()
     const annotationId = controllerSaveEditor()
     if (shouldAttach) actions.ensureComposerAttachment()
-    if (isNew) setPendingFocus({ textarea: caretElement, caret: captured })
+    if (isNew && request != null) setPendingFocus({ sessionId, request })
     return annotationId
   }
 
-  if (!dockVisible && view.editor === null) return null
   return (
     <>
+      <span ref={composerAnchorRef} hidden aria-hidden="true" />
       {dockVisible && (
         <AnnotationPanel
           view={view}

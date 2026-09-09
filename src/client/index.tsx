@@ -9,7 +9,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   CommandClaim,
   InputTriggerServiceContract,
-  SubmitImageAttachment,
+  SubmitAttachment,
   SubmitOutcome,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
@@ -22,7 +22,7 @@ import { ANNOTATION_SETTINGS_NAMESPACE, type AnnotationSettings } from '../share
 import type {
   AnnotationConfig,
   MessageIdentity,
-  OutboxImages,
+  OutboxAttachments,
   ProtocolLocale,
   SessionIdentity,
   SubmissionId,
@@ -41,6 +41,7 @@ import {
 import { AnnotationController, type AnnotationReconciliationSnapshot } from './controller.ts'
 import type { AnnotationInjected, UserAnnotationProps } from './contract.ts'
 import { AnnotationSettingsController } from './feature-toggle.ts'
+import { MarketUpdateController } from './market-update.ts'
 import { createFocusChatAdapter } from './focus-adapter.ts'
 import { HighlightManager } from './highlight.ts'
 import { AnnotationStorage } from './storage.ts'
@@ -103,19 +104,12 @@ interface CommandOutcome {
   readonly errorText: string
 }
 
-/** Structural mirror of the Host wire image shape; the plugin never depends on the attachment package. */
-interface WireImageAttachment {
-  readonly mediaType: string
-  readonly data: string
-  readonly name?: string
-}
-
 /** Structural mirror of the mounted `commands/execute` remote, typed without the attachment package. */
 interface CommandRemoteFace {
   execute(
     sessionId: SessionId,
     line: string,
-    images: readonly WireImageAttachment[],
+    attachments: readonly SubmitAttachment[],
     signal?: AbortSignal,
   ): Promise<{
     readonly ok: boolean
@@ -124,11 +118,13 @@ interface CommandRemoteFace {
   }>
 }
 
-/** Non-base64 image metadata retained on the outbox entry for refresh-safe retries. */
-function imageMetadata(images: readonly SubmitImageAttachment[]): OutboxImages | undefined {
-  if (images.length === 0) return undefined
+/** Retry metadata excludes image bytes and temporary file-upload receipts. */
+function attachmentMetadata(attachments: readonly SubmitAttachment[]): OutboxAttachments | undefined {
+  if (attachments.length === 0) return undefined
+  const images = attachments.filter((attachment) => attachment.type === 'image')
   return Object.freeze({
-    count: images.length,
+    count: attachments.length,
+    kinds: Object.freeze(attachments.map((attachment) => attachment.type)),
     mediaTypes: Object.freeze(images.map((image) => image.mediaType)),
     names: Object.freeze(images.map((image) => image.name ?? '').filter((name) => name !== '')),
   })
@@ -165,7 +161,9 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   const featureEnabled = settingsController.feature()
   const autoAttachEnabled = settingsController.autoAttach()
   const localToolsEnabled = settingsController.localTools()
+  const marketUpdateController = new MarketUpdateController()
   ctx.effect(() => () => settingsController.dispose(), 'dsh-annotation: settings controller')
+  ctx.effect(() => () => marketUpdateController.dispose(), 'dsh-annotation: market update controller')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-annotation: dictionaries')
   const annotationT = ctx.locale.bind(NS)
   ctx.effect(() => {
@@ -304,11 +302,11 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     return controller
   }
 
-  /** Execute one slash-command line through the Session-addressed command Remote, images included. */
+  /** Execute one slash-command line through the Session-addressed command Remote with ordered image and file attachments. */
   const executeCommand = async (
     targetId: SessionId,
     line: string,
-    images: readonly SubmitImageAttachment[],
+    attachments: readonly SubmitAttachment[],
   ): Promise<CommandOutcome> => {
     const binding = sessions.binding(targetId)
     if (binding === undefined) {
@@ -316,11 +314,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     }
     const remoteCommands = ctx.get('remote.commands') as CommandRemoteFace | undefined
     if (remoteCommands !== undefined) {
-      const result = await remoteCommands.execute(
-        targetId,
-        line,
-        images as unknown as readonly WireImageAttachment[],
-      )
+      const result = await remoteCommands.execute(targetId, line, attachments)
       if (!result.ok) return { ok: false, errorText: transportMessage(result) }
       const value = result.value
       if (value === undefined) return { ok: false, errorText: 'command was not matched' }
@@ -328,7 +322,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         return { ok: false, errorText: value.result.text ?? 'command failed' }
       return { ok: true, errorText: '' }
     }
-    if (images.length > 0) return { ok: false, errorText: 'image attachments are unavailable' }
+    if (attachments.length > 0) return { ok: false, errorText: 'attachments are unavailable' }
     const result = await binding.session.command(line)
     if (!result.ok) return { ok: false, errorText: transportMessage(result) }
     if (!result.value.matched) return { ok: false, errorText: 'command was not matched' }
@@ -338,7 +332,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   const submitAttached = async (
     origin: AnnotationController,
     overallRequirement: string,
-    images: readonly SubmitImageAttachment[],
+    attachments: readonly SubmitAttachment[],
     protocolLocale: ProtocolLocale,
   ): Promise<void> => {
     const snapshot = origin.getSnapshot()
@@ -348,20 +342,29 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       origin.setNotice('error', 'items')
       throw new Error(`annotation batch exceeds ${config.maxAnnotationsPerSubmission} annotations`)
     }
-    // A refresh loses browser-owned draft images: never silently resubmit a
-    // recorded image batch without images.
-    if (retry !== undefined && (retry.images?.count ?? 0) > 0 && images.length === 0) {
-      const count = retry.images?.count ?? 0
-      const message = annotationT('error.imagesRequired', { count })
-      origin.setNotice('error', message)
-      throw new Error(message)
+    // 刷新后附件由用户重新选择；数量或类型不符时不能丢弃原批次的附件继续发送。
+    const expectedAttachments = retry?.attachments ?? retry?.images
+    if (retry !== undefined) {
+      const count = expectedAttachments?.count ?? 0
+      const kinds = retry?.attachments?.kinds
+      const matches =
+        attachments.length === count &&
+        attachments.every((attachment, index) => attachment.type === (kinds?.[index] ?? 'image'))
+      if (!matches) {
+        const message =
+          count === 0
+            ? annotationT('error.retryAttachmentsAdded')
+            : annotationT('error.attachmentsRequired', { count })
+        origin.setNotice('error', message)
+        throw new Error(message)
+      }
     }
     const targetId = (retry?.targetSessionId ?? origin.sessionId) as unknown as SessionId
     const entry = origin.createOutbox(
       'queue',
       targetId as unknown as SessionIdentity,
       overallRequirement,
-      retry === undefined ? imageMetadata(images) : undefined,
+      retry === undefined ? attachmentMetadata(attachments) : undefined,
       protocolLocale,
     )
     const target = targetId === (origin.sessionId as unknown as SessionId) ? origin : controllerFor(targetId)
@@ -396,7 +399,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       outcome = await executeCommand(
         targetId,
         encodeSubmissionCommand(config.commandName, entry.payload),
-        images,
+        attachments,
       )
     } catch (cause: unknown) {
       const message = failureMessage(cause)
@@ -452,11 +455,11 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   const claimFor = (sessionId: SessionId): CommandClaim =>
     Object.freeze({
       token: COMPOSER_ATTACHMENT_TOKEN,
-      images: true,
+      attachments: true,
       async submit(
         args: string,
         actx: ClientContext,
-        images: readonly SubmitImageAttachment[],
+        attachments: readonly SubmitAttachment[],
       ): Promise<SubmitOutcome> {
         if (sessions.scopeOf(actx) !== sessionId) {
           return { kind: 'error', text: 'Annotation attachment belongs to another Session.' }
@@ -468,7 +471,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         // interface without creating an outbox or marking annotations sent.
         const visible = stripComposerToken(args.trim() === '' ? visibleComposerDraft(state) : args).trim()
         if (visible.startsWith('/')) {
-          return executeCommand(sessionId, visible, images).then(
+          return executeCommand(sessionId, visible, attachments).then(
             (outcome) =>
               outcome.ok ? { kind: 'success' as const } : { kind: 'error' as const, text: outcome.errorText },
             (cause: unknown) => ({ kind: 'error' as const, text: failureMessage(cause) }),
@@ -492,7 +495,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
             inputTriggers.sessionOf(actx),
             serialization.signal,
           )
-          await submitAttached(controller, overallRequirement, images, resolveProtocolLocale())
+          await submitAttached(controller, overallRequirement, attachments, resolveProtocolLocale())
           return { kind: 'success' }
         } catch (cause: unknown) {
           return { kind: 'error', text: failureMessage(cause) }
@@ -618,7 +621,11 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         name: 'settings.plugin.item',
         key: ANNOTATION_SETTINGS_NAMESPACE,
         locale: NS,
-        inject: () => settingsController.inject(),
+        inject: () => {
+          const settings = settingsController.inject()
+          const market = marketUpdateController.inject()
+          return { ...settings, ...market, hooks: { ...settings.hooks, ...market.hooks } }
+        },
       },
       AnnotationPluginCard,
     ),

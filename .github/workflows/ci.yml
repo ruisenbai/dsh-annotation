@@ -10,8 +10,47 @@ permissions:
   contents: read
 
 jobs:
+  host:
+    name: Pack official DSH baseline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: 5dda764ed3aa172535a7967b06ff95d9cbfe536a
+          path: .host-source
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.x
+          cache: pnpm
+          cache-dependency-path: .host-source/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: .host-source
+      - run: pnpm run build:official
+        working-directory: .host-source
+      - name: Pack official runtime families
+        working-directory: .host-source
+        run: |
+          pnpm run release:pack --family dsh --out "${RUNNER_TEMP}/dsh-pack" --concurrency 4
+          pnpm run release:pack --family vendor --out "${RUNNER_TEMP}/vendor-pack" --concurrency 4
+          pnpm --dir native/system/packages/entry pack --pack-destination "${RUNNER_TEMP}/native-pack"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: official-host-tarballs
+          path: |
+            ${{ runner.temp }}/dsh-pack/*.tgz
+            ${{ runner.temp }}/vendor-pack/*.tgz
+            ${{ runner.temp }}/native-pack/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
   verify:
     name: Node ${{ matrix.node }}
+    needs: host
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -19,35 +58,54 @@ jobs:
         node: ['22.19.0', '24.x']
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: 5dda764ed3aa172535a7967b06ff95d9cbfe536a
+          path: .host-source
+      - uses: actions/download-artifact@v7
+        with:
+          name: official-host-tarballs
+          path: ${{ runner.temp }}/host-tarballs
       - uses: pnpm/action-setup@v6
         with:
           version: 11.7.0
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile --strict-peer-dependencies --ignore-scripts
-      - run: pnpm typecheck
-      - run: pnpm lint
-      - run: pnpm format:check
-      - run: pnpm test
+      - name: Prepare isolated plugin verification
+        run: |
+          node scripts/prepare-source-verification.mjs --harness .host-source \
+            --from "${RUNNER_TEMP}/host-tarballs/dsh-pack" \
+            --from "${RUNNER_TEMP}/host-tarballs/vendor-pack" \
+            --from "${RUNNER_TEMP}/host-tarballs/native-pack" \
+            --out "${RUNNER_TEMP}/annotation-verification"
+      - run: pnpm install --no-frozen-lockfile --strict-peer-dependencies
+        working-directory: ${{ runner.temp }}/annotation-verification
+      - name: Format generated verification configuration
+        run: pnpm exec prettier --write pnpm-workspace.yaml package.json
+        working-directory: ${{ runner.temp }}/annotation-verification
+      - run: pnpm verify
+        working-directory: ${{ runner.temp }}/annotation-verification
       - name: Install Chromium
         if: matrix.node == '24.x'
         run: pnpm exec playwright install --with-deps chromium
+        working-directory: ${{ runner.temp }}/annotation-verification
       - name: Run browser regressions
         if: matrix.node == '24.x'
         run: pnpm test:browser
-      - run: pnpm build
-      - run: pnpm verify:bundle
-      - run: pnpm publint
+        working-directory: ${{ runner.temp }}/annotation-verification
+      - run: pnpm test:coverage
+        working-directory: ${{ runner.temp }}/annotation-verification
       - name: Pack release candidate
         if: matrix.node == '24.x'
         run: |
-          mkdir -p artifacts
-          pnpm pack --pack-destination artifacts
+          cp "${GITHUB_WORKSPACE}/package.json" package.json
+          pnpm --config.ignoreScripts=true pack --pack-destination artifacts
+        working-directory: ${{ runner.temp }}/annotation-verification
       - uses: actions/upload-artifact@v7
         if: matrix.node == '24.x'
         with:
           name: npm-package
-          path: artifacts/*.tgz
+          path: ${{ runner.temp }}/annotation-verification/artifacts/*.tgz
           if-no-files-found: error

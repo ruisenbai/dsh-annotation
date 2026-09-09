@@ -22,6 +22,7 @@ import {
   parseReplyMarkers,
   strippedOffset,
   stripMachineMarkers,
+  stripMachineMarkersForDisplay,
 } from '../../shared/model-ack.ts'
 import { replyHeadingNeedles } from '../../shared/protocol.ts'
 import type { AnnotationDraft, AnnotationId, MessageIdentity, TextQuoteSelector } from '../../shared/types.ts'
@@ -875,7 +876,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
               return (
                 <MarkdownText
                   key={`text:${index}`}
-                  text={stripMachineMarkers(block.text)}
+                  text={stripMachineMarkersForDisplay(block.text, data.status === 'running')}
                   streaming={data.status === 'running'}
                   labels={markdownLabels}
                   fileMentions={mentions}
@@ -885,7 +886,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
               return (
                 <AnnotationReasoningRow
                   key={`reasoning:${index}`}
-                  text={stripMachineMarkers(block.text)}
+                  text={stripMachineMarkersForDisplay(block.text, data.status === 'running')}
                   running={data.status === 'running' && index === data.blocks.length - 1}
                   t={t}
                 />

@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { TextDecoder } from 'node:util'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandDefinition, CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { FileBlock, ImageBlock } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import {
   formatSubmissionMessage,
@@ -62,7 +62,7 @@ function hasMessage(agent: Agent, messageId: string): boolean {
 
 function createAnnotationMessage(
   payload: AnnotationSubmissionPayload,
-  images: readonly ContentBlock[],
+  attachments: readonly (ImageBlock | FileBlock)[],
 ): UserMessage {
   const source: AnnotationMessageSource = Object.freeze({
     kind: 'user',
@@ -71,7 +71,7 @@ function createAnnotationMessage(
   return Object.freeze({
     id: submissionMessageId(payload.submissionId) as unknown as UserMessage['id'],
     role: 'user',
-    content: [{ type: 'text' as const, text: formatSubmissionMessage(payload) }, ...images],
+    content: [{ type: 'text' as const, text: formatSubmissionMessage(payload) }, ...attachments],
     source,
   })
 }
@@ -80,14 +80,14 @@ function createAnnotationMessage(
 export function submitAnnotationPayload(
   agent: Agent,
   payload: AnnotationSubmissionPayload,
-  images: readonly ContentBlock[] = [],
+  attachments: readonly (ImageBlock | FileBlock)[] = [],
 ): { readonly duplicate: boolean; readonly messageId: string } {
   if (String(agent.id) !== payload.sessionId) {
     throw new Error(`annotation payload targets session ${payload.sessionId}, not ${String(agent.id)}`)
   }
   const messageId = submissionMessageId(payload.submissionId)
   if (hasMessage(agent, messageId)) return Object.freeze({ duplicate: true, messageId })
-  const message = createAnnotationMessage(payload, images)
+  const message = createAnnotationMessage(payload, attachments)
   if (payload.delivery === 'steer') agent.steer(message)
   else agent.followup(message)
   return Object.freeze({ duplicate: false, messageId })
@@ -98,7 +98,7 @@ export function createAnnotationCommand(config: AnnotationConfig): CommandDefini
   return Object.freeze({
     name: config.commandName,
     description: 'Submit an idempotent batch of annotations for an earlier assistant reply',
-    input: { hint: '<internal-base64url-payload>', images: true },
+    input: { hint: '<internal-base64url-payload>', attachments: true },
     recordInput: false,
     handler(invocation: CommandInvocation): CommandResult {
       if (invocation.signal.aborted) {
@@ -122,7 +122,7 @@ export function createLegacyAnnotationAliases(config: AnnotationConfig): readonl
       Object.freeze({
         name,
         description: 'Compatibility alias for the internal annotation submission command',
-        input: { hint: '<internal-base64url-payload>', images: true },
+        input: { hint: '<internal-base64url-payload>', attachments: true },
         recordInput: false,
         handler(invocation: CommandInvocation) {
           return primary.handler(invocation)

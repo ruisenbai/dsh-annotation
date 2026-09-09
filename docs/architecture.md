@@ -119,6 +119,12 @@ The Host registers a `dsh-annotation` settings namespace whose `enabled`, `autoA
 
 Disabling the feature removes any armed zero-width composer claim while retaining visible draft text, disposes every conversation renderer, dock, action, and command-view registration, and clears CSS Custom Highlights. Controllers, local drafts, editor recovery state, outbox entries, and durable-history reconstruction stay alive. Enabling the feature installs the same contribution group again and reuses the existing controllers. When disable lands while the official composer is submitting, the claim cannot be consumed yet; the Client subscribes to that input and releases the claim as soon as the phase leaves `submitting`, cancelling the subscription if the feature is re-enabled first.
 
+## Marketplace update lifecycle
+
+The settings card owns a separate `MarketUpdateController`. A user-triggered check first requests `/dsh-market/api/v1/capabilities`, requires schema `dsh-market/update-api/v1`, and validates every advertised endpoint as a same-origin `/dsh-market/api/v1/*` path. No update control becomes active before discovery. The Client then checks only `dsh-annotation`, starts one operation, and polls its operation id until dsh-market reports a terminal state. Package source selection, release-age policy, installation, activation, rollback recovery, and process ownership remain dsh-market responsibilities.
+
+The controller projects installed and latest versions, progress, bounded failure text, rollback availability, refresh need, and restart need into an identity-stable snapshot store. Force becomes available only for `RELEASE_TOO_FRESH` and `VERSION_UNCHANGED`. Rollback is operation-scoped. Host restart is visible only when capability discovery reports both the restart feature and a supported restart owner; otherwise the card names the external lifecycle owner. When discovery fails, the card directs the user to Plugin Market and calls no legacy route. Plugin disposal aborts fetch and polling work before the Client fiber settles.
+
 ## Slot composition
 
 DSH currently has no additive slot inside `AssistantMarkdown`. The Client therefore uses two composition mechanisms:
@@ -131,12 +137,13 @@ DSH currently has no additive slot inside `AssistantMarkdown`. The Client theref
 
 The assistant integration reads the Slot ledger through `ctx.slots.entries()`, wraps each existing `assistant-step` component, and composes its `inject` result rather than registering another keyed occupant. The original renderer remains responsible for Markdown, Think, images, streaming, interruption state, and any renderer-specific behavior. The outer annotation layer owns selection roots, the action bar, highlights, reply chips, and quote markers. It rebuilds ranges and geometry when the inner renderer changes its DOM. A `slots/changed` listener handles assistant entries added later; disable and unload restore each component and inject factory when they are still owned by this decorator. Because the plugin adds no `assistant-step` occupant and no keyed slot, it composes with dsh-smooth-stream.
 
-Lower priority wins in DSH keyed slots. The user and steering replacements use public `MessageText` and the official image renderer. Additive entries are used where available:
+Lower priority wins in DSH keyed slots. The user and steering replacements use public `projectUserText` with the Host's reference labels and skill names, the official image renderer, and file name/size cards. Additive entries are used where available:
 
 - `conversation.input.dock` for the grouped task-style annotation list, the header attachment toggle, local-data controls, and the compact selection-positioned editor;
 - `conversation.chat.assistant-actions` for a keyboard-accessible whole-reply annotation action;
 - `conversation.chat.commandview:<commandName>` to suppress the transport command's redundant timeline card. Registrations under both pre-rename command names keep durable rows recorded by earlier versions out of the visible timeline;
 - `settings.plugin.item:dsh-annotation` for the Host-backed enablement and automatic-attachment preferences under the Plugins settings section.
+- the same `settings.plugin.item:dsh-annotation` card for the optional public dsh-market update flow; it adds no Market Slot and requires no Host-side Market dependency.
 
 Conversation registrations also dispose when the enabled preference is off. Every registration, locale dictionary, style element, controller, subscription, and highlight is disposed with the Cordis fiber.
 
