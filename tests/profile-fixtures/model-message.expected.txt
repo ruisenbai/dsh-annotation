@@ -1,0 +1,26 @@
+[DSH annotation submission]
+Submission ID: profile-submission
+Reply annotations: 1
+
+Overall requirement:
+Clarify the local document.
+
+Respond to every annotation in order.
+Start each section with "Annotation N:".
+Do not merge different annotations.
+"Highlight only" means reviewing and responding to the selected text; never skip an item because its annotation content is empty.
+Emit the annotation’s hidden association marker (an HTML comment, invisible to the user) before each section.
+
+<!-- dsh-annotation-reply:{"submissionId":"profile-submission","annotationId":"profile-note","ordinal":1} -->
+Annotation 1 (profile-note)
+Reply message: <assistant-message>
+Reply event seq: <assistant-seq>
+Selected text:
+Selected source
+User annotation:
+Explain this claim.
+
+Processing acknowledgement:
+Only include annotation ids you actually handled in processed; append one hidden HTML comment at the end of the reply:
+<!-- dsh-annotation:{"submissionId":"profile-submission","processed":["annotation-id"]} -->
+Do not include annotation ids in processed unless your answer addresses them.

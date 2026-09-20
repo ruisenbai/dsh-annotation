@@ -1,0 +1,7 @@
+version: 1
+scenario: transcript-visibility
+profile: web
+composition: web-annotation
+recording: authored
+header:
+  class: annotation-transcript-visibility

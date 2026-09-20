@@ -18,8 +18,7 @@ class MemoryStorage {
   }
 }
 
-function capture(start = 5, end = 11): SelectionCapture {
-  const messageId = 'assistant-1' as MessageIdentity
+function capture(start = 5, end = 11, messageId = 'assistant-1' as MessageIdentity): SelectionCapture {
   return {
     messageId,
     messageSeq: 20,
@@ -252,7 +251,7 @@ describe('annotation controller', () => {
         editorSaveStatus: 'saved',
         storageAvailable: true,
       })
-      expect(controller.getSnapshot().storageBytes).toBeGreaterThan(0)
+      expect([...memory.values.values()].join('')).toContain('Recovered after refresh')
 
       const restored = harness(memory).controller
       expect(restored.getSnapshot().editor).toMatchObject({
@@ -261,6 +260,50 @@ describe('annotation controller', () => {
       })
       restored.dispose()
     } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('retains unsaved edits and storage feedback until a later write recovers', () => {
+    const { controller, memory } = harness()
+    const setItem = vi.spyOn(memory, 'setItem')
+    vi.useFakeTimers()
+    try {
+      const id = saveDraft(controller)
+      controller.openAnnotation(id)
+      const stored = new Map(memory.values)
+      setItem.mockImplementationOnce(() => {
+        throw new Error('quota exceeded')
+      })
+      controller.updateEditorText('Retained while storage is unavailable')
+      vi.advanceTimersByTime(400)
+      expect(controller.getSnapshot()).toMatchObject({
+        editor: { kind: 'edit', annotationId: id, text: 'Retained while storage is unavailable' },
+        editorSaveStatus: 'error',
+        storageAvailable: false,
+        notice: { level: 'error', text: 'storage' },
+      })
+      expect(memory.values).toEqual(stored)
+
+      controller.setPanelOpen(true)
+      expect(controller.getSnapshot().notice).toEqual({ level: 'error', text: 'storage' })
+      expect(memory.values).toEqual(stored)
+      controller.updateEditorText('Recovered after storage retry')
+      vi.advanceTimersByTime(400)
+      expect(controller.getSnapshot()).toMatchObject({
+        editorSaveStatus: 'saved',
+        storageAvailable: true,
+        notice: null,
+      })
+      expect(new AnnotationStorage(memory, controller.sessionId).load().editorDraft).toMatchObject({
+        kind: 'edit',
+        annotationId: id,
+        text: 'Recovered after storage retry',
+      })
+      expect(controller.getSnapshot().annotations[0]?.annotation).toBe('Please revise this sentence.')
+    } finally {
+      setItem.mockRestore()
       controller.dispose()
       vi.useRealTimers()
     }
@@ -466,8 +509,14 @@ describe('annotation controller', () => {
     const reveal = vi.fn()
     const annotateAll = vi.fn()
     controller.registerEndpoint('assistant-1' as MessageIdentity, { reveal, annotateAll })
+    controller.openAnnotation(id, 'marker')
+    expect(controller.getSnapshot().activeAnnotationId).toBe(id)
     await expect(controller.navigate(id)).resolves.toBe(true)
-    expect(reveal).toHaveBeenCalledWith(id)
+    expect(reveal).toHaveBeenCalledWith(id, 1)
+    expect(controller.getSnapshot()).toMatchObject({ activeAnnotationId: null, navigationEpoch: 1 })
+    await expect(controller.navigate(id)).resolves.toBe(true)
+    expect(reveal).toHaveBeenLastCalledWith(id, 2)
+    expect(controller.getSnapshot().navigationEpoch).toBe(2)
 
     const missing = harness()
     const missingId = saveDraft(missing.controller)
@@ -477,6 +526,43 @@ describe('annotation controller', () => {
       missing.navigation.state.hasMore = false
     })
     await expect(missing.controller.navigate(missingId)).resolves.toBe(true)
+  })
+
+  it('lets a newer navigation supersede an older history load without a stale reveal', async () => {
+    const { controller, navigation } = harness()
+    const firstId = saveDraft(controller)
+    controller.beginSelection(capture(5, 11, 'assistant-2' as MessageIdentity))
+    controller.updateEditorText('Revise the second source.')
+    const secondId = controller.saveEditor()
+    const revealFirst = vi.fn()
+    const revealSecond = vi.fn()
+    controller.registerEndpoint('assistant-2' as MessageIdentity, {
+      reveal: revealSecond,
+      annotateAll: vi.fn(),
+    })
+    let releaseOlder!: () => void
+    const olderLoaded = new Promise<void>((resolve) => {
+      releaseOlder = resolve
+    })
+    navigation.state.hasMore = true
+    navigation.loadOlder.mockImplementationOnce(async () => {
+      await olderLoaded
+      return undefined
+    })
+
+    const firstNavigation = controller.navigate(firstId)
+    expect(navigation.loadOlder).toHaveBeenCalledOnce()
+    await expect(controller.navigate(secondId)).resolves.toBe(true)
+    expect(revealSecond).toHaveBeenCalledWith(secondId, 2)
+    controller.registerEndpoint('assistant-1' as MessageIdentity, {
+      reveal: revealFirst,
+      annotateAll: vi.fn(),
+    })
+    releaseOlder()
+
+    await expect(firstNavigation).resolves.toBe(false)
+    expect(revealFirst).not.toHaveBeenCalled()
+    expect(controller.getSnapshot()).toMatchObject({ navigationEpoch: 2, notice: null })
   })
 
   it('waits for the mounted endpoint after a history page lands instead of failing a sync check', async () => {
@@ -493,7 +579,8 @@ describe('annotation controller', () => {
       }, 30)
     })
     await expect(missing.controller.navigate(missingId)).resolves.toBe(true)
-    expect(reveal).toHaveBeenCalledWith(missingId)
+    expect(reveal).toHaveBeenCalledOnce()
+    expect(reveal).toHaveBeenCalledWith(missingId, 1)
   })
 
   it('fails closed when the target message never mounts within the history window', async () => {
@@ -525,23 +612,105 @@ describe('annotation controller', () => {
     expect(controller.getSnapshot().deletedDraft).toBeNull()
   })
 
-  it('exports local recovery state and clears only unsubmitted drafts', () => {
-    const { controller } = harness()
-    saveDraft(controller)
-    controller.setOverallRequirementDraft('Rewrite all examples.')
-    const exported = JSON.parse(controller.exportLocalData()) as Record<string, unknown>
-    expect(exported).toMatchObject({ storageVersion: 2, overallRequirementDraft: 'Rewrite all examples.' })
-    expect(exported.annotations).toHaveLength(1)
+  it('restores drafts, editor text, queued work, and history without local-data management APIs', () => {
+    const { controller, memory } = harness()
+    try {
+      saveDraft(controller)
+      const sent = controller.createOutbox('queue', controller.sessionId)
+      const sentNode = { kind: 'user', data: { source: { kind: 'user', inlineComments: sent.payload } } }
+      controller.reconcile(snapshot([sentNode]))
 
-    controller.clearLocalDrafts()
-    expect(controller.getSnapshot()).toMatchObject({
-      annotations: [],
-      overallRequirementDraft: '',
-      editor: null,
-      deletedDraft: null,
-    })
-    expect(controller.getSnapshot().storageBytes).toBeGreaterThan(0)
+      controller.beginSelection(capture(20, 26))
+      controller.updateEditorText('Queued annotation')
+      controller.saveEditor()
+      const queued = controller.createOutbox('queue', controller.sessionId)
+      controller.reconcile(snapshot([sentNode], [{ messageId: queued.messageId }]))
+
+      controller.beginSelection(capture(30, 36))
+      controller.updateEditorText('Independent draft')
+      const draftId = controller.saveEditor()
+      controller.beginSelection(capture(40, 46))
+      controller.updateEditorText('Unfinished editor text')
+      controller.setOverallRequirementDraft('Rewrite all examples.')
+      const expected = controller.getSnapshot()
+      const stored = new Map(memory.values)
+      expect(expected.annotations.map((item) => item.status)).toEqual(['sent', 'queued', 'draft'])
+
+      const restored = harness(memory).controller
+      try {
+        expect(restored).not.toHaveProperty('exportLocalData')
+        expect(restored).not.toHaveProperty('clearLocalDrafts')
+        expect(restored.getSnapshot()).not.toHaveProperty('storageBytes')
+        expect(restored.getSnapshot()).toMatchObject({
+          annotations: expected.annotations,
+          outbox: expected.outbox,
+          editor: expected.editor,
+          overallRequirementDraft: expected.overallRequirementDraft,
+          storageAvailable: true,
+        })
+        expect(memory.values).toEqual(stored)
+
+        restored.deleteDraft(draftId)
+        expect(restored.getSnapshot()).toMatchObject({
+          annotations: expected.annotations.filter((item) => item.annotationId !== draftId),
+          outbox: expected.outbox,
+          editor: expected.editor,
+          overallRequirementDraft: expected.overallRequirementDraft,
+        })
+        restored.undoDelete()
+        expect(restored.getSnapshot().annotations).toEqual(expected.annotations)
+        expect(new AnnotationStorage(memory, controller.sessionId).load()).toEqual({
+          storageVersion: 2,
+          annotations: expected.annotations,
+          outbox: expected.outbox,
+          editorDraft: expected.editor,
+          overallRequirementDraft: expected.overallRequirementDraft,
+        })
+      } finally {
+        restored.dispose()
+      }
+    } finally {
+      controller.dispose()
+    }
   })
+
+  it.each(['queued', 'sent', 'processed'] as const)(
+    'rejects per-item deletion of %s annotations without changing persisted records',
+    (status) => {
+      const { controller, memory } = harness()
+      try {
+        const id = saveDraft(controller)
+        const entry = controller.createOutbox('queue', controller.sessionId)
+        if (status !== 'queued') {
+          const nodes: unknown[] = [
+            { kind: 'user', data: { source: { kind: 'user', inlineComments: entry.payload } } },
+          ]
+          if (status === 'processed') {
+            nodes.push({
+              kind: 'assistant-step',
+              data: {
+                blocks: [
+                  {
+                    kind: 'text',
+                    text: `<!-- dsh-inline-comments:{"submissionId":"${entry.payload.submissionId}","processed":["${id}"]} -->`,
+                  },
+                ],
+              },
+            })
+          }
+          controller.reconcile(snapshot(nodes))
+        }
+        const before = controller.getSnapshot()
+        const stored = new Map(memory.values)
+        expect(before.annotations[0]?.status).toBe(status)
+        expect(() => controller.deleteDraft(id)).toThrow('only draft annotations can be deleted')
+        expect(controller.getSnapshot()).toBe(before)
+        expect(memory.values).toEqual(stored)
+      } finally {
+        controller.dispose()
+      }
+    },
+  )
 
   it('withdraws queued work back to editable drafts', () => {
     const { controller } = harness()

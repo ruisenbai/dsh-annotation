@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createElement } from 'react'
+import { cleanup, render } from '@testing-library/react'
+import { MarkdownDelegateProvider, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+
+afterEach(cleanup)
 import {
   captureSelection,
   rangeFromSelector,
@@ -82,6 +87,68 @@ describe('DOM selection capture', () => {
     }
     expect(rangeFromSelector(root, selector)?.toString()).toBe('world')
     expect(rangeFromSelector(root, { ...selector, exact: 'missing' })).toBeNull()
+  })
+
+  it('captures and restores local Markdown link labels without including operation buttons', () => {
+    const root = document.querySelector('#root') as HTMLElement
+    root.innerHTML =
+      '<p>Before <button type="button" class="_fileMention_abc _fileLink_abc" title="src/a.ts"><svg aria-hidden="true"><title>icon</title></svg><strong>source</strong></button> after.</p><button title="Copy" class="_copyButton_abc">Copy</button><button title="src/b.ts" class="_fileMention_abc">inline code link</button>'
+    const label = root.querySelector('strong')!.firstChild!
+    const onlyLink = withRect(document.createRange())
+    onlyLink.setStart(label, 0)
+    onlyLink.setEnd(label, 6)
+    const quote = captureSelection(root, onlyLink, 'message-1' as MessageIdentity, 7).quote
+    expect(quote).toMatchObject({ exact: 'source', start: 7, end: 13 })
+    expect(rangeFromSelector(root, quote)?.toString()).toBe('source')
+    expect(
+      selectableTextNodes(root)
+        .map((node) => node.data)
+        .join(''),
+    ).toBe('Before source after.')
+
+    const paragraph = root.querySelector('p')!
+    const across = withRect(document.createRange())
+    across.selectNodeContents(paragraph)
+    expect(captureSelection(root, across, 'message-1' as MessageIdentity, 7).quote.exact).toBe(
+      'Before source after.',
+    )
+    const legacyQuote = { exact: 'source after.', prefix: 'Before ', suffix: '', start: 7, end: 20 }
+    expect(rangeFromSelector(root, legacyQuote)?.toString()).toBe('source after.')
+
+    root.querySelector('strong')!.setAttribute('data-dsh-annotation-ignore', 'true')
+    expect(
+      selectableTextNodes(root)
+        .map((node) => node.data)
+        .join(''),
+    ).not.toContain('source')
+  })
+
+  it('keeps baseline quotes when Harness replaces local-link text with its file-link button', () => {
+    const text = 'Before [source](src/a.ts#L24) after.'
+    const labels = { code: { copyLabel: 'Copy', copiedLabel: 'Copied' }, footnotes: 'Footnotes' }
+    const { container, rerender } = render(createElement(MarkdownText, { text, labels }))
+    const paragraph = container.querySelector('p')!
+    const baseline = withRect(document.createRange())
+    baseline.selectNodeContents(paragraph)
+    const quote = captureSelection(container, baseline, 'message-1' as MessageIdentity, 7).quote
+    expect(quote.exact).toBe('Before source after.')
+
+    rerender(
+      createElement(MarkdownDelegateProvider, {
+        openFile: () => undefined,
+        children: createElement(MarkdownText, { text, labels }),
+      }),
+    )
+    const link = container.querySelector('button[title="src/a.ts"]')!
+    expect(link).not.toBeNull()
+    const label = [...selectableTextNodes(container)].find((node) => node.data === 'source')!
+    const selected = withRect(document.createRange())
+    selected.setStart(label, 0)
+    selected.setEnd(label, label.length)
+    expect(captureSelection(container, selected, 'message-1' as MessageIdentity, 7).quote.exact).toBe(
+      'source',
+    )
+    expect(rangeFromSelector(container, quote)?.toString()).toBe('Before source after.')
   })
 
   it('captures code language and line coordinates', () => {

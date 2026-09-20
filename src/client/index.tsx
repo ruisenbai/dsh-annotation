@@ -1,6 +1,7 @@
 /** Browser half: selection capture, durable provenance cards, and local draft recovery. */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { InboxState } from '@deepseek-ai/dsh-agent/types'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client'
@@ -49,11 +50,22 @@ import type { StorageLike } from './storage.ts'
 import { styles } from './styles.ts'
 import { en, zh } from './locales.ts'
 import { decorateAssistantRenderers } from './assistant-renderer-decorator.tsx'
+import {
+  decorateTranscriptNodes,
+  decorateTranscriptView,
+  type TranscriptVisibilityInjected,
+} from './transcript-renderer.tsx'
+import { createTranscriptPresentation } from './transcript-visibility.ts'
 import { AnnotatedUserNode } from './components/AnnotatedUserNode.tsx'
 import { AnnotationDock } from './components/AnnotationDock.tsx'
 import { AssistantAnnotationAction } from './components/AssistantAnnotationAction.tsx'
 import { HiddenCommandRow } from './components/HiddenCommandRow.tsx'
 import { AnnotationPluginCard } from './components/AnnotationPluginCard.tsx'
+
+/** Project only withdrawable turn entries, preserving an unavailable Inbox as unknown. */
+function annotationQueue(inbox: InboxState | undefined): AnnotationReconciliationSnapshot['queue'] {
+  return inbox?.['next-turn'].map((message) => ({ messageId: message.id }))
+}
 
 const NS = 'dshAnnotation'
 const EMPTY_CHAT_NODES: AnnotationReconciliationSnapshot['chat']['nodes'] = {
@@ -133,6 +145,7 @@ function attachmentMetadata(attachments: readonly SubmitAttachment[]): OutboxAtt
 /** Mount every UI contribution and bind one controller to each encountered Session. */
 export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): void {
   const config = resolveConfig(input)
+  const transcriptPresentation = createTranscriptPresentation([config.commandName, ...LEGACY_COMMAND_NAMES])
   const sessions = ctx.sessions as unknown as ISessions
   const conversation = ctx.conversation as unknown as IConversation
   const inputTriggers = ctx.inputTriggers as unknown as InputTriggerServiceContract
@@ -160,12 +173,22 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   )
   const featureEnabled = settingsController.feature()
   const autoAttachEnabled = settingsController.autoAttach()
-  const localToolsEnabled = settingsController.localTools()
+  const compactSummaryEnabled = settingsController.compactSummary()
   const marketUpdateController = new MarketUpdateController()
   ctx.effect(() => () => settingsController.dispose(), 'dsh-annotation: settings controller')
   ctx.effect(() => () => marketUpdateController.dispose(), 'dsh-annotation: market update controller')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-annotation: dictionaries')
   const annotationT = ctx.locale.bind(NS)
+  const transcriptFace: TranscriptVisibilityInjected = {
+    hooks: {
+      annotationTranscriptVisibility: settingsController.transcriptVisibility(),
+      annotationNormalTranscriptView: {
+        getSnapshot: () => 'normal',
+        subscribe: () => () => undefined,
+      },
+    },
+    annotationTranscriptT: annotationT,
+  }
   ctx.effect(() => {
     const style = document.createElement('style')
     style.dataset.dshAnnotation = 'true'
@@ -271,27 +294,38 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       config,
     )
     const chat = ctx.uiConversation.binding(binding).target('chat')
+    const inboxFace = binding.session.projections.faceOf('inbox')
     let reconciledSession: ReturnType<typeof binding.session.getSnapshot> | undefined
     let reconciledChat: ChatSnapshot | undefined
+    let reconciledInbox: InboxState | undefined
     const reconcile = () => {
       const sessionSnapshot = binding.session.getSnapshot()
       const chatSnapshot = chat.getSnapshot()
-      if (sessionSnapshot === reconciledSession && chatSnapshot === reconciledChat) return
+      const inbox = inboxFace.getSnapshot() as InboxState | undefined
+      if (
+        sessionSnapshot === reconciledSession &&
+        chatSnapshot === reconciledChat &&
+        inbox === reconciledInbox
+      )
+        return
       reconciledSession = sessionSnapshot
       reconciledChat = chatSnapshot
+      reconciledInbox = inbox
       controller.reconcile({
         chat: { nodes: chatSnapshot?.nodes ?? EMPTY_CHAT_NODES },
-        queue: sessionSnapshot.queue,
+        queue: annotationQueue(inbox),
         hasMore: sessionSnapshot.hasMore,
       })
       syncMirrors(controller)
     }
     const unsubscribeSession = binding.session.subscribe(reconcile)
     const unsubscribeChat = chat.subscribe(reconcile)
+    const unsubscribeInbox = inboxFace.subscribe(reconcile)
     controllers.set(sessionId, {
       controller,
       commandReleased: false,
       dispose: () => {
+        unsubscribeInbox()
         unsubscribeChat()
         unsubscribeSession()
         controller.dispose()
@@ -426,6 +460,13 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       return
     }
     const target = targetId === (origin.sessionId as unknown as SessionId) ? origin : controllerFor(targetId)
+    const inbox = binding.session.projections.faceOf('inbox').getSnapshot() as InboxState | undefined
+    if (inbox === undefined) return
+    if (!inbox['next-turn'].some((message) => message.id === String(entry.messageId))) {
+      origin.markQueueClaimed(submissionId)
+      if (target !== origin) target.markQueueClaimed(submissionId)
+      return
+    }
     const result = await binding.session.updateQueue(entry.messageId as unknown as MessageId, {
       kind: 'remove',
     })
@@ -435,7 +476,9 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         const chatSnapshot = ctx.uiConversation.binding(binding).target('chat').getSnapshot()
         target.reconcile({
           chat: { nodes: chatSnapshot?.nodes ?? EMPTY_CHAT_NODES },
-          queue: sessionSnapshot.queue,
+          queue: annotationQueue(
+            binding.session.projections.faceOf('inbox').getSnapshot() as InboxState | undefined,
+          ),
           hasMore: sessionSnapshot.hasMore,
         })
         if (target !== origin) {
@@ -454,6 +497,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
 
   const claimFor = (sessionId: SessionId): CommandClaim =>
     Object.freeze({
+      name: config.commandName,
       token: COMPOSER_ATTACHMENT_TOKEN,
       attachments: true,
       async submit(
@@ -585,7 +629,10 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   const faceFor = (sessionId: SessionId): AnnotationInjected => {
     const controller = controllerFor(sessionId)
     return {
-      hooks: { annotations: controller, localTools: localToolsEnabled },
+      hooks: {
+        annotations: controller,
+        compactSummary: compactSummaryEnabled,
+      },
       annotationT,
       beginSelection: (capture) => controller.beginSelection(capture),
       openAnnotation: (annotationId, presentation) => controller.openAnnotation(annotationId, presentation),
@@ -596,8 +643,6 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       deleteDraft: (annotationId) => controller.deleteDraft(annotationId),
       undoDelete: () => controller.undoDelete(),
       dismissDeleteUndo: () => controller.dismissDeleteUndo(),
-      exportLocalData: () => controller.exportLocalData(),
-      clearLocalDrafts: () => controller.clearLocalDrafts(),
       setPanelOpen: (open) => controller.setPanelOpen(open),
       autoAttachEnabled: () => autoAttachEnabled.getSnapshot(),
       ensureComposerAttachment: () => ensureComposerAttachment(sessionId),
@@ -615,11 +660,13 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     }
   }
 
-  ctx.slots.inject('settings.plugin.item', () =>
+  ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
       {
-        name: 'settings.plugin.item',
-        key: ANNOTATION_SETTINGS_NAMESPACE,
+        name: 'settings.section',
+        id: ANNOTATION_SETTINGS_NAMESPACE,
+        order: 22,
+        label: () => annotationT('settings.title'),
         locale: NS,
         inject: () => {
           const settings = settingsController.inject()
@@ -633,8 +680,9 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
 
   const installConversationIntegrations = (): (() => void) => {
     const disposers = [
+      ctx.slots.inject('conversation.view', () => decorateTranscriptView(ctx)),
       ctx.slots.inject('conversation.chat.node', () => {
-        const restoreAssistantRenderers = decorateAssistantRenderers(ctx, faceFor)
+        const restoreAssistantRenderers = decorateAssistantRenderers(ctx, faceFor, transcriptPresentation)
         const removeUser = ctx.slots.register(
           {
             name: 'conversation.chat.node',
@@ -655,8 +703,10 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
           },
           SteeringNode,
         )
+        const restoreTranscriptNodes = decorateTranscriptNodes(ctx, transcriptPresentation)
         return () => {
-          // 先还原组件，再借后续注销事件刷新 Slot 视图，避免留下旧包装。
+          // Restore both decorators before unregistering rows can notify their listeners.
+          restoreTranscriptNodes()
           restoreAssistantRenderers()
           removeSteering()
           removeUser()
@@ -707,8 +757,13 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         ),
       ]),
     ]
+    const removeTranscriptSources = ctx.slots.provideRoot({
+      hooks: transcriptFace.hooks,
+      props: { annotationTranscriptT: transcriptFace.annotationTranscriptT },
+    })
     return () => {
       for (const dispose of disposers.reverse()) dispose()
+      removeTranscriptSources()
     }
   }
 

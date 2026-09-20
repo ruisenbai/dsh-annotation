@@ -1,0 +1,10 @@
+# Assistant bodies
+First step body stays visible.
+Second step body stays visible.
+Third step body stays visible.
+Final reply body stays visible.
+
+# Hidden activity counts
+think x 3
+读取 x 2
+Glob x 3

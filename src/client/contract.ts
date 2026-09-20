@@ -6,8 +6,8 @@ import type { AnnotationId, MessageIdentity, SubmissionId } from '../shared/type
 export interface AnnotationInjected {
   readonly hooks: {
     readonly annotations: HostObservable<AnnotationView>
-    /** 本地数据控件显示开关（响应式，设置变化即时生效）。 */
-    readonly localTools: HostObservable<boolean>
+    /** 汇总条紧凑布局开关，Host 接受设置后响应式更新。 */
+    readonly compactSummary: HostObservable<boolean>
   }
   /** 注解界面的翻译函数，避免覆盖原消息渲染器自己的 t。 */
   readonly annotationT: PropsLocale<'dshAnnotation'>['t']
@@ -20,8 +20,6 @@ export interface AnnotationInjected {
   readonly deleteDraft: (annotationId: AnnotationId) => void
   readonly undoDelete: () => void
   readonly dismissDeleteUndo: () => void
-  readonly exportLocalData: () => string
-  readonly clearLocalDrafts: () => void
   readonly setPanelOpen: (open: boolean) => void
   /** 当前是否需要在新增注解后自动附着。 */
   readonly autoAttachEnabled: () => boolean

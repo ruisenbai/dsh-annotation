@@ -7,9 +7,16 @@ import type { StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AnnotationBoundProps, AnnotationInjected, AssistantAnnotationProps } from './contract.ts'
 import { AnnotatedAssistantNode } from './components/AnnotatedAssistantNode.tsx'
 import { stripMachineMarkersForDisplay } from '../shared/model-ack.ts'
+import {
+  TranscriptHiddenNode,
+  TranscriptSummary,
+  useTranscriptPresentation,
+  type TranscriptVisibilityProps,
+} from './transcript-renderer.tsx'
+import { createTranscriptPresentation, type TranscriptPresentation } from './transcript-visibility.ts'
 
 type BaseAssistantProps = ChatNodeViewProps<'assistant-step'>
-type DecoratedAssistantProps = BaseAssistantProps & AnnotationBoundProps
+type DecoratedAssistantProps = BaseAssistantProps & AnnotationBoundProps & TranscriptVisibilityProps
 
 interface MutableStoredEntry extends Omit<StoredEntry, 'inject'> {
   inject?: (...args: unknown[]) => Record<string, unknown>
@@ -35,40 +42,53 @@ function mergeInjected(
   }
 }
 
-function wrapAssistantRenderer(inner: ComponentType<BaseAssistantProps>) {
+function wrapAssistantRenderer(inner: ComponentType<BaseAssistantProps>, projector: TranscriptPresentation) {
   const DecoratedAssistantRenderer = memo(function DecoratedAssistantRenderer(
     props: DecoratedAssistantProps,
   ) {
+    const { presentation, counts } = useTranscriptPresentation(props, projector)
+    const presentedNode = presentation.node as BaseAssistantProps['node']
     const displayNode = useMemo(() => {
       let changed = false
-      const blocks = props.node.data.blocks.map((block) => {
+      const blocks = presentedNode.data.blocks.map((block) => {
         if (block.kind !== 'text' && block.kind !== 'reasoning') return block
-        const text = stripMachineMarkersForDisplay(block.text, props.node.data.status === 'running')
+        const text = stripMachineMarkersForDisplay(block.text, presentedNode.data.status === 'running')
         if (text === block.text) return block
         changed = true
         return { ...block, text }
       })
-      return changed ? { ...props.node, data: { ...props.node.data, blocks } } : props.node
-    }, [props.node])
-    // 官方 Markdown 按字面展示 HTML；仅为内层渲染器去掉插件标记，外层继续读取原始回执。
+      return changed ? { ...presentedNode, data: { ...presentedNode.data, blocks } } : presentedNode
+    }, [presentedNode])
+    const summary = <TranscriptSummary counts={counts} t={props.annotationTranscriptT} />
+    if (presentation.hidden) return counts.length === 0 ? <TranscriptHiddenNode /> : summary
+    // Only the selected renderer receives display text; annotation receipts retain the raw node.
     const content = createElement(inner, { ...props, node: displayNode } as BaseAssistantProps)
-    return createElement(AnnotatedAssistantNode, {
-      ...props,
-      t: props.annotationT,
-      children: content,
-    } as AssistantAnnotationProps & { readonly children: ReactNode })
+    return (
+      <>
+        {summary}
+        {createElement(AnnotatedAssistantNode, {
+          ...props,
+          t: props.annotationT,
+          children: content,
+        } as AssistantAnnotationProps & { readonly children: ReactNode })}
+      </>
+    )
   })
   DecoratedAssistantRenderer.displayName = `Annotation(${inner.displayName ?? inner.name ?? 'Assistant'})`
   return DecoratedAssistantRenderer
 }
 
 /**
- * 原地装饰已经注册的助手渲染器，不再向 assistant-step 单元新增条目。
- * 这与 dsh-smooth-stream 包装其他 Chat 行的做法一致，因此两者可以组合。
+ * Decorate selected assistant renderers without adding another assistant-step entry.
+ * @param ctx - plugin context owning the slot listener.
+ * @param faceFor - existing session-scoped annotation actions and sources.
+ * @param projector - shared transcript cache, or a local cache for standalone consumers.
+ * @returns a disposer restoring the original components and inject functions.
  */
 export function decorateAssistantRenderers(
   ctx: ClientContext,
   faceFor: (sessionId: SessionId) => AnnotationInjected,
+  projector: TranscriptPresentation = createTranscriptPresentation(),
 ): () => void {
   const decorated = new WeakSet<object>()
   const restores: Array<() => void> = []
@@ -81,7 +101,7 @@ export function decorateAssistantRenderers(
       if (!isComponent(current) || decorated.has(current)) continue
 
       const originalInject = entry.inject
-      const next = wrapAssistantRenderer(current)
+      const next = wrapAssistantRenderer(current, projector)
       const nextInject = (...args: unknown[]): Record<string, unknown> => {
         const original = originalInject?.(...args) ?? {}
         return mergeInjected(original, faceFor(args[0] as SessionId))

@@ -1,6 +1,6 @@
 import { Fragment, useMemo } from 'react'
 import {
-  DocumentFileIcon,
+  FileTypeIcon,
   fileSizeText,
   IconCheckOutline14,
   IconChevronDownOutline14,
@@ -97,10 +97,16 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
 export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
   node,
   renderMessageImages,
+  openFile,
+  openSkill,
   useAnnotations,
   navigate,
   t,
-}: UserAnnotationProps<Key>) {
+  annotationHistoryHidden = false,
+}: UserAnnotationProps<Key> & {
+  /** Omit submitted annotation details while retaining the human message and attachments. */
+  readonly annotationHistoryHidden?: boolean
+}) {
   const payload = parseAnnotationSource(node.data.source)
   const referenceLabels = node.data.referenceLabels ?? []
   const skillNames = node.data.skillNames ?? []
@@ -119,7 +125,7 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
             </Fragment>
           ) : (
             <span key={`file:${index}`} className="dia-file-attachment" title={block.attachment.name}>
-              <DocumentFileIcon className="dia-file-attachment__icon" />
+              <FileTypeIcon path={block.attachment.name} className="dia-file-attachment__icon" />
               <span className="dia-file-attachment__content">
                 <span className="dia-file-attachment__name">{block.attachment.name}</span>
                 <span className="dia-file-attachment__size">{fileSizeText(block.attachment.bytes)}</span>
@@ -134,14 +140,18 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
     return (
       <div className="dia-user-submission">
         {requirement !== '' && (
-          <article className="dia-user">{projectUserText(requirement, referenceLabels, skillNames)}</article>
+          <article className="dia-user">
+            {projectUserText(requirement, referenceLabels, skillNames, 'skill', { openFile, openSkill })}
+          </article>
         )}
-        <AnnotationSubmissionRow
-          payload={payload}
-          useAnnotations={useAnnotations}
-          navigate={navigate}
-          t={t}
-        />
+        {!annotationHistoryHidden && (
+          <AnnotationSubmissionRow
+            payload={payload}
+            useAnnotations={useAnnotations}
+            navigate={navigate}
+            t={t}
+          />
+        )}
         {attachmentRow}
       </div>
     )
@@ -149,7 +159,7 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
   const texts = node.data.content.flatMap((block) => (block.type === 'text' ? [block.text] : []))
   return (
     <article className="dia-user">
-      {projectUserText(texts.join(''), referenceLabels, skillNames)}
+      {projectUserText(texts.join(''), referenceLabels, skillNames, 'skill', { openFile, openSkill })}
       {attachmentRow}
     </article>
   )

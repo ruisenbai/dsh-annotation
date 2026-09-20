@@ -16,11 +16,10 @@ import {
   MarkdownText,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { createPortal } from 'react-dom'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import {
-  machineMarkerSpans,
   parseReplyMarkers,
-  strippedOffset,
   stripMachineMarkers,
   stripMachineMarkersForDisplay,
 } from '../../shared/model-ack.ts'
@@ -28,24 +27,17 @@ import { replyHeadingNeedles } from '../../shared/protocol.ts'
 import type { AnnotationDraft, AnnotationId, MessageIdentity, TextQuoteSelector } from '../../shared/types.ts'
 import type { AssistantAnnotationProps } from '../contract.ts'
 import { FOCUS_CHANGED_EVENT, isDuplicatedByFocusView, isFocusViewHidden } from '../focus-adapter.ts'
-import {
-  captureSelection,
-  rangeFromSelector,
-  selectableTextNodes,
-  textBlockIndexOf,
-  textOffsetAtPoint,
-} from '../selection.ts'
+import { markerElement, useAnnotationFloating } from '../floating.ts'
+import { layoutMarkers, sameMarkerLayout, type MarkerLayout, type MarkerRect } from '../marker-layout.ts'
+import { captureSelection, rangeFromSelector, selectableTextNodes, textBlockIndexOf } from '../selection.ts'
 
 function sameAnnotations(left: readonly AnnotationDraft[], right: readonly AnnotationDraft[]): boolean {
   return left.length === right.length && left.every((item, index) => item === right[index])
 }
 
-function annotationAtOffset(
-  annotations: readonly AnnotationDraft[],
-  offset: number | null,
-): AnnotationDraft | undefined {
-  if (offset === null) return undefined
-  return annotations.find((item) => item.quote.start <= offset && offset < item.quote.end)
+function previewText(text: string): string {
+  const compact = text.replace(/\s+/g, ' ').trim()
+  return compact.length > 120 ? `${compact.slice(0, 120)}…` : compact
 }
 
 function firstLine(text: string): string {
@@ -120,29 +112,35 @@ function AnnotationReasoningRow({
   )
 }
 
-interface MarkerPosition {
-  readonly top: number
-  readonly left: number
+function markerBounds(root: HTMLElement, rootRect: DOMRect, scaleX: number): MarkerRect {
+  const viewport = window.visualViewport
+  let left = viewport?.offsetLeft ?? 0
+  let right = left + (viewport?.width ?? window.innerWidth)
+  for (let element: HTMLElement | null = root; element !== null; element = element.parentElement) {
+    const style = window.getComputedStyle(element)
+    if (!/(auto|scroll|hidden|clip|overlay)/.test(style.overflowX || style.overflow)) continue
+    const rect = element.getBoundingClientRect()
+    const scale = element.offsetWidth > 0 ? rect.width / element.offsetWidth : 1
+    const start = rect.left + element.clientLeft * scale
+    left = Math.max(left, start)
+    right = Math.min(right, element.clientWidth > 0 ? start + element.clientWidth * scale : rect.right)
+  }
+  return {
+    left: (left - rootRect.left) / scaleX + 4,
+    right: (right - rootRect.left) / scaleX - 4,
+    top: 0,
+    bottom: root.offsetHeight > 0 ? root.offsetHeight : rootRect.height,
+  }
 }
 
-function sameMarkerPositions(
-  left: ReadonlyMap<AnnotationId, MarkerPosition>,
-  right: ReadonlyMap<AnnotationId, MarkerPosition>,
-): boolean {
-  if (left.size !== right.size) return false
-  for (const [id, position] of left) {
-    const candidate = right.get(id)
-    if (candidate?.top !== position.top || candidate.left !== position.left) return false
-  }
-  return true
+function visibleRangeRects(range: Range): DOMRect[] {
+  return typeof range.getClientRects === 'function'
+    ? Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0)
+    : []
 }
 
 function finalVisibleRect(range: Range): DOMRect | null {
-  const rects =
-    typeof range.getClientRects === 'function'
-      ? Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0)
-      : []
-  const finalLine = rects.at(-1)
+  const finalLine = visibleRangeRects(range).at(-1)
   if (finalLine !== undefined) return finalLine
   if (typeof range.getBoundingClientRect !== 'function') return null
   const bounds = range.getBoundingClientRect()
@@ -215,6 +213,18 @@ function visualLineFromRect(rect: DOMRect): VisualLine {
   return { top: rect.top, right: rect.right, bottom: rect.bottom, height: rect.height }
 }
 
+function quoteVisualBounds(range: Range): VisualLine | null {
+  const rects = visibleRangeRects(range)
+  if (rects.length === 0) {
+    const bounds = finalVisibleRect(range)
+    return bounds === null ? null : visualLineFromRect(bounds)
+  }
+  const top = Math.min(...rects.map((rect) => rect.top))
+  const right = Math.max(...rects.map((rect) => rect.right))
+  const bottom = Math.max(...rects.map((rect) => rect.bottom))
+  return { top, right, bottom, height: bottom - top }
+}
+
 function centerVisualLine(element: HTMLElement, line: VisualLine): void {
   const lineCenter = (line.top + line.bottom) / 2
   const behavior = preferredScrollBehavior()
@@ -239,81 +249,123 @@ function centerVisualLine(element: HTMLElement, line: VisualLine): void {
   window.scrollBy({ top: visualDelta / (scale > 0 ? scale : 1), behavior })
 }
 
+interface QuoteFlashRect {
+  readonly top: number
+  readonly left: number
+  readonly width: number
+  readonly height: number
+}
+
+interface QuoteFlashState {
+  readonly id: number
+  readonly navigationEpoch: number
+  readonly rects: readonly QuoteFlashRect[]
+}
+
+const QUOTE_FLASH_MS = 1_300
+
+function quoteFlashRects(root: HTMLElement, range: Range): readonly QuoteFlashRect[] {
+  const rootRect = root.getBoundingClientRect()
+  const scaleX = root.offsetWidth > 0 && rootRect.width > 0 ? rootRect.width / root.offsetWidth : 1
+  const scaleY = root.offsetHeight > 0 && rootRect.height > 0 ? rootRect.height / root.offsetHeight : 1
+  const visible = visibleRangeRects(range)
+  const fallback = visible.length === 0 ? finalVisibleRect(range) : null
+  const rects = fallback === null ? visible : [fallback]
+  return rects.map((rect) => ({
+    top: (rect.top - rootRect.top) / scaleY,
+    left: (rect.left - rootRect.left) / scaleX,
+    width: rect.width / scaleX,
+    height: rect.height / scaleY,
+  }))
+}
+
 function annotationKey(submissionId: string, annotationId: string): string {
   return `${submissionId}\u0000${annotationId}`
 }
 
-/** One validated reply marker target: where its "注解 N" heading should be overlaid. */
+/** A validated association whose original heading remains owned by the Markdown renderer. */
 interface ReplyChipTarget {
   readonly key: string
   readonly annotation: AnnotationDraft
   readonly ordinal: number
   readonly start: number
-  readonly length: number
+  readonly text: string
+  readonly occurrence: number
 }
 
-function replyNeedle(ordinal: number): string {
-  return `注解 ${ordinal}`
+function completeHeadingStarts(text: string, heading: string, from = 0, until = text.length): number[] {
+  const starts: number[] = []
+  for (
+    let start = text.indexOf(heading, from);
+    start >= 0 && start < until;
+    start = text.indexOf(heading, start + heading.length)
+  ) {
+    const before = text[start - 1] ?? ''
+    const after = text.slice(start + heading.length, until)
+    if (/\p{L}|\p{N}|_/u.test(before) || !/^\s*(?:[*_]{1,3})?\s*[:：]/u.test(after)) continue
+    starts.push(start)
+  }
+  return starts
 }
 
-/**
- * Derive chip targets from raw model text. Only markers whose
- * submissionId+annotationId pair exists in the current Session survive;
- * unknown, duplicate, forged, and malformed markers are ignored and their
- * "注解 N"/"Annotation N" text stays plain Markdown.
- */
+function displayedPrefixLength(raw: string, rawOffset: number): number {
+  return stripMachineMarkers(raw.slice(0, rawOffset)).length
+}
+
+/** Unknown or duplicate associations leave their headings as ordinary Markdown. */
 function buildReplyChipTargets(
   blocks: readonly { kind: string; text?: unknown }[],
   known: ReadonlyMap<string, AnnotationDraft>,
 ): readonly ReplyChipTarget[] {
-  const targets: ReplyChipTarget[] = []
+  const targets: Omit<ReplyChipTarget, 'occurrence'>[] = []
   const seen = new Set<string>()
   let joined = ''
   for (const block of blocks) {
     if (block.kind !== 'text' || typeof block.text !== 'string') continue
     const raw = block.text
     const markers = parseReplyMarkers(raw)
-    const spans = machineMarkerSpans(raw)
     const stripped = stripMachineMarkers(raw)
     const blockStart = joined.length
     joined += stripped
-    for (const marker of markers) {
+    for (const [markerIndex, marker] of markers.entries()) {
       const key = annotationKey(marker.submissionId, marker.annotationId)
       const annotation = known.get(key)
       if (annotation === undefined || seen.has(key)) continue
       seen.add(key)
-      const searchFrom = blockStart + strippedOffset(marker.offset, spans)
-      let found: { start: number; length: number } | null = null
-      for (const needle of replyHeadingNeedles(marker.ordinal)) {
-        const index = joined.indexOf(needle, searchFrom)
-        if (index >= 0) {
-          found = { start: index, length: needle.length }
-          break
-        }
-      }
-      if (found === null) continue
-      targets.push(
-        Object.freeze({
+      const searchFrom = blockStart + displayedPrefixLength(raw, marker.offset)
+      const nextMarker = markers[markerIndex + 1]
+      const searchUntil =
+        nextMarker === undefined ? joined.length : blockStart + displayedPrefixLength(raw, nextMarker.offset)
+      const candidates = replyHeadingNeedles(marker.ordinal)
+        .map((text) => ({ text, starts: completeHeadingStarts(joined, text, searchFrom, searchUntil) }))
+        .filter((candidate) => candidate.starts.length > 0)
+        .sort((left, right) => left.starts[0]! - right.starts[0]!)
+      const nearest = candidates[0]
+      if (nearest?.starts.length === 1) {
+        targets.push({
           key,
           annotation,
           ordinal: marker.ordinal,
-          start: found.start,
-          length: found.length,
-        }),
-      )
+          start: nearest.starts[0]!,
+          text: nearest.text,
+        })
+      }
     }
   }
-  return Object.freeze(targets)
+  return targets.flatMap((target) => {
+    const occurrence = completeHeadingStarts(joined, target.text).indexOf(target.start)
+    return occurrence < 0 ? [] : [{ ...target, occurrence }]
+  })
 }
 
 function selectorForTarget(target: ReplyChipTarget): TextQuoteSelector {
-  return Object.freeze({
-    exact: replyNeedle(target.ordinal),
+  return {
+    exact: target.text,
     prefix: '',
     suffix: '',
     start: target.start,
-    end: target.start + target.length,
-  })
+    end: target.start + target.text.length,
+  }
 }
 
 interface ReplyChipState {
@@ -322,19 +374,24 @@ interface ReplyChipState {
   readonly ordinal: number
   readonly top: number
   readonly left: number
-  readonly viewportLeft: number
-  readonly viewportTop: number
+  readonly width: number
+  readonly height: number
 }
 
 function sameReplyChips(left: readonly ReplyChipState[], right: readonly ReplyChipState[]): boolean {
-  if (left.length !== right.length) return false
-  return left.every(
-    (chip, index) =>
-      chip.key === right[index]?.key &&
-      chip.top === right[index]?.top &&
-      chip.left === right[index]?.left &&
-      chip.viewportLeft === right[index]?.viewportLeft &&
-      chip.viewportTop === right[index]?.viewportTop,
+  return (
+    left.length === right.length &&
+    left.every((chip, index) => {
+      const other = right[index]!
+      return (
+        chip.key === other.key &&
+        chip.annotation === other.annotation &&
+        chip.top === other.top &&
+        chip.left === other.left &&
+        chip.width === other.width &&
+        chip.height === other.height
+      )
+    })
   )
 }
 
@@ -347,12 +404,14 @@ type AnnotatedAssistantNodeProps = AssistantAnnotationProps & {
 export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   node,
   useTurnData,
+  turnProcess,
   openFile,
   renderMessageImages,
   fileMentions,
   useAnnotations,
   beginSelection,
   openAnnotation,
+  navigate,
   registerEndpoint,
   updateHighlightRanges,
   activateHighlight,
@@ -362,18 +421,46 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
 }: AnnotatedAssistantNodeProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
-  const [markerPositions, setMarkerPositions] = useState<ReadonlyMap<AnnotationId, MarkerPosition>>(
-    () => new Map(),
-  )
-  const [markerGutterState, setMarkerGutterState] = useState<{ key: string; width: number }>({
-    key: '',
-    width: 0,
-  })
-  const [flash, setFlash] = useState(false)
-  const [revealRequest, setRevealRequest] = useState<{ annotationId: AnnotationId } | null>(null)
-  const [hover, setHover] = useState<{ annotation: AnnotationDraft; x: number; y: number } | null>(null)
+  const [markerLayout, setMarkerLayout] = useState<MarkerLayout>({ groups: [], overflow: [] })
+  const [quoteFlash, setQuoteFlash] = useState<QuoteFlashState | null>(null)
+  const quoteFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const quoteFlashId = useRef(0)
+  const quoteFlashNavigationEpoch = useRef<number | null>(null)
+  const [revealRequest, setRevealRequest] = useState<{
+    annotationId: AnnotationId
+    navigationEpoch: number
+  } | null>(null)
   const [replyChips, setReplyChips] = useState<readonly ReplyChipState[]>([])
   const [replyHover, setReplyHover] = useState<ReplyChipState | null>(null)
+  const replyNodes = useRef(new Map<string, HTMLButtonElement>())
+  const replyPreviewRef = useRef<HTMLElement>(null)
+  const replyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const replyPointerKey = useRef<string | null>(null)
+  const replyFloating = useAnnotationFloating({
+    floatingRef: replyPreviewRef,
+    anchor: () => (replyHover === null ? null : (replyNodes.current.get(replyHover.key) ?? null)),
+    enabled: replyHover !== null,
+  })
+  const clearReplyPreview = useCallback(() => {
+    if (replyTimer.current !== null) clearTimeout(replyTimer.current)
+    replyTimer.current = null
+    replyPointerKey.current = null
+    setReplyHover(null)
+  }, [])
+  useEffect(
+    () => () => {
+      if (replyTimer.current !== null) clearTimeout(replyTimer.current)
+    },
+    [],
+  )
+  useEffect(() => {
+    if (replyHover === null) return undefined
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') clearReplyPreview()
+    }
+    document.addEventListener('keydown', dismiss)
+    return () => document.removeEventListener('keydown', dismiss)
+  }, [clearReplyPreview, replyHover])
   const [selectionBar, setSelectionBar] = useState<{
     readonly capture: ReturnType<typeof captureSelection>
   } | null>(null)
@@ -413,6 +500,58 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     [data.blocks, knownSubmissions],
   )
   const activeId = useAnnotations((view) => view.activeAnnotationId)
+  const navigationEpoch = useAnnotations((view) => view.navigationEpoch)
+  const cancelQuoteFlashTimer = useCallback(() => {
+    quoteFlashId.current += 1
+    quoteFlashNavigationEpoch.current = null
+    if (quoteFlashTimer.current !== null) clearTimeout(quoteFlashTimer.current)
+    quoteFlashTimer.current = null
+  }, [])
+  const flashQuote = useCallback(
+    (root: HTMLElement, range: Range | null, ownerEpoch: number) => {
+      cancelQuoteFlashTimer()
+      setQuoteFlash(null)
+      if (range === null) return
+      const id = quoteFlashId.current
+      const rects = quoteFlashRects(root, range)
+      quoteFlashNavigationEpoch.current = ownerEpoch
+      if (rects.length > 0) setQuoteFlash({ id, navigationEpoch: ownerEpoch, rects })
+      quoteFlashTimer.current = setTimeout(() => {
+        if (quoteFlashId.current !== id) return
+        quoteFlashTimer.current = null
+        quoteFlashNavigationEpoch.current = null
+        setQuoteFlash(null)
+      }, QUOTE_FLASH_MS)
+    },
+    [cancelQuoteFlashTimer],
+  )
+  useEffect(() => {
+    setQuoteFlash(null)
+    return cancelQuoteFlashTimer
+  }, [cancelQuoteFlashTimer, messageId])
+  useLayoutEffect(() => {
+    if (quoteFlashNavigationEpoch.current === null || quoteFlashNavigationEpoch.current === navigationEpoch) {
+      return
+    }
+    cancelQuoteFlashTimer()
+    setQuoteFlash(null)
+  }, [cancelQuoteFlashTimer, navigationEpoch])
+  useEffect(() => {
+    if (activeId === null) return
+    cancelQuoteFlashTimer()
+    setQuoteFlash(null)
+  }, [activeId, cancelQuoteFlashTimer])
+  const editorOpen = useAnnotations((view) => view.editor !== null)
+  const detailsOpen = useAnnotations(
+    (view) => view.markerAnnotationId !== null || view.editor !== null || view.panelOpen,
+  )
+  useEffect(clearReplyPreview, [clearReplyPreview, detailsOpen, messageId, replyTargets])
+  useEffect(() => {
+    const key = replyPointerKey.current ?? replyHover?.key
+    if (focusDuplicated || (key !== undefined && !replyChips.some((chip) => chip.key === key))) {
+      clearReplyPreview()
+    }
+  }, [clearReplyPreview, focusDuplicated, replyChips, replyHover?.key])
   const geometryKey = useMemo(
     () =>
       annotations
@@ -423,7 +562,6 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         .join('|'),
     [annotations],
   )
-  const markerGutter = markerGutterState.key === geometryKey ? markerGutterState.width : 0
   const tail = useTurnData('turn-tail')
   const turn = node.location.kind === 'turn' || node.location.kind === 'step' ? node.location.turn : undefined
   const mentionOwner = useMemo<TurnTailOwnerProps | undefined>(() => {
@@ -443,8 +581,8 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     [t],
   )
 
-  const reveal = useCallback((annotationId: AnnotationId) => {
-    setRevealRequest({ annotationId })
+  const reveal = useCallback((annotationId: AnnotationId, ownerEpoch: number) => {
+    setRevealRequest({ annotationId, navigationEpoch: ownerEpoch })
   }, [])
 
   useLayoutEffect(() => {
@@ -469,32 +607,37 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
 
   useLayoutEffect(() => {
     if (revealRequest === null) return
+    if (revealRequest.navigationEpoch !== navigationEpoch) {
+      setRevealRequest(null)
+      return
+    }
     const root = rootRef.current
     const body = bodyRef.current
     if (root === null || body === null || messageId === undefined) {
       setRevealRequest(null)
       return
     }
+    const hiddenByTurnProcess = root.closest('[data-turn-process-hidden], [hidden="until-found"]') !== null
+    if (hiddenByTurnProcess && turnProcess?.foldable === true && !turnProcess.open) {
+      turnProcess.setOpen(true)
+      return
+    }
     const annotation = annotations.find((item) => item.annotationId === revealRequest.annotationId)
     const measure = (): { line: VisualLine | null; range: Range | null } => {
       const range = annotation === undefined ? null : rangeFromSelector(body, annotation.quote)
-      const rangeLine = range === null ? null : completeFinalLine(selectableTextNodes(body), range)
-      const marker = Array.from(root.querySelectorAll<HTMLElement>('.dia-marker')).find(
-        (candidate) => candidate.dataset.annotationId === revealRequest.annotationId,
-      )
+      const rangeBounds = range === null ? null : quoteVisualBounds(range)
+      const marker = markerElement(revealRequest.annotationId, root)
       const markerRect = marker?.getBoundingClientRect()
       const line =
-        rangeLine ??
+        rangeBounds ??
         (markerRect === undefined || markerRect.height <= 0 ? null : visualLineFromRect(markerRect))
       return { line, range }
     }
     const settle = (line: VisualLine | null, range: Range | null) => {
       if (line === null) root.scrollIntoView({ behavior: preferredScrollBehavior(), block: 'center' })
       else centerVisualLine(root, line)
-      activateHighlight(messageId, range)
+      flashQuote(root, range, revealRequest.navigationEpoch)
       setRevealRequest(null)
-      setFlash(false)
-      requestAnimationFrame(() => setFlash(true))
       root.focus({ preventScroll: true })
     }
     const first = measure()
@@ -502,11 +645,11 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       settle(first.line, first.range)
       return
     }
-    // 目标行尚未参与布局（滚动区外的懒渲染或 content-visibility 节点）：
+    // 目标引用尚未参与布局（滚动区外的懒渲染或 content-visibility 节点）：
     // 先把整条回复滚入视口，等一帧渲染完成后再重新测量并居中。
     root.scrollIntoView({ behavior: preferredScrollBehavior(), block: 'center' })
     let cancelled = false
-    let retryFrame = requestAnimationFrame(() => {
+    const retryFrame = requestAnimationFrame(() => {
       if (cancelled) return
       const retry = measure()
       settle(retry.line, retry.range)
@@ -515,7 +658,16 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       cancelled = true
       cancelAnimationFrame(retryFrame)
     }
-  }, [activateHighlight, annotations, messageId, revealRequest])
+  }, [
+    annotations,
+    flashQuote,
+    messageId,
+    navigationEpoch,
+    revealRequest,
+    turnProcess?.foldable,
+    turnProcess?.open,
+    turnProcess?.setOpen,
+  ])
 
   const annotateAll = useCallback(() => {
     const body = bodyRef.current
@@ -561,13 +713,10 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   useLayoutEffect(() => {
     const root = rootRef.current
     const body = bodyRef.current
-    if (root === null || body === null || annotations.length === 0) {
-      setMarkerPositions((current) => (current.size === 0 ? current : new Map()))
-      return undefined
-    }
-    if (isFocusViewHidden(root)) {
-      // 聚焦模式下被隐藏或懒渲染的节点不参与位置计算。
-      setMarkerPositions((current) => (current.size === 0 ? current : new Map()))
+    if (root === null || body === null || annotations.length === 0 || isFocusViewHidden(root)) {
+      setMarkerLayout((current) =>
+        current.groups.length === 0 && current.overflow.length === 0 ? current : { groups: [], overflow: [] },
+      )
       return undefined
     }
 
@@ -575,104 +724,45 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     let frame: number | null = null
     const measure = () => {
       const rootRect = root.getBoundingClientRect()
-      const viewportLeft = window.visualViewport?.offsetLeft ?? 0
-      const viewportWidth = window.visualViewport?.width ?? window.innerWidth
-      const rootWidth = root.offsetWidth > 0 ? root.offsetWidth : rootRect.width
       const scaleX = root.offsetWidth > 0 && rootRect.width > 0 ? rootRect.width / root.offsetWidth : 1
       const scaleY = root.offsetHeight > 0 && rootRect.height > 0 ? rootRect.height / root.offsetHeight : 1
-      const minLeft = (viewportLeft - rootRect.left) / scaleX + 4
-      const maxColumns = Math.max(1, Math.min(4, Math.floor(Math.max(26, rootWidth * 0.34) / 26)))
-      const maxAllowedGutter = maxColumns * 26 + 7
-      const occupied: MarkerPosition[] = []
-      const next = new Map<AnnotationId, MarkerPosition>()
-      const measured: Array<{ annotation: AnnotationDraft; line: VisualLine }> = []
-      const unresolved: Array<{ annotation: AnnotationDraft; index: number }> = []
-
-      annotations.forEach((annotation, index) => {
+      const localRect = (rect: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom'>): MarkerRect => ({
+        left: (rect.left - rootRect.left) / scaleX,
+        right: (rect.right - rootRect.left) / scaleX,
+        top: (rect.top - rootRect.top) / scaleY,
+        bottom: (rect.bottom - rootRect.top) / scaleY,
+      })
+      const obstacles = textNodes.flatMap((node) => {
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        return typeof range.getClientRects === 'function'
+          ? Array.from(range.getClientRects())
+              .filter((rect) => rect.width > 0 && rect.height > 0)
+              .map(localRect)
+          : []
+      })
+      for (const element of body.querySelectorAll('pre, table, img, svg, button, [role="img"]')) {
+        const rect = element.getBoundingClientRect()
+        if (rect.width > 0 && rect.height > 0) obstacles.push(localRect(rect))
+      }
+      const anchors = annotations.map((annotation) => {
         const range = rangeFromSelector(body, annotation.quote)
         const line = range === null ? null : completeFinalLine(textNodes, range)
-        if (line === null) unresolved.push({ annotation, index })
-        else measured.push({ annotation, line })
-      })
-
-      measured.sort((left, right) => {
-        const lineOrder = left.line.top + left.line.bottom - right.line.top - right.line.bottom
-        return lineOrder === 0 ? left.annotation.ordinal - right.annotation.ordinal : lineOrder
-      })
-      const groups: Array<{
-        anchor: VisualLine
-        markers: Array<{ annotation: AnnotationDraft; line: VisualLine }>
-      }> = []
-      for (const marker of measured) {
-        const group = groups.at(-1)
-        if (group !== undefined && sharesVisualLine(marker.line, group.anchor)) group.markers.push(marker)
-        else groups.push({ anchor: marker.line, markers: [marker] })
-      }
-
-      const widestGroup = Math.max(1, unresolved.length, ...groups.map((group) => group.markers.length))
-      const requiredGutter = Math.min(widestGroup, maxColumns) * 26 + 7
-      if (markerGutter > maxAllowedGutter || markerGutter < requiredGutter) {
-        setMarkerGutterState({
-          key: geometryKey,
-          width: markerGutter > maxAllowedGutter ? maxAllowedGutter : requiredGutter,
-        })
-        return
-      }
-
-      const rootRight = Math.min(rootWidth - 28, (viewportLeft + viewportWidth - rootRect.left) / scaleX - 28)
-      for (const group of groups) {
-        group.markers.sort((left, right) => left.annotation.ordinal - right.annotation.ordinal)
-        const columns = Math.min(group.markers.length, maxColumns)
-        const lineCenter =
-          group.markers.reduce((sum, marker) => sum + (marker.line.top + marker.line.bottom) / 2, 0) /
-          group.markers.length
-        const baseTop = Math.round((lineCenter - rootRect.top) / scaleY - 12)
-        const lineRight = Math.max(...group.markers.map((marker) => marker.line.right))
-        const groupWidth = (columns - 1) * 26 + 24
-        let groupLeft = Math.round(
-          Math.max(minLeft, Math.min((lineRight - rootRect.left) / scaleX + 5, rootRight - groupWidth + 24)),
-        )
-        while (
-          group.markers.some((_, index) => {
-            const row = Math.floor(index / columns)
-            const column = index % columns
-            return occupied.some(
-              (position) =>
-                Math.abs(position.top - (baseTop + row * 26)) < 24 &&
-                Math.abs(position.left - (groupLeft + column * 26)) < 24,
-            )
-          }) &&
-          groupLeft + groupWidth + 26 <= rootRight + 24
-        ) {
-          groupLeft += 26
+        return {
+          annotationId: annotation.annotationId,
+          ordinal: annotation.ordinal,
+          line: line === null ? null : localRect({ ...line, left: rootRect.left }),
         }
-        group.markers.forEach((marker, index) => {
-          const position = Object.freeze({
-            top: baseTop + Math.floor(index / columns) * 26,
-            left: groupLeft + (index % columns) * 26,
-          })
-          occupied.push(position)
-          next.set(marker.annotation.annotationId, position)
-        })
-      }
-
-      const unresolvedColumns = Math.min(Math.max(1, unresolved.length), maxColumns)
-      const unresolvedLeft = Math.max(
-        minLeft,
-        Math.min(rootWidth - markerGutter + 5, rootRight - (unresolvedColumns - 1) * 26),
-      )
-      unresolved
-        .sort((left, right) => left.annotation.ordinal - right.annotation.ordinal)
-        .forEach(({ annotation }, index) => {
-          const position = Object.freeze({
-            top: Math.floor(index / unresolvedColumns) * 30,
-            left: unresolvedLeft + (index % unresolvedColumns) * 26,
-          })
-          occupied.push(position)
-          next.set(annotation.annotationId, position)
-        })
-
-      setMarkerPositions((current) => (sameMarkerPositions(current, next) ? current : next))
+      })
+      const next = layoutMarkers({
+        anchors,
+        bounds: markerBounds(root, rootRect, scaleX),
+        bodyRight: (body.getBoundingClientRect().right - rootRect.left) / scaleX,
+        obstacles,
+        targetSize:
+          typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches ? 44 : 24,
+      })
+      setMarkerLayout((current) => (sameMarkerLayout(current, next) ? current : next))
     }
     const scheduleMeasure = () => {
       if (frame !== null) return
@@ -681,26 +771,29 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         measure()
       })
     }
-
     measure()
     const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleMeasure)
     resizeObserver?.observe(root)
     resizeObserver?.observe(body)
     window.addEventListener('resize', scheduleMeasure)
+    window.addEventListener('scroll', scheduleMeasure, true)
     window.visualViewport?.addEventListener('resize', scheduleMeasure)
+    window.visualViewport?.addEventListener('scroll', scheduleMeasure)
     document.addEventListener('toggle', scheduleMeasure, true)
     document.fonts?.addEventListener('loadingdone', scheduleMeasure)
     return () => {
       if (frame !== null) cancelAnimationFrame(frame)
       resizeObserver?.disconnect()
       window.removeEventListener('resize', scheduleMeasure)
+      window.removeEventListener('scroll', scheduleMeasure, true)
       window.visualViewport?.removeEventListener('resize', scheduleMeasure)
+      window.visualViewport?.removeEventListener('scroll', scheduleMeasure)
       document.removeEventListener('toggle', scheduleMeasure, true)
       document.fonts?.removeEventListener('loadingdone', scheduleMeasure)
     }
-  }, [data.blocks, domRevision, geometryKey, markerGutter])
+  }, [data.blocks, domRevision, geometryKey])
 
-  /** Overlay one React chip over each validated "注解 N"/"Annotation N" heading once streaming settles. */
+  /** A single-line heading gets an exact-sized keyboard target; wrapped or unmeasurable headings stay plain text. */
   useLayoutEffect(() => {
     const root = rootRef.current
     const body = bodyRef.current
@@ -723,21 +816,35 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       const scaleX = root.offsetWidth > 0 && rootRect.width > 0 ? rootRect.width / root.offsetWidth : 1
       const scaleY = root.offsetHeight > 0 && rootRect.height > 0 ? rootRect.height / root.offsetHeight : 1
       const next: ReplyChipState[] = []
+      const renderedText = selectableTextNodes(body)
+        .map((text) => text.textContent ?? '')
+        .join('')
       for (const target of replyTargets) {
-        const range = rangeFromSelector(body, selectorForTarget(target))
-        const rect = range === null ? null : finalVisibleRect(range)
-        if (rect === null) continue
-        next.push(
-          Object.freeze({
-            key: target.key,
-            annotation: target.annotation,
-            ordinal: target.ordinal,
-            top: Math.round((rect.top - rootRect.top) / scaleY),
-            left: Math.round((rect.left - rootRect.left) / scaleX),
-            viewportLeft: rect.left,
-            viewportTop: rect.bottom + 6,
-          }),
-        )
+        const start = completeHeadingStarts(renderedText, target.text)[target.occurrence]
+        if (start === undefined) continue
+        const range = rangeFromSelector(body, {
+          ...selectorForTarget(target),
+          start,
+          end: start + target.text.length,
+        })
+        if (range === null) continue
+        const rects =
+          typeof range.getClientRects === 'function'
+            ? Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0)
+            : []
+        const first = rects[0]
+        if (first !== undefined && rects.some((rect) => !sharesVisualLine(rect, first))) continue
+        const rect = typeof range.getBoundingClientRect === 'function' ? range.getBoundingClientRect() : first
+        if (rect === undefined || rect.width <= 0 || rect.height <= 0) continue
+        next.push({
+          key: target.key,
+          annotation: target.annotation,
+          ordinal: target.ordinal,
+          top: (rect.top - rootRect.top) / scaleY,
+          left: (rect.left - rootRect.left) / scaleX,
+          width: rect.width / scaleX,
+          height: rect.height / scaleY,
+        })
       }
       setReplyChips((current) => (sameReplyChips(current, next) ? current : next))
     }
@@ -819,9 +926,39 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     }
   }, [selectionBarActive])
 
-  const inspectPoint = (x: number, y: number): AnnotationDraft | undefined => {
+  const replyAtPoint = (target: EventTarget, x: number, y: number): ReplyChipState | undefined => {
+    if (
+      editorOpen ||
+      !(target instanceof Element) ||
+      target.closest('a, button, input, textarea, [data-dsh-annotation-ignore="true"]') !== null
+    )
+      return undefined
+    const root = rootRef.current
+    if (root === null) return undefined
+    const rect = root.getBoundingClientRect()
+    const scaleX = root.offsetWidth > 0 ? rect.width / root.offsetWidth : 1
+    const scaleY = root.offsetHeight > 0 ? rect.height / root.offsetHeight : 1
+    const left = (x - rect.left) / scaleX
+    const top = (y - rect.top) / scaleY
+    return replyChips.find(
+      (chip) =>
+        left >= chip.left &&
+        left <= chip.left + chip.width &&
+        top >= chip.top &&
+        top <= chip.top + chip.height,
+    )
+  }
+
+  const previewAnnotation = (annotationId: AnnotationId | null) => {
+    if (detailsOpen) return
+    const annotation = annotations.find((item) => item.annotationId === annotationId)
     const body = bodyRef.current
-    return body === null ? undefined : annotationAtOffset(annotations, textOffsetAtPoint(body, x, y))
+    if (messageId !== undefined && body !== null) {
+      activateHighlight(
+        messageId,
+        annotation === undefined ? null : rangeFromSelector(body, annotation.quote),
+      )
+    }
   }
 
   const copySelectionText = useCallback(async (text: string) => {
@@ -836,38 +973,38 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   return (
     <section
       ref={rootRef}
-      className={`dia-assistant${children === undefined ? '' : ' dia-assistant--decorator'}${flash ? ' dia-flash' : ''}`}
+      className={`dia-assistant${children === undefined ? '' : ' dia-assistant--decorator'}`}
       tabIndex={-1}
       data-dsh-annotation-message-id={messageId}
     >
       <div
         ref={bodyRef}
         className="dia-assistant__body"
-        style={markerGutter === 0 ? undefined : { paddingRight: markerGutter }}
+        onPointerDown={clearReplyPreview}
         onPointerMove={(event) => {
-          if (
-            event.target instanceof Element &&
-            event.target.closest('[data-dsh-annotation-ignore="true"]') !== null
-          ) {
-            setHover(null)
+          const chip =
+            !detailsOpen && event.buttons === 0 && window.getSelection()?.isCollapsed !== false
+              ? replyAtPoint(event.target, event.clientX, event.clientY)
+              : undefined
+          if (chip === undefined) {
+            clearReplyPreview()
             return
           }
-          const annotation = inspectPoint(event.clientX, event.clientY)
-          setHover(
-            annotation === undefined ? null : { annotation, x: event.clientX + 12, y: event.clientY + 12 },
-          )
+          if (replyPointerKey.current === chip.key) return
+          clearReplyPreview()
+          replyPointerKey.current = chip.key
+          replyTimer.current = setTimeout(() => {
+            replyTimer.current = null
+            setReplyHover(chip)
+          }, 300)
         }}
-        onPointerLeave={() => setHover(null)}
+        onPointerLeave={clearReplyPreview}
         onClick={(event) => {
-          if (
-            event.target instanceof Element &&
-            event.target.closest('[data-dsh-annotation-ignore="true"]') !== null
-          ) {
-            return
-          }
-          if (!window.getSelection()?.isCollapsed) return
-          const annotation = inspectPoint(event.clientX, event.clientY)
-          if (annotation !== undefined) openAnnotation(annotation.annotationId)
+          if (editorOpen || window.getSelection()?.isCollapsed === false) return
+          const chip = replyAtPoint(event.target, event.clientX, event.clientY)
+          if (chip === undefined) return
+          clearReplyPreview()
+          void navigate(chip.annotation.annotationId)
         }}
       >
         {children ??
@@ -923,80 +1060,119 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
           </span>
         )}
       </div>
-      {!focusDuplicated && annotations.length > 0 && (
+      {quoteFlash?.rects.map((rect, index) => (
+        <span
+          key={`${quoteFlash.id}:${index}`}
+          className="dia-quote-flash"
+          data-navigation-epoch={quoteFlash.navigationEpoch}
+          data-dsh-annotation-ignore="true"
+          aria-hidden="true"
+          style={rect}
+        />
+      ))}
+      {!focusDuplicated && markerLayout.groups.length > 0 && (
         <nav className="dia-markers" aria-label={t('list.title')}>
-          {annotations.map((annotation) => (
-            <Tooltip
-              key={annotation.annotationId}
-              label={annotation.annotation === '' ? t('highlightOnly') : annotation.annotation}
-              side="top"
-              delayMs={300}
-            >
-              <button
-                type="button"
-                className="dia-marker"
-                data-annotation-id={annotation.annotationId}
-                data-status={annotation.status}
-                data-active={annotation.annotationId === activeId}
-                style={{
-                  top: markerPositions.get(annotation.annotationId)?.top ?? (annotation.ordinal - 1) * 30,
-                  left: markerPositions.get(annotation.annotationId)?.left ?? 'calc(100% + 6px)',
-                }}
-                aria-label={`#${annotation.ordinal}: ${annotation.annotation === '' ? t('highlightOnly') : annotation.annotation}`}
-                onClick={() => openAnnotation(annotation.annotationId, 'marker')}
+          {markerLayout.groups.map((group) => {
+            const members = group.annotationIds.flatMap((id) => {
+              const item = annotations.find((annotation) => annotation.annotationId === id)
+              return item === undefined ? [] : [item]
+            })
+            const first = members[0]
+            if (first === undefined) return null
+            const annotation = members.find((item) => item.annotationId === activeId) ?? first
+            const grouped = members.length > 1
+            const label = grouped
+              ? t('marker.groupLabel', {
+                  count: members.length,
+                  ordinals: members.map((item) => item.ordinal).join(', '),
+                })
+              : `#${annotation.ordinal}: ${annotation.annotation === '' ? t('highlightOnly') : annotation.annotation}`
+            return (
+              <Tooltip
+                key={first.annotationId}
+                label={grouped ? label : previewText(annotation.annotation || t('highlightOnly'))}
+                side="top"
+                delayMs={300}
+                maxWidth={280}
+                disabled={detailsOpen}
               >
-                <span>{annotation.ordinal}</span>
-              </button>
-            </Tooltip>
-          ))}
+                <button
+                  type="button"
+                  className="dia-marker"
+                  data-annotation-id={first.annotationId}
+                  data-annotation-ids={group.annotationIds.join(' ')}
+                  data-status={annotation.status}
+                  data-active={members.some((item) => item.annotationId === activeId)}
+                  style={{ top: group.top, left: group.left, width: group.width, height: group.height }}
+                  aria-label={label}
+                  aria-haspopup="dialog"
+                  disabled={editorOpen}
+                  onPointerEnter={() => previewAnnotation(annotation.annotationId)}
+                  onPointerLeave={() => previewAnnotation(activeId)}
+                  onFocus={() => previewAnnotation(annotation.annotationId)}
+                  onBlur={() => previewAnnotation(activeId)}
+                  onClick={() => openAnnotation(annotation.annotationId, 'marker')}
+                >
+                  <span>
+                    {grouped ? t('marker.groupCount', { count: members.length }) : annotation.ordinal}
+                  </span>
+                </button>
+              </Tooltip>
+            )
+          })}
         </nav>
       )}
       {!focusDuplicated && replyChips.length > 0 && (
-        <nav className="dia-reply-chips">
+        <nav className="dia-reply-chips" aria-label={t('list.title')}>
           {replyChips.map((chip) => (
             <button
               key={chip.key}
+              ref={(element) => {
+                if (element === null) replyNodes.current.delete(chip.key)
+                else replyNodes.current.set(chip.key, element)
+              }}
               type="button"
               className="dia-reply-chip"
-              style={{ top: chip.top, left: chip.left }}
+              style={{ top: chip.top, left: chip.left, width: chip.width, height: chip.height }}
+              data-active={replyHover?.key === chip.key}
+              disabled={editorOpen}
               aria-label={t('reply.chipLabel', {
                 ordinal: chip.ordinal,
                 quote: chip.annotation.quote.exact,
                 annotation:
                   chip.annotation.annotation === '' ? t('highlightOnly') : chip.annotation.annotation,
               })}
-              onPointerEnter={() => setReplyHover(chip)}
-              onPointerLeave={() => setReplyHover(null)}
-              onFocus={() => setReplyHover(chip)}
-              onBlur={() => setReplyHover(null)}
-              onClick={() => openAnnotation(chip.annotation.annotationId)}
-            >
-              {t('reply.chip', { ordinal: chip.ordinal })}
-            </button>
+              onFocus={() => {
+                clearReplyPreview()
+                if (!detailsOpen) setReplyHover(chip)
+              }}
+              onBlur={clearReplyPreview}
+              onClick={() => {
+                clearReplyPreview()
+                void navigate(chip.annotation.annotationId)
+              }}
+            />
           ))}
         </nav>
       )}
-      {replyHover !== null && (
-        <aside
-          className="dia-hover dia-reply-popover"
-          style={{
-            left: Math.max(12, Math.min(replyHover.viewportLeft, window.innerWidth - 320)),
-            top: Math.min(replyHover.viewportTop, window.innerHeight - 120),
-          }}
-        >
-          <strong>{t('reply.chip', { ordinal: replyHover.ordinal })}</strong>
-          <q>{replyHover.annotation.quote.exact}</q>
-          <p data-highlight-only={replyHover.annotation.kind === 'highlight-only' ? 'true' : undefined}>
-            {replyHover.annotation.annotation === '' ? t('highlightOnly') : replyHover.annotation.annotation}
-          </p>
-        </aside>
-      )}
-      {hover !== null && (
-        <aside className="dia-hover" style={{ left: hover.x, top: hover.y }}>
-          <strong>#{hover.annotation.ordinal}</strong>{' '}
-          {hover.annotation.annotation === '' ? t('highlightOnly') : hover.annotation.annotation}
-        </aside>
-      )}
+      {replyHover !== null &&
+        createPortal(
+          <aside
+            ref={replyPreviewRef}
+            className="dia-hover dia-reply-popover"
+            role="tooltip"
+            aria-label={t('reply.chip', { ordinal: replyHover.ordinal })}
+            data-floating-placement={replyFloating.placement}
+            style={replyFloating.style}
+          >
+            <strong>{t('reply.chip', { ordinal: replyHover.ordinal })}</strong>
+            <q>{previewText(replyHover.annotation.quote.exact)}</q>
+            <p data-highlight-only={replyHover.annotation.kind === 'highlight-only' ? 'true' : undefined}>
+              {previewText(replyHover.annotation.annotation || t('highlightOnly'))}
+            </p>
+          </aside>,
+          document.body,
+        )}
       {selectionBar !== null && (
         <div
           ref={selectionBarRef}

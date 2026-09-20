@@ -48,6 +48,9 @@ jobs:
       - name: Run browser regressions
         if: steps.prebuilt.outputs.available != 'true'
         run: pnpm test:browser
+      - name: Run real Web profile smoke
+        if: steps.prebuilt.outputs.available != 'true'
+        run: pnpm run build && pnpm test:profile
       - if: steps.prebuilt.outputs.available != 'true'
         run: pnpm test:coverage
       - if: steps.prebuilt.outputs.available != 'true'

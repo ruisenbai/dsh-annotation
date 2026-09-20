@@ -9,8 +9,9 @@ import { DEFAULT_CONFIG, resolveConfig } from './shared/config.ts'
 import {
   ANNOTATION_SETTINGS_NAMESPACE,
   DEFAULT_ANNOTATION_AUTO_ATTACH,
+  DEFAULT_ANNOTATION_COMPACT_SUMMARY,
   DEFAULT_ANNOTATION_ENABLED,
-  DEFAULT_ANNOTATION_LOCAL_TOOLS,
+  DEFAULT_TRANSCRIPT_VISIBILITY,
   LEGACY_ANNOTATION_SETTINGS_NAMESPACES,
   type AnnotationSettings,
 } from './shared/settings.ts'
@@ -32,7 +33,25 @@ export const Config: Schema<Config> = Schema.object({
 const SettingsSchema: Schema<AnnotationSettings> = Schema.object({
   enabled: Schema.boolean().default(DEFAULT_ANNOTATION_ENABLED),
   autoAttach: Schema.boolean().default(DEFAULT_ANNOTATION_AUTO_ATTACH),
-  localTools: Schema.boolean().default(DEFAULT_ANNOTATION_LOCAL_TOOLS),
+  compactSummary: Schema.boolean().default(DEFAULT_ANNOTATION_COMPACT_SUMMARY),
+  hideReasoning: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideReasoning),
+  hideTools: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideTools),
+  hideToolRead: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolRead),
+  hideToolGlob: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolGlob),
+  hideToolGrep: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolGrep),
+  hideToolBash: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolBash),
+  hideToolEdit: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolEdit),
+  hideToolWrite: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolWrite),
+  hideToolOther: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolOther),
+  hideContext: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideContext),
+  hideCommandResults: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideCommandResults),
+  hideCompaction: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideCompaction),
+  hideRetries: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideRetries),
+  hideErrors: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideErrors),
+  hideAttachments: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideAttachments),
+  hideAnnotationHistory: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideAnnotationHistory),
+  hideTurnDetails: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideTurnDetails),
+  hideOther: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideOther),
 })
 
 /** Register the Host command bridge and optional user-settings section. */
