@@ -8,7 +8,6 @@ import {
   IconChevronUpOutline14,
   IconCloseOutline16,
   IconDataOutline16,
-  IconDownloadOutline16,
   IconEditOutline16,
   IconListPenOutline16,
   IconPaperclipOutline16,
@@ -21,7 +20,7 @@ import {
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import type {
@@ -35,6 +34,12 @@ import { hasComposerAttachment } from '../composer-attachment.ts'
 import { composerInput, createComposerFocus, type ComposerFocusRequest } from '../composer-focus.ts'
 import type { AnnotationBoundProps, InputAnnotationProps } from '../contract.ts'
 import type { AnnotationView, EditorState } from '../controller.ts'
+import {
+  markerElement,
+  selectionAnchor,
+  useAnnotationFloating,
+  type AnnotationFloatingAnchor,
+} from '../floating.ts'
 import { MapPin } from '../icons.ts'
 
 function statusLabel(status: AnnotationStatus, t: InputAnnotationProps['t']): string {
@@ -47,40 +52,19 @@ function editorKey(editor: EditorState | null): string {
   return `new:${editor.capture.messageId}:${editor.capture.quote.start}:${editor.capture.quote.end}`
 }
 
-function markerElement(annotationId: AnnotationId): HTMLElement | null {
-  return (
-    Array.from(document.querySelectorAll<HTMLElement>('button.dia-marker')).find(
-      (element) => element.dataset.annotationId === annotationId,
-    ) ?? null
-  )
-}
-
-function markerRectFor(editor: EditorState): DOMRect | null {
-  const annotationId = editor.kind === 'edit' ? editor.annotationId : editor.supplementalTo
-  return annotationId === undefined ? null : (markerElement(annotationId)?.getBoundingClientRect() ?? null)
-}
-
-function editorPosition(editor: EditorState): { top?: number; left?: number; right?: number } {
+function editorAnchor(editor: EditorState): AnnotationFloatingAnchor | null {
   const capture = editor.kind === 'new' ? editor.capture : editor.expandedCapture
   const rect = capture?.rect
-  if (rect !== undefined && !(rect.top === 0 && rect.left === 0 && rect.bottom === 0 && rect.right === 0)) {
-    const width = Math.min(420, window.innerWidth - 24)
-    const estimatedHeight = 116
-    const below = rect.bottom + 8
-    const top =
-      below + estimatedHeight <= window.innerHeight - 12
-        ? below
-        : Math.max(12, rect.top - estimatedHeight - 8)
-    return {
-      top,
-      left: Math.max(12, Math.min(window.innerWidth - width - 12, rect.left)),
-    }
+  if (
+    capture !== undefined &&
+    rect !== undefined &&
+    !(rect.top === 0 && rect.left === 0 && rect.bottom === 0 && rect.right === 0)
+  ) {
+    const selection = selectionAnchor(capture)
+    if (selection !== null) return selection
   }
-  const marker = markerRectFor(editor)
-  if (marker === null) return { top: 82, right: 24 }
-  const width = Math.min(420, window.innerWidth - 24)
-  const left = Math.max(12, Math.min(window.innerWidth - width - 12, marker.right - width))
-  return { top: marker.bottom + 8, left }
+  const annotationId = editor.kind === 'edit' ? editor.annotationId : editor.supplementalTo
+  return annotationId === undefined ? null : markerElement(annotationId)
 }
 
 function Portal({ children }: { children: ReactNode }) {
@@ -159,19 +143,21 @@ function isInlineEditor(editor: EditorState | null, markerAnnotationId: Annotati
   return rect.top === 0 && rect.left === 0 && rect.bottom === 0 && rect.right === 0
 }
 
-/** Dock-internal action face: the editor's own saveEditor wrapper and the reactive localTools hook are passed explicitly. */
-type DockBoundActions = Omit<AnnotationBoundProps, 'useAnnotations' | 'saveEditor' | 'useLocalTools'>
+/** Internal components receive resolved settings and the Dock's save wrapper, not injected hooks. */
+type DockBoundActions = Omit<AnnotationBoundProps, 'useAnnotations' | 'saveEditor' | 'useCompactSummary'>
 
 function AnnotationEditor({
   view,
   t,
   inline = false,
+  composerAnchorRef,
   saveEditor,
   ...actions
 }: {
   view: AnnotationView
   t: InputAnnotationProps['t']
   inline?: boolean
+  composerAnchorRef?: RefObject<HTMLElement>
   saveEditor: () => AnnotationId
 } & DockBoundActions) {
   const [error, setError] = useState<string | null>(null)
@@ -183,24 +169,12 @@ function AnnotationEditor({
   const justComposedRef = useRef(false)
   const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const editor = view.editor
-  const [floatingPosition, setFloatingPosition] = useState<{
-    top?: number
-    left?: number
-    right?: number
-  }>({ top: 82, right: 24 })
-
-  useLayoutEffect(() => {
-    if (editor === null || inline) return undefined
-    const update = () => setFloatingPosition(editorPosition(editor))
-    update()
-    if (view.markerAnnotationId === null) return undefined
-    window.addEventListener('resize', update)
-    window.addEventListener('scroll', update, true)
-    return () => {
-      window.removeEventListener('resize', update)
-      window.removeEventListener('scroll', update, true)
-    }
-  }, [editor, inline, view.markerAnnotationId])
+  const floating = useAnnotationFloating({
+    floatingRef: editorRef,
+    enabled: editor !== null && !inline,
+    anchor: () => (editor === null ? null : editorAnchor(editor)),
+    composer: () => composerAnchorRef?.current?.closest<HTMLElement>('[data-composer-card]') ?? null,
+  })
 
   const requireDecision = () => {
     setDecisionRequired(true)
@@ -278,7 +252,8 @@ function AnnotationEditor({
     <section
       ref={editorRef}
       className={`dia-editor${inline ? ' dia-editor--inline' : ''}${view.markerAnnotationId !== null ? ' dia-editor--marker' : ''}`}
-      style={inline ? undefined : floatingPosition}
+      style={inline ? undefined : floating.style}
+      data-floating-placement={inline ? undefined : floating.placement}
       role="dialog"
       aria-modal="false"
       aria-label={editor.kind === 'edit' ? t('editor.editTitle') : t('editor.title')}
@@ -472,45 +447,29 @@ function AnnotationRow({
   )
 }
 
-interface MarkerPopoverPosition {
-  readonly top: number
-  readonly left: number
-}
-
-function markerPopoverPosition(annotationId: AnnotationId): MarkerPopoverPosition {
-  const marker = markerElement(annotationId)
-  const width = Math.min(360, window.innerWidth - 24)
-  if (marker === null) return { top: 82, left: Math.max(12, window.innerWidth - width - 24) }
-  const rect = marker.getBoundingClientRect()
-  return {
-    top: rect.bottom + 8,
-    left: Math.max(12, Math.min(window.innerWidth - width - 12, rect.right - width)),
-  }
-}
-
 function MarkerAnnotationPopover({
   view,
   t,
+  composerAnchorRef,
   ...actions
 }: {
   view: AnnotationView
   t: InputAnnotationProps['t']
+  composerAnchorRef: RefObject<HTMLElement>
 } & DockBoundActions) {
   const annotationId = view.markerAnnotationId
   const popoverRef = useRef<HTMLElement>(null)
-  const [position, setPosition] = useState<MarkerPopoverPosition>({ top: 82, left: 12 })
-
-  useLayoutEffect(() => {
-    if (annotationId === null || view.editor !== null) return undefined
-    const update = () => setPosition(markerPopoverPosition(annotationId))
-    update()
-    window.addEventListener('resize', update)
-    window.addEventListener('scroll', update, true)
-    return () => {
-      window.removeEventListener('resize', update)
-      window.removeEventListener('scroll', update, true)
-    }
-  }, [annotationId, view.editor])
+  const [markerIds, setMarkerIds] = useState('')
+  const floating = useAnnotationFloating({
+    floatingRef: popoverRef,
+    enabled: annotationId !== null && view.editor === null,
+    anchor: () => {
+      const marker = annotationId === null ? null : markerElement(annotationId)
+      setMarkerIds(marker?.dataset.annotationIds ?? annotationId ?? '')
+      return marker
+    },
+    composer: () => composerAnchorRef.current?.closest<HTMLElement>('[data-composer-card]') ?? null,
+  })
 
   useEffect(() => {
     if (annotationId === null || view.editor !== null) return undefined
@@ -538,12 +497,15 @@ function MarkerAnnotationPopover({
   if (annotationId === null || view.editor !== null) return null
   const item = view.annotations.find((candidate) => candidate.annotationId === annotationId)
   if (item === undefined) return null
+  const ids = new Set(markerIds.split(/\s+/))
+  const group = view.annotations.filter((candidate) => ids.has(candidate.annotationId))
   return (
     <Portal>
       <aside
         ref={popoverRef}
         className="dia-marker-popover"
-        style={position}
+        style={floating.style}
+        data-floating-placement={floating.placement}
         role="dialog"
         aria-modal="false"
         aria-label={`#${item.ordinal}: ${item.annotation === '' ? t('highlightOnly') : item.annotation}`}
@@ -556,6 +518,25 @@ function MarkerAnnotationPopover({
         >
           <IconCloseOutline16 size={14} />
         </button>
+        {group.length > 1 && (
+          <div className="dia-marker-popover__tabs" role="group" aria-label={t('list.title')}>
+            {group.map((entry) => (
+              <button
+                key={entry.annotationId}
+                type="button"
+                className="dia-marker-popover__tab"
+                aria-label={t('reply.chip', { ordinal: entry.ordinal })}
+                aria-pressed={entry.annotationId === annotationId}
+                onClick={() => {
+                  if (entry.annotationId !== annotationId)
+                    actions.openAnnotation(entry.annotationId, 'marker')
+                }}
+              >
+                {entry.ordinal}
+              </button>
+            ))}
+          </div>
+        )}
         <AnnotationRow annotationId={annotationId} view={view} t={t} markerAnchored {...actions} />
       </aside>
     </Portal>
@@ -634,24 +615,6 @@ function panelSummary(view: AnnotationView, failed: boolean, t: InputAnnotationP
   return t('panel.history', { count: view.annotations.length })
 }
 
-function bytesLabel(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function downloadLocalData(serialized: string): void {
-  const blob = new Blob([serialized], { type: 'application/json;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = `dsh-annotation-${new Date().toISOString().slice(0, 10)}.json`
-  document.body.append(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
-}
-
 function AnnotationGroup({
   title,
   items,
@@ -724,7 +687,7 @@ function AnnotationPanel({
   attachmentLabel,
   onToggleAttachment,
   saveEditor,
-  localTools,
+  compactSummary,
   t,
   shellRef,
   ...actions
@@ -737,12 +700,10 @@ function AnnotationPanel({
   attachmentLabel: string
   onToggleAttachment: () => void
   saveEditor: () => AnnotationId
-  localTools: boolean
+  compactSummary: boolean
   t: InputAnnotationProps['t']
   shellRef: RefObject<HTMLElement>
 } & DockBoundActions) {
-  const [confirmClear, setConfirmClear] = useState(false)
-  const [exportState, setExportState] = useState<'idle' | 'done' | 'failed'>('idle')
   const [chipPopover, setChipPopover] = useState<{ left: number; top: number } | null>(null)
   const listId = useId()
   const retry = view.outbox.find((item) => item.status === 'failed')
@@ -757,10 +718,6 @@ function AnnotationPanel({
   const history = view.annotations.filter((item) => item.status === 'sent' || item.status === 'processed')
   const queuedSubmissions = view.outbox.filter((item) => item.status === 'queued')
   const immutable = history.length > 0
-  const hasLocalDrafts =
-    drafts.length > 0 ||
-    (view.editor !== null && view.editor.text.trim() !== '') ||
-    view.overallRequirementDraft.trim() !== ''
   // “注解 ×N”的计数与概览只统计下一次发送会携带的已附着注解。
   const retryIds = useMemo(
     () => (retry === undefined ? null : new Set(retry.payload.annotations.map((item) => item.annotationId))),
@@ -769,13 +726,23 @@ function AnnotationPanel({
   const overviewItems =
     retryIds === null ? drafts : view.annotations.filter((item) => retryIds.has(item.annotationId))
   const showChip = attached && attachmentCount > 0
+  const panelVisible = view.panelOpen || isInlineEditor(view.editor, view.markerAnnotationId)
   const openChipPopover = () => {
+    if (panelVisible) return
     const anchor = chipAnchorRef.current
     if (anchor === null) return
     const rect = anchor.getBoundingClientRect()
     setChipPopover({ left: Math.max(12, rect.left), top: rect.top - 6 })
   }
+  const togglePanel = () => {
+    if (!view.panelOpen) setChipPopover(null)
+    actions.setPanelOpen(!view.panelOpen)
+  }
   const chipAnchorRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (panelVisible) setChipPopover(null)
+  }, [panelVisible])
 
   useEffect(() => {
     if (!view.panelOpen) return undefined
@@ -783,6 +750,7 @@ function AnnotationPanel({
       if (event.key !== 'Escape' || view.editor !== null) return
       event.preventDefault()
       actions.setPanelOpen(false)
+      chipAnchorRef.current?.focus()
     }
     document.addEventListener('keydown', closeOnEscape)
     return () => document.removeEventListener('keydown', closeOnEscape)
@@ -794,17 +762,14 @@ function AnnotationPanel({
     return () => clearTimeout(timer)
   }, [actions.dismissDeleteUndo, view.deletedDraft])
 
-  const exportData = () => {
-    try {
-      downloadLocalData(actions.exportLocalData())
-      setExportState('done')
-    } catch {
-      setExportState('failed')
-    }
-  }
-
   return (
-    <section ref={shellRef} className="dia-dock-shell" aria-label={t('list.title')}>
+    <section
+      ref={shellRef}
+      className="dia-dock-shell"
+      data-compact-summary={compactSummary ? 'true' : 'false'}
+      data-panel-open={panelVisible ? 'true' : 'false'}
+      aria-label={t('list.title')}
+    >
       <div className="dia-dock-body">
         <div className="dia-dock" data-attached={attached ? 'true' : 'false'}>
           <button
@@ -815,18 +780,20 @@ function AnnotationPanel({
             aria-expanded={view.panelOpen}
             aria-label={showChip ? t('compact.count', { count: attachmentCount }) : t('list.title')}
             onPointerEnter={() => {
-              if (showChip) openChipPopover()
+              if (showChip && !panelVisible) openChipPopover()
             }}
             onPointerLeave={() => setChipPopover(null)}
             onFocus={() => {
-              if (showChip) openChipPopover()
+              if (showChip && !panelVisible) openChipPopover()
             }}
             onBlur={() => setChipPopover(null)}
-            onClick={() => actions.setPanelOpen(!view.panelOpen)}
+            onClick={togglePanel}
           >
-            <span className="dia-dock__icon" aria-hidden="true">
-              <IconListPenOutline16 size={14} />
-            </span>
+            {!compactSummary && (
+              <span className="dia-dock__icon" aria-hidden="true">
+                <IconListPenOutline16 size={14} />
+              </span>
+            )}
             <span className={`dia-dock__title${showChip ? ' dia-dock__chip' : ''}`}>
               {showChip ? t('compact.count', { count: attachmentCount }) : t('list.title')}
             </span>
@@ -854,14 +821,20 @@ function AnnotationPanel({
               aria-label={view.panelOpen ? t('dock.collapse') : t('dock.expand')}
               aria-controls={listId}
               aria-expanded={view.panelOpen}
-              onClick={() => actions.setPanelOpen(!view.panelOpen)}
+              onClick={togglePanel}
             >
-              {view.panelOpen ? <IconChevronDownOutline14 size={14} /> : <IconChevronUpOutline14 size={14} />}
+              <span
+                className="dia-dock__chevron"
+                data-open={panelVisible ? 'true' : 'false'}
+                aria-hidden="true"
+              >
+                <IconChevronUpOutline14 size={14} />
+              </span>
             </button>
           </div>
         </div>
       </div>
-      {(view.panelOpen || isInlineEditor(view.editor, view.markerAnnotationId)) && (
+      {panelVisible && (
         <div id={listId} className="dia-inline-panel dia-inline-panel--dropup">
           {isInlineEditor(view.editor, view.markerAnnotationId) && (
             <AnnotationEditor
@@ -955,95 +928,39 @@ function AnnotationPanel({
             </div>
           )}
 
-          <div className="dia-inline-panel__footer">
-            {immutable && (
-              <p className="dia-immutable-note">
-                <IconDataOutline16 size={14} />
-                {t('list.immutable')}
-              </p>
-            )}
-            {localTools && (
-              <>
-                <div className="dia-local-data">
-                  <span>
-                    <IconDataOutline16 size={14} />
-                    {t('local.usage', { size: bytesLabel(view.storageBytes) })}
-                  </span>
-                  <div>
-                    <Tooltip label={t('local.export')} side="top" delayMs={500}>
-                      <button
-                        type="button"
-                        className="dia-row-action"
-                        aria-label={t('local.export')}
-                        onClick={exportData}
-                      >
-                        <IconDownloadOutline16 size={14} />
-                      </button>
-                    </Tooltip>
-                    <Tooltip label={t('local.clear')} side="top" delayMs={500}>
-                      <button
-                        type="button"
-                        className="dia-row-action"
-                        data-danger="true"
-                        aria-label={t('local.clear')}
-                        disabled={!hasLocalDrafts}
-                        onClick={() => setConfirmClear(true)}
-                      >
-                        <IconTrashOutline16 size={14} />
-                      </button>
-                    </Tooltip>
-                  </div>
-                </div>
-                {exportState !== 'idle' && (
-                  <p className={exportState === 'failed' ? 'dia-error' : 'dia-local-status'} role="status">
-                    {exportState === 'done' ? t('local.exported') : t('local.exportFailed')}
-                  </p>
-                )}
-                {confirmClear && (
-                  <div className="dia-clear-confirm" role="alert">
-                    <span>{t('local.confirmClear')}</span>
-                    <button type="button" className="dia-text-button" onClick={() => setConfirmClear(false)}>
-                      {t('local.keep')}
-                    </button>
-                    <button
-                      type="button"
-                      className="dia-text-button"
-                      data-danger="true"
-                      onClick={() => {
-                        actions.clearLocalDrafts()
-                        setConfirmClear(false)
-                      }}
+          {(immutable || queuedSubmissions.length > 0) && (
+            <div className="dia-inline-panel__footer">
+              {immutable && (
+                <p className="dia-immutable-note">
+                  <IconDataOutline16 size={14} />
+                  {t('list.immutable')}
+                </p>
+              )}
+              {queuedSubmissions.length > 0 && (
+                <div className="dia-inline-panel__actions">
+                  {queuedSubmissions.map((entry) => (
+                    <Button
+                      key={entry.payload.submissionId}
+                      variant="outline"
+                      size="sm"
+                      icon={<IconCloseOutline16 size={14} />}
+                      onClick={() => void actions.withdraw(entry.payload.submissionId as SubmissionId)}
                     >
-                      {t('local.confirm')}
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-            {queuedSubmissions.length > 0 && (
-              <div className="dia-inline-panel__actions">
-                {queuedSubmissions.map((entry) => (
-                  <Button
-                    key={entry.payload.submissionId}
-                    variant="outline"
-                    size="sm"
-                    icon={<IconCloseOutline16 size={14} />}
-                    onClick={() => void actions.withdraw(entry.payload.submissionId as SubmissionId)}
-                  >
-                    {t('list.withdraw')}
-                  </Button>
-                ))}
-              </div>
-            )}
-          </div>
+                      {t('list.withdraw')}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
-      {chipPopover !== null && overviewItems.length > 0 && (
+      {!panelVisible && chipPopover !== null && overviewItems.length > 0 && (
         <aside
           className="dia-hover dia-chip-overview"
           role="tooltip"
           aria-label={t('compact.overview')}
-          style={{ left: chipPopover.left, top: chipPopover.top }}
+          style={compactSummary ? undefined : { left: chipPopover.left, top: chipPopover.top }}
         >
           {overviewItems.map((item) => (
             <div key={item.annotationId} className="dia-chip-overview__row" data-kind={item.kind}>
@@ -1066,20 +983,24 @@ function AnnotationPanel({
   )
 }
 
-/** Composer dock list plus the Session-owned selection editor. */
+/**
+ * Render the composer summary with selection and marker overlays; list editing stays inline.
+ * @param props - Bound annotation actions, composer state, Session hooks, and localized labels.
+ * @returns The summary, annotation overlays, and submission toast.
+ */
 export function AnnotationDock({
   useAnnotations,
   useWorkspaces,
   sessionId,
   input,
   t,
-  useLocalTools,
+  useCompactSummary,
   saveEditor: controllerSaveEditor,
   ...actions
 }: InputAnnotationProps) {
   const view = useAnnotations((state) => state)
   const archived = useWorkspaces((state) => state.archivedSessionIds.includes(sessionId))
-  const localTools = useLocalTools((snapshot) => snapshot)
+  const compactSummary = useCompactSummary((snapshot) => snapshot)
   const shellRef = useRef<HTMLElement>(null)
   const composerAnchorRef = useRef<HTMLSpanElement>(null)
   const composerFocus = useRef<ReturnType<typeof createComposerFocus> | null>(null)
@@ -1191,18 +1112,19 @@ export function AnnotationDock({
           attachmentLabel={attachmentLabel}
           onToggleAttachment={toggleAttachment}
           saveEditor={saveEditor}
-          localTools={localTools}
+          compactSummary={compactSummary}
           t={t}
           shellRef={shellRef}
           {...actions}
         />
       )}
-      <MarkerAnnotationPopover view={view} t={t} {...actions} />
+      <MarkerAnnotationPopover view={view} t={t} composerAnchorRef={composerAnchorRef} {...actions} />
       {!isInlineEditor(view.editor, view.markerAnnotationId) && (
         <AnnotationEditor
           key={editorKey(view.editor)}
           view={view}
           t={t}
+          composerAnchorRef={composerAnchorRef}
           {...actions}
           saveEditor={saveEditor}
         />

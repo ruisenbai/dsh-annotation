@@ -17,8 +17,21 @@ import { BrowserComposer } from './Composer.tsx'
 const MESSAGE_ID = 'browser-assistant-message' as MessageIdentity
 const SESSION_ID = 'browser-session' as SessionIdentity
 const TEXT = 'Alpha selected phrase and the rest of this visual line continues until the final word omega.'
-function captureFor(exact: string): SelectionCapture {
-  const start = TEXT.indexOf(exact)
+const READING_WORDS = ['A', 'B', 'C', 'D', 'E', 'F']
+const READING_TEXT = [
+  'A B C D E F.',
+  'Reading should keep the original measure and line breaks. This paragraph has enough text to wrap naturally at desktop and mobile widths, including enlarged text. The annotation controls belong in unused space, not in the middle of a sentence.',
+  'A second paragraph keeps the surrounding context visible while a reader reviews several notes on the same line. Selecting and copying this text must remain a native browser operation.',
+].join('\n\n')
+const REPLY_ANSWERS = [
+  'The first answer stays selectable.',
+  'The second answer stays selectable.',
+  'The third answer stays selectable.',
+  'The fourth answer stays selectable.',
+]
+
+function captureFor(exact: string, text = TEXT): SelectionCapture {
+  const start = text.indexOf(exact)
   if (start < 0) throw new Error(`fixture text is missing ${exact}`)
   return {
     messageId: MESSAGE_ID,
@@ -26,8 +39,8 @@ function captureFor(exact: string): SelectionCapture {
     responseVersion: MESSAGE_ID,
     quote: {
       exact,
-      prefix: TEXT.slice(Math.max(0, start - 32), start),
-      suffix: TEXT.slice(start + exact.length, start + exact.length + 32),
+      prefix: text.slice(Math.max(0, start - 32), start),
+      suffix: text.slice(start + exact.length, start + exact.length + 32),
       start,
       end: start + exact.length,
     },
@@ -106,6 +119,18 @@ body { margin: 0; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-l
 .browser-composer { display: flex; gap: 8px; margin-top: 8px; padding: 10px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 14px; background: var(--dsw-alias-bg-layer-1); }
 .browser-composer [data-composer-input] { min-height: 56px; flex: 1; border: 0; background: transparent; color: inherit; font: inherit; outline: none; white-space: pre-wrap; }
 .browser-composer p { margin: 0; }
+.browser-fixture--reading { width: 100%; }
+.browser-fixture--reading h1 { margin: 0 0 12px; font-size: 20px; }
+.browser-fixture--reading .browser-scroller { box-sizing: border-box; height: calc((100vh - 240px) / var(--fixture-zoom, 1)); min-height: 220px; padding: 24px; }
+.browser-fixture--reading .browser-spacer { height: 80px; }
+.browser-fixture--reading .browser-scroller[data-reply='true'] .browser-spacer { height: 340px; }
+.browser-fixture--reading .dia-assistant { width: min(500px, 100%); margin-inline: auto; }
+.browser-fixture--reading .browser-controls { flex-wrap: wrap; }
+.browser-reading-reply { margin: 24px auto; }
+.browser-reading-reply[data-wrapped='true'] { width: 90px; overflow-wrap: anywhere; }
+.browser-fixture--blocked .browser-scroller { padding-inline: 0; }
+.browser-fixture--blocked .browser-reading-source .dia-assistant { width: 100%; }
+.browser-reading-source pre { margin: 0; padding: 12px 0; font: inherit; white-space: pre-wrap; }
 `
 
 function translate(key: keyof typeof en, params?: Record<string, unknown>): string {
@@ -117,7 +142,14 @@ function translate(key: keyof typeof en, params?: Record<string, unknown>): stri
 }
 const t = translate as InputAnnotationProps['t']
 
-function Fixture() {
+function Fixture({ mode }: { mode: 'legacy' | 'reading' | 'blocked' }) {
+  const reading = mode !== 'legacy'
+  const sourceText = reading ? READING_TEXT : TEXT
+  const [replyText, setReplyText] = useState('')
+  const [replyClosed, setReplyClosed] = useState(false)
+  const [replyWrapped, setReplyWrapped] = useState(false)
+  const [sourceOpen, setSourceOpen] = useState(true)
+  const [compactSummary, setCompactSummary] = useState(true)
   const controller = useMemo(() => {
     const storage = new AnnotationStorage(window.localStorage, SESSION_ID)
     storage.clear()
@@ -137,19 +169,71 @@ function Fixture() {
     <Selected,>(selector: (state: AnnotationView) => Selected): Selected => selector(view),
     [view],
   )
+  const useCompactSummary = useCallback(
+    <Selected,>(selector: (enabled: boolean) => Selected): Selected => selector(compactSummary),
+    [compactSummary],
+  )
   const useWorkspaces = useCallback(
     <Selected,>(selector: (state: { archivedSessionIds: readonly string[] }) => Selected): Selected =>
       selector({ archivedSessionIds: [] }),
     [],
   )
+  const deleteFixtureDrafts = () => {
+    for (const annotation of controller.getSnapshot().annotations) {
+      if (annotation.status === 'draft') controller.deleteDraft(annotation.annotationId)
+    }
+    controller.dismissDeleteUndo()
+  }
   const seedSameLine = () => {
-    controller.clearLocalDrafts()
+    deleteFixtureDrafts()
     const selections = ['Alpha', 'selected', 'phrase', 'and', 'the']
     selections.forEach((exact, index) => {
       controller.beginSelection(captureFor(exact))
       controller.updateEditorText(`Browser marker ${index + 1}`)
       controller.saveEditor()
     })
+  }
+  const seedReading = (count: number) => {
+    deleteFixtureDrafts()
+    controller.setPanelOpen(false)
+    READING_WORDS.slice(0, count).forEach((exact, index) => {
+      controller.beginSelection(captureFor(exact, sourceText))
+      controller.updateEditorText(`Reading note ${index + 1}.`)
+      controller.saveEditor()
+    })
+  }
+  const seedReply = () => {
+    seedReading(4)
+    const entry = controller.createOutbox('queue', SESSION_ID, 'Explain all four notes.')
+    controller.markSending(entry.payload.submissionId)
+    controller.markAccepted(entry.payload.submissionId)
+    controller.reconcile({
+      chat: {
+        nodes: new Map([
+          [
+            'submitted',
+            { kind: 'user', data: { source: { kind: 'user', annotationSubmission: entry.payload } } },
+          ],
+        ]),
+      },
+      queue: [],
+      hasMore: false,
+    } as never)
+    setReplyText(
+      entry.payload.annotations
+        .map((annotation, index) => {
+          const marker = JSON.stringify({
+            submissionId: entry.payload.submissionId,
+            annotationId: annotation.annotationId,
+            ordinal: annotation.ordinal,
+          })
+          return `<!-- dsh-annotation-reply:${marker} -->\n\n\n\nAnnotation ${annotation.ordinal}: ${REPLY_ANSWERS[index]}`
+        })
+        .join('\n\n\n\n'),
+    )
+    setReplyClosed(false)
+    setReplyWrapped(false)
+    setSourceOpen(false)
   }
   const submitComposer = () => {
     if (!attached) return
@@ -198,7 +282,7 @@ function Fixture() {
 
   const shared = {
     useAnnotations,
-    useLocalTools: (selector: (value: boolean) => unknown) => selector(true),
+    useCompactSummary,
     beginSelection: (capture: SelectionCapture) => controller.beginSelection(capture),
     openAnnotation: controller.openAnnotation.bind(controller),
     updateEditorText: controller.updateEditorText.bind(controller),
@@ -208,8 +292,6 @@ function Fixture() {
     deleteDraft: controller.deleteDraft.bind(controller),
     undoDelete: controller.undoDelete.bind(controller),
     dismissDeleteUndo: controller.dismissDeleteUndo.bind(controller),
-    exportLocalData: controller.exportLocalData.bind(controller),
-    clearLocalDrafts: controller.clearLocalDrafts.bind(controller),
     setPanelOpen: controller.setPanelOpen.bind(controller),
     autoAttachEnabled: () => true,
     ensureComposerAttachment: () => {
@@ -241,10 +323,12 @@ function Fixture() {
     node: {
       data: {
         status: 'closed',
-        blocks: [
-          { kind: 'reasoning', text: 'Reasoning stays outside comment offsets.' },
-          { kind: 'text', text: TEXT },
-        ],
+        blocks: reading
+          ? [{ kind: 'text', text: sourceText }]
+          : [
+              { kind: 'reasoning', text: 'Reasoning stays outside comment offsets.' },
+              { kind: 'text', text: sourceText },
+            ],
         finalNode: { messageId: MESSAGE_ID, seq: 42 },
       },
       location: { kind: 'root' },
@@ -273,12 +357,65 @@ function Fixture() {
   }
 
   return (
-    <main className="browser-fixture">
+    <main
+      className={`browser-fixture${reading ? ' browser-fixture--reading' : ''}${mode === 'blocked' ? ' browser-fixture--blocked' : ''}`}
+      data-annotation-count={view.annotations.length}
+    >
       <style>{fixtureTokens + styles}</style>
       <h1>Annotation browser fixture</h1>
-      <div className="browser-scroller" data-testid="conversation-scroll">
+      <div
+        className="browser-scroller"
+        data-testid="conversation-scroll"
+        data-reply={replyText !== '' || undefined}
+      >
         <div className="browser-spacer" />
-        <AnnotatedAssistantNode {...(assistantProps as unknown as AssistantAnnotationProps)} />
+        <div
+          className="browser-reading-source"
+          data-testid="reading-source"
+          data-source-open={sourceOpen}
+          data-turn-process-hidden={!sourceOpen || undefined}
+          hidden={!sourceOpen}
+        >
+          <AnnotatedAssistantNode
+            {...(assistantProps as unknown as AssistantAnnotationProps)}
+            turnProcess={
+              {
+                spec: {},
+                foldable: true,
+                open: sourceOpen,
+                setOpen: setSourceOpen,
+              } as unknown as AssistantAnnotationProps['turnProcess']
+            }
+          >
+            {mode === 'blocked' ? (
+              <pre>
+                <code>{sourceText}</code>
+              </pre>
+            ) : undefined}
+          </AnnotatedAssistantNode>
+        </div>
+        {replyText !== '' && (
+          <>
+            <button type="button" data-testid="reply-keyboard-start">
+              Keyboard entry
+            </button>
+            <div className="browser-reading-reply" data-testid="reading-reply" data-wrapped={replyWrapped}>
+              <AnnotatedAssistantNode
+                {...(assistantProps as unknown as AssistantAnnotationProps)}
+                node={
+                  {
+                    ...assistantProps.node,
+                    data: {
+                      status: replyClosed ? 'closed' : 'running',
+                      blocks: [{ kind: 'text', text: replyText }],
+                      finalNode: { messageId: 'browser-reply-message' as MessageIdentity, seq: 44 },
+                    },
+                  } as unknown as AssistantAnnotationProps['node']
+                }
+              />
+            </div>
+          </>
+        )}
         <div className="browser-spacer" />
       </div>
       <div data-composer-seat>
@@ -306,6 +443,36 @@ function Fixture() {
         </div>
       </div>
       <div className="browser-controls">
+        {reading && (
+          <>
+            <button
+              type="button"
+              data-testid="summary-layout"
+              aria-pressed={compactSummary}
+              onClick={() => setCompactSummary((value) => !value)}
+            >
+              Toggle compact summary
+            </button>
+            <button type="button" data-testid="reading-clear" onClick={() => seedReading(0)}>
+              Clear notes
+            </button>
+            <button type="button" data-testid="reading-one" onClick={() => seedReading(1)}>
+              One note
+            </button>
+            <button type="button" data-testid="reading-six" onClick={() => seedReading(6)}>
+              Six notes
+            </button>
+            <button type="button" data-testid="seed-reading-reply" onClick={seedReply}>
+              Seed reply
+            </button>
+            <button type="button" data-testid="reply-finish" onClick={() => setReplyClosed(true)}>
+              Finish reply
+            </button>
+            <button type="button" data-testid="reply-wrap" onClick={() => setReplyWrapped((value) => !value)}>
+              Wrap reply label
+            </button>
+          </>
+        )}
         <button type="button" data-testid="seed-same-line" onClick={seedSameLine}>
           Seed same-line markers
         </button>
@@ -320,4 +487,6 @@ function Fixture() {
   )
 }
 
-createRoot(document.getElementById('root')!).render(<Fixture />)
+const scenario = new URLSearchParams(window.location.search).get('scenario')
+const mode = scenario === 'reading' || scenario === 'blocked' ? scenario : 'legacy'
+createRoot(document.getElementById('root')!).render(<Fixture mode={mode} />)

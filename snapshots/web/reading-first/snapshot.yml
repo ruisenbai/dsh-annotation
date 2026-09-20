@@ -1,0 +1,7 @@
+version: 1
+scenario: reading-first
+profile: web
+composition: web-annotation
+recording: authored
+header:
+  class: annotation-reading-first

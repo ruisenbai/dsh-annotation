@@ -2,7 +2,8 @@ import { access, readFile } from 'node:fs/promises'
 
 const root = new URL('../', import.meta.url)
 const manifest = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
-const expectedDshVersion = '0.1.5-alpha.1'
+const baseline = JSON.parse(await readFile(new URL('source-baseline.json', root), 'utf8'))
+const expectedDshVersion = baseline.version
 if (manifest.engines?.dsh !== expectedDshVersion) {
   throw new Error(`package.json engines.dsh must be ${expectedDshVersion}`)
 }
@@ -19,7 +20,7 @@ const expectedPlatformModules = [
   '@deepseek-ai/dsh-client-ui-dockkit',
 ]
 if (JSON.stringify(platformModules) !== JSON.stringify(expectedPlatformModules)) {
-  throw new Error('client-platform.json does not match the DSH 0.1.5-alpha.1 platform modules')
+  throw new Error(`client-platform.json does not match the DSH ${expectedDshVersion} platform modules`)
 }
 for (const [name, range] of Object.entries(manifest.peerDependencies ?? {})) {
   if (manifest.devDependencies?.[name] !== range) {

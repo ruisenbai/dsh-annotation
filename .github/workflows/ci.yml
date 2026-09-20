@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: deepseek-ai/deepseek-harness
-          ref: 5dda764ed3aa172535a7967b06ff95d9cbfe536a
+          ref: ddefc45fbc7f8e46dd73185e68295696d1297887
           path: .host-source
       - uses: pnpm/action-setup@v6
         with:
@@ -61,7 +61,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: deepseek-ai/deepseek-harness
-          ref: 5dda764ed3aa172535a7967b06ff95d9cbfe536a
+          ref: ddefc45fbc7f8e46dd73185e68295696d1297887
           path: .host-source
       - uses: actions/download-artifact@v7
         with:
@@ -94,6 +94,10 @@ jobs:
       - name: Run browser regressions
         if: matrix.node == '24.x'
         run: pnpm test:browser
+        working-directory: ${{ runner.temp }}/annotation-verification
+      - name: Run real Web profile smoke
+        if: matrix.node == '24.x'
+        run: pnpm test:profile
         working-directory: ${{ runner.temp }}/annotation-verification
       - run: pnpm test:coverage
         working-directory: ${{ runner.temp }}/annotation-verification

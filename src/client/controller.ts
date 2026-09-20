@@ -37,11 +37,12 @@ export interface AnnotationView {
   readonly panelOpen: boolean
   readonly notice: { readonly level: 'info' | 'error'; readonly text: string } | null
   readonly activeAnnotationId: AnnotationId | null
+  /** Monotonic identity for the latest transient source-navigation effect. */
+  readonly navigationEpoch: number
   /** Transient annotation card anchored to a marker in the assistant body. */
   readonly markerAnnotationId: AnnotationId | null
   readonly latestAssistantMessageId: MessageIdentity | null
   readonly storageAvailable: boolean
-  readonly storageBytes: number
 }
 
 export interface AnnotationReconciliationSnapshot {
@@ -50,7 +51,8 @@ export interface AnnotationReconciliationSnapshot {
       values(): Iterable<unknown>
     }
   }
-  readonly queue: readonly { readonly messageId: unknown }[]
+  /** Undefined until the Host Inbox is available; only next-turn entries are withdrawable. */
+  readonly queue: readonly { readonly messageId: unknown }[] | undefined
   readonly hasMore: boolean
 }
 
@@ -60,7 +62,7 @@ export interface AnnotationNavigationSession {
 }
 
 export interface AnnotationEndpoint {
-  reveal(annotationId: AnnotationId): void
+  reveal(annotationId: AnnotationId, navigationEpoch: number): void
   annotateAll(): void
 }
 
@@ -142,7 +144,11 @@ export class AnnotationController {
   private view: AnnotationView
   private readonly listeners = new Set<() => void>()
   private readonly endpoints = new Map<MessageIdentity, AnnotationEndpoint>()
-  private pendingNavigation: { messageId: MessageIdentity; annotationId: AnnotationId } | null = null
+  private pendingNavigation: {
+    messageId: MessageIdentity
+    annotationId: AnnotationId
+    navigationEpoch: number
+  } | null = null
   private persistTimer: ReturnType<typeof setTimeout> | null = null
   private disposed = false
 
@@ -167,10 +173,10 @@ export class AnnotationController {
       panelOpen: false,
       notice: storage.lastError() === null ? null : { level: 'error' as const, text: 'storage' },
       activeAnnotationId,
+      navigationEpoch: 0,
       markerAnnotationId: null,
       latestAssistantMessageId: null,
       storageAvailable: storage.lastError() === null,
-      storageBytes: storage.usageBytes(),
     })
   }
 
@@ -448,32 +454,6 @@ export class AnnotationController {
     this.publish({ ...this.view, overallRequirementDraft })
   }
 
-  exportLocalData(): string {
-    return JSON.stringify(cloneState(this.view), null, 2)
-  }
-
-  clearLocalDrafts(): void {
-    const draftIds = new Set(
-      this.view.annotations.filter((item) => item.status === 'draft').map((item) => item.annotationId),
-    )
-    this.publish({
-      ...this.view,
-      annotations: withOrdinals(this.view.annotations.filter((item) => item.status !== 'draft')),
-      overallRequirementDraft: '',
-      editor: null,
-      editorSaveStatus: 'idle',
-      deletedDraft: null,
-      activeAnnotationId:
-        this.view.activeAnnotationId !== null && draftIds.has(this.view.activeAnnotationId)
-          ? null
-          : this.view.activeAnnotationId,
-      markerAnnotationId:
-        this.view.markerAnnotationId !== null && draftIds.has(this.view.markerAnnotationId)
-          ? null
-          : this.view.markerAnnotationId,
-    })
-  }
-
   setNotice(level: 'info' | 'error', text: string): void {
     this.publish({ ...this.view, notice: { level, text } }, false)
   }
@@ -645,7 +625,8 @@ export class AnnotationController {
         acknowledgements.set(acknowledgement.submissionId, ids)
       }
     }
-    const queued = new Set(snapshot.queue.map((item) => String(item.messageId)))
+    const queued =
+      snapshot.queue === undefined ? undefined : new Set(snapshot.queue.map((item) => String(item.messageId)))
     let annotations = [...this.view.annotations]
     const known = new Set(annotations.map((item) => item.annotationId))
     for (const payload of submissions.values()) {
@@ -669,7 +650,8 @@ export class AnnotationController {
         submissions.has(item.submissionId) &&
         acknowledgements.get(item.submissionId)?.has(item.annotationId) === true
       const queuedNow = this.view.outbox.some(
-        (outbox) => outbox.payload.submissionId === item.submissionId && queued.has(String(outbox.messageId)),
+        (outbox) =>
+          outbox.payload.submissionId === item.submissionId && queued?.has(String(outbox.messageId)),
       )
       const candidate: AnnotationStatus = processed
         ? 'processed'
@@ -686,11 +668,11 @@ export class AnnotationController {
         const { lastError: _lastError, ...rest } = item
         return Object.freeze({ ...rest, status: 'sent' as const })
       }
-      if (queued.has(String(item.messageId)) && item.status !== 'sent' && item.status !== 'withdrawn') {
+      if (queued?.has(String(item.messageId)) && item.status !== 'sent' && item.status !== 'withdrawn') {
         const { lastError: _lastError, ...rest } = item
         return Object.freeze({ ...rest, status: 'queued' as const })
       }
-      if (item.status === 'queued' && item.targetSessionId === this.sessionId) {
+      if (queued !== undefined && item.status === 'queued' && item.targetSessionId === this.sessionId) {
         return Object.freeze({ ...item, status: 'accepted' as const })
       }
       return item
@@ -752,10 +734,13 @@ export class AnnotationController {
 
   registerEndpoint(messageId: MessageIdentity, endpoint: AnnotationEndpoint): () => void {
     this.endpoints.set(messageId, endpoint)
-    if (this.pendingNavigation?.messageId === messageId) {
+    if (
+      this.pendingNavigation?.messageId === messageId &&
+      this.pendingNavigation.navigationEpoch === this.view.navigationEpoch
+    ) {
       const pending = this.pendingNavigation
       this.pendingNavigation = null
-      endpoint.reveal(pending.annotationId)
+      endpoint.reveal(pending.annotationId, pending.navigationEpoch)
     }
     return () => {
       if (this.endpoints.get(messageId) === endpoint) this.endpoints.delete(messageId)
@@ -772,31 +757,45 @@ export class AnnotationController {
   async navigate(annotationId: AnnotationId): Promise<boolean> {
     const annotation = this.view.annotations.find((item) => item.annotationId === annotationId)
     if (annotation === undefined) return false
+    const navigationEpoch = this.view.navigationEpoch + 1
+    this.pendingNavigation = null
     this.publish(
-      { ...this.view, activeAnnotationId: annotationId, markerAnnotationId: null, panelOpen: false },
+      {
+        ...this.view,
+        activeAnnotationId: null,
+        navigationEpoch,
+        markerAnnotationId: null,
+        panelOpen: false,
+      },
       false,
     )
     const endpoint = this.endpoints.get(annotation.messageId)
     if (endpoint !== undefined) {
-      endpoint.reveal(annotationId)
+      endpoint.reveal(annotationId, navigationEpoch)
       return true
     }
-    this.pendingNavigation = { messageId: annotation.messageId, annotationId }
+    this.pendingNavigation = { messageId: annotation.messageId, annotationId, navigationEpoch }
     for (let page = 0; page < this.config.locateHistoryPages; page += 1) {
+      if (this.view.navigationEpoch !== navigationEpoch) return false
       if (!this.navigationSession.getSnapshot().hasMore) break
       await this.navigationSession.loadOlder()
+      if (this.view.navigationEpoch !== navigationEpoch) return false
       // 官方 loadOlder 只保证数据已取回；目标消息的端点由挂载的助手节点在
       // 随后的 React 提交中注册，可能晚于这次同步检查。给注册留出有界等待。
       const loaded = await this.awaitEndpoint(annotation.messageId)
+      if (this.view.navigationEpoch !== navigationEpoch) return false
       if (loaded !== undefined) {
-        this.pendingNavigation = null
-        loaded.reveal(annotationId)
+        if (this.pendingNavigation?.navigationEpoch === navigationEpoch) {
+          this.pendingNavigation = null
+          loaded.reveal(annotationId, navigationEpoch)
+        }
         return true
       }
       // 已加载到历史末尾仍未见目标消息：直接失败，不再空转等待。
       if (!this.navigationSession.getSnapshot().hasMore) break
     }
-    this.pendingNavigation = null
+    if (this.view.navigationEpoch !== navigationEpoch) return false
+    if (this.pendingNavigation?.navigationEpoch === navigationEpoch) this.pendingNavigation = null
     this.publish({ ...this.view, notice: { level: 'error', text: 'locate' } }, false)
     return false
   }
@@ -852,14 +851,12 @@ export class AnnotationController {
             ...this.view,
             editorSaveStatus: this.view.editorSaveStatus === 'saving' ? 'saved' : this.view.editorSaveStatus,
             storageAvailable: true,
-            storageBytes: this.storage.usageBytes(),
             notice: this.view.notice?.text === 'storage' ? null : this.view.notice,
           })
         : Object.freeze({
             ...this.view,
             editorSaveStatus: this.view.editor === null ? 'idle' : 'error',
             storageAvailable: false,
-            storageBytes: this.storage.usageBytes(),
             notice: { level: 'error' as const, text: 'storage' },
           })
     }

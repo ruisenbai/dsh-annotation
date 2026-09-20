@@ -1,4 +1,4 @@
-/** Public dsh-market update API integration for the plugin settings card. */
+/** Public dsh-market update API integration for the annotation Settings section. */
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 
@@ -20,7 +20,7 @@ type MarketUpdatePhase =
   | 'rolled-back'
   | 'restarting'
 
-/** State rendered by the dsh-market section of the plugin settings card. */
+/** State rendered by the dsh-market section of the annotation Settings section. */
 export interface MarketUpdateState {
   readonly phase: MarketUpdatePhase
   readonly marketVersion: string | null
@@ -38,7 +38,7 @@ export interface MarketUpdateState {
   readonly restartSupported: boolean
 }
 
-/** Registration-side face for dsh-market actions in the plugin settings card. */
+/** Registration-side face for dsh-market actions in the annotation Settings section. */
 export interface MarketUpdateInjected {
   readonly hooks: {
     /** Market snapshot bound by the renderer as useMarketUpdate. */
@@ -296,7 +296,7 @@ export class MarketUpdateController {
     private readonly refresh: () => void = () => globalThis.location.reload(),
   ) {}
 
-  /** @returns the Slot injection face used by the settings card. */
+  /** @returns the Slot injection face used by the annotation Settings section. */
   inject(): MarketUpdateInjected {
     return {
       hooks: { marketUpdate: this.store },

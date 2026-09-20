@@ -4,6 +4,27 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-20
+
+Target host: DeepSeek Harness `0.1.6-alpha.2`, source tag `dsh-v0.1.6-alpha.2` at commit `ddefc45fbc7f8e46dd73185e68295696d1297887`.
+
+### Changed
+
+- Set the exact host and lockstep dependency baseline to `0.1.6-alpha.2`.
+- Subscribe independently to `session.projections.faceOf('inbox')` for queue reconciliation. Only `next-turn` item ids map to withdrawable queued submissions; `next-step` entries do not. An undefined projection remains unsynchronized rather than being treated as an empty queue.
+- Supply the required `CommandClaim.name` while retaining the zero-width token and standard attachment submission path.
+- Move annotation configuration into a dedicated **Settings → Annotations** page through `settings.section:dsh-annotation`; do not register a community-bundle detail form, a built-in-plugins tab, or an Official `plugins.item` entry.
+- Add selective visibility switches for `read` / `read_image`, `glob`, `grep`, `bash` / `pwsh`, `edit`, `write`, and every other tool family while retaining `hideTools` as the all-tools override. Arrange all 18 transcript switches in a responsive grid, collapse fully hidden Chat rows without leaving flow gaps, and filter nested tool trees without changing recorded Session events.
+- Use `FileTypeIcon` for file attachments and pass `openFile` and `openSkill` to `projectUserText` for user and steering rows, including annotation submission requirements.
+- Join the upward annotation list and bottom summary controls into one responsive card. Compact mode expands both to the same capped 560 px width while open, full-width mode shares the same one-pixel seam, the toolbar spans the card with right-aligned actions, and the attached-count overview remains collapsed-only. One chevron rotates in place, the panel fades upward from its bottom-right anchor with reduced-motion support, and Escape restores focus to the summary trigger.
+- Retain Host command behavior, ordered image/file attachments, protocol v2, storage versions and namespaces, stable submission-derived message ids, and legacy reads.
+
+#### Fixed
+
+- Include Markdown file-link button text when capturing selections and restoring annotation ranges, while continuing to exclude action buttons and hidden content.
+- Restore every unambiguous model-reply heading after the marker-stripping display transform collapses blank lines or trims edges. Search windows now use normalized raw prefixes, retain repeated ordinals across submission batches, and reject an earliest heading text that is duplicated instead of substituting a later localized citation.
+- Activate model-reply headings through source navigation rather than the annotation editor. A genuinely folded Turn expands before measurement, the complete quote is centered, and a local quote-range background fades without taking ownership of persistent Custom Highlights; monotonic navigation epochs cancel overlays and history continuations from superseded requests.
+
 ## [0.8.0] - 2026-09-09
 
 ### Changed

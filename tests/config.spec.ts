@@ -1,11 +1,41 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
+import type Schema from '@deepseek-ai/schemastery'
+import {
+  DEFAULT_TRANSCRIPT_VISIBILITY,
+  TRANSCRIPT_VISIBILITY_KEYS,
+  type AnnotationSettings,
+} from '../src/shared/settings.ts'
 import { apply } from '../src/index.ts'
 import { DEFAULT_CONFIG, LEGACY_COMMAND_NAMES, resolveConfig } from '../src/shared/config.ts'
 
 describe('configuration', () => {
   it('resolves all defaults explicitly', () => {
     expect(resolveConfig(undefined)).toEqual(DEFAULT_CONFIG)
+  })
+
+  it('keeps all transcript filters off by default', () => {
+    expect(DEFAULT_TRANSCRIPT_VISIBILITY).toEqual({
+      hideReasoning: false,
+      hideTools: false,
+      hideToolRead: false,
+      hideToolGlob: false,
+      hideToolGrep: false,
+      hideToolBash: false,
+      hideToolEdit: false,
+      hideToolWrite: false,
+      hideToolOther: false,
+      hideContext: false,
+      hideCommandResults: false,
+      hideCompaction: false,
+      hideRetries: false,
+      hideErrors: false,
+      hideAttachments: false,
+      hideAnnotationHistory: false,
+      hideTurnDetails: false,
+      hideOther: false,
+    })
+    expect(TRANSCRIPT_VISIBILITY_KEYS).toEqual(Object.keys(DEFAULT_TRANSCRIPT_VISIBILITY))
   })
 
   it('uses the dsh-annotation command identity by default', () => {
@@ -59,6 +89,30 @@ describe('configuration', () => {
     expect(registerSettings).toHaveBeenCalledTimes(2)
     expect((registerSettings.mock.calls[0] as unknown[])[0]).toBe('dsh-annotation')
     expect((registerSettings.mock.calls[1] as unknown[])[0]).toBe('inline-comments')
+    const schema = (registerSettings.mock.calls[0] as unknown[])[1] as Schema<unknown, AnnotationSettings>
+    const defaults: AnnotationSettings = {
+      enabled: true,
+      autoAttach: true,
+      compactSummary: true,
+      ...DEFAULT_TRANSCRIPT_VISIBILITY,
+    }
+    expect(schema({})).toEqual(defaults)
+    for (const field of TRANSCRIPT_VISIBILITY_KEYS) {
+      expect(schema({ [field]: true })).toEqual({ ...defaults, [field]: true })
+      expect(schema({ [field]: false })).toEqual(defaults)
+      expect(() => schema({ [field]: 'true' })).toThrow()
+    }
+    expect(schema({ compactSummary: false }).compactSummary).toBe(false)
+    expect(() => schema({ compactSummary: 'false' })).toThrow()
+    expect(schema.dict).not.toHaveProperty('localTools')
+    const legacyUser = { enabled: false, autoAttach: false, compactSummary: false, localTools: false }
+    expect(schema(legacyUser)).toMatchObject({ enabled: false, autoAttach: false, compactSummary: false })
+    expect(legacyUser).toEqual({
+      enabled: false,
+      autoAttach: false,
+      compactSummary: false,
+      localTools: false,
+    })
   })
 
   it('migrates a legacy settings namespace once and clears the legacy section', async () => {

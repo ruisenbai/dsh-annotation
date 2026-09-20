@@ -3,6 +3,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { InboxState } from '@deepseek-ai/dsh-agent/types'
+import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 
 vi.mock('@deepseek-ai/dsh-client-store', () => ({
   createSnapshotStore<T>(initial: T, options?: { persist?: { name: string } }) {
@@ -41,9 +44,16 @@ import { apply, inject } from '../src/client/index.tsx'
 import { COMPOSER_ATTACHMENT_TOKEN } from '../src/client/composer-attachment.ts'
 import { AnnotationController, type AnnotationReconciliationSnapshot } from '../src/client/controller.ts'
 import type { AnnotationInjected } from '../src/client/contract.ts'
+import type { AnnotationSettingsInjected } from '../src/client/feature-toggle.ts'
+import type { TranscriptVisibilityInjected } from '../src/client/transcript-renderer.tsx'
 import { AnnotationStorage } from '../src/client/storage.ts'
 import { DEFAULT_CONFIG } from '../src/shared/config.ts'
-import { LEGACY_ANNOTATION_ENABLED_STORAGE_KEY } from '../src/shared/settings.ts'
+import {
+  DEFAULT_TRANSCRIPT_VISIBILITY,
+  LEGACY_ANNOTATION_ENABLED_STORAGE_KEY,
+  TRANSCRIPT_VISIBILITY_KEYS,
+  type AnnotationSettings,
+} from '../src/shared/settings.ts'
 import type { MessageIdentity, SessionIdentity } from '../src/shared/types.ts'
 
 function emptySnapshot(): AnnotationReconciliationSnapshot {
@@ -52,6 +62,17 @@ function emptySnapshot(): AnnotationReconciliationSnapshot {
     queue: [],
     hasMore: false,
   } as unknown as AnnotationReconciliationSnapshot
+}
+
+function inboxSnapshot(nextTurn: readonly string[] = [], nextStep: readonly string[] = []): InboxState {
+  const messages = (ids: readonly string[]): InboxState['next-turn'] =>
+    ids.map((id) => ({
+      id: id as MessageId,
+      role: 'user',
+      content: [{ type: 'text', text: 'Pending input' }],
+      source: { kind: 'user' },
+    }))
+  return { 'next-turn': messages(nextTurn), 'next-step': messages(nextStep) }
 }
 
 function imageAttachment(name = 'shot.png'): SubmitAttachment {
@@ -67,7 +88,13 @@ function remoteSuccess() {
 }
 
 function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true) {
-  type HostSettings = { enabled?: boolean; autoAttach?: boolean }
+  type HostSettings = Partial<AnnotationSettings>
+  type TranscriptRootSources = {
+    hooks: TranscriptVisibilityInjected['hooks']
+    props: Pick<TranscriptVisibilityInjected, 'annotationTranscriptT'>
+  }
+  const rootSources: TranscriptRootSources[] = []
+  const settingsFields = new Set(['enabled', 'autoAttach', 'compactSummary', ...TRANSCRIPT_VISIBILITY_KEYS])
   const registrations: {
     options: Record<string, unknown>
     component: unknown
@@ -78,6 +105,8 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
   const listListeners = new Set<() => void>()
   const unsubscribeSession = vi.fn()
   const unsubscribeChat = vi.fn()
+  const unsubscribeInbox = vi.fn()
+  const inboxListeners = new Set<() => void>()
   const sessionListeners = new Set<() => void>()
   const chatListeners = new Set<() => void>()
   const inputListeners = new Set<() => void>()
@@ -88,8 +117,11 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
   const settingsSnapshot = () => ({
     status: 'ready' as const,
     value: {
+      ...DEFAULT_TRANSCRIPT_VISIBILITY,
+      ...settingsUser,
       enabled: settingsUser.enabled ?? true,
       autoAttach: settingsUser.autoAttach ?? true,
+      compactSummary: settingsUser.compactSummary ?? true,
     },
     base: undefined,
     user: settingsUser,
@@ -108,25 +140,25 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       return () => settingsListeners.delete(listener)
     },
     async set(field: string, value: unknown) {
-      if ((field === 'enabled' || field === 'autoAttach') && typeof value === 'boolean') {
+      if (settingsFields.has(field) && typeof value === 'boolean') {
         settingsUser = { ...settingsUser, [field]: value }
       }
       publishSettings()
     },
     async unset(field: string) {
-      if (field === 'enabled' || field === 'autoAttach') {
+      if (settingsFields.has(field)) {
         const next = { ...settingsUser }
-        delete next[field]
+        delete next[field as keyof AnnotationSettings]
         settingsUser = next
       }
       publishSettings()
     },
   }
   const initialSnapshot = emptySnapshot()
-  let sessionSnapshot = {
-    queue: initialSnapshot.queue,
+  let sessionSnapshot: Pick<SessionSnapshot, 'hasMore'> = {
     hasMore: initialSnapshot.hasMore,
   }
+  let inbox: InboxState | undefined
   let chatSnapshot = initialSnapshot.chat
   let listed = true
   let remoteCommandsAvailable = true
@@ -211,7 +243,23 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
     },
     notify: inputNotice,
   }
+  const inboxFace = {
+    getSnapshot: () => inbox,
+    subscribe(listener: () => void) {
+      inboxListeners.add(listener)
+      return () => {
+        inboxListeners.delete(listener)
+        unsubscribeInbox()
+      }
+    },
+  }
   const session = {
+    projections: {
+      faceOf(key: string) {
+        if (key !== 'inbox') throw new Error(`Unexpected projection: ${key}`)
+        return inboxFace
+      },
+    },
     getSnapshot: () => sessionSnapshot,
     subscribe(listener: () => void) {
       sessionListeners.add(listener)
@@ -269,6 +317,13 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       bind: () => settingsScope,
     },
     slots: {
+      provideRoot(sources: TranscriptRootSources) {
+        rootSources.push(sources)
+        return () => {
+          const index = rootSources.indexOf(sources)
+          if (index >= 0) rootSources.splice(index, 1)
+        }
+      },
       register(options: Record<string, unknown>, component: unknown) {
         const registration = {
           options,
@@ -290,10 +345,15 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       },
       inject(_name: string, install: () => (() => void) | readonly (() => void)[]) {
         const installed = install()
-        return () => {
+        let active = true
+        const dispose = () => {
+          if (!active) return
+          active = false
           if (typeof installed === 'function') installed()
-          else for (const dispose of [...installed].reverse()) dispose()
+          else for (const disposeEntry of [...installed].reverse()) disposeEntry()
         }
+        disposers.push(dispose)
+        return dispose
       },
     },
     on(event: string, listener: (key: string) => void) {
@@ -315,33 +375,56 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       return dock.options.inject(sessionId) as AnnotationInjected
     },
     async setPluginEnabled(enabled: boolean) {
-      const setting = registrations.find((entry) => entry.options.name === 'settings.plugin.item')
+      const setting = registrations.find((entry) => entry.options.name === 'settings.section')
       if (setting === undefined || typeof setting.options.inject !== 'function')
-        throw new Error('plugin settings card was not registered')
-      const face = setting.options.inject() as {
-        setEnabled: (value: boolean) => void
-        save: () => void
-      }
+        throw new Error('annotation Settings tab was not registered')
+      const face = setting.options.inject() as AnnotationSettingsInjected
       face.setEnabled(enabled)
       face.save()
-      await Promise.resolve()
-      await Promise.resolve()
+      await vi.waitFor(() => {
+        expect(face.hooks.settingsCard.getSnapshot()).toMatchObject({ saving: false, dirty: false })
+      })
     },
     async setAutoAttach(enabled: boolean) {
-      const setting = registrations.find((entry) => entry.options.name === 'settings.plugin.item')
+      const setting = registrations.find((entry) => entry.options.name === 'settings.section')
       if (setting === undefined || typeof setting.options.inject !== 'function') {
-        throw new Error('plugin settings card was not registered')
+        throw new Error('annotation Settings tab was not registered')
       }
-      const face = setting.options.inject() as {
-        setAutoAttach: (value: boolean) => void
-        save: () => void
-      }
+      const face = setting.options.inject() as AnnotationSettingsInjected
       face.setAutoAttach(enabled)
       face.save()
-      await Promise.resolve()
-      await Promise.resolve()
+      await vi.waitFor(() => {
+        expect(face.hooks.settingsCard.getSnapshot()).toMatchObject({ saving: false, dirty: false })
+      })
+    },
+    settingsFace(): AnnotationSettingsInjected {
+      const setting = registrations.find((entry) => entry.options.name === 'settings.section')
+      if (setting === undefined || typeof setting.options.inject !== 'function') {
+        throw new Error('annotation Settings tab was not registered')
+      }
+      return setting.options.inject() as AnnotationSettingsInjected
     },
     settingsUser: () => settingsUser,
+    rootSourceCount: () => rootSources.length,
+    transcriptFace(): TranscriptVisibilityInjected {
+      const source = rootSources.at(-1)
+      if (source === undefined) throw new Error('transcript root sources were not registered')
+      return { hooks: source.hooks, ...source.props }
+    },
+    addHostEntry(
+      options: Record<string, unknown>,
+      component: unknown,
+      injected?: (...args: unknown[]) => Record<string, unknown>,
+    ) {
+      const registration = {
+        options,
+        component,
+        ...(injected === undefined ? {} : { inject: injected }),
+      }
+      registrations.push(registration)
+      for (const listener of slotListeners) listener(String(options.name))
+      return registration
+    },
     addHostAssistant(
       component: unknown,
       injected?: (...args: unknown[]) => Record<string, unknown>,
@@ -362,6 +445,9 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
     },
     hasRegistration(name: string) {
       return registrations.some((entry) => entry.options.name === name)
+    },
+    registrationOptions(name: string) {
+      return registrations.find((entry) => entry.options.name === name)?.options
     },
     hasRegistrationKey(name: string, key: string) {
       return registrations.some((entry) => entry.options.name === name && entry.options.key === key)
@@ -422,9 +508,13 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       }
       return outcome
     },
-    setSessionSnapshot(snapshot: Pick<AnnotationReconciliationSnapshot, 'queue' | 'hasMore'>, notify = true) {
+    setSessionSnapshot(snapshot: Pick<SessionSnapshot, 'hasMore'>, notify = true) {
       sessionSnapshot = snapshot
       if (notify) for (const listener of sessionListeners) listener()
+    },
+    setInbox(snapshot: InboxState | undefined, notify = true) {
+      inbox = snapshot
+      if (notify) for (const listener of inboxListeners) listener()
     },
     setChatSnapshot(snapshot: AnnotationReconciliationSnapshot['chat'], notify = true) {
       chatSnapshot = snapshot
@@ -440,6 +530,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
     },
     unsubscribeSession,
     unsubscribeChat,
+    unsubscribeInbox,
     async dispose() {
       for (const dispose of disposers.reverse()) await dispose()
     },
@@ -501,6 +592,20 @@ function seedCrossSessionOutbox() {
 beforeEach(() => localStorage.clear())
 
 describe('Client plugin composer attachment lifecycle', () => {
+  it('registers one dedicated annotation section in main Settings', async () => {
+    const fixture = fixtureContext(vi.fn())
+    apply(fixture.ctx)
+
+    const options = fixture.registrationOptions('settings.section')
+    expect(options).toMatchObject({ id: 'dsh-annotation', order: 22, locale: 'dshAnnotation' })
+    expect((options?.label as (() => string) | undefined)?.()).toBe('settings.title')
+    expect(fixture.hasRegistration('plugins.bundle.config')).toBe(false)
+    expect(fixture.hasRegistration('settings.plugins.tab')).toBe(false)
+
+    await fixture.dispose()
+    expect(fixture.hasRegistration('settings.section')).toBe(false)
+  })
+
   it('decorates the existing assistant renderer without registering another assistant-step entry', async () => {
     const fixture = fixtureContext(vi.fn())
     const HostAssistant = () => null
@@ -537,6 +642,109 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.dispose()
   })
 
+  it('installs root transcript sources and decorates only supported Chat entries while enabled', async ({
+    onTestFinished,
+  }) => {
+    const fixture = fixtureContext(vi.fn(), false)
+    const HostChat = () => null
+    const HostTrajectory = () => null
+    const HostTool = () => null
+    const HostUnknownExtension = () => null
+    const viewInject = vi.fn(() => ({ hostView: true }))
+    const toolInject = vi.fn(() => ({ hostTool: true }))
+    const chat = fixture.addHostEntry({ name: 'conversation.view', id: 'chat' }, HostChat, viewInject)
+    const trajectory = fixture.addHostEntry({ name: 'conversation.view', id: 'trajectory' }, HostTrajectory)
+    const tool = fixture.addHostEntry(
+      { name: 'conversation.chat.node', key: 'tool-call' },
+      HostTool,
+      toolInject,
+    )
+    const extension = fixture.addHostEntry(
+      { name: 'conversation.chat.node', key: 'future-extension' },
+      HostUnknownExtension,
+    )
+    onTestFinished(async () => {
+      await fixture.dispose()
+      expect(fixture.rootSourceCount()).toBe(0)
+      expect(chat.component).toBe(HostChat)
+      expect(tool.component).toBe(HostTool)
+    })
+    apply(fixture.ctx)
+    expect(fixture.rootSourceCount()).toBe(0)
+    expect(chat.component).toBe(HostChat)
+    expect(tool.component).toBe(HostTool)
+
+    await fixture.setPluginEnabled(true)
+    const first = fixture.transcriptFace()
+    expect(fixture.rootSourceCount()).toBe(1)
+    expect(first.hooks.annotationTranscriptVisibility.getSnapshot()).toEqual(DEFAULT_TRANSCRIPT_VISIBILITY)
+    expect(first.hooks.annotationNormalTranscriptView.getSnapshot()).toBe('normal')
+    expect(first.annotationTranscriptT('transcript.summary')).toBe('transcript.summary')
+    expect(chat.component).not.toBe(HostChat)
+    expect(chat.inject).toBe(viewInject)
+    expect(trajectory.component).toBe(HostTrajectory)
+    expect(tool.component).not.toBe(HostTool)
+    expect(tool.inject).toBe(toolInject)
+    expect(extension.component).toBe(HostUnknownExtension)
+    expect(viewInject).not.toHaveBeenCalled()
+    expect(toolInject).not.toHaveBeenCalled()
+
+    const LateContext = () => null
+    const late = fixture.addHostEntry({ name: 'conversation.chat.node', key: 'context' }, LateContext)
+    expect(late.component).not.toBe(LateContext)
+    await fixture.setPluginEnabled(false)
+    expect(fixture.rootSourceCount()).toBe(0)
+    expect(chat.component).toBe(HostChat)
+    expect(tool.component).toBe(HostTool)
+    expect(late.component).toBe(LateContext)
+    expect(fixture.hasRegistrationKey('conversation.chat.node', 'user')).toBe(false)
+
+    await fixture.setPluginEnabled(true)
+    expect(fixture.rootSourceCount()).toBe(1)
+    expect(fixture.transcriptFace().hooks).toBe(first.hooks)
+    expect(chat.component).not.toBe(HostChat)
+    expect(tool.component).not.toBe(HostTool)
+    expect(late.component).not.toBe(LateContext)
+  })
+
+  it('publishes saved transcript filters through stable root sources without changing annotation drafts', async ({
+    onTestFinished,
+  }) => {
+    const command = vi.fn()
+    const fixture = fixtureContext(command)
+    onTestFinished(() => fixture.dispose())
+    apply(fixture.ctx)
+    const source = fixture.transcriptFace().hooks.annotationTranscriptVisibility
+    const face = fixture.face()
+    const settings = fixture.settingsFace()
+    saveAnnotation(face)
+    expect(face.ensureComposerAttachment()).toBe(true)
+    fixture.setComposerText('Keep the attached draft.')
+    const annotations = face.hooks.annotations.getSnapshot()
+    const input = fixture.inputSnapshot()
+
+    settings.setTranscriptVisibility('hideTools', true)
+    expect(source.getSnapshot().hideTools).toBe(false)
+    expect(settings.hooks.settingsCard.getSnapshot()).toMatchObject({
+      transcriptVisibility: { hideTools: true, hideReasoning: false },
+      dirty: true,
+    })
+    settings.discard()
+    expect(source.getSnapshot()).toEqual(DEFAULT_TRANSCRIPT_VISIBILITY)
+    settings.setTranscriptVisibility('hideTools', true)
+    settings.save()
+    await vi.waitFor(() => {
+      expect(settings.hooks.settingsCard.getSnapshot()).toMatchObject({ saving: false, dirty: false })
+    })
+    expect(source.getSnapshot()).toEqual({ ...DEFAULT_TRANSCRIPT_VISIBILITY, hideTools: true })
+    expect(fixture.transcriptFace().hooks.annotationTranscriptVisibility).toBe(source)
+    expect(fixture.settingsUser()).toEqual({ hideTools: true })
+    expect(fixture.rootSourceCount()).toBe(1)
+    expect(face.hooks.annotations.getSnapshot()).toEqual(annotations)
+    expect(fixture.inputSnapshot()).toEqual(input)
+    expect(command).not.toHaveBeenCalled()
+  })
+
   it('disables conversation integrations without discarding drafts and restores them when enabled', async () => {
     const fixture = fixtureContext(vi.fn())
     apply(fixture.ctx)
@@ -549,7 +757,7 @@ describe('Client plugin composer attachment lifecycle', () => {
 
     await fixture.setPluginEnabled(false)
 
-    expect(fixture.hasRegistration('settings.plugin.item')).toBe(true)
+    expect(fixture.hasRegistration('settings.section')).toBe(true)
     expect(fixture.hasRegistration('conversation.chat.node')).toBe(false)
     expect(fixture.hasRegistration('conversation.input.dock')).toBe(false)
     expect(fixture.hasRegistration('conversation.chat.assistant-actions')).toBe(false)
@@ -582,6 +790,48 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(face.autoAttachEnabled()).toBe(false)
     expect(fixture.settingsUser()).toEqual({ autoAttach: false })
     await fixture.dispose()
+  })
+
+  it('saves compact layout settings without changing attached drafts', async ({ onTestFinished }) => {
+    const command = vi.fn()
+    const fixture = fixtureContext(command)
+    onTestFinished(() => fixture.dispose())
+    apply(fixture.ctx)
+    const face = fixture.face()
+    const settings = fixture.settingsFace()
+    saveAnnotation(face)
+    expect(face.ensureComposerAttachment()).toBe(true)
+    fixture.setComposerText('Keep the attached draft.')
+    const annotations = face.hooks.annotations.getSnapshot()
+    const input = fixture.inputSnapshot()
+
+    expect(face.hooks.compactSummary.getSnapshot()).toBe(true)
+    settings.setCompactSummary(false)
+    expect(settings.hooks.settingsCard.getSnapshot()).toMatchObject({ compactSummary: false, dirty: true })
+    expect(face.hooks.compactSummary.getSnapshot()).toBe(true)
+    settings.discard()
+    expect(settings.hooks.settingsCard.getSnapshot()).toMatchObject({ compactSummary: true, dirty: false })
+
+    settings.setCompactSummary(false)
+    settings.save()
+    await vi.waitFor(() => {
+      expect(settings.hooks.settingsCard.getSnapshot()).toMatchObject({ saving: false, dirty: false })
+    })
+    expect(face.hooks.compactSummary.getSnapshot()).toBe(false)
+    expect(fixture.face().hooks.compactSummary).toBe(face.hooks.compactSummary)
+    expect(fixture.settingsUser()).toEqual({ compactSummary: false })
+
+    settings.resetCompactSummary()
+    expect(face.hooks.compactSummary.getSnapshot()).toBe(false)
+    settings.save()
+    await vi.waitFor(() => {
+      expect(settings.hooks.settingsCard.getSnapshot()).toMatchObject({ saving: false, dirty: false })
+    })
+    expect(face.hooks.compactSummary.getSnapshot()).toBe(true)
+    expect(fixture.settingsUser()).toEqual({})
+    expect(face.hooks.annotations.getSnapshot()).toEqual(annotations)
+    expect(fixture.inputSnapshot()).toEqual(input)
+    expect(command).not.toHaveBeenCalled()
   })
 
   it('releases a submitting attachment when the feature is disabled mid-send', async () => {
@@ -623,7 +873,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     const fixture = fixtureContext(vi.fn(), false)
     apply(fixture.ctx)
 
-    expect(fixture.hasRegistration('settings.plugin.item')).toBe(true)
+    expect(fixture.hasRegistration('settings.section')).toBe(true)
     expect(fixture.hasRegistration('conversation.input.dock')).toBe(false)
     expect(() => fixture.face()).toThrow('dock was not registered')
 
@@ -639,7 +889,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     await Promise.resolve()
     await Promise.resolve()
 
-    expect(fixture.hasRegistration('settings.plugin.item')).toBe(true)
+    expect(fixture.hasRegistration('settings.section')).toBe(true)
     expect(fixture.hasRegistration('conversation.input.dock')).toBe(false)
     expect(fixture.settingsUser()).toEqual({ enabled: false })
     expect(localStorage.getItem(LEGACY_ANNOTATION_ENABLED_STORAGE_KEY)).toBeNull()
@@ -1163,7 +1413,9 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(face.toggleComposerAttachment()).toBe(true)
     expect(fixture.inputSnapshot().phase).toBe('claimed')
 
-    face.clearLocalDrafts()
+    for (const annotation of face.hooks.annotations.getSnapshot().annotations) {
+      if (annotation.status === 'draft') face.deleteDraft(annotation.annotationId)
+    }
     expect(face.hooks.annotations.getSnapshot().annotations).toHaveLength(0)
 
     // 已附着（claimed）状态下清空草稿也要解除附着，普通文本才能正常发送。
@@ -1178,7 +1430,9 @@ describe('Client plugin composer attachment lifecycle', () => {
     const face = fixture.face()
     saveAnnotation(face)
     expect(face.toggleComposerAttachment()).toBe(true)
-    face.clearLocalDrafts()
+    for (const annotation of face.hooks.annotations.getSnapshot().annotations) {
+      if (annotation.status === 'draft') face.deleteDraft(annotation.annotationId)
+    }
 
     const outcome = await fixture.submitComposer()
     expect(outcome).toEqual({ kind: 'error', text: 'error.emptySubmit' })
@@ -1194,7 +1448,9 @@ describe('Client plugin composer attachment lifecycle', () => {
     const face = fixture.face()
     saveAnnotation(face)
     expect(face.toggleComposerAttachment()).toBe(true)
-    face.clearLocalDrafts()
+    for (const annotation of face.hooks.annotations.getSnapshot().annotations) {
+      if (annotation.status === 'draft') face.deleteDraft(annotation.annotationId)
+    }
     fixture.setComposerText('plain message after clearing')
 
     const outcome = await fixture.submitComposer()
@@ -1229,7 +1485,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.dispose()
   })
 
-  it('reconciles Session queue and Chat history notifications independently', async () => {
+  it('reconciles Inbox and Chat history notifications without a Session queue field', async () => {
     const command = vi.fn().mockResolvedValue(remoteSuccess())
     const fixture = fixtureContext(command)
     apply(fixture.ctx)
@@ -1239,11 +1495,9 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.submitComposer()
     const accepted = face.hooks.annotations.getSnapshot().outbox[0]!
 
-    fixture.setSessionSnapshot({
-      queue: [{ messageId: accepted.messageId }],
-      hasMore: false,
-    })
+    fixture.setInbox(inboxSnapshot([accepted.messageId]))
     expect(face.hooks.annotations.getSnapshot().outbox[0]?.status).toBe('queued')
+    fixture.setInbox(undefined)
 
     fixture.setChatSnapshot({
       nodes: new Map([
@@ -1263,6 +1517,63 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.dispose()
   })
 
+  it('keeps queued status while Inbox is unavailable and hides withdrawal after steering', async () => {
+    const fixture = fixtureContext(vi.fn().mockResolvedValue(remoteSuccess()))
+    apply(fixture.ctx)
+    const face = fixture.face()
+    expect(fixture.session.getSnapshot()).not.toHaveProperty('queue')
+    saveAnnotation(face)
+    face.toggleComposerAttachment()
+    expect(fixture.inputSnapshot().claim).toMatchObject({ name: DEFAULT_CONFIG.commandName })
+    await fixture.submitComposer()
+    const entry = face.hooks.annotations.getSnapshot().outbox[0]!
+    fixture.setInbox(inboxSnapshot([entry.messageId]))
+    expect(face.hooks.annotations.getSnapshot().outbox[0]?.status).toBe('queued')
+
+    fixture.setInbox(undefined)
+    expect(face.hooks.annotations.getSnapshot().outbox[0]?.status).toBe('queued')
+    await face.withdraw(entry.payload.submissionId)
+    expect(fixture.session.updateQueue).not.toHaveBeenCalled()
+
+    fixture.setInbox(inboxSnapshot([], [entry.messageId]))
+    expect(face.hooks.annotations.getSnapshot().outbox[0]?.status).toBe('accepted')
+    expect(face.hooks.annotations.getSnapshot().annotations[0]?.status).toBe('queued')
+    await face.withdraw(entry.payload.submissionId)
+    expect(fixture.session.updateQueue).not.toHaveBeenCalled()
+
+    fixture.setInbox(inboxSnapshot([entry.messageId]))
+    fixture.setInbox({
+      'next-turn': [],
+      'next-step': [
+        {
+          id: entry.messageId as unknown as MessageId,
+          role: 'user',
+          content: [{ type: 'text', text: 'Injected context' }],
+          source: { kind: 'plugin', plugin: 'test', form: 'notice', summary: 'Context' },
+        },
+      ],
+    })
+    expect(face.hooks.annotations.getSnapshot().outbox[0]?.status).toBe('accepted')
+    await fixture.dispose()
+    expect(fixture.unsubscribeInbox).toHaveBeenCalledOnce()
+  })
+
+  it('does not withdraw a row moved to next-step before its projection notification', async () => {
+    const fixture = fixtureContext(vi.fn().mockResolvedValue(remoteSuccess()))
+    apply(fixture.ctx)
+    const face = fixture.face()
+    saveAnnotation(face)
+    face.toggleComposerAttachment()
+    await fixture.submitComposer()
+    const entry = face.hooks.annotations.getSnapshot().outbox[0]!
+    fixture.setInbox(inboxSnapshot([entry.messageId]))
+    fixture.setInbox(inboxSnapshot([], [entry.messageId]), false)
+    await face.withdraw(entry.payload.submissionId)
+    expect(fixture.session.updateQueue).not.toHaveBeenCalled()
+    expect(face.hooks.annotations.getSnapshot().outbox[0]?.status).toBe('accepted')
+    await fixture.dispose()
+  })
+
   it('converges a stale withdrawal to durable sent history without removing provenance', async () => {
     const command = vi.fn().mockResolvedValue(remoteSuccess())
     const fixture = fixtureContext(command)
@@ -1277,10 +1588,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.submitComposer()
     const accepted = face.hooks.annotations.getSnapshot().outbox[0]!
 
-    fixture.setSessionSnapshot({
-      queue: [{ messageId: accepted.messageId }],
-      hasMore: false,
-    })
+    fixture.setInbox(inboxSnapshot([accepted.messageId]))
     expect(face.hooks.annotations.getSnapshot().outbox[0]?.status).toBe('queued')
 
     fixture.setChatSnapshot(
@@ -1309,15 +1617,9 @@ describe('Client plugin composer attachment lifecycle', () => {
   it('persists a cross-Session withdrawal before the target controller is opened', async () => {
     const entry = seedCrossSessionOutbox()
     const fixture = fixtureContext(vi.fn())
-    fixture.setSessionSnapshot(
-      {
-        queue: [{ messageId: entry.messageId }],
-        hasMore: false,
-      },
-      false,
-    )
+    fixture.setInbox(inboxSnapshot([entry.messageId]), false)
     fixture.session.updateQueue.mockImplementation(async () => {
-      fixture.setSessionSnapshot({ queue: [], hasMore: false }, false)
+      fixture.setInbox(inboxSnapshot(), false)
       return { ok: true, value: undefined }
     })
     apply(fixture.ctx)
@@ -1350,7 +1652,9 @@ describe('Client plugin composer attachment lifecycle', () => {
 
     expect(fixture.unsubscribeSession).toHaveBeenCalledOnce()
     expect(fixture.unsubscribeChat).toHaveBeenCalledOnce()
-    fixture.setSessionSnapshot({ queue: [{ messageId: 'late' }], hasMore: false })
+    expect(fixture.unsubscribeInbox).toHaveBeenCalledOnce()
+    fixture.setInbox(inboxSnapshot(['late']))
+    fixture.setSessionSnapshot({ hasMore: false })
     fixture.setChatSnapshot({ nodes: new Map() })
     expect(face.hooks.annotations.getSnapshot()).toBe(before)
     await fixture.dispose()

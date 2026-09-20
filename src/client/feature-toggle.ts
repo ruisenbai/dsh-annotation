@@ -1,16 +1,20 @@
-/** Host-backed feature setting and staged plugin-configuration card state. */
+/** Host-backed feature setting and staged main-Settings state. */
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   DEFAULT_ANNOTATION_AUTO_ATTACH,
+  DEFAULT_ANNOTATION_COMPACT_SUMMARY,
   DEFAULT_ANNOTATION_ENABLED,
-  DEFAULT_ANNOTATION_LOCAL_TOOLS,
+  DEFAULT_TRANSCRIPT_VISIBILITY,
   LEGACY_ANNOTATION_ENABLED_STORAGE_KEY,
+  TRANSCRIPT_VISIBILITY_KEYS,
   type AnnotationSettings,
+  type TranscriptVisibilityKey,
+  type TranscriptVisibilitySettings,
 } from '../shared/settings.ts'
 
-/** State rendered by the plugin-configuration card. */
+/** State rendered by the annotation section in main Settings. */
 export interface AnnotationSettingsCardState {
   /** Whether the Host serves this plugin's settings namespace. */
   readonly available: boolean
@@ -24,10 +28,14 @@ export interface AnnotationSettingsCardState {
   readonly autoAttach: boolean
   /** Whether saving leaves a user-layer auto-attach value. */
   readonly autoAttachOverridden: boolean
-  /** 注解汇总框是否显示本地数据控件（删除与下载）。 */
-  readonly localTools: boolean
-  /** Whether saving leaves a user-layer local-tools value. */
-  readonly localToolsOverridden: boolean
+  /** Compact-summary value shown by the staged switch. */
+  readonly compactSummary: boolean
+  /** Whether saving leaves a user-layer compact-summary value. */
+  readonly compactSummaryOverridden: boolean
+  /** Transcript filters shown by the staged switches. */
+  readonly transcriptVisibility: TranscriptVisibilitySettings
+  /** Whether saving leaves a user-layer value for each transcript filter. */
+  readonly transcriptVisibilityOverridden: Readonly<Record<TranscriptVisibilityKey, boolean>>
   /** Whether the card holds a change that has not been saved. */
   readonly dirty: boolean
   /** Whether a settings write is in flight. */
@@ -36,7 +44,7 @@ export interface AnnotationSettingsCardState {
   readonly failed: boolean
 }
 
-/** Registration-side face for the plugin-configuration card. */
+/** Registration-side face for the annotation section in main Settings. */
 export interface AnnotationSettingsInjected {
   readonly hooks: {
     /** Card snapshot bound by the renderer as useSettingsCard. */
@@ -50,10 +58,14 @@ export interface AnnotationSettingsInjected {
   readonly setAutoAttach: (enabled: boolean) => void
   /** Stage removal of the user auto-attach override. */
   readonly resetAutoAttach: () => void
-  /** Stage whether the summary box shows the local data tools. */
-  readonly setLocalTools: (enabled: boolean) => void
-  /** Stage removal of the user local-tools override. */
-  readonly resetLocalTools: () => void
+  /** Stage the right-aligned, content-sized summary layout without writing it. */
+  readonly setCompactSummary: (enabled: boolean) => void
+  /** Stage removal of the user compact-summary override. */
+  readonly resetCompactSummary: () => void
+  /** Stage one transcript filter without changing the saved display settings. */
+  readonly setTranscriptVisibility: (field: TranscriptVisibilityKey, enabled: boolean) => void
+  /** Stage removal of one user-layer transcript-filter override. */
+  readonly resetTranscriptVisibility: (field: TranscriptVisibilityKey) => void
   /** Persist the staged value. */
   readonly save: () => void
   /** Drop the staged value. */
@@ -93,10 +105,14 @@ function readLegacyEnabled(storage: LegacyEnabledStorage | undefined): boolean |
 export class AnnotationSettingsController {
   private readonly featureEnabled = createSnapshotStore(DEFAULT_ANNOTATION_ENABLED)
   private readonly autoAttachEnabled = createSnapshotStore(DEFAULT_ANNOTATION_AUTO_ATTACH)
-  private readonly localToolsEnabled = createSnapshotStore(DEFAULT_ANNOTATION_LOCAL_TOOLS)
+  private readonly compactSummaryEnabled = createSnapshotStore(DEFAULT_ANNOTATION_COMPACT_SUMMARY)
+  private readonly transcriptVisibilitySettings = createSnapshotStore<TranscriptVisibilitySettings>(
+    DEFAULT_TRANSCRIPT_VISIBILITY,
+  )
   private stagedEnabled: StagedBoolean | undefined
   private stagedAutoAttach: StagedBoolean | undefined
-  private stagedLocalTools: StagedBoolean | undefined
+  private stagedCompactSummary: StagedBoolean | undefined
+  private stagedTranscriptVisibility: Partial<Record<TranscriptVisibilityKey, StagedBoolean>> = {}
   private saving = false
   private failed = false
   private readonly card: SnapshotStore<AnnotationSettingsCardState>
@@ -132,12 +148,17 @@ export class AnnotationSettingsController {
     return this.autoAttachEnabled
   }
 
-  /** @returns whether the summary box shows the local data tools. */
-  localTools(): SnapshotStore<boolean> {
-    return this.localToolsEnabled
+  /** @returns whether the summary is right-aligned and sized to its content. */
+  compactSummary(): SnapshotStore<boolean> {
+    return this.compactSummaryEnabled
   }
 
-  /** @returns the slot inject face for the plugin-configuration card. */
+  /** @returns saved Host transcript filters; unchanged values retain the same snapshot reference. */
+  transcriptVisibility(): SnapshotStore<TranscriptVisibilitySettings> {
+    return this.transcriptVisibilitySettings
+  }
+
+  /** @returns the slot inject face for the annotation section in main Settings. */
   inject(): AnnotationSettingsInjected {
     return {
       hooks: { settingsCard: this.card },
@@ -172,19 +193,42 @@ export class AnnotationSettingsController {
         this.failed = false
         this.publishCard()
       },
-      setLocalTools: (enabled) => {
+      setCompactSummary: (enabled) => {
         if (this.disposed) return
-        this.stagedLocalTools =
-          enabled === this.effectiveLocalTools() ? undefined : { kind: 'set', value: enabled }
+        this.stagedCompactSummary =
+          enabled === this.effectiveCompactSummary() ? undefined : { kind: 'set', value: enabled }
         this.failed = false
         this.publishCard()
       },
-      resetLocalTools: () => {
+      resetCompactSummary: () => {
         if (this.disposed) return
-        this.stagedLocalTools =
-          this.storedLocalTools() === undefined
+        this.stagedCompactSummary =
+          this.storedCompactSummary() === undefined
             ? undefined
-            : { kind: 'clear', value: DEFAULT_ANNOTATION_LOCAL_TOOLS }
+            : { kind: 'clear', value: DEFAULT_ANNOTATION_COMPACT_SUMMARY }
+        this.failed = false
+        this.publishCard()
+      },
+      setTranscriptVisibility: (field, enabled) => {
+        if (this.disposed) return
+        if (enabled === this.effectiveTranscriptVisibility()[field]) {
+          delete this.stagedTranscriptVisibility[field]
+        } else {
+          this.stagedTranscriptVisibility[field] = { kind: 'set', value: enabled }
+        }
+        this.failed = false
+        this.publishCard()
+      },
+      resetTranscriptVisibility: (field) => {
+        if (this.disposed) return
+        if (this.storedTranscriptVisibility(field) === undefined) {
+          delete this.stagedTranscriptVisibility[field]
+        } else {
+          this.stagedTranscriptVisibility[field] = {
+            kind: 'clear',
+            value: DEFAULT_TRANSCRIPT_VISIBILITY[field],
+          }
+        }
         this.failed = false
         this.publishCard()
       },
@@ -196,14 +240,16 @@ export class AnnotationSettingsController {
           this.disposed ||
           (this.stagedEnabled === undefined &&
             this.stagedAutoAttach === undefined &&
-            this.stagedLocalTools === undefined &&
+            this.stagedCompactSummary === undefined &&
+            Object.keys(this.stagedTranscriptVisibility).length === 0 &&
             !this.failed)
         ) {
           return
         }
         this.stagedEnabled = undefined
         this.stagedAutoAttach = undefined
-        this.stagedLocalTools = undefined
+        this.stagedCompactSummary = undefined
+        this.stagedTranscriptVisibility = {}
         this.failed = false
         this.publishCard()
       },
@@ -240,11 +286,32 @@ export class AnnotationSettingsController {
       : DEFAULT_ANNOTATION_AUTO_ATTACH
   }
 
-  private effectiveLocalTools(): boolean {
+  private effectiveCompactSummary(): boolean {
     const snapshot = this.scope.getSnapshot()
-    return snapshot.status === 'ready' && typeof snapshot.value?.localTools === 'boolean'
-      ? snapshot.value.localTools
-      : DEFAULT_ANNOTATION_LOCAL_TOOLS
+    return snapshot.status === 'ready' && snapshot.value !== undefined
+      ? snapshot.value.compactSummary
+      : DEFAULT_ANNOTATION_COMPACT_SUMMARY
+  }
+
+  private effectiveTranscriptVisibility(): TranscriptVisibilitySettings {
+    const snapshot = this.scope.getSnapshot()
+    const values =
+      snapshot.status === 'ready' && snapshot.value !== undefined
+        ? snapshot.value
+        : DEFAULT_TRANSCRIPT_VISIBILITY
+    const current = this.transcriptVisibilitySettings.getSnapshot()
+    if (TRANSCRIPT_VISIBILITY_KEYS.every((field) => current[field] === values[field])) return current
+    const next = { ...DEFAULT_TRANSCRIPT_VISIBILITY }
+    for (const field of TRANSCRIPT_VISIBILITY_KEYS) next[field] = values[field]
+    return next
+  }
+
+  private storedTranscriptVisibility(field: TranscriptVisibilityKey): boolean | undefined {
+    return userBoolean(this.scope.getSnapshot().user, field)
+  }
+
+  private storedCompactSummary(): boolean | undefined {
+    return userBoolean(this.scope.getSnapshot().user, 'compactSummary')
   }
 
   private storedEnabled(): boolean | undefined {
@@ -255,13 +322,18 @@ export class AnnotationSettingsController {
     return userBoolean(this.scope.getSnapshot().user, 'autoAttach')
   }
 
-  private storedLocalTools(): boolean | undefined {
-    return userBoolean(this.scope.getSnapshot().user, 'localTools')
-  }
-
   private project(): AnnotationSettingsCardState {
     const snapshot = this.scope.getSnapshot()
     const stored = this.storedEnabled()
+    const transcriptVisibility = { ...this.effectiveTranscriptVisibility() }
+    const transcriptVisibilityOverridden = { ...DEFAULT_TRANSCRIPT_VISIBILITY }
+    for (const field of TRANSCRIPT_VISIBILITY_KEYS) {
+      const staged = this.stagedTranscriptVisibility[field]
+      if (staged !== undefined) transcriptVisibility[field] = staged.value
+      transcriptVisibilityOverridden[field] =
+        staged?.kind === 'set' ||
+        (staged === undefined && this.storedTranscriptVisibility(field) !== undefined)
+    }
     return {
       available: snapshot.status === 'ready',
       writable: snapshot.writable,
@@ -272,14 +344,17 @@ export class AnnotationSettingsController {
       autoAttachOverridden:
         this.stagedAutoAttach?.kind === 'set' ||
         (this.stagedAutoAttach === undefined && this.storedAutoAttach() !== undefined),
-      localTools: this.stagedLocalTools?.value ?? this.effectiveLocalTools(),
-      localToolsOverridden:
-        this.stagedLocalTools?.kind === 'set' ||
-        (this.stagedLocalTools === undefined && this.storedLocalTools() !== undefined),
+      compactSummary: this.stagedCompactSummary?.value ?? this.effectiveCompactSummary(),
+      compactSummaryOverridden:
+        this.stagedCompactSummary?.kind === 'set' ||
+        (this.stagedCompactSummary === undefined && this.storedCompactSummary() !== undefined),
+      transcriptVisibility,
+      transcriptVisibilityOverridden,
       dirty:
         this.stagedEnabled !== undefined ||
         this.stagedAutoAttach !== undefined ||
-        this.stagedLocalTools !== undefined,
+        this.stagedCompactSummary !== undefined ||
+        Object.keys(this.stagedTranscriptVisibility).length > 0,
       saving: this.saving,
       failed: this.failed,
     }
@@ -290,7 +365,11 @@ export class AnnotationSettingsController {
     this.syncLegacyPreference()
     this.featureEnabled.set(this.effectiveEnabled())
     this.autoAttachEnabled.set(this.effectiveAutoAttach())
-    this.localToolsEnabled.set(this.effectiveLocalTools())
+    this.compactSummaryEnabled.set(this.effectiveCompactSummary())
+    const transcriptVisibility = this.effectiveTranscriptVisibility()
+    if (transcriptVisibility !== this.transcriptVisibilitySettings.getSnapshot()) {
+      this.transcriptVisibilitySettings.set(transcriptVisibility)
+    }
     this.publishCard()
   }
 
@@ -350,9 +429,13 @@ export class AnnotationSettingsController {
   private async save(): Promise<void> {
     const stagedEnabled = this.stagedEnabled
     const stagedAutoAttach = this.stagedAutoAttach
-    const stagedLocalTools = this.stagedLocalTools
+    const stagedCompactSummary = this.stagedCompactSummary
+    const stagedTranscriptVisibility = { ...this.stagedTranscriptVisibility }
     if (
-      (stagedEnabled === undefined && stagedAutoAttach === undefined && stagedLocalTools === undefined) ||
+      (stagedEnabled === undefined &&
+        stagedAutoAttach === undefined &&
+        stagedCompactSummary === undefined &&
+        Object.keys(stagedTranscriptVisibility).length === 0) ||
       this.saving
     ) {
       return
@@ -368,16 +451,38 @@ export class AnnotationSettingsController {
       stagedAutoAttach === undefined
         ? true
         : await this.persistBoolean('autoAttach', stagedAutoAttach, () => this.storedAutoAttach())
-    const localToolsLanded =
-      stagedLocalTools === undefined
+    const compactSummaryLanded =
+      stagedCompactSummary === undefined
         ? true
-        : await this.persistBoolean('localTools', stagedLocalTools, () => this.storedLocalTools())
+        : await this.persistBoolean('compactSummary', stagedCompactSummary, () => this.storedCompactSummary())
+    const transcriptVisibilityLanded: Partial<Record<TranscriptVisibilityKey, boolean>> = {}
+    for (const field of TRANSCRIPT_VISIBILITY_KEYS) {
+      const staged = stagedTranscriptVisibility[field]
+      if (staged === undefined) continue
+      transcriptVisibilityLanded[field] = await this.persistBoolean(field, staged, () =>
+        this.storedTranscriptVisibility(field),
+      )
+    }
     if (this.disposed) return
     if (enabledLanded && this.stagedEnabled === stagedEnabled) this.stagedEnabled = undefined
     if (autoAttachLanded && this.stagedAutoAttach === stagedAutoAttach) this.stagedAutoAttach = undefined
-    if (localToolsLanded && this.stagedLocalTools === stagedLocalTools) this.stagedLocalTools = undefined
+    if (compactSummaryLanded && this.stagedCompactSummary === stagedCompactSummary) {
+      this.stagedCompactSummary = undefined
+    }
+    for (const field of TRANSCRIPT_VISIBILITY_KEYS) {
+      if (
+        transcriptVisibilityLanded[field] &&
+        this.stagedTranscriptVisibility[field] === stagedTranscriptVisibility[field]
+      ) {
+        delete this.stagedTranscriptVisibility[field]
+      }
+    }
     this.saving = false
-    this.failed = !enabledLanded || !autoAttachLanded || !localToolsLanded
+    this.failed =
+      !enabledLanded ||
+      !autoAttachLanded ||
+      !compactSummaryLanded ||
+      Object.values(transcriptVisibilityLanded).some((landed) => !landed)
     this.publish()
   }
 

@@ -32,10 +32,21 @@ function acceptedTextNode(node: Node, root: HTMLElement): node is Text {
   const parent = text.parentElement
   if (parent === null || !root.contains(parent)) return false
   if (text.data.trim() === '' && parent === root) return false
-  return (
+  if (
     parent.closest(
-      'button, script, style, [aria-hidden="true"], [aria-live], [role="status"], [data-variant="think"], [data-dsh-annotation-ignore="true"]',
-    ) === null
+      'script, style, [aria-hidden="true"], [aria-live], [role="status"], [data-variant="think"], [data-dsh-annotation-ignore="true"]',
+    ) !== null
+  )
+    return false
+  const button = parent.closest('button')
+  if (button === null) return true
+  // Harness MarkdownFileLink uses both CSS Module locals; copy/action buttons use neither pair.
+  // Match local names, not generated hashes, so a production CSS rebuild preserves quote offsets.
+  const classes = [...button.classList]
+  return (
+    button.hasAttribute('title') &&
+    classes.some((name) => /(?:^|_)fileMention(?:_|$)/.test(name)) &&
+    classes.some((name) => /(?:^|_)fileLink(?:_|$)/.test(name))
   )
 }
 
@@ -217,7 +228,7 @@ export function rangeFromSelector(root: HTMLElement, selector: TextQuoteSelector
   let endOffset = 0
   for (const node of nodes) {
     const next = cursor + node.data.length
-    if (startNode === undefined && offsets.start >= cursor && offsets.start <= next) {
+    if (startNode === undefined && offsets.start >= cursor && offsets.start < next) {
       startNode = node
       startOffset = offsets.start - cursor
     }
