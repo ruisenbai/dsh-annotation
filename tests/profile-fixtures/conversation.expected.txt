@@ -10,7 +10,6 @@
   - strong: 基于上一条回复添加了 1 条注解
   - text: 来自固定的上一回复版本 · 逐条解答
   - article:
-    - img
     - text: 已发送 Selected source
     - paragraph: Explain this claim.
     - button "定位原文"

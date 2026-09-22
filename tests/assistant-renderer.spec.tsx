@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { FILTERED_CHAT_PRESENTATION } from '../src/client/transcript-renderer.tsx'
+
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentType } from 'react'
@@ -93,8 +95,8 @@ function mount(
     useChat: (selector: (value: ChatSnapshot) => unknown) => selector(snapshot),
     useAnnotationTranscriptVisibility: (selector: (value: TranscriptVisibilitySettings) => unknown) =>
       selector(visibility),
-    useAnnotationNormalTranscriptView: (selector: (value: 'normal' | 'compact') => unknown) =>
-      selector('normal'),
+    useAnnotationExpandedPresentation: (selector: (value: typeof FILTERED_CHAT_PRESENTATION) => unknown) =>
+      selector(FILTERED_CHAT_PRESENTATION),
     useTurnData: () => undefined,
     registerEndpoint,
     updateHighlightRanges: () => undefined,

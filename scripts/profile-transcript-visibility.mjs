@@ -165,7 +165,7 @@ export async function exerciseTranscriptVisibility(page, fixture) {
   async function assertBodiesVisible() {
     for (const text of bodies) await body(text).waitFor({ state: 'visible' })
     assert.equal(await chat.locator('.dia-assistant__body').count(), bodies.length)
-    assert.equal(await process.count(), 0, 'Effective Normal must remove the outer Compact disclosure')
+    assert.equal(await process.count(), 0, 'Filtered Chat must remove the outer process disclosure')
   }
 
   async function assertCounts(labels) {
@@ -213,9 +213,9 @@ export async function exerciseTranscriptVisibility(page, fixture) {
     'Fully hidden tool rows must not reserve flow gaps',
   )
   const disk = await readFile(settingsPath, 'utf8')
-  assert.match(disk, /dsh-annotation:[\s\S]*hideReasoning: true/u)
-  assert.match(disk, /dsh-annotation:[\s\S]*hideToolRead: true/u)
-  assert.match(disk, /dsh-annotation:[\s\S]*hideToolGlob: true/u)
+  assert.match(disk, /id: dsh-annotation[\s\S]*hideReasoning: true/u)
+  assert.match(disk, /id: dsh-annotation[\s\S]*hideToolRead: true/u)
+  assert.match(disk, /id: dsh-annotation[\s\S]*hideToolGlob: true/u)
   const output = `# Assistant bodies\n${(await chat.locator('.dia-assistant__body').allTextContents()).join('\n')}\n\n# Hidden activity counts\n${(await summary.locator('.dia-transcript-summary__count').allTextContents()).join('\n')}\n`
   assert.equal(
     output,
@@ -277,8 +277,9 @@ export async function exerciseTranscriptVisibility(page, fixture) {
   )
   const firstTool = chat.locator(`[data-chat-call-id="${calls[0].data.callId}"]`)
   await firstTool.locator('[aria-expanded]').first().click()
+  assert.equal(results[0].data.message.role, 'tool')
   await firstTool
-    .getByText(results[0].data.message.content[0].content[0].text, { exact: true })
+    .getByText(results[0].data.message.content[0].text, { exact: true })
     .waitFor({ state: 'visible' })
   console.log(
     'PASS reasoning and tools restore independently without changing the official Compact preference',
@@ -289,7 +290,7 @@ export async function exerciseTranscriptVisibility(page, fixture) {
   assert.equal(await chat.locator('.dia-assistant__body [data-variant="think"]').count(), 3)
   assert.equal(await chat.locator('[data-chat-call-id]').count(), 5)
   console.log(
-    'PASS a non-reasoning filter alone keeps all intermediate bodies visible in effective Normal mode',
+    'PASS a non-reasoning filter alone keeps all intermediate bodies visible in ungrouped filtered mode',
   )
 
   await setFilters({ hideOther: false })
@@ -298,6 +299,12 @@ export async function exerciseTranscriptVisibility(page, fixture) {
   assert.equal(await summary.count(), 0)
   for (const text of bodies.slice(0, -1)) assert.equal(await body(text).isVisible(), false)
   await process.click()
+  const nativeGroups = chat.locator('[data-chat-group-key] button[data-process-activity]')
+  assert.ok((await nativeGroups.count()) > 0, 'Turning filters off restores the native process groups')
+  for (const header of await nativeGroups.all()) {
+    assert.equal(await header.getAttribute('aria-expanded'), 'false')
+    await header.click()
+  }
   for (const text of bodies) await body(text).waitFor({ state: 'visible' })
   assert.equal(await chat.locator('.dia-assistant__body [data-variant="think"]').count(), 3)
   assert.equal(await chat.locator('[data-chat-call-id]').count(), 5)

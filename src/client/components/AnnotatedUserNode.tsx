@@ -3,11 +3,11 @@ import { Fragment, useMemo } from 'react'
 import {
   FileTypeIcon,
   fileSizeText,
-  IconCheckOutline14,
-  IconChevronDownOutline14,
-  IconChevronRightOutline14,
-  IconListPenOutline16,
-  IconQueueOutline14,
+  IconCheckOutlineRegular,
+  IconChevronDownOutlineRegular,
+  IconChevronRightOutlineRegular,
+  IconListPenOutlineRegular,
+  IconQueueOutlineRegular,
   projectUserText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { parseAnnotationSource } from '../../shared/protocol.ts'
@@ -23,9 +23,9 @@ function processingModeLabel(
 }
 
 function TimelineStatusIcon({ status }: { status: AnnotationStatus }) {
-  if (status === 'queued') return <IconQueueOutline14 size={14} />
-  if (status === 'processed' || status === 'sent') return <IconCheckOutline14 size={14} />
-  return <IconListPenOutline16 size={14} />
+  if (status === 'queued') return <IconQueueOutlineRegular size={14} />
+  if (status === 'processed' || status === 'sent') return <IconCheckOutlineRegular size={14} />
+  return <IconListPenOutlineRegular size={14} />
 }
 
 function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
@@ -51,7 +51,7 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
     <details className="dia-timeline">
       <summary>
         <span className="dia-timeline__summary-icon" aria-hidden="true">
-          <IconListPenOutline16 size={16} />
+          <IconListPenOutlineRegular size={16} />
         </span>
         <span className="dia-timeline__summary-copy">
           <strong>
@@ -69,10 +69,10 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
         </span>
         <span className="dia-timeline__disclosure" aria-hidden="true">
           <span data-collapsed="true">
-            <IconChevronRightOutline14 size={14} />
+            <IconChevronRightOutlineRegular size={14} />
           </span>
           <span data-expanded="true">
-            <IconChevronDownOutline14 size={14} />
+            <IconChevronDownOutlineRegular size={14} />
           </span>
         </span>
       </summary>

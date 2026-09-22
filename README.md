@@ -15,7 +15,7 @@
 
 > **市场定位：会话与消息。** 本插件用于审阅一个 Session 内的助手消息及其工作区的真实 Git Diff，并通过官方输入框提交带注解的用户消息；它不是主题或通用外观插件。
 >
-> **宿主要求：**插件 `0.9.0`（尚未发布）需要 DSH Web `0.1.6-alpha.2`。发行包通过 `engines.dsh` 和同版本线 `@deepseek-ai/dsh-*` peer 声明这一精确要求；桌面客户端也必须内置该版本。DSH 仍处于预发布阶段，升级前请阅读[兼容性说明](docs/compatibility.md)。
+> **宿主要求：**插件 `0.10.0`（尚未发布）需要 DSH Web `0.1.7-alpha.1`。发行包通过 `engines.dsh` 和同版本线 `@deepseek-ai/dsh-*` peer 声明这一精确要求；桌面客户端也必须内置该版本。DSH 仍处于预发布阶段，升级前请阅读[兼容性说明](docs/compatibility.md)。
 >
 > **实现兼容性：**DSH 当前没有助手正文内部 Slot，本插件会原地装饰已有助手渲染器，不占用 `assistant-step`；用户与 steering 消息仍使用优先级覆盖。
 
@@ -99,7 +99,7 @@
 
 ### 要求
 
-- DSH Web `0.1.6-alpha.2`（精确版本；运行 `dsh --version` 检查，桌面客户端还要检查其内置宿主版本）
+- DSH Web `0.1.7-alpha.1`（精确版本；运行 `dsh --version` 检查，桌面客户端还要检查其内置宿主版本）
 - Node.js `^22.19.0` 或 `>=24.0.0`
 - `web` Profile
 
@@ -107,7 +107,7 @@
 
 ### 安装 GitHub Release（推荐）
 
-已发布的 GitHub Release 提供无需本地构建的预构建 Tarball。以下稳定别名指向最新已发布版本，不代表尚未发布的 `0.9.0`；安装前请核对 Release 的宿主要求。验证 `0.9.0` 请使用下方源码构建流程：
+已发布的 GitHub Release 提供无需本地构建的预构建 Tarball。以下稳定别名指向最新已发布版本，不代表尚未发布的 `0.10.0`；安装前请核对 Release 的宿主要求。验证 `0.10.0` 请使用下方源码构建流程：
 
 ```bash
 curl -fL -o dsh-annotation.tgz https://github.com/ruisenbai/dsh-annotation/releases/latest/download/dsh-annotation.tgz
@@ -115,11 +115,11 @@ dsh plugin --profile web add ./dsh-annotation.tgz
 dsh web
 ```
 
-如果 DSH Web 已在运行，请在安装后重启。`0.9.0`（尚未发布）的目标是 DSH `0.1.6-alpha.2`。历史版本映射：`v0.8.0` 适配 DSH `0.1.5-alpha.1`；`v0.7.0` 适配 DSH `0.1.3-alpha.2`；`v0.6.0` 适配 DSH `0.1.3-alpha.1`；`v0.5.2`、`v0.5.1` 和 `v0.5.0` 适配 DSH `0.1.2-rc.1`；`v0.4.0` 适配 DSH `0.1.2-alpha.3`；`v0.3.0` 适配 DSH `0.1.2-alpha.1`；`v0.2.4` 适配 DSH `0.1.1-rc.2`。
+如果 DSH Web 已在运行，请在安装后重启。`0.10.0`（尚未发布）的目标是 DSH `0.1.7-alpha.1`。历史版本映射：`v0.9.0` 适配 DSH `0.1.6-alpha.2`；`v0.8.0` 适配 DSH `0.1.5-alpha.1`；`v0.7.0` 适配 DSH `0.1.3-alpha.2`；`v0.6.0` 适配 DSH `0.1.3-alpha.1`；`v0.5.2`、`v0.5.1` 和 `v0.5.0` 适配 DSH `0.1.2-rc.1`；`v0.4.0` 适配 DSH `0.1.2-alpha.3`；`v0.3.0` 适配 DSH `0.1.2-alpha.1`；`v0.2.4` 适配 DSH `0.1.1-rc.2`。
 
 ### 从源码构建
 
-源码构建需要完整的 DSH `0.1.6-alpha.2` 依赖，请先按[开发指南](docs/development.md#install-and-verify)准备匹配的依赖并完成检查。未发布到 npm 的依赖必须来自可核验的官方源码或官方产物，并在独立目录中构建、安装；不要把本机 `file:` 路径或临时锁文件写入发行清单。
+源码构建需要完整的 DSH `0.1.7-alpha.1` 依赖，请先按[开发指南](docs/development.md#install-and-verify)准备匹配的依赖并完成检查。未发布到 npm 的依赖必须来自可核验的官方源码或官方产物，并在独立目录中构建、安装；不要把本机 `file:` 路径或临时锁文件写入发行清单。
 
 打开 DSH Web 页面，在一条已完成回复中选中文字，会出现带“添加注解”和“复制”的小浮条；选区保持可选，Ctrl+C 也能复制。点击“添加注解”打开紧凑输入框，填写意见后按 Enter 或点击对号保存；按 Esc 或点击外部则暂存，稍后可继续。默认整体模式会把合格草稿自动附加到官方输入框；选择处理方式、填写可选任务文本并附加图片或文件后，按官方 Enter 或点击发送按钮提交。需要逐条挑选时，在设置中开启“逐条选择要发送的注解”，再从输入框上方明确选择本批内容。附着状态下输入斜杠命令时，注解会暂时让路，命令正常执行，注解不丢失。
 
@@ -127,7 +127,7 @@ dsh web
 
 独立的 **设置 → 注解** 页面提供配置表单。“启用 DSH 注解”（`enabled`）、“新增注解后自动随下一条消息发送”（`autoAttach`）和“紧凑注解汇总”（`compactSummary`）默认开启；“逐条选择要发送的注解”（`individualSelection`）与下方会话内容隐藏开关默认关闭。修改先在表单中暂存，点击“保存”并被 Host 接受后才对所有 Session 生效。关闭插件会移除注解 UI 和输入框附着，但保留可见输入文字、草稿、多份暂存编辑、outbox 和历史。整体模式下关闭自动附加后仍可用回形针；逐条模式始终忽略 `autoAttach`，不显示回形针且不隐含全选。整体/逐条切换会清除当前选择和活动重试、解除附着并提示重新选择，不改变已有 outbox。关闭紧凑汇总只恢复长条布局与最左图标。
 
-“恢复默认”会分别清除对应字段的用户层覆盖，并采用该字段声明的默认值；隐藏开关恢复为关闭。所有设置由 DSH 的 settings provider 持久化。已保存的 `localTools` 用户层覆盖值被忽略，插件不删除或迁移该值，也不清空已有注解数据。升级时会把旧 `inline-comments` 设置 namespace 中的用户值迁移到新 namespace，成功后才清除旧值。0.1.3 首次启动时会保留并迁移有效的旧版浏览器启用开关，Host 接受后才删除旧 key。每个 Session 的注解草稿仍按[隐私与持久化](#隐私与持久化)所述保存在浏览器中。
+“恢复默认”会清除对应字段的用户层覆盖，重新继承 profile 配置或默认值。DSH `0.1.7-alpha.1` 通过插件的响应式 Config 字段与 `configForms` 持久化设置。若宿主已把旧设置归档为 `settings.yaml.imported`，插件只提取 `dsh-annotation` 和旧 `inline-comments` 节中仍支持的布尔字段，保留当前用户覆盖，并用一次带版本校验的写入记录恢复完成；归档不修改，之后的重置不会再次恢复旧值。废弃的 `localTools` 等字段保留在归档中，不重新启用。旧版浏览器启用开关仍在 Host 接受后才删除。每个 Session 的注解草稿仍按[隐私与持久化](#隐私与持久化)所述保存在浏览器中。
 
 同一表单的“插件更新”区域只调用 dsh-market `dsh-market/update-api/v1` 公开同源 API。首次点击“检查更新”时先发现 Market 能力，再检查 `dsh-annotation`；只有 Market 声明支持时才显示安装、回滚或 Host 重启操作。Market 要求等待新发布版本时，普通更新失败后才提供“仍要更新”。实时激活完成后可刷新页面；由桌面端或运维管理生命周期的 Host 不显示重启按钮。未安装兼容的 dsh-market 时，卡片只提示前往 **设置 → Plugin Market**，不会调用旧版私有更新路由。
 
@@ -236,7 +236,7 @@ pnpm publint
 pnpm pack
 ```
 
-CI 会在 Node 22.19 与 24 上执行类型检查、Lint、单元测试、生产构建、Bundle 验证和 publint。Node 24 任务还会运行 Chromium fixture 回归和独立的真实 profile smoke，并创建包产物。`pnpm test:profile` 需要先由 `pnpm build` 或 `pnpm verify` 生成插件产物；这些是检查要求，不是 `0.9.0` 已通过验证的声明。更多信息见[开发指南](docs/development.md)、[架构](docs/architecture.md)和[数据模型](docs/data-model.md)。
+CI 会在 Node 22.19 与 24 上执行类型检查、Lint、单元测试、生产构建、Bundle 验证和 publint。Node 24 任务还会运行 Chromium fixture 回归和独立的真实 profile smoke，并创建包产物。`pnpm test:profile` 需要先由 `pnpm build` 或 `pnpm verify` 生成插件产物；这些是检查要求，不是 `0.10.0` 已通过验证的声明。更多信息见[开发指南](docs/development.md)、[架构](docs/architecture.md)和[数据模型](docs/data-model.md)。
 
 ## 已知限制
 

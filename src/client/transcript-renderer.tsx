@@ -1,12 +1,13 @@
 /** Non-expandable activity summaries around the selected Chat renderers. */
 
-import { createElement, memo, useMemo, type ComponentType } from 'react'
+import { createElement, memo, useCallback, useMemo, type ComponentType } from 'react'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {
   ChatNodeViewProps,
   ChatViewSlotProps,
-  TranscriptViewMode,
+  ChatPresentationPolicy,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
+import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { HostObservable, InjectFace, PropsLocale, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TranscriptVisibilitySettings } from '../shared/settings.ts'
 import type { AnnotationLocaleKey } from './locales.ts'
@@ -23,13 +24,43 @@ import {
 export interface TranscriptVisibilityInjected {
   readonly hooks: {
     readonly annotationTranscriptVisibility: HostObservable<TranscriptVisibilitySettings>
-    readonly annotationNormalTranscriptView: HostObservable<TranscriptViewMode>
+    readonly annotationExpandedPresentation: HostObservable<ChatPresentationPolicy>
   }
   readonly annotationTranscriptT: PropsLocale<'dshAnnotation'>['t']
 }
 
 /** Framework-bound visibility sources shared by the selected node and view renderers. */
 export type TranscriptVisibilityProps = InjectFace<TranscriptVisibilityInjected>
+
+/** Flat presentation while local filters keep unhidden body text readable. */
+export const FILTERED_CHAT_PRESENTATION: ChatPresentationPolicy = Object.freeze({
+  mode: 'expanded',
+  foldCompletedTurns: false,
+  stepGrouping: 'none',
+  liveProcessDetail: true,
+  settledReasoningPreview: true,
+})
+
+const flatChatSnapshots = new WeakMap<ConversationSnapshot, ConversationSnapshot>()
+
+/**
+ * Suppress only Chat grouping in a display copy; source nodes and other targets stay intact.
+ * @param snapshot - current Conversation snapshot.
+ * @returns a stable view that lets Chat render its original node order without process groups.
+ */
+export function withoutChatGroups(snapshot: ConversationSnapshot): ConversationSnapshot {
+  const existing = flatChatSnapshots.get(snapshot)
+  if (existing !== undefined) return existing
+  const flat: ConversationSnapshot = {
+    ...snapshot,
+    views: {
+      get: (target) => snapshot.views.get(target),
+      grouped: (target) => (target === 'chat' ? undefined : snapshot.views.grouped(target)),
+    },
+  }
+  flatChatSnapshots.set(snapshot, flat)
+  return flat
+}
 
 const EMPTY_KEYS: readonly string[] = []
 const EMPTY_COUNTS: readonly TranscriptCount[] = []
@@ -155,13 +186,17 @@ function wrapNode(inner: ComponentType<ChatNodeViewProps>, projector: Transcript
 function wrapView(inner: ComponentType<ChatViewSlotProps>) {
   const Wrapped = memo(function TranscriptChatView(props: TranscriptChatViewProps) {
     const active = props.useAnnotationTranscriptVisibility(hasTranscriptHiding)
-    // Both hooks are framework-bound. The saved Chat preference remains untouched.
+    const useUngroupedConversation = useCallback<typeof props.useConversation>(
+      (selector, equal) => props.useConversation((snapshot) => selector(withoutChatGroups(snapshot)), equal),
+      [props.useConversation],
+    )
     return createElement(
       inner,
       active
         ? {
             ...props,
-            useTranscriptView: props.useAnnotationNormalTranscriptView,
+            usePresentation: props.useAnnotationExpandedPresentation,
+            useConversation: useUngroupedConversation,
           }
         : props,
     )
@@ -236,7 +271,7 @@ export function decorateTranscriptNodes(ctx: ClientContext, projector: Transcrip
 }
 
 /**
- * Use effective Normal presentation while filtering so outer Compact rows cannot conceal body text.
+ * Use an ungrouped display while filtering so process disclosures cannot conceal body text.
  * @param ctx - plugin context owning the slot listener.
  * @returns a disposer restoring the selected Chat view; saved preferences are never changed.
  */

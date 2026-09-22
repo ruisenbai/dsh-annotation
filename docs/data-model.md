@@ -142,6 +142,10 @@ An outbox entry contains the immutable payload, target Session id, deterministic
 
 An invalid active or suspended editor buffer is omitted so valid annotations and immutable retry records can recover; duplicate buffer keys and buffers targeting missing or immutable annotations are also dropped. Selected ids are deduplicated and filtered to eligible saved drafts. Invalid core arrays, selection-mode values, processing modes, attachment metadata, submitted source fields, or unsupported versions are not partially trusted; the Client starts with an empty state and shows a storage warning.
 
+## Host preference recovery
+
+DSH `0.1.7-alpha.1` stores editable preferences in the `dsh-annotation` profile entry. `archivedPreferencesImported` is a volatile Config boolean, defaulting to `false`, outside browser annotation storage and submission protocols. A successful archive recovery writes supported missing preference fields and this marker in one revision-fenced mutation. Existing user overrides win; after completion, clearing a field inherits its profile/default value rather than restoring the archive. Protocol v3, storage v3, frozen outbox entries and the private Diff signing domain are unchanged.
+
 ## Annotation state transitions
 
 ```text

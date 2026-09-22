@@ -358,8 +358,8 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
         serializeReference: (source: string, ref: string) => referenceSerializer(source, ref),
       }),
     },
-    settingsScope: {
-      bind: () => settingsScope,
+    configForms: {
+      get: () => settingsScope,
     },
     slots: {
       provideRoot(sources: TranscriptRootSources) {
@@ -751,7 +751,10 @@ describe('Client plugin composer attachment lifecycle', () => {
     const first = fixture.transcriptFace()
     expect(fixture.rootSourceCount()).toBe(1)
     expect(first.hooks.annotationTranscriptVisibility.getSnapshot()).toEqual(DEFAULT_TRANSCRIPT_VISIBILITY)
-    expect(first.hooks.annotationNormalTranscriptView.getSnapshot()).toBe('normal')
+    expect(first.hooks.annotationExpandedPresentation.getSnapshot()).toMatchObject({
+      mode: 'expanded',
+      foldCompletedTurns: false,
+    })
     expect(first.annotationTranscriptT('transcript.summary')).toBe('transcript.summary')
     expect(chat.component).not.toBe(HostChat)
     expect(chat.inject).toBe(viewInject)
@@ -1716,7 +1719,7 @@ describe('Client plugin composer attachment lifecycle', () => {
           id: entry.messageId as unknown as MessageId,
           role: 'user',
           content: [{ type: 'text', text: 'Injected context' }],
-          source: { kind: 'plugin', plugin: 'test', form: 'notice', summary: 'Context' },
+          source: { kind: 'user' },
         },
       ],
     })

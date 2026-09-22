@@ -11,7 +11,7 @@ import {
 } from 'react'
 import {
   DisclosureRow,
-  IconThinkOutline14,
+  IconThinkOutlineRegular,
   JsonBlock,
   MarkdownText,
   Tooltip,
@@ -87,7 +87,7 @@ function AnnotationReasoningRow({
         leadingClassName="dia-assistant__reasoning-leading"
         titleClassName="dia-assistant__reasoning-title"
         chevronClassName="dia-assistant__reasoning-chevron"
-        icon={<IconThinkOutline14 size={14} />}
+        icon={<IconThinkOutlineRegular size={14} />}
         title={t('assistant.reasoning')}
         open={open}
         expandable

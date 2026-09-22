@@ -5,11 +5,11 @@
 - Node.js `^22.19.0` or `>=24`;
 - Corepack;
 - pnpm `11.7.0`;
-- a DeepSeek Harness `0.1.6-alpha.2` checkout or installation for Web verification.
+- a DeepSeek Harness `0.1.7-alpha.1` checkout or installation for Web verification.
 
 ## Install and verify
 
-Use one exact DSH `0.1.6-alpha.2` family, including the complete `@deepseek-ai/dsh` development environment. [source-baseline.json](../source-baseline.json) pins the official source commit; [Dependency source](compatibility.md#dependency-source) records the tag and commit. The npm family is available and the checked-in lockfile targets it. Verify its peer closure before running behavior checks:
+Use one exact DSH `0.1.7-alpha.1` family, including the complete `@deepseek-ai/dsh` development environment. [source-baseline.json](../source-baseline.json) pins the official source commit; [Dependency source](compatibility.md#dependency-source) records the tag and commit. The npm family is available and the checked-in lockfile targets it. Verify its peer closure before running behavior checks:
 
 ```bash
 pnpm install --frozen-lockfile --strict-peer-dependencies
@@ -17,9 +17,11 @@ pnpm install --frozen-lockfile --strict-peer-dependencies
 
 ## Diff verification
 
+The complete profile smoke also replays both recorded conversation scenarios through the official Session v3-to-v4 catalog. Keep each committed `session.v3.jsonl`; its adjacent `session.v4.jsonl` records the current expected generation, including native tool-role results. The smoke checks the converted events before writing them and again after reading and local annotation actions.
+
 `pnpm run test:profile --diff-only` runs the built plugin in an isolated, official DSH Web profile with the in-page directory picker and a deterministic LLM adapter. It creates real Git changes, uses the actual line buttons and composer, compares the model request with the persisted `user/message`, and reopens/rebinds a historical snapshot after index/worktree changes. `tests/profile-fixtures/diff-model-message.expected.txt` owns the keyless model-text snapshot; temporary identities are replaced explicitly, not removed by a broad normalizer. Browser screenshots and a position report are written under ignored `artifacts/browser/`. This does not claim a real external-provider API test.
 
-`diff-host.spec.ts` uses the shipped local filesystem and managed subprocess providers, private temporary repositories and awaited teardown. `diff-source.spec.ts`, `diff-protocol.spec.ts`, `diff-controller.spec.ts` and `diff-storage.spec.ts` cover full-file coordinates, unsupported sources, race rejection, version matching, selected-only mixed payloads, recovery and signing-key restart. The Dock interaction suite covers keyboard range actions, editor ownership, overlap choices and original-position focus. No Host or installed sidebar source is changed by these tests.
+`diff-host.spec.ts` uses the shipped local filesystem and managed subprocess providers, private temporary repositories and awaited teardown. `diff-source.spec.ts`, `diff-protocol.spec.ts`, `diff-controller.spec.ts` and `diff-storage.spec.ts` cover full-file coordinates, unsupported sources, race rejection, version matching, selected-only mixed payloads, recovery and signing-key restart. The Dock interaction suite covers keyboard range actions, editor ownership, overlap choices and original-position focus. Settings migration tests cover retained archives, current-override precedence, malformed fields, revision refusal, reset safety and awaited cancellation; transcript tests preserve other view targets while flattening only filtered Chat groups. No Host or installed sidebar source is changed by these tests.
 
 ## Official source verification
 
@@ -62,7 +64,7 @@ pnpm test:profile
 pnpm test:coverage
 ```
 
-`tsc` emits declarations and intermediate JavaScript to `lib/types`. `tsdown` produces ESM Host entries and wraps the browser CJS artifact in `window.__ModuleLoader__.load(...)`. `client-platform.json` pins the exact modules supplied by the DSH `0.1.6-alpha.2` browser loader; ordinary third-party Client libraries are bundled instead of becoming loader requests. DSH requires the factory bundle at `lib/client.js` even though generic Node tooling classifies `.js` under `type: module`; `publint` therefore gates errors while the DSH-specific verifier owns this intentional format. `scripts/verify-bundle.mjs` asserts the required artifacts, module-loader registration, declared module closure, matching peer/development ranges, DSH manifest, and Cordis patch.
+`tsc` emits declarations and intermediate JavaScript to `lib/types`. `tsdown` produces ESM Host entries and wraps the browser CJS artifact in `window.__ModuleLoader__.load(...)`. `client-platform.json` pins the exact modules supplied by the DSH `0.1.7-alpha.1` browser loader; ordinary third-party Client libraries are bundled instead of becoming loader requests. DSH requires the factory bundle at `lib/client.js` even though generic Node tooling classifies `.js` under `type: module`; `publint` therefore gates errors while the DSH-specific verifier owns this intentional format. `scripts/verify-bundle.mjs` asserts the required artifacts, module-loader registration, declared module closure, matching peer/development ranges, DSH manifest, and Cordis patch.
 
 ## Test layout
 
@@ -96,7 +98,7 @@ pnpm exec vitest run tests/controller.spec.ts
 Complete [Packaging](#packaging) first, then install that tarball into a disposable profile on the declared DSH host. DSH serves the package's built `lib/client.js`:
 
 ```bash
-dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-0.9.0.tgz
+dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-0.10.0.tgz
 dsh web --profile annotation-dev
 ```
 
@@ -136,11 +138,11 @@ pnpm --config.ignoreScripts=true pack --pack-destination artifacts
 Inspect the resulting tarball rather than invoking pack again:
 
 ```bash
-tar -tzf artifacts/dsh-annotation-0.9.0.tgz
-tar -xOf artifacts/dsh-annotation-0.9.0.tgz package/package.json
+tar -tzf artifacts/dsh-annotation-0.10.0.tgz
+tar -xOf artifacts/dsh-annotation-0.10.0.tgz package/package.json
 ```
 
-The package must contain `lib/index.js`, `lib/invariant.js`, `lib/client.js`, declarations under `lib/types`, `cordis.patch.yml`, `source-baseline.json`, README files and images under `docs/assets`, the changelog, and the license. Compare its `package.json` with the source repository's manifest before release.
+The package must contain `lib/index.js`, `lib/invariant.js`, `lib/client.js`, declarations under `lib/types`, `cordis.patch.yml`, `source-baseline.json`, README files and images under `docs/assets`, the changelog, and the license. Compare its version, Host requirement, dependency declarations and exports with the source manifest; pnpm removes package-manager metadata and development lifecycle hooks when packing.
 
 ## Release checklist
 

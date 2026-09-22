@@ -1,7 +1,7 @@
 /** Host-backed feature setting and staged main-Settings state. */
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   DEFAULT_ANNOTATION_AUTO_ATTACH,
   DEFAULT_ANNOTATION_COMPACT_SUMMARY,
@@ -134,11 +134,11 @@ export class AnnotationSettingsController {
   private disposed = false
 
   /**
-   * @param scope - browser settings scope bound to the Host plugin namespace.
+   * @param scope - shared configuration form bound to the Host plugin entry.
    * @param legacyStorage - browser storage read only to preserve the pre-0.1.3 enabled preference.
    */
   constructor(
-    private readonly scope: SettingsScope<AnnotationSettings>,
+    private readonly scope: ConfigForm<AnnotationSettings>,
     private readonly legacyStorage?: LegacyEnabledStorage,
   ) {
     this.legacyEnabled = readLegacyEnabled(legacyStorage)

@@ -2,21 +2,20 @@ import { DiffAnnotationPanel } from './DiffAnnotationPanel.tsx'
 import { AnnotationSourceLabel } from './AnnotationSourceLabel.tsx'
 import {
   Button,
-  IconArchiveOutline20,
-  IconCheckOutline14,
-  IconCheckOutline16,
-  IconChevronDownOutline14,
-  IconChevronRightOutline14,
-  IconChevronUpOutline14,
-  IconCloseOutline16,
-  IconDataOutline16,
-  IconEditOutline16,
-  IconListPenOutline16,
-  IconPaperclipOutline16,
-  IconPlusOutline16,
-  IconQueueOutline14,
-  IconTrashOutline16,
-  IconWarningOutline16,
+  IconArchiveOutlineRegular,
+  IconCheckOutlineRegular,
+  IconChevronDownOutlineRegular,
+  IconChevronRightOutlineRegular,
+  IconChevronUpOutlineRegular,
+  IconCloseOutlineRegular,
+  IconDataOutlineRegular,
+  IconEditOutlineRegular,
+  IconListPenOutlineRegular,
+  IconPaperclipOutlineRegular,
+  IconPlusOutlineRegular,
+  IconQueueOutlineRegular,
+  IconTrashOutlineRegular,
+  IconWarningOutlineRegular,
   Menu,
   StateDot,
   Toast,
@@ -381,7 +380,7 @@ function AnnotationEditor({
             disabled={submitting}
             onActivate={discard}
           >
-            <IconCloseOutline16 size={14} />
+            <IconCloseOutlineRegular size={14} />
           </TooltipIconAction>
           <TooltipIconAction
             label={t('editor.save')}
@@ -391,7 +390,7 @@ function AnnotationEditor({
             disabled={submitting || longSelection}
             onActivate={save}
           >
-            <IconCheckOutline16 size={14} />
+            <IconCheckOutlineRegular size={14} />
           </TooltipIconAction>
           {editor.kind === 'edit' && (
             <TooltipIconAction
@@ -402,7 +401,7 @@ function AnnotationEditor({
               disabled={submitting}
               onActivate={remove}
             >
-              <IconTrashOutline16 size={14} />
+              <IconTrashOutlineRegular size={14} />
             </TooltipIconAction>
           )}
         </div>
@@ -580,7 +579,7 @@ function ProcessingModeMenu({
           onClick={() => setOpen((value) => !value)}
         >
           <span>{processingModeLabel(mode, t)}</span>
-          <IconChevronDownOutline14 size={14} aria-hidden="true" />
+          <IconChevronDownOutlineRegular size={14} aria-hidden="true" />
         </Button>
       }
     />
@@ -667,7 +666,7 @@ function OverlapChooser({
           side="bottom"
           onActivate={dismissOverlap}
         >
-          <IconCloseOutline16 size={14} />
+          <IconCloseOutlineRegular size={14} />
         </TooltipIconAction>
       </div>
       <q className="dia-overlap__quote">{overlap.capture.quote.exact}</q>
@@ -849,7 +848,11 @@ function AnnotationRow({
                 : actions.openAnnotation(item.annotationId)
             }
           >
-            {item.status === 'draft' ? <IconEditOutline16 size={14} /> : <IconPlusOutline16 size={14} />}
+            {item.status === 'draft' ? (
+              <IconEditOutlineRegular size={14} />
+            ) : (
+              <IconPlusOutlineRegular size={14} />
+            )}
           </TooltipIconAction>
         )}
         {item.status === 'draft' && (
@@ -861,7 +864,7 @@ function AnnotationRow({
             disabled={submitting}
             onActivate={() => actions.deleteDraft(item.annotationId)}
           >
-            <IconTrashOutline16 size={14} />
+            <IconTrashOutlineRegular size={14} />
           </TooltipIconAction>
         )}
       </div>
@@ -940,7 +943,7 @@ function MarkerAnnotationPopover({
           aria-label={t('list.close')}
           onClick={() => actions.openAnnotation(annotationId, 'marker')}
         >
-          <IconCloseOutline16 size={14} />
+          <IconCloseOutlineRegular size={14} />
         </button>
         {group.length > 1 && (
           <div className="dia-marker-popover__tabs" role="group" aria-label={t('list.title')}>
@@ -1095,7 +1098,7 @@ function AnnotationGroup({
             <span>{title}</span>
           </span>
           <span className="dia-group__count">{items.length}</span>
-          {open ? <IconChevronDownOutline14 size={14} /> : <IconChevronRightOutline14 size={14} />}
+          {open ? <IconChevronDownOutlineRegular size={14} /> : <IconChevronRightOutlineRegular size={14} />}
         </button>
       ) : (
         <div className="dia-group__heading">
@@ -1239,7 +1242,7 @@ function AnnotationPanel({
           >
             {!compactSummary && (
               <span className="dia-dock__icon" aria-hidden="true">
-                <IconListPenOutline16 size={14} />
+                <IconListPenOutlineRegular size={14} />
               </span>
             )}
             <span className={`dia-dock__title${showChip ? ' dia-dock__chip' : ''}`}>
@@ -1265,7 +1268,7 @@ function AnnotationPanel({
                   onPointerDown={(event) => event.preventDefault()}
                   onClick={onToggleAttachment}
                 >
-                  <IconPaperclipOutline16 size={15} />
+                  <IconPaperclipOutlineRegular size={15} />
                 </button>
               </Tooltip>
             )}
@@ -1282,7 +1285,7 @@ function AnnotationPanel({
                 data-open={panelVisible ? 'true' : 'false'}
                 aria-hidden="true"
               >
-                <IconChevronUpOutline14 size={14} />
+                <IconChevronUpOutlineRegular size={14} />
               </span>
             </button>
           </div>
@@ -1328,13 +1331,13 @@ function AnnotationPanel({
           <RetryRecords view={view} submitting={submitting} t={t} selectRetry={actions.selectRetry} />
           {archived && (
             <div className="dia-inline-notice" data-tone="neutral">
-              <IconArchiveOutline20 size={16} />
+              <IconArchiveOutlineRegular size={16} />
               <p>{t('archived.copyNotice')}</p>
             </div>
           )}
           {retry !== undefined && (
             <div className="dia-inline-notice" data-tone="error">
-              <IconWarningOutline16 size={16} />
+              <IconWarningOutlineRegular size={16} />
               <div>
                 <p>{t('error.send')}</p>
                 <p className="dia-inline-notice__detail">
@@ -1427,7 +1430,7 @@ function AnnotationPanel({
             <div className="dia-inline-panel__footer">
               {immutable && (
                 <p className="dia-immutable-note">
-                  <IconDataOutline16 size={14} />
+                  <IconDataOutlineRegular size={14} />
                   {t('list.immutable')}
                 </p>
               )}
@@ -1438,7 +1441,7 @@ function AnnotationPanel({
                       key={entry.payload.submissionId}
                       variant="outline"
                       size="sm"
-                      icon={<IconCloseOutline16 size={14} />}
+                      icon={<IconCloseOutlineRegular size={14} />}
                       onClick={() => void actions.withdraw(entry.payload.submissionId as SubmissionId)}
                     >
                       {t('list.withdraw')}
@@ -1685,11 +1688,11 @@ export function AnnotationDock({
           }
           icon={
             submissionToast.kind === 'queued' ? (
-              <IconQueueOutline14 size={14} />
+              <IconQueueOutlineRegular size={14} />
             ) : submissionToast.kind === 'sent' ? (
-              <IconCheckOutline14 size={14} />
+              <IconCheckOutlineRegular size={14} />
             ) : (
-              <IconWarningOutline16 size={14} />
+              <IconWarningOutlineRegular size={14} />
             )
           }
           anchor={shellRef.current?.closest<HTMLElement>('[data-composer-card]') ?? shellRef.current}

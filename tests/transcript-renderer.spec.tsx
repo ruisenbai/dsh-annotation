@@ -4,6 +4,7 @@ import { createElement, useState, type ComponentType } from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
+import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
   ChatConversationViewNode,
   ChatNodeViewProps,
@@ -13,6 +14,8 @@ import type {
 import {
   decorateTranscriptNodes,
   decorateTranscriptView,
+  FILTERED_CHAT_PRESENTATION,
+  withoutChatGroups,
   TranscriptSummary,
   type TranscriptVisibilityProps,
 } from '../src/client/transcript-renderer.tsx'
@@ -75,7 +78,7 @@ function chat(nodes: readonly ChatConversationViewNode[]): ChatSnapshot {
 function sources(settings: TranscriptVisibilitySettings): TranscriptVisibilityProps {
   return {
     useAnnotationTranscriptVisibility: (selector) => selector(settings),
-    useAnnotationNormalTranscriptView: (selector) => selector('normal'),
+    useAnnotationExpandedPresentation: (selector) => selector(FILTERED_CHAT_PRESENTATION),
     annotationTranscriptT: t,
   }
 }
@@ -246,16 +249,19 @@ describe('non-expandable transcript summaries', () => {
   })
 })
 
-describe('effective Normal mode while filtering', () => {
+describe('ungrouped presentation while filtering', () => {
   it('forwards a framework-bound hook without changing saved mode or remounting body state', ({
     onTestFinished,
   }) => {
     const Original = (input: ChatViewSlotProps) => {
-      const mode = input.useTranscriptView((value) => value)
+      const mode = input.usePresentation((value) => value.mode)
+      const grouped = input.useConversation((value) => value.views.grouped('chat') !== undefined)
       const [draft, setDraft] = useState('initial text')
       return (
         <>
-          <output>{mode}</output>
+          <output>
+            {mode}:{grouped ? 'grouped' : 'flat'}
+          </output>
           <input aria-label="local state" value={draft} onChange={(event) => setDraft(event.target.value)} />
         </>
       )
@@ -267,27 +273,66 @@ describe('effective Normal mode while filtering', () => {
     onTestFinished(decorateTranscriptView(fixture.ctx))
     expect(trajectoryEntry.component).toBe(Original)
     expect(chatEntry.inject).toBe(injected)
-    let savedMode: 'normal' | 'compact' = 'compact'
-    const originalHook: ChatViewSlotProps['useTranscriptView'] = (selector) => selector(savedMode)
+    let savedMode: 'expanded' | 'compact' = 'compact'
+    const originalHook: ChatViewSlotProps['usePresentation'] = (selector) =>
+      selector({
+        ...FILTERED_CHAT_PRESENTATION,
+        mode: savedMode,
+        foldCompletedTurns: true,
+      })
+    const grouped = {
+      entries: [],
+      groupSource: () => ({ getSnapshot: () => undefined, subscribe: () => () => undefined }),
+    }
+    const conversation: ConversationSnapshot = {
+      views: { get: () => undefined, grouped: () => grouped },
+      activeTargets: new Set(['chat']),
+    }
+    const useConversation: ChatViewSlotProps['useConversation'] = (selector) => selector(conversation)
     const View = chatEntry.component as ComponentType<ChatViewSlotProps & TranscriptVisibilityProps>
     const renderProps = (settings: TranscriptVisibilitySettings) =>
-      ({ ...sources(settings), useTranscriptView: originalHook }) as ChatViewSlotProps &
+      ({ ...sources(settings), usePresentation: originalHook, useConversation }) as ChatViewSlotProps &
         TranscriptVisibilityProps
     const view = render(createElement(View, renderProps(DEFAULT_TRANSCRIPT_VISIBILITY)))
     expect(screen.getByRole('status')).toHaveTextContent('compact')
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Keep local state' } })
     for (const key of TRANSCRIPT_VISIBILITY_KEYS) {
       view.rerender(createElement(View, renderProps({ ...DEFAULT_TRANSCRIPT_VISIBILITY, [key]: true })))
-      expect(screen.getByRole('status')).toHaveTextContent('normal')
+      expect(screen.getByRole('status')).toHaveTextContent('expanded')
       expect(screen.getByRole('textbox')).toHaveValue('Keep local state')
       expect(savedMode).toBe('compact')
+      expect(screen.getByRole('status')).toHaveTextContent('flat')
+      expect(conversation.views.grouped('chat')).toBe(grouped)
     }
-    savedMode = 'normal'
+    savedMode = 'expanded'
     view.rerender(createElement(View, renderProps(DEFAULT_TRANSCRIPT_VISIBILITY)))
-    expect(screen.getByRole('status')).toHaveTextContent('normal')
+    expect(screen.getByRole('status')).toHaveTextContent('expanded')
     savedMode = 'compact'
     view.rerender(createElement(View, renderProps(DEFAULT_TRANSCRIPT_VISIBILITY)))
-    expect(screen.getByRole('status')).toHaveTextContent('compact')
+    expect(screen.getByRole('status')).toHaveTextContent('compact:grouped')
     expect(screen.getByRole('textbox')).toHaveValue('Keep local state')
+  })
+})
+
+describe('Chat-only group projection', () => {
+  it('keeps other targets, active targets and source data unchanged with stable display identity', () => {
+    const grouped = {
+      entries: [],
+      groupSource: () => ({ getSnapshot: () => undefined, subscribe: () => () => undefined }),
+    }
+    const read = vi.fn(() => undefined)
+    const source: ConversationSnapshot = {
+      views: { get: read, grouped: () => grouped },
+      activeTargets: new Set(['chat', 'trajectory']),
+    }
+    const display = withoutChatGroups(source)
+    expect(withoutChatGroups(source)).toBe(display)
+    expect(display).not.toBe(source)
+    expect(display.activeTargets).toBe(source.activeTargets)
+    expect(display.views.grouped('chat')).toBeUndefined()
+    expect(source.views.grouped('chat')).toBe(grouped)
+    expect(display.views.grouped('trajectory')).toBe(grouped)
+    expect(display.views.get('chat')).toBeUndefined()
+    expect(read).toHaveBeenCalledWith('chat')
   })
 })

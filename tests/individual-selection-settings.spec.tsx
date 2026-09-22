@@ -1,5 +1,5 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
-import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 
 vi.mock('@deepseek-ai/dsh-client-store', () => ({
   createSnapshotStore<T>(initial: T) {
@@ -32,7 +32,7 @@ import {
 
 type ScopeMode = 'accept' | 'retain' | 'throw'
 
-function settingsScope({
+function settingsForm({
   ready = true,
   writable = true,
   hasIndividualSelection = true,
@@ -63,7 +63,7 @@ function settingsScope({
       releaseWrite = resolve
     })
   }
-  const snapshot = (): SettingsScopeSnapshot<AnnotationSettings> => {
+  const snapshot = (): ConfigFormSnapshot<AnnotationSettings> => {
     if (!isReady) {
       return {
         status: 'unavailable',
@@ -94,7 +94,7 @@ function settingsScope({
       mode: 'host',
     }
   }
-  const scope: SettingsScope<AnnotationSettings> = {
+  const scope: ConfigForm<AnnotationSettings> = {
     getSnapshot: snapshot,
     subscribe(listener) {
       listeners.add(listener)
@@ -111,6 +111,7 @@ function settingsScope({
         user = { ...user, individualSelection: value }
       }
       publish()
+      return mode === 'accept' && writable
     },
     async unset(field) {
       await waitForRelease()
@@ -121,6 +122,7 @@ function settingsScope({
         user = next
       }
       publish()
+      return mode === 'accept' && writable
     },
   }
 
@@ -131,6 +133,7 @@ function settingsScope({
       resolvedIndividualSelection = selection
       hasSavedIndividualSelection = fieldPresent
       publish()
+      return mode === 'accept' && writable
     },
     deferWrites() {
       deferred = true
@@ -154,7 +157,7 @@ describe('individual-selection Host setting', () => {
   it('stays nullable until the Host is ready and defaults missing legacy data to false', async ({
     onTestFinished,
   }) => {
-    const lateHost = settingsScope({ ready: false })
+    const lateHost = settingsForm({ ready: false })
     const controller = new AnnotationSettingsController(lateHost.scope)
     onTestFinished(() => controller.dispose())
     const mode = controller.individualSelection()
@@ -166,7 +169,7 @@ describe('individual-selection Host setting', () => {
     expect(mode.getSnapshot()).toBe(true)
     expect(changed).toHaveBeenCalledOnce()
 
-    const legacyHost = settingsScope({ hasIndividualSelection: false })
+    const legacyHost = settingsForm({ hasIndividualSelection: false })
     const legacyController = new AnnotationSettingsController(legacyHost.scope)
     onTestFinished(() => legacyController.dispose())
 
@@ -182,7 +185,7 @@ describe('individual-selection Host setting', () => {
   it('stages individual selection until save, then resets or discards independently', async ({
     onTestFinished,
   }) => {
-    const fixture = settingsScope()
+    const fixture = settingsForm()
     const controller = new AnnotationSettingsController(fixture.scope)
     onTestFinished(() => controller.dispose())
     const face = controller.inject()
@@ -244,7 +247,7 @@ describe('individual-selection Host setting', () => {
   it.each(['retain', 'throw'] as const)(
     'keeps an unaccepted individual-selection draft editable after a %s response',
     async (response) => {
-      const fixture = settingsScope()
+      const fixture = settingsForm()
       if (response === 'retain') fixture.retainWrites()
       else fixture.throwWrites()
       const controller = new AnnotationSettingsController(fixture.scope)
@@ -273,7 +276,7 @@ describe('individual-selection Host setting', () => {
   )
 
   it('keeps a read-only Host edit staged without changing the accepted mode', async ({ onTestFinished }) => {
-    const fixture = settingsScope({ writable: false })
+    const fixture = settingsForm({ writable: false })
     const controller = new AnnotationSettingsController(fixture.scope)
     onTestFinished(() => controller.dispose())
     const face = controller.inject()
@@ -296,7 +299,7 @@ describe('individual-selection Host setting', () => {
   it('awaits an in-flight write during disposal without publishing a late setting', async ({
     onTestFinished,
   }) => {
-    const fixture = settingsScope({ individualSelection: true })
+    const fixture = settingsForm({ individualSelection: true })
     fixture.deferWrites()
     const controller = new AnnotationSettingsController(fixture.scope)
     onTestFinished(async () => {

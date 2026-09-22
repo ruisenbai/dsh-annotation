@@ -18,6 +18,11 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ### Changed
 
+- Target DSH `0.1.7-alpha.1` with plugin version `0.10.0`, official source tag `dsh-v0.1.7-alpha.1` at `c36a83ff6bb95e3f82cf79f9be7c724270a8aa61`, Cordis `^4.0.3` and Schemastery `^3.18.3`.
+- Use volatile Config fields and shared `configForms`, weight-named official icons with explicit sizes, and a Chat-only ungrouped display policy while transcript filters are active. Saved Host presentation preferences and other view targets remain untouched.
+- Recover supported annotation preferences from retained Host settings archives with current-user-override precedence, atomic revision checks and a completion marker. Retain the original archive and preserve annotation protocols, outbox and Diff signatures.
+- Restore frozen Session v3 test recordings with the official v4 migration catalog and compare adjacent v4 fixtures, preserving predecessor files and native tool-result semantics.
+
 - Freeze the selected annotation set and contiguous ordinals, processing mode, overall requirement, protocol locale, target Session, and ordered attachment metadata in every outbox payload. Retry reuses that payload instead of current UI choices.
 - Write protocol v3 with explicit message/Diff sources and `storageVersion: 3`; migrate browser v1/v2 state under the existing key and keep frozen v2 payloads at v2, retaining the existing v1-to-v2 normalization. `processingMode`, `supplementalTo`, `attachmentIdentities`, multiple editor buffers, selection state, and retry selection are additive fields with compatible defaults. Missing legacy processing mode reads as `answer`, while explicit invalid values reject. Missing legacy attachment identities stay absent and retain the count/kind-only guard.
 

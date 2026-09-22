@@ -15,7 +15,7 @@ Long AI replies are much easier to review when each note can sit beside the exac
 
 > **Market category: Sessions & Messages.** The plugin reviews assistant messages within one Session and submits annotated user messages through the official composer; it is not a theme or general appearance plugin.
 >
-> **Host requirement:** Plugin `0.9.0` (unreleased) requires DSH Web `0.1.6-alpha.2`. The release manifest states this exact requirement through `engines.dsh` and lockstep `@deepseek-ai/dsh-*` peers; desktop clients must embed the same version. DSH is pre-release software, so review [Compatibility](docs/compatibility.md) before upgrading.
+> **Host requirement:** Plugin `0.10.0` (unreleased) requires DSH Web `0.1.7-alpha.1`. The release manifest states this exact requirement through `engines.dsh` and lockstep `@deepseek-ai/dsh-*` peers; desktop clients must embed the same version. DSH is pre-release software, so review [Compatibility](docs/compatibility.md) before upgrading.
 >
 > **Integration compatibility:** DSH does not expose an inline assistant-body slot. The plugin decorates the existing assistant renderer in place without occupying `assistant-step`; user and steering rows use priority shadowing.
 
@@ -99,7 +99,7 @@ Working tree compares index with captured working content; Staged compares captu
 
 ### Requirements
 
-- DSH Web `0.1.6-alpha.2` exactly (run `dsh --version`; for a desktop client, also check its embedded host version)
+- DSH Web `0.1.7-alpha.1` exactly (run `dsh --version`; for a desktop client, also check its embedded host version)
 - Node.js `^22.19.0` or `>=24.0.0`
 - A `web` profile
 
@@ -107,7 +107,7 @@ When `dsh --version` differs, choose the mapped plugin release below or change t
 
 ### Install a GitHub release (recommended)
 
-Published GitHub Releases contain prebuilt tarballs that need no local build. The stable alias below points at the latest published release, not the unreleased `0.9.0`; check that release's host requirement before installing. Use the source-build procedure below to verify `0.9.0`:
+Published GitHub Releases contain prebuilt tarballs that need no local build. The stable alias below points at the latest published release, not the unreleased `0.10.0`; check that release's host requirement before installing. Use the source-build procedure below to verify `0.10.0`:
 
 ```bash
 curl -fL -o dsh-annotation.tgz https://github.com/ruisenbai/dsh-annotation/releases/latest/download/dsh-annotation.tgz
@@ -115,11 +115,11 @@ dsh plugin --profile web add ./dsh-annotation.tgz
 dsh web
 ```
 
-Restart DSH Web after installation when it is already running. Unreleased `0.9.0` targets DSH `0.1.6-alpha.2`. Historical mapping: `v0.8.0` targets DSH `0.1.5-alpha.1`; `v0.7.0` targets DSH `0.1.3-alpha.2`; `v0.6.0` targets DSH `0.1.3-alpha.1`; `v0.5.2`, `v0.5.1`, and `v0.5.0` target DSH `0.1.2-rc.1`; `v0.4.0` targets DSH `0.1.2-alpha.3`; `v0.3.0` targets DSH `0.1.2-alpha.1`; `v0.2.4` targets DSH `0.1.1-rc.2`.
+Restart DSH Web after installation when it is already running. Unreleased `0.10.0` targets DSH `0.1.7-alpha.1`. Historical mapping: `v0.9.0` targets DSH `0.1.6-alpha.2`; `v0.8.0` targets DSH `0.1.5-alpha.1`; `v0.7.0` targets DSH `0.1.3-alpha.2`; `v0.6.0` targets DSH `0.1.3-alpha.1`; `v0.5.2`, `v0.5.1`, and `v0.5.0` target DSH `0.1.2-rc.1`; `v0.4.0` targets DSH `0.1.2-alpha.3`; `v0.3.0` targets DSH `0.1.2-alpha.1`; `v0.2.4` targets DSH `0.1.1-rc.2`.
 
 ### Build from a clone
 
-Source builds require the complete DSH `0.1.6-alpha.2` dependency family. Prepare the matching dependencies and run the checks in the [development guide](docs/development.md#install-and-verify). Dependencies unavailable from npm must come from verifiable official source or official artifacts and must be built and installed in a disposable directory; never commit machine-local `file:` paths or a temporary lockfile to the release manifest.
+Source builds require the complete DSH `0.1.7-alpha.1` dependency family. Prepare the matching dependencies and run the checks in the [development guide](docs/development.md#install-and-verify). Dependencies unavailable from npm must come from verifiable official source or official artifacts and must be built and installed in a disposable directory; never commit machine-local `file:` paths or a temporary lockfile to the release manifest.
 
 Open the DSH Web URL and select text in a finalized assistant reply. A small action bar appears with Add annotation and Copy; the selection stays alive so Ctrl+C also works. Choose Add annotation, type the note, and press Enter or use the check icon to save it; Escape or an outside click suspends it for later. Default aggregate mode automatically attaches eligible drafts to the official composer. Choose the processing mode, enter optional task text, attach images or files, then use the official Enter key or Send button. To pick a subset, enable Choose annotations individually in Settings and explicitly select this batch above the composer. While attached, a slash command temporarily releases the claim: the command runs normally and the annotations are kept.
 
@@ -127,7 +127,7 @@ Open the DSH Web URL and select text in a finalized assistant reply. A small act
 
 The dedicated **Settings → Annotations** section defaults plugin enablement (`enabled`), Send new annotations with the next message automatically (`autoAttach`), and Compact annotation summary (`compactSummary`) to on. Choose annotations individually (`individualSelection`) and every transcript-hiding switch default to off. Edits remain staged until **Save** is accepted by the Host, then apply to every Session it serves. Disabling the plugin removes annotation UI and composer attachment while preserving visible composer text, drafts, multiple suspended editors, outbox, and history. In aggregate mode, disabling automatic attachment leaves the paperclip available; individual mode always ignores `autoAttach`, hides the paperclip, and never implies select all. Switching aggregate or individual mode clears the current selection and active retry, detaches the composer with a reselect notice, and leaves existing outbox records unchanged. Disabling Compact annotation summary only restores the full-width layout and leading icon.
 
-**Reset to default** clears the selected field's user-layer override and restores its declared default; hiding switches reset to off. The DSH settings provider persists all settings. Stored `localTools` user overrides are ignored without deletion or migration, and existing annotation data is not cleared. During the rename upgrade, user values from the legacy `inline-comments` settings namespace migrate into the new namespace, and the legacy section is cleared only after the new write succeeds. On the first 0.1.3 load, a valid legacy browser enablement switch remains effective until the Host accepts it, then its old key is removed. Per-Session annotation drafts remain browser-local as described under [Privacy and persistence](#privacy-and-persistence).
+**Reset to default** clears a field’s user override so it inherits the profile configuration or schema default. DSH `0.1.7-alpha.1` persists settings through volatile plugin Config fields and `configForms`. If the Host has archived old settings as `settings.yaml.imported`, the plugin extracts supported booleans only from `dsh-annotation` and legacy `inline-comments`, preserves current overrides, and records completion in one revision-fenced write. The archive remains unchanged, and later resets cannot resurrect archived values. Retired fields such as `localTools` remain in the archive without taking effect. A legacy browser enablement key is still removed only after Host acceptance. Per-Session drafts remain browser-local as described under [Privacy and persistence](#privacy-and-persistence).
 
 The **Plugin update** area in the same form calls only dsh-market's same-origin `dsh-market/update-api/v1` API. The first **Check for updates** action discovers Market capabilities before checking `dsh-annotation`; install, rollback, and Host restart appear only when Market advertises them. **Update anyway** appears only after a normal attempt fails under an eligible release policy. A live activation can request a page refresh, while desktop- or operator-owned Hosts show no restart button. Without a compatible dsh-market installation, the card directs the user to **Settings → Plugin Market** and never calls a legacy private update route.
 
@@ -236,7 +236,7 @@ pnpm publint
 pnpm pack
 ```
 
-The CI workflow runs type checking, linting, unit tests, a production bundle, artifact verification, and publint on Node 22.19 and 24. The Node 24 job also runs the Chromium fixture regression and a separate real-profile smoke, then creates the package artifact. `pnpm test:profile` requires plugin artifacts from `pnpm build` or `pnpm verify`; these are verification requirements, not a claim that `0.9.0` has passed them. See [Development](docs/development.md), [Architecture](docs/architecture.md), and [Data model](docs/data-model.md).
+The CI workflow runs type checking, linting, unit tests, a production bundle, artifact verification, and publint on Node 22.19 and 24. The Node 24 job also runs the Chromium fixture regression and a separate real-profile smoke, then creates the package artifact. `pnpm test:profile` requires plugin artifacts from `pnpm build` or `pnpm verify`; these are verification requirements, not a claim that `0.10.0` has passed them. See [Development](docs/development.md), [Architecture](docs/architecture.md), and [Data model](docs/data-model.md).
 
 ## Known limitations and deferred work
 

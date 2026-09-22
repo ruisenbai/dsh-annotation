@@ -1,10 +1,10 @@
-/** User-owned settings registered by the Host plugin. */
+/** Annotation preferences exposed by the Host plugin configuration form. */
 
 /** Host settings namespace paired with the annotation section in main Settings. */
 export const ANNOTATION_SETTINGS_NAMESPACE = 'dsh-annotation'
 
-/** Pre-rename namespaces whose user sections migrate into the new namespace once. */
-export const LEGACY_ANNOTATION_SETTINGS_NAMESPACES = ['inline-comments'] as const
+/** Durable marker preventing an archived preference from returning after Reset. */
+export const ARCHIVED_PREFERENCES_IMPORTED_FIELD = 'archivedPreferencesImported'
 
 /** Fresh installations expose the feature until the user disables it. */
 export const DEFAULT_ANNOTATION_ENABLED = true

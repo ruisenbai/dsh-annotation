@@ -62,6 +62,7 @@ import { decorateAssistantRenderers } from './assistant-renderer-decorator.tsx'
 import {
   decorateTranscriptNodes,
   decorateTranscriptView,
+  FILTERED_CHAT_PRESENTATION,
   type TranscriptVisibilityInjected,
 } from './transcript-renderer.tsx'
 import { createTranscriptPresentation } from './transcript-visibility.ts'
@@ -87,7 +88,7 @@ export const inject = [
   'locale',
   'conversation',
   'inputTriggers',
-  'settingsScope',
+  'configForms',
 ]
 
 function UserNode(props: UserAnnotationProps<'user'>) {
@@ -178,7 +179,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     browserStorage = unavailableStorage
   }
   const settingsController = new AnnotationSettingsController(
-    ctx.settingsScope.bind<AnnotationSettings>({ namespace: ANNOTATION_SETTINGS_NAMESPACE }),
+    ctx.configForms.get<AnnotationSettings>(ANNOTATION_SETTINGS_NAMESPACE),
     browserStorage,
   )
   const featureEnabled = settingsController.feature()
@@ -193,8 +194,8 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   const transcriptFace: TranscriptVisibilityInjected = {
     hooks: {
       annotationTranscriptVisibility: settingsController.transcriptVisibility(),
-      annotationNormalTranscriptView: {
-        getSnapshot: () => 'normal',
+      annotationExpandedPresentation: {
+        getSnapshot: () => FILTERED_CHAT_PRESENTATION,
         subscribe: () => () => undefined,
       },
     },

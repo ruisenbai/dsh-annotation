@@ -73,10 +73,12 @@ function settled(
 }
 
 function nodes(initial: readonly ChatConversationViewNode[]) {
+  const emptyTurnData = [] as const
   const data = new Map(initial.map((entry) => [entry.key, entry]))
   const store: ChatSnapshot['nodes'] = {
     get: vi.fn((key) => data.get(key)),
     source: (key) => ({ getSnapshot: () => data.get(key), subscribe: () => () => undefined }),
+    turnDataSource: () => ({ getSnapshot: () => emptyTurnData, subscribe: () => () => undefined }),
     processSource: () => ({ getSnapshot: () => undefined, subscribe: () => () => undefined }),
     values: vi.fn(() => [...data.values()]),
   }

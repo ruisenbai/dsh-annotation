@@ -97,8 +97,32 @@ export function apply(ctx) {
       return readSession(payload.header.id)
     }
     if (action === 'read-session') return readSession(payload.sessionId)
+    if (action === 'settings-ready') {
+      const restored = () =>
+        ctx.settings.describe().find((item) => item.ns === 'dsh-annotation')?.value
+          ?.archivedPreferencesImported === true
+      if (restored()) return true
+      return new Promise((resolve, reject) => {
+        const stop = ctx.on('settings/document-updated', () => {
+          if (!restored()) return
+          clearTimeout(timer)
+          stop()
+          resolve(true)
+        })
+        const timer = setTimeout(() => {
+          stop()
+          reject(new Error('Annotation preference recovery did not settle'))
+        }, 30_000)
+        timer.unref()
+        if (restored()) {
+          clearTimeout(timer)
+          stop()
+          resolve(true)
+        }
+      })
+    }
     if (action === 'prepare') {
-      await ctx.settings.update('ui-onboarding', { welcomeNoticeVersion: '2026-08-13.1' })
+      await ctx.settings.update('ui-settings-general', { welcomeNoticeVersion: '2026-08-13.1' })
       return true
     }
     if (action === 'inspect') {
@@ -107,6 +131,7 @@ export function apply(ctx) {
         bundles: await ctx.pluginManager.listBundles(),
         plugins: await ctx.pluginManager.listPlugins(),
         settings: ctx.settings.describe().find((item) => item.ns === 'dsh-annotation'),
+        settingsDocumentPath: ctx.settings.documentPath,
         chatSettings: ctx.settings.describe().find((item) => item.ns === 'ui-chat'),
         modelRequests: adapter.requests.length,
       }

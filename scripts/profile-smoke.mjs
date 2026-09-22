@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
+import { createSessionFormatCatalogWithChildren } from '@deepseek-ai/dsh-session-format-catalog'
 import { exerciseDiffAnnotations } from './profile-diff-annotations.mjs'
 import { exerciseTranscriptVisibility } from './profile-transcript-visibility.mjs'
 
@@ -69,14 +70,18 @@ function substituteIdentities(value, bindings) {
   return value
 }
 
-async function readRecordedReplay(directory, bindings) {
-  const text = await readFile(new URL('session.v3.jsonl', directory), 'utf8')
+async function readRecordedGeneration(directory, version) {
+  const text = await readFile(new URL(`session.v${version}.jsonl`, directory), 'utf8')
   assert.ok(text.endsWith('\n') && !text.endsWith('\n\n'), 'Session fixture needs one trailing newline')
-  const recorded = text
+  return text
     .slice(0, -1)
     .split('\n')
     .map((line) => JSON.parse(line))
-  const [{ type, ...header }, ...rows] = substituteIdentities(recorded, bindings)
+}
+
+async function readRecordedReplay(directory, bindings) {
+  const legacy = await readRecordedGeneration(directory, 3)
+  const [{ type, ...header }, ...rows] = substituteIdentities(legacy, bindings)
   assert.equal(type, 'session')
   assert.equal(header.version, 3)
   assert.equal(header.createdAt, 0)
@@ -88,13 +93,23 @@ async function readRecordedReplay(directory, bindings) {
     assert.equal(Object.hasOwn(event, 'time'), false)
     return { ...event, seq, time: seq }
   })
-  return {
-    recorded,
+  // These standalone recordings have no child Sessions; the catalog requires explicit child evidence.
+  const restore = createSessionFormatCatalogWithChildren([]).createRestore(
+    { type, ...header },
+    { recovery: 'strict', validation: 'current' },
+  )
+  for (const event of events) restore.decodeRow(event)
+  const current = restore.finish()
+  assert.equal(current.header.version, 4)
+  const replay = {
+    recorded: await readRecordedGeneration(directory, 4),
     bindings,
-    header,
-    events,
+    header: current.header,
+    events: current.events,
     source: rows.find((event) => event.type === 'assistant/message').data.message.content[0].text,
   }
+  assertRecordedSession(current, replay)
+  return replay
 }
 
 async function readingReplay(workspace) {
@@ -198,6 +213,10 @@ try {
   const workspace = join(root, 'workspace')
   await mkdir(join(profile, 'node_modules'), { recursive: true })
   await mkdir(workspace)
+  const archivedPreferences =
+    'inline-comments:\n  autoAttach: true\ndsh-annotation:\n  compactSummary: true\n  hideReasoning: true\n  localTools: false\nother-plugin:\n  preserved: true\n'
+  const archivePath = join(home, 'settings.yaml.imported')
+  await writeFile(archivePath, archivedPreferences)
   // A local linked bundle exercises the published manifest/patch and built dual-face entries.
   await symlink(project, join(profile, 'node_modules/dsh-annotation'), 'junction')
   await writeFile(
@@ -285,7 +304,15 @@ try {
     else waiter.resolve(message.result)
   })
   await deadline(ready, 'Official web readiness')
+  await request('settings-ready')
   const initial = await request('inspect')
+  assert.equal(initial.settings.user.archivedPreferencesImported, true)
+  assert.equal(initial.settings.user.autoAttach, true)
+  assert.equal(initial.settings.user.compactSummary, true)
+  assert.equal(initial.settings.user.hideReasoning, true)
+  assert.equal(Object.hasOwn(initial.settings.user, 'localTools'), false)
+  assert.equal(await readFile(archivePath, 'utf8'), archivedPreferences)
+  console.log('PASS archived annotation preferences recover through official configuration forms')
   console.log(`Isolated profile URL: ${new URL(initial.url).origin}`)
   const bundle = initial.bundles.find((item) => item.name === 'dsh-annotation')
   assert.equal(bundle?.enabled, true)
@@ -328,6 +355,9 @@ try {
       'Narrow Settings width must collapse to one column',
     )
     await page.setViewportSize({ width: 1280, height: 900 })
+    const recoveredReasoning = card.getByRole('group', { name: '隐藏思考过程', exact: true })
+    assert.equal(await recoveredReasoning.getByRole('switch').getAttribute('aria-checked'), 'true')
+    await recoveredReasoning.getByRole('button', { name: '恢复默认', exact: true }).click()
     const toggle = card.getByRole('switch', { name: '启用 DSH 注解', exact: true })
     assert.equal(await toggle.getAttribute('aria-checked'), 'true')
     await toggle.click()
@@ -335,10 +365,18 @@ try {
     await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
     const saved = await request('inspect')
     assert.equal(saved.settings.user.enabled, false)
-    const settingsFile = await readFile(join(home, 'settings.yaml'), 'utf8')
-    assert.match(settingsFile, /dsh-annotation:[\s\S]*enabled: false/)
+    assert.equal(Object.hasOwn(saved.settings.user, 'hideReasoning'), false)
+    assert.equal(saved.settings.value.hideReasoning, false)
+    assert.equal(saved.settings.user.archivedPreferencesImported, true)
+    const settingsFile = await readFile(initial.settingsDocumentPath, 'utf8')
+    assert.match(settingsFile, /id: dsh-annotation[\s\S]*enabled: false/)
     await page.reload({ waitUntil: 'domcontentloaded' })
     card = await openAnnotationSettings(page)
+    const afterReset = await request('inspect')
+    assert.equal(Object.hasOwn(afterReset.settings.user, 'hideReasoning'), false)
+    assert.equal(afterReset.settings.value.hideReasoning, false)
+    assert.equal(await readFile(archivePath, 'utf8'), archivedPreferences)
+    console.log('PASS Reset does not restore an archived preference again')
     const disabledToggle = card.getByRole('switch', { name: '启用 DSH 注解', exact: true })
     assert.equal(await disabledToggle.getAttribute('aria-checked'), 'false')
     await disabledToggle.click()
@@ -481,8 +519,8 @@ try {
     await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
     assert.equal((await request('inspect')).settings.user.compactSummary, false)
     assert.match(
-      await readFile(join(home, 'settings.yaml'), 'utf8'),
-      /dsh-annotation:[\s\S]*compactSummary: false/,
+      await readFile(initial.settingsDocumentPath, 'utf8'),
+      /id: dsh-annotation[\s\S]*compactSummary: false/,
     )
 
     await page.reload({ waitUntil: 'domcontentloaded' })
@@ -572,7 +610,7 @@ try {
       assertRecordedSession,
       workspace,
       artifacts,
-      settingsPath: join(home, 'settings.yaml'),
+      settingsPath: initial.settingsDocumentPath,
     })
     assertRecordedSession(await request('read-session', { sessionId: replay.header.id }), replay)
     const attachmentRun = await request('attachment-smoke')
