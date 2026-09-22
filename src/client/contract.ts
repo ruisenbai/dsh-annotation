@@ -1,9 +1,11 @@
+import type { DiffPanelActions } from './components/DiffAnnotationPanel.tsx'
 import type { PropsLocale, PropsRuntime, InjectFace, HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AnnotationEndpoint, AnnotationPresentation, AnnotationView } from './controller.ts'
 import type { SelectionCapture } from './selection.ts'
-import type { AnnotationId, MessageIdentity, SubmissionId } from '../shared/types.ts'
+import type { AnnotationId, MessageIdentity, ProcessingMode, SubmissionId } from '../shared/types.ts'
 
 export interface AnnotationInjected {
+  readonly diff?: DiffPanelActions
   readonly hooks: {
     readonly annotations: HostObservable<AnnotationView>
     /** 汇总条紧凑布局开关，Host 接受设置后响应式更新。 */
@@ -12,6 +14,14 @@ export interface AnnotationInjected {
   /** 注解界面的翻译函数，避免覆盖原消息渲染器自己的 t。 */
   readonly annotationT: PropsLocale<'dshAnnotation'>['t']
   readonly beginSelection: (capture: SelectionCapture) => void
+  readonly chooseOverlap: (annotationId?: AnnotationId) => void
+  readonly dismissOverlap: () => void
+  readonly suspendEditor: () => void
+  readonly resumeEditor: (key: string) => void
+  readonly discardEditorDraft: (key: string) => void
+  readonly toggleSelected: (annotationId: AnnotationId) => void
+  readonly setProcessingMode: (mode: ProcessingMode) => void
+  readonly selectRetry: (submissionId: SubmissionId) => void
   readonly openAnnotation: (annotationId: AnnotationId, presentation?: AnnotationPresentation) => void
   readonly updateEditorText: (text: string) => void
   readonly confirmLongSelection: () => void

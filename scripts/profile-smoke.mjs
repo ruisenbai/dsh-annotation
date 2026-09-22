@@ -6,9 +6,11 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
+import { exerciseDiffAnnotations } from './profile-diff-annotations.mjs'
 import { exerciseTranscriptVisibility } from './profile-transcript-visibility.mjs'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
+const artifacts = join(project, 'artifacts/browser')
 const cliManifestPath = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh/package.json'))
 const cliManifest = JSON.parse(await readFile(cliManifestPath, 'utf8'))
 const baseline = JSON.parse(await readFile(join(project, 'source-baseline.json'), 'utf8'))
@@ -284,6 +286,7 @@ try {
   })
   await deadline(ready, 'Official web readiness')
   const initial = await request('inspect')
+  console.log(`Isolated profile URL: ${new URL(initial.url).origin}`)
   const bundle = initial.bundles.find((item) => item.name === 'dsh-annotation')
   assert.equal(bundle?.enabled, true)
   assert.equal(bundle?.installed, true)
@@ -301,222 +304,346 @@ try {
   await page.goto(initial.url, { waitUntil: 'domcontentloaded' })
   await page.locator('style[data-dsh-annotation="true"]').waitFor({ state: 'attached' })
   console.log('PASS built Client plugin activates in the real Web GUI')
-  let card = await openAnnotationSettings(page)
-  const visibilityCells = card.locator(
-    '[data-transcript-visibility-grid] > .dia-plugin-card__field--visibility',
-  )
-  assert.equal(await visibilityCells.count(), 18)
-  const wideFirst = await visibilityCells.nth(0).boundingBox()
-  const wideSecond = await visibilityCells.nth(1).boundingBox()
-  assert.ok(wideFirst)
-  assert.ok(wideSecond)
-  assert.ok(Math.abs(wideFirst.y - wideSecond.y) <= 1, 'Normal Settings width must use two columns')
-  await page.setViewportSize({ width: 640, height: 900 })
-  const narrowFirst = await visibilityCells.nth(0).boundingBox()
-  const narrowSecond = await visibilityCells.nth(1).boundingBox()
-  assert.ok(narrowFirst)
-  assert.ok(narrowSecond)
-  assert.ok(
-    narrowSecond.y >= narrowFirst.y + narrowFirst.height,
-    'Narrow Settings width must collapse to one column',
-  )
-  await page.setViewportSize({ width: 1280, height: 900 })
-  const toggle = card.getByRole('switch', { name: '启用 DSH 注解', exact: true })
-  assert.equal(await toggle.getAttribute('aria-checked'), 'true')
-  await toggle.click()
-  await card.getByRole('button', { name: '保存', exact: true }).click()
-  await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
-  const saved = await request('inspect')
-  assert.equal(saved.settings.user.enabled, false)
-  const settingsFile = await readFile(join(home, 'settings.yaml'), 'utf8')
-  assert.match(settingsFile, /dsh-annotation:[\s\S]*enabled: false/)
-  await page.reload({ waitUntil: 'domcontentloaded' })
-  card = await openAnnotationSettings(page)
-  const disabledToggle = card.getByRole('switch', { name: '启用 DSH 注解', exact: true })
-  assert.equal(await disabledToggle.getAttribute('aria-checked'), 'false')
-  await disabledToggle.click()
-  await card.getByRole('button', { name: '保存', exact: true }).click()
-  await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
-  assert.equal((await request('inspect')).settings.user.enabled, true)
-  if (process.env.DSH_PROFILE_SCREENSHOT) {
-    await card
-      .getByRole('region', { name: '会话记录显示', exact: true })
-      .evaluate((element) => element.scrollIntoView({ block: 'start' }))
-    await mkdir(dirname(process.env.DSH_PROFILE_SCREENSHOT), { recursive: true })
-    await page.screenshot({ path: process.env.DSH_PROFILE_SCREENSHOT, fullPage: true })
+  if (process.argv.includes('--diff-only')) {
+    await request('submit')
+    await mkdir(artifacts, { recursive: true })
+  } else {
+    let card = await openAnnotationSettings(page)
+    const visibilityCells = card.locator(
+      '[data-transcript-visibility-grid] > .dia-plugin-card__field--visibility',
+    )
+    assert.equal(await visibilityCells.count(), 18)
+    const wideFirst = await visibilityCells.nth(0).boundingBox()
+    const wideSecond = await visibilityCells.nth(1).boundingBox()
+    assert.ok(wideFirst)
+    assert.ok(wideSecond)
+    assert.ok(Math.abs(wideFirst.y - wideSecond.y) <= 1, 'Normal Settings width must use two columns')
+    await page.setViewportSize({ width: 640, height: 900 })
+    const narrowFirst = await visibilityCells.nth(0).boundingBox()
+    const narrowSecond = await visibilityCells.nth(1).boundingBox()
+    assert.ok(narrowFirst)
+    assert.ok(narrowSecond)
+    assert.ok(
+      narrowSecond.y >= narrowFirst.y + narrowFirst.height,
+      'Narrow Settings width must collapse to one column',
+    )
+    await page.setViewportSize({ width: 1280, height: 900 })
+    const toggle = card.getByRole('switch', { name: '启用 DSH 注解', exact: true })
+    assert.equal(await toggle.getAttribute('aria-checked'), 'true')
+    await toggle.click()
+    await card.getByRole('button', { name: '保存', exact: true }).click()
+    await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
+    const saved = await request('inspect')
+    assert.equal(saved.settings.user.enabled, false)
+    const settingsFile = await readFile(join(home, 'settings.yaml'), 'utf8')
+    assert.match(settingsFile, /dsh-annotation:[\s\S]*enabled: false/)
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    card = await openAnnotationSettings(page)
+    const disabledToggle = card.getByRole('switch', { name: '启用 DSH 注解', exact: true })
+    assert.equal(await disabledToggle.getAttribute('aria-checked'), 'false')
+    await disabledToggle.click()
+    await card.getByRole('button', { name: '保存', exact: true }).click()
+    await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
+    assert.equal((await request('inspect')).settings.user.enabled, true)
+    if (process.env.DSH_PROFILE_SCREENSHOT) {
+      await card
+        .getByRole('region', { name: '会话记录显示', exact: true })
+        .evaluate((element) => element.scrollIntoView({ block: 'start' }))
+      await mkdir(dirname(process.env.DSH_PROFILE_SCREENSHOT), { recursive: true })
+      await page.screenshot({ path: process.env.DSH_PROFILE_SCREENSHOT, fullPage: true })
+    }
+    console.log('PASS main Settings annotation section saves to Host settings and survives browser reload')
+    const submission = await request('submit')
+    const admitted = submission.events.filter(
+      (event) => event.type === 'user/message' && event.data.source.annotationSubmission,
+    )
+    assert.equal(admitted.length, 1, 'The durable log must contain exactly one annotation admission')
+    const modelMessage = submission.requests[1].find((message) => message.id === admitted[0].data.id)
+    assert.deepEqual(
+      modelMessage,
+      admitted[0].data,
+      'Logged annotation message must equal actual model input',
+    )
+    const reference = admitted[0].data.source.annotationSubmission.annotations[0]
+    const modelText = modelMessage.content[0].text
+      .replace(`Reply message: ${reference.messageId}`, 'Reply message: <assistant-message>')
+      .replace(`Reply event seq: ${reference.messageSeq}`, 'Reply event seq: <assistant-seq>')
+    assert.equal(
+      `${modelText}\n`,
+      await readFile(
+        new URL('../tests/profile-fixtures/model-message.expected.txt', import.meta.url),
+        'utf8',
+      ),
+    )
+    assert.equal(submission.first?.result.kind, 'success')
+    assert.match(submission.retry?.result.text, /already accepted/)
+    assert.equal(
+      submission.requests.length,
+      2,
+      'One initial turn and one annotation turn; retry must not call the model',
+    )
+    assert.match(JSON.stringify(submission.requests[1]), /Explain this claim/)
+    assert.match(JSON.stringify(submission.events), /annotationSubmission/)
+    console.log('PASS real Host command reaches AgentLoop/model and deduplicates accepted retry')
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    const workspaceRow = page.getByRole('treeitem', { name: /Annotation smoke/ }).first()
+    await workspaceRow.waitFor()
+    if ((await workspaceRow.getAttribute('aria-expanded')) !== 'true') await workspaceRow.click()
+    const groupRow = page.getByRole('treeitem', { name: /未分组/ }).first()
+    await groupRow.waitFor()
+    if ((await groupRow.getAttribute('aria-expanded')) !== 'true') await groupRow.click()
+    await page.getByRole('treeitem', { name: /Please review/ }).click()
+    await page
+      .locator('.dia-assistant__body')
+      .getByText('Selected source needs clarification.', { exact: false })
+      .waitFor()
+    const submissionCard = page.locator('.dia-user-submission')
+    await submissionCard.locator('.dia-timeline > summary').click()
+    const conversation = `# Assistant\n${await page.locator('.dia-assistant__body').first().ariaSnapshot()}\n\n# Annotation submission\n${await submissionCard.ariaSnapshot()}\n`
+    await mkdir(artifacts, { recursive: true })
+    await writeFile(join(artifacts, 'conversation.actual.txt'), conversation)
+    await page.screenshot({ path: join(artifacts, 'conversation-profile.png'), fullPage: true })
+    assert.equal(
+      conversation,
+      await readFile(new URL('../tests/profile-fixtures/conversation.expected.txt', import.meta.url), 'utf8'),
+    )
+    assert.equal(
+      await page.locator('.dia-user').first().innerText(),
+      'Please review [local notes](./notes.md).',
+    )
+    await page.getByText('1 条历史注解', { exact: true }).waitFor()
+    console.log(
+      'PASS persisted user/assistant Markdown and annotation history render in the real conversation',
+    )
+
+    const replay = await readingReplay(workspace)
+    assertRecordedSession(
+      await request('seed-session', { header: replay.header, events: replay.events }),
+      replay,
+    )
+    assert.equal(initial.settings.value.compactSummary, true, 'Compact summaries must be enabled by default')
+    assert.equal(
+      Object.hasOwn(initial.settings.value, 'localTools'),
+      false,
+      'Local data tools must not be part of the effective settings',
+    )
+    await openReadingSession(page, workspace, replay.source)
+    await selectReadingSource(page, replay.source)
+    await page.getByRole('button', { name: '添加注解', exact: true }).click()
+    const note = 'Clarify this recorded statement.'
+    const editor = page.getByRole('textbox', { name: '你的注解', exact: true })
+    await editor.fill(note)
+    await page.getByRole('button', { name: '保存注解', exact: true }).click()
+    await editor.waitFor({ state: 'hidden' })
+    await page.locator('.dia-dock-shell[data-compact-summary="true"]').waitFor()
+    const compact = await summaryGeometry(page)
+    assert.equal(compact.iconCount, 0, 'Compact summaries must omit the leftmost annotation icon')
+    assert.equal(parseFloat(compact.shellBorder), 0)
+    assert.equal(compact.shellBackground, 'rgba(0, 0, 0, 0)')
+    assert.ok(
+      compact.body.width < compact.shell.width - 100,
+      `Summary must fit its content: ${JSON.stringify(compact)}`,
+    )
+    assert.ok(Math.abs(compact.body.right - compact.shell.right) <= 1, 'Compact summary must align right')
+    assert.ok(
+      compact.body.left >= compact.composer.left + compact.composer.width / 2 &&
+        compact.body.right <= compact.composer.right + 1 &&
+        compact.body.bottom <= compact.composer.top + 1,
+      `Compact summary must sit above the composer on its right side: ${JSON.stringify(compact)}`,
+    )
+    await page.screenshot({ path: join(artifacts, 'compact-summary-profile-default.png'), fullPage: true })
+    await page.getByRole('button', { name: '展开注解', exact: true }).click()
+    const readingPanel = page.locator('.dia-inline-panel')
+    await readingPanel.getByText(note, { exact: true }).waitFor()
+    assert.equal(await readingPanel.locator('.dia-local-data, .dia-local-status').count(), 0)
+    assert.equal(await readingPanel.getByRole('button', { name: /导出|清空草稿/u }).count(), 0)
+    assert.equal(await readingPanel.getByText(/本地数据/u).count(), 0)
+    await page.screenshot({ path: join(artifacts, 'local-data-removed-profile-panel.png'), fullPage: true })
+    await page.getByRole('button', { name: '收起注解', exact: true }).click()
+    await readingPanel.waitFor({ state: 'hidden' })
+    assertRecordedSession(await request('read-session', { sessionId: replay.header.id }), replay)
+    console.log(
+      'PASS recorded Session replay supports local annotations without local-data controls in the compact summary',
+    )
+
+    card = await openAnnotationSettings(page)
+    const compactToggle = card.getByRole('switch', { name: '紧凑注解汇总', exact: true })
+    assert.equal(await compactToggle.getAttribute('aria-checked'), 'true')
+    assert.equal(
+      await card.getByRole('switch').count(),
+      22,
+      'Four annotation settings and eighteen transcript filters remain',
+    )
+    assert.equal(await card.getByRole('switch', { name: '显示本地数据控件', exact: true }).count(), 0)
+    await page.screenshot({ path: join(artifacts, 'compact-summary-profile-settings.png'), fullPage: true })
+    await compactToggle.click()
+    await card.getByRole('button', { name: '保存', exact: true }).click()
+    await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
+    assert.equal((await request('inspect')).settings.user.compactSummary, false)
+    assert.match(
+      await readFile(join(home, 'settings.yaml'), 'utf8'),
+      /dsh-annotation:[\s\S]*compactSummary: false/,
+    )
+
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('.dia-assistant__body').getByText(replay.source, { exact: true }).waitFor()
+    await page.locator('.dia-dock-shell[data-compact-summary="false"]').waitFor()
+    const full = await summaryGeometry(page)
+    assert.equal(full.iconCount, 1, 'Disabling compact summaries must restore the leftmost icon')
+    assert.ok(parseFloat(full.shellBorder) > 0)
+    assert.notEqual(full.shellBackground, 'rgba(0, 0, 0, 0)')
+    assert.ok(
+      Math.abs(full.body.width - full.shell.width) <= 2,
+      'Disabled summaries must restore the full-width bar',
+    )
+    assert.ok(
+      full.body.width > compact.body.width + 100,
+      'The restored bar must be wider than the compact summary',
+    )
+    await page.getByRole('button', { name: '展开注解', exact: true }).click()
+    await page.locator('.dia-item').getByText(note, { exact: true }).waitFor()
+    assert.equal(await readingPanel.locator('.dia-local-data, .dia-local-status').count(), 0)
+    assert.equal(await readingPanel.getByRole('button', { name: /导出|清空草稿/u }).count(), 0)
+    assert.equal(await readingPanel.getByText(/本地数据/u).count(), 0)
+    assert.equal(
+      await page.locator('.dia-item').count(),
+      1,
+      'The local annotation must survive settings and reload',
+    )
+    await page.getByRole('button', { name: '收起注解', exact: true }).click()
+    await page.locator('.dia-inline-panel').waitFor({ state: 'hidden' })
+    await page.screenshot({ path: join(artifacts, 'compact-summary-profile-full-width.png'), fullPage: true })
+    const reloaded = await request('inspect')
+    assert.equal(reloaded.settings.user.compactSummary, false)
+    assert.equal(
+      reloaded.modelRequests,
+      submission.requests.length,
+      'The reading replay must not call the model',
+    )
+    assertRecordedSession(await request('read-session', { sessionId: replay.header.id }), replay)
+    console.log(
+      'PASS saved compact-summary preference survives reload while the recorded Session remains unchanged',
+    )
+    card = await openAnnotationSettings(page)
+    const individualToggle = card.getByRole('switch', { name: '逐条选择要发送的注解', exact: true })
+    assert.equal(await individualToggle.getAttribute('aria-checked'), 'false')
+    await individualToggle.click()
+    await card.getByRole('button', { name: '保存', exact: true }).click()
+    await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
+    assert.equal((await request('inspect')).settings.user.individualSelection, true)
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('.dia-dock-shell[data-selection-mode="individual"]').waitFor()
+    const choices = page
+      .getByRole('group', { name: '选择本次随消息发送的注解', exact: true })
+      .getByRole('button')
+    assert.equal(await choices.count(), 1)
+    assert.equal(await choices.first().getAttribute('aria-pressed'), 'false')
+    assert.equal(await page.locator('.dia-dock__attach').count(), 0)
+    await choices.first().click()
+    await page.locator('.dia-dock[data-attached="true"]').waitFor()
+    await page.getByRole('button', { name: '处理方式：逐条解答', exact: true }).click()
+    await page.getByText('整合改写', { exact: true }).click()
+    await page.getByRole('button', { name: '处理方式：整合改写', exact: true }).waitFor()
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('.dia-dock-shell[data-selection-mode="individual"]').waitFor()
+    await page.locator('.dia-dock[data-attached="true"]').waitFor()
+    assert.equal(await choices.first().getAttribute('aria-pressed'), 'true')
+    await page.getByRole('button', { name: '处理方式：整合改写', exact: true }).waitFor()
+    await page.screenshot({ path: join(artifacts, 'individual-selection-profile.png'), fullPage: true })
+    await choices.first().click()
+    await page.locator('.dia-dock[data-attached="false"]').waitFor()
+    assertRecordedSession(await request('read-session', { sessionId: replay.header.id }), replay)
+    card = await openAnnotationSettings(page)
+    await card.getByRole('switch', { name: '逐条选择要发送的注解', exact: true }).click()
+    await card.getByRole('button', { name: '保存', exact: true }).click()
+    await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('.dia-dock-shell[data-selection-mode="all"]').waitFor()
+    await page.locator('.dia-dock[data-attached="false"]').waitFor()
+    assert.equal((await request('inspect')).settings.user.individualSelection, false)
+    console.log(
+      'PASS individual selection and processing mode persist in the built official profile without changing the recorded Session',
+    )
+
+    await exerciseTranscriptVisibility(page, {
+      request,
+      readReplay: readRecordedReplay,
+      openSession: openReadingSession,
+      assertRecordedSession,
+      workspace,
+      artifacts,
+      settingsPath: join(home, 'settings.yaml'),
+    })
+    assertRecordedSession(await request('read-session', { sessionId: replay.header.id }), replay)
+    const attachmentRun = await request('attachment-smoke')
+    assert.equal(attachmentRun.prepared?.result.kind, 'success')
+    assert.equal(
+      attachmentRun.beforePreflight,
+      attachmentRun.afterPreflight,
+      'Preflight must not call the model',
+    )
+    assert.equal(attachmentRun.afterFirst, attachmentRun.beforePreflight + 1)
+    assert.equal(
+      attachmentRun.afterRetry,
+      attachmentRun.afterFirst,
+      'Retry and rejection must not call the model',
+    )
+    assert.equal(attachmentRun.first?.result.kind, 'success')
+    assert.match(attachmentRun.retry?.result.text, /already accepted/)
+    assert.equal(attachmentRun.mismatch, 'Annotation attachments differ from the frozen submission.')
+    const attachmentAdmissions = attachmentRun.events.filter(
+      (event) =>
+        event.type === 'user/message' &&
+        event.data.source?.annotationSubmission?.submissionId === attachmentRun.payload.submissionId,
+    )
+    assert.equal(attachmentAdmissions.length, 1, 'The attachment submission must be durable exactly once')
+    const attachmentMessage = attachmentAdmissions[0].data
+    assert.deepEqual(attachmentMessage.source.annotationSubmission, attachmentRun.payload)
+    const attachmentModelMessage = attachmentRun.requests[0].find(
+      (message) => message.id === attachmentMessage.id,
+    )
+    assert.deepEqual(
+      attachmentModelMessage,
+      attachmentMessage,
+      'The image-bearing model input must equal its logged message',
+    )
+    assert.deepEqual(
+      attachmentMessage.content.map((block) => block.type),
+      ['text', 'image'],
+    )
+    const identity = attachmentRun.payload.attachmentIdentities[0]
+    assert.equal(identity.attachmentId, attachmentMessage.content[1].attachment.attachmentId)
+    assert.equal(identity.bytes, attachmentMessage.content[1].attachment.bytes)
+    assert.equal(identity.name, 'pixel.gif')
+    assert.match(JSON.stringify(attachmentRun.requests), /Delivery mode: rewrite/)
+    assert.match(JSON.stringify(attachmentRun.requests), /Attachment identity review/)
+    assert.equal(JSON.stringify(attachmentRun.events).includes('R0lGODlhAQABAIAAAAAAAP'), false)
+    console.log(
+      'PASS real image preflight, frozen identity, rewrite payload, durable attachment, and retry deduplication',
+    )
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await workspaceRow.waitFor()
+    if ((await workspaceRow.getAttribute('aria-expanded')) !== 'true') await workspaceRow.click()
+    await groupRow.waitFor()
+    if ((await groupRow.getAttribute('aria-expanded')) !== 'true') await groupRow.click()
+    await page.getByRole('treeitem', { name: /Attachment identity smoke/ }).click()
+    await page
+      .locator('.dia-user-submission')
+      .getByText('Attachment identity review.', { exact: true })
+      .waitFor()
+    const admittedImage = page.locator('.dia-message-attachments img')
+    await admittedImage.waitFor()
+    await admittedImage.evaluate((image) => image.decode())
+    await page.screenshot({ path: join(artifacts, 'attachment-identity-profile.png'), fullPage: true })
+    console.log('PASS the real Web conversation displays the identity-verified image submission')
   }
-  console.log('PASS main Settings annotation section saves to Host settings and survives browser reload')
-  const submission = await request('submit')
-  const admitted = submission.events.filter(
-    (event) => event.type === 'user/message' && event.data.source.annotationSubmission,
-  )
-  assert.equal(admitted.length, 1, 'The durable log must contain exactly one annotation admission')
-  const modelMessage = submission.requests[1].find((message) => message.id === admitted[0].data.id)
-  assert.deepEqual(modelMessage, admitted[0].data, 'Logged annotation message must equal actual model input')
-  const reference = admitted[0].data.source.annotationSubmission.annotations[0]
-  const modelText = modelMessage.content[0].text
-    .replace(`Reply message: ${reference.messageId}`, 'Reply message: <assistant-message>')
-    .replace(`Reply event seq: ${reference.messageSeq}`, 'Reply event seq: <assistant-seq>')
-  assert.equal(
-    `${modelText}\n`,
-    await readFile(new URL('../tests/profile-fixtures/model-message.expected.txt', import.meta.url), 'utf8'),
-  )
-  assert.equal(submission.first?.result.kind, 'success')
-  assert.match(submission.retry?.result.text, /already accepted/)
-  assert.equal(
-    submission.requests.length,
-    2,
-    'One initial turn and one annotation turn; retry must not call the model',
-  )
-  assert.match(JSON.stringify(submission.requests[1]), /Explain this claim/)
-  assert.match(JSON.stringify(submission.events), /annotationSubmission/)
-  console.log('PASS real Host command reaches AgentLoop/model and deduplicates accepted retry')
-  await page.reload({ waitUntil: 'domcontentloaded' })
-  const workspaceRow = page.getByRole('treeitem', { name: /Annotation smoke/ }).first()
-  await workspaceRow.waitFor()
-  if ((await workspaceRow.getAttribute('aria-expanded')) !== 'true') await workspaceRow.click()
-  const groupRow = page.getByRole('treeitem', { name: /未分组/ }).first()
-  await groupRow.waitFor()
-  if ((await groupRow.getAttribute('aria-expanded')) !== 'true') await groupRow.click()
-  await page.getByRole('treeitem', { name: /Please review/ }).click()
-  await page
-    .locator('.dia-assistant__body')
-    .getByText('Selected source needs clarification.', { exact: false })
-    .waitFor()
-  const submissionCard = page.locator('.dia-user-submission')
-  await submissionCard.locator('summary').click()
-  const conversation = `# Assistant\n${await page.locator('.dia-assistant__body').first().ariaSnapshot()}\n\n# Annotation submission\n${await submissionCard.ariaSnapshot()}\n`
-  assert.equal(
-    conversation,
-    await readFile(new URL('../tests/profile-fixtures/conversation.expected.txt', import.meta.url), 'utf8'),
-  )
-  assert.equal(
-    await page.locator('.dia-user').first().innerText(),
-    'Please review [local notes](./notes.md).',
-  )
-  await page.getByText('1 条历史注解', { exact: true }).waitFor()
-  console.log('PASS persisted user/assistant Markdown and annotation history render in the real conversation')
-
-  const replay = await readingReplay(workspace)
-  assertRecordedSession(
-    await request('seed-session', { header: replay.header, events: replay.events }),
-    replay,
-  )
-  assert.equal(initial.settings.value.compactSummary, true, 'Compact summaries must be enabled by default')
-  assert.equal(
-    Object.hasOwn(initial.settings.value, 'localTools'),
-    false,
-    'Local data tools must not be part of the effective settings',
-  )
-  await openReadingSession(page, workspace, replay.source)
-  await selectReadingSource(page, replay.source)
-  await page.getByRole('button', { name: '添加注解', exact: true }).click()
-  const note = 'Clarify this recorded statement.'
-  const editor = page.getByRole('textbox', { name: '你的注解', exact: true })
-  await editor.fill(note)
-  await page.getByRole('button', { name: '保存注解', exact: true }).click()
-  await editor.waitFor({ state: 'hidden' })
-  await page.locator('.dia-dock-shell[data-compact-summary="true"]').waitFor()
-  const compact = await summaryGeometry(page)
-  assert.equal(compact.iconCount, 0, 'Compact summaries must omit the leftmost annotation icon')
-  assert.equal(parseFloat(compact.shellBorder), 0)
-  assert.equal(compact.shellBackground, 'rgba(0, 0, 0, 0)')
-  assert.ok(
-    compact.body.width < compact.shell.width - 100,
-    `Summary must fit its content: ${JSON.stringify(compact)}`,
-  )
-  assert.ok(Math.abs(compact.body.right - compact.shell.right) <= 1, 'Compact summary must align right')
-  assert.ok(
-    compact.body.left >= compact.composer.left + compact.composer.width / 2 &&
-      compact.body.right <= compact.composer.right + 1 &&
-      compact.body.bottom <= compact.composer.top + 1,
-    `Compact summary must sit above the composer on its right side: ${JSON.stringify(compact)}`,
-  )
-  const artifacts = join(project, 'artifacts/browser')
-  await mkdir(artifacts, { recursive: true })
-  await page.screenshot({ path: join(artifacts, 'compact-summary-profile-default.png'), fullPage: true })
-  await page.getByRole('button', { name: '展开注解', exact: true }).click()
-  const readingPanel = page.locator('.dia-inline-panel')
-  await readingPanel.getByText(note, { exact: true }).waitFor()
-  assert.equal(await readingPanel.locator('.dia-local-data, .dia-local-status').count(), 0)
-  assert.equal(await readingPanel.getByRole('button', { name: /导出|清空草稿/u }).count(), 0)
-  assert.equal(await readingPanel.getByText(/本地数据/u).count(), 0)
-  await page.screenshot({ path: join(artifacts, 'local-data-removed-profile-panel.png'), fullPage: true })
-  await page.getByRole('button', { name: '收起注解', exact: true }).click()
-  await readingPanel.waitFor({ state: 'hidden' })
-  assertRecordedSession(await request('read-session', { sessionId: replay.header.id }), replay)
-  console.log(
-    'PASS recorded Session replay supports local annotations without local-data controls in the compact summary',
-  )
-
-  card = await openAnnotationSettings(page)
-  const compactToggle = card.getByRole('switch', { name: '紧凑注解汇总', exact: true })
-  assert.equal(await compactToggle.getAttribute('aria-checked'), 'true')
-  assert.equal(
-    await card.getByRole('switch').count(),
-    21,
-    'Three annotation settings and eighteen transcript filters remain',
-  )
-  assert.equal(await card.getByRole('switch', { name: '显示本地数据控件', exact: true }).count(), 0)
-  await page.screenshot({ path: join(artifacts, 'compact-summary-profile-settings.png'), fullPage: true })
-  await compactToggle.click()
-  await card.getByRole('button', { name: '保存', exact: true }).click()
-  await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
-  assert.equal((await request('inspect')).settings.user.compactSummary, false)
-  assert.match(
-    await readFile(join(home, 'settings.yaml'), 'utf8'),
-    /dsh-annotation:[\s\S]*compactSummary: false/,
-  )
-
-  await page.reload({ waitUntil: 'domcontentloaded' })
-  await page.locator('.dia-assistant__body').getByText(replay.source, { exact: true }).waitFor()
-  await page.locator('.dia-dock-shell[data-compact-summary="false"]').waitFor()
-  const full = await summaryGeometry(page)
-  assert.equal(full.iconCount, 1, 'Disabling compact summaries must restore the leftmost icon')
-  assert.ok(parseFloat(full.shellBorder) > 0)
-  assert.notEqual(full.shellBackground, 'rgba(0, 0, 0, 0)')
-  assert.ok(
-    Math.abs(full.body.width - full.shell.width) <= 2,
-    'Disabled summaries must restore the full-width bar',
-  )
-  assert.ok(
-    full.body.width > compact.body.width + 100,
-    'The restored bar must be wider than the compact summary',
-  )
-  await page.getByRole('button', { name: '展开注解', exact: true }).click()
-  await page.locator('.dia-item').getByText(note, { exact: true }).waitFor()
-  assert.equal(await readingPanel.locator('.dia-local-data, .dia-local-status').count(), 0)
-  assert.equal(await readingPanel.getByRole('button', { name: /导出|清空草稿/u }).count(), 0)
-  assert.equal(await readingPanel.getByText(/本地数据/u).count(), 0)
-  assert.equal(
-    await page.locator('.dia-item').count(),
-    1,
-    'The local annotation must survive settings and reload',
-  )
-  await page.getByRole('button', { name: '收起注解', exact: true }).click()
-  await page.locator('.dia-inline-panel').waitFor({ state: 'hidden' })
-  await page.screenshot({ path: join(artifacts, 'compact-summary-profile-full-width.png'), fullPage: true })
-  const reloaded = await request('inspect')
-  assert.equal(reloaded.settings.user.compactSummary, false)
-  assert.equal(
-    reloaded.modelRequests,
-    submission.requests.length,
-    'The reading replay must not call the model',
-  )
-  assertRecordedSession(await request('read-session', { sessionId: replay.header.id }), replay)
-  console.log(
-    'PASS saved compact-summary preference survives reload while the recorded Session remains unchanged',
-  )
-  await exerciseTranscriptVisibility(page, {
+  await exerciseDiffAnnotations(page, {
     request,
-    readReplay: readRecordedReplay,
-    openSession: openReadingSession,
-    assertRecordedSession,
     workspace,
     artifacts,
-    settingsPath: join(home, 'settings.yaml'),
+    openAnnotationSettings,
+    selectReadingSource,
   })
-  assertRecordedSession(await request('read-session', { sessionId: replay.header.id }), replay)
   assert.deepEqual(pageErrors, [])
 } catch (error) {
   console.error(output)

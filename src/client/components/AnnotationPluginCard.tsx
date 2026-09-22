@@ -1,6 +1,6 @@
 /** Main-Settings section for Host-backed annotation settings. */
 
-import { Switch, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Switch, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { TRANSCRIPT_VISIBILITY_KEYS } from '../../shared/settings.ts'
@@ -83,6 +83,39 @@ export function AnnotationPluginCard(props: AnnotationPluginCardProps) {
         </div>
         <div className="dia-plugin-card__field">
           <div className="dia-plugin-card__field-head">
+            <span className="dia-plugin-card__field-label">{props.t('settings.individualSelection')}</span>
+            {state.individualSelectionOverridden ? (
+              <span className="dia-plugin-card__field-actions">
+                <Tag tone="neutral">{props.t('settings.overridden')}</Tag>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="dia-plugin-card__reset"
+                  disabled={!state.writable || state.saving}
+                  onClick={props.resetIndividualSelection}
+                >
+                  {props.t('settings.reset')}
+                </Button>
+              </span>
+            ) : null}
+          </div>
+          <span className="dia-plugin-card__switch-row">
+            <span className="dia-plugin-card__switch-state">
+              {props.t(state.individualSelection ? 'settings.on' : 'settings.off')}
+            </span>
+            <Switch
+              checked={state.individualSelection}
+              className="dia-plugin-card__switch"
+              label={props.t('settings.individualSelection')}
+              disabled={!state.writable || state.saving}
+              onChange={props.setIndividualSelection}
+            />
+          </span>
+          <p className="dia-plugin-card__hint">{props.t('settings.individualSelectionHint')}</p>
+        </div>
+        <div className="dia-plugin-card__field">
+          <div className="dia-plugin-card__field-head">
             <span className="dia-plugin-card__field-label">{props.t('settings.autoAttach')}</span>
             {state.autoAttachOverridden ? (
               <span className="dia-plugin-card__field-actions">
@@ -111,6 +144,9 @@ export function AnnotationPluginCard(props: AnnotationPluginCardProps) {
             />
           </span>
           <p className="dia-plugin-card__hint">{props.t('settings.autoAttachHint')}</p>
+          {state.individualSelection ? (
+            <p className="dia-plugin-card__hint">{props.t('settings.autoAttachIndividualHint')}</p>
+          ) : null}
         </div>
         <div className="dia-plugin-card__field">
           <div className="dia-plugin-card__field-head">

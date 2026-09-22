@@ -37,6 +37,7 @@ function annotationPreferences(section) {
   return {
     enabled: section.value.enabled,
     autoAttach: section.value.autoAttach,
+    individualSelection: section.value.individualSelection,
     compactSummary: section.value.compactSummary,
   }
 }
@@ -108,7 +109,10 @@ export async function exerciseTranscriptVisibility(page, fixture) {
   await body(bodies.at(-1)).waitFor({ state: 'visible' })
 
   const defaultCard = await openCard(page)
-  assert.equal(await defaultCard.getByRole('switch').count(), 3 + switches.size)
+  assert.equal(
+    await defaultCard.getByRole('switch').count(),
+    Object.keys(annotationPreference).length + switches.size,
+  )
   const visibility = defaultCard.getByRole('region', { name: '会话记录显示', exact: true })
   assert.equal(await visibility.getByRole('switch').count(), switches.size)
   for (const label of switches.values()) {

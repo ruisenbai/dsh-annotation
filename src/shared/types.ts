@@ -1,8 +1,32 @@
+import type { AnnotationAnchor } from './annotation-source.ts'
 /** JSON protocol shared by the Host command bridge and browser client. */
 
-/** Current submission protocol; new submissions only emit v2. */
-export const PROTOCOL_VERSION = 2 as const
-/** Protocol source identity written into every v2 payload. */
+import type { ImageBlock } from '@deepseek-ai/dsh-llm'
+
+/** Internal command input that resolves attachment identities without submitting a message. */
+export const ATTACHMENT_PREPARE_INPUT = 'prepare-attachments'
+/** Shared transport diagnostic; the Client presents its localized equivalent. */
+export const ATTACHMENT_IDENTITY_MISMATCH = 'Annotation attachments differ from the frozen submission.'
+
+/** Ordered identity of one admitted attachment; excludes raw content and temporary upload receipts. */
+export type SubmittedAttachmentIdentity =
+  | {
+      readonly type: 'image'
+      readonly attachmentId: ImageBlock['attachment']['attachmentId']
+      readonly bytes: number
+      readonly mediaType: ImageBlock['attachment']['mediaType']
+      readonly name?: string
+    }
+  | {
+      readonly type: 'file'
+      readonly attachmentId: ImageBlock['attachment']['attachmentId']
+      readonly bytes: number
+      readonly name: string
+    }
+
+/** Current submission protocol; new submissions emit v3 with explicit source kinds. */
+export const PROTOCOL_VERSION = 3 as const
+/** Protocol source identity written into v2 and v3 payloads. */
 export const PROTOCOL_SOURCE = 'dsh-annotation' as const
 /** Acknowledgement marker prefix emitted into new model prompts. */
 export const MODEL_ACK_PREFIX = 'dsh-annotation:'
@@ -34,6 +58,13 @@ export type ProtocolLocale = 'zh' | 'en'
 /** 旧待发送记录缺少语言信息时继续使用的协议语言。 */
 export const FALLBACK_PROTOCOL_LOCALE: ProtocolLocale = 'en'
 
+/** How the model handles one immutable annotation submission. */
+export type ProcessingMode = 'answer' | 'rewrite' | 'modify'
+/** Missing modes in durable records retain the original per-annotation behavior. */
+export const DEFAULT_PROCESSING_MODE: ProcessingMode = 'answer'
+/** Browser-local selection behavior; the Host setting chooses the active mode. */
+export type AnnotationSelectionMode = 'all' | 'individual'
+
 /** Rendered-text selector retained beside the exact human-visible quote. */
 export interface TextQuoteSelector {
   readonly exact: string
@@ -63,10 +94,7 @@ export interface TableSelection {
 export type StructuredSelection = CodeSelection | TableSelection
 
 /** Browser selection data retained while a compact annotation editor is unfinished. */
-export interface AnnotationSelectionCapture {
-  readonly messageId: MessageIdentity
-  readonly messageSeq: number
-  readonly responseVersion: MessageIdentity
+export type AnnotationSelectionCapture = AnnotationAnchor & {
   /** 内容块序号（浏览器本地定位提示，不进入线上协议）。 */
   readonly blockIndex?: number
   readonly quote: TextQuoteSelector
@@ -83,6 +111,8 @@ export interface AnnotationSelectionCapture {
 export type PersistedEditorDraft =
   | {
       readonly kind: 'new'
+      /** Stable identity allocated before saving, including across suspended editors. */
+      readonly draftId?: AnnotationId
       readonly capture: AnnotationSelectionCapture
       readonly text: string
       readonly longSelectionConfirmed: boolean
@@ -93,16 +123,15 @@ export type PersistedEditorDraft =
       readonly annotationId: AnnotationId
       readonly text: string
       readonly expandedCapture?: AnnotationSelectionCapture
+      /** Supplement edits append text instead of replacing the saved opinion. */
+      readonly supplement?: boolean
+      readonly longSelectionConfirmed?: boolean
     }
 
-/** One annotation as transported to the Host and embedded in durable message provenance. */
-export interface SubmittedAnnotation {
+/** One annotation as transported to the Host and embedded in durable message source metadata. */
+export type SubmittedAnnotation = AnnotationAnchor & {
   readonly annotationId: AnnotationId
   readonly ordinal: number
-  readonly messageId: MessageIdentity
-  readonly messageSeq: number
-  /** DSH has no mutable reply version; the finalized assistant message id is the version identity. */
-  readonly responseVersion: MessageIdentity
   readonly quote: TextQuoteSelector
   /** Human-authored annotation text written beside the quoted source; empty for highlight-only. */
   readonly annotation: string
@@ -110,6 +139,8 @@ export interface SubmittedAnnotation {
   readonly kind: AnnotationKind
   readonly structure?: StructuredSelection
   readonly createdAt: number
+  /** Stable source annotation for a separately submitted supplement. */
+  readonly supplementalTo?: AnnotationId
 }
 
 /** v2 wire shape of one annotation; v1 payloads use `comment` instead of `annotation`. */
@@ -128,11 +159,13 @@ export interface WireAnnotation {
   readonly comment?: unknown
   /** 注解类型；缺失时按内容是否为空推断。 */
   readonly kind?: unknown
+  /** Optional original annotation id for a separately saved supplement. */
+  readonly supplementalTo?: unknown
 }
 
 /** Idempotent batch transported through the internal slash command. */
 export interface AnnotationSubmissionPayload {
-  readonly protocolVersion: 2
+  readonly protocolVersion: 2 | 3
   readonly source: typeof PROTOCOL_SOURCE
   readonly submissionId: SubmissionId
   readonly sessionId: SessionIdentity
@@ -140,8 +173,12 @@ export interface AnnotationSubmissionPayload {
   readonly createdAt: number
   /** 协议语言：创建待发送记录时按 DSH 当前 locale 冻结；旧记录缺省为英文。 */
   readonly protocolLocale: ProtocolLocale
+  /** Frozen with the selected annotations; never replaced by a later draft preference. */
+  readonly processingMode: ProcessingMode
   readonly overallRequirement?: string
   readonly annotations: readonly SubmittedAnnotation[]
+  /** Absent in legacy records; new submissions freeze the ordered admitted identities, including an empty list. */
+  readonly attachmentIdentities?: readonly SubmittedAttachmentIdentity[]
 }
 
 /** v1 wire shape of one submission; read for compatibility, never emitted again. */
@@ -155,26 +192,28 @@ export interface LegacySubmissionPayloadV1 {
   readonly annotations: unknown
 }
 
-/** Current durable provenance attached to a new standard user/message event. */
+/** Current durable source metadata attached to a new standard user/message event. */
 export interface AnnotationMessageSource {
   readonly kind: 'user'
   readonly annotationSubmission: AnnotationSubmissionPayload
 }
 
-/** Durable provenance written by the dsh-inline-comments rename era. */
+/** Durable source metadata written by the dsh-inline-comments rename era. */
 export interface InlineCommentMessageSource {
   readonly kind: 'user'
   readonly inlineComments: unknown
 }
 
-/** Durable provenance written before the dsh-inline-comments rename. */
+/** Durable source metadata written before the dsh-inline-comments rename. */
 export interface LegacyInlineAnnotationMessageSource {
   readonly kind: 'user'
   readonly inlineAnnotations: unknown
 }
 
 /** Browser-only editable record. */
-export interface AnnotationDraft extends SubmittedAnnotation {
+export type AnnotationDraft = SubmittedAnnotation & {
+  /** Browser-local source-block hint; never included in a submitted annotation. */
+  readonly blockIndex?: number
   readonly status: AnnotationStatus
   readonly updatedAt: number
   readonly submissionId?: SubmissionId
@@ -208,11 +247,18 @@ export interface OutboxEntry {
 }
 
 export interface PersistedSessionState {
-  readonly storageVersion: 2
+  readonly storageVersion: 2 | 3
   readonly annotations: readonly AnnotationDraft[]
   readonly outbox: readonly OutboxEntry[]
   readonly overallRequirementDraft: string
   readonly editorDraft?: PersistedEditorDraft
+  /** Suspended buffers are not saved annotations and never enter submission JSON. */
+  readonly editorDrafts?: readonly PersistedEditorDraft[]
+  readonly selectionMode?: AnnotationSelectionMode
+  readonly selectedAnnotationIds?: readonly AnnotationId[]
+  readonly processingMode?: ProcessingMode
+  /** Null explicitly releases an old retry without discarding its immutable outbox. */
+  readonly retrySubmissionId?: SubmissionId | null
 }
 
 export interface ModelAcknowledgement {
@@ -235,4 +281,7 @@ export interface AnnotationConfig {
   readonly maxAnnotationsPerSubmission: number
   readonly warnSelectionChars: number
   readonly locateHistoryPages: number
+  readonly maxDiffFileBytes: number
+  readonly maxDiffLines: number
+  readonly diffTimeoutMs: number
 }

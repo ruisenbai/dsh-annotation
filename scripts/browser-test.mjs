@@ -21,7 +21,9 @@ const selectedCase = process.argv[2]
 assert(
   process.argv.length <= 3 &&
     (selectedCase === undefined ||
-      ['legacy', 'reply', ...readingVariants.map((variant) => variant.name)].includes(selectedCase)),
+      ['legacy', 'interaction', 'reply', ...readingVariants.map((variant) => variant.name)].includes(
+        selectedCase,
+      )),
   'Pass one browser case name, or omit it to run every case',
 )
 
@@ -284,8 +286,8 @@ async function assertNoLocalDataTools(page) {
 async function compactSummaryRegression(page, variant) {
   const shell = page.locator('.dia-dock-shell')
   await page.locator('.dia-dock-shell[data-compact-summary="true"]').waitFor()
-  await page.getByRole('button', { name: 'Attach 6 annotations to the next send' }).click()
-  const summary = page.getByRole('button', { name: 'Annotations ×6' })
+  await page.getByRole('button', { name: 'Send 6 annotations with the next message' }).click()
+  const summary = page.getByRole('button', { name: '6 selected for this send' })
   await summary.hover()
   const overview = page.locator('.dia-chip-overview')
   await overview.waitFor()
@@ -296,7 +298,11 @@ async function compactSummaryRegression(page, variant) {
     const title = element.querySelector('.dia-dock__main')
     const rect = element.getBoundingClientRect()
     const bodyRect = body.getBoundingClientRect()
+    const actionsRect = actions.getBoundingClientRect()
     const visibleText = Array.from(title.children).filter((child) => child.getBoundingClientRect().width > 0)
+    const textRects = visibleText.map((child) => child.getBoundingClientRect())
+    const textRight = Math.max(...textRects.map((rect) => rect.right))
+    const textBottom = Math.max(...textRects.map((rect) => rect.bottom))
     return {
       shell: rect.toJSON(),
       body: bodyRect.toJSON(),
@@ -304,9 +310,13 @@ async function compactSummaryRegression(page, variant) {
       shellBorder: getComputedStyle(element).borderTopWidth,
       bodyBackground: getComputedStyle(body).backgroundColor,
       bodyBorder: getComputedStyle(body).borderTopWidth,
-      actionGap:
-        actions.getBoundingClientRect().left -
-        Math.max(...visibleText.map((child) => child.getBoundingClientRect().right)),
+      actionGap: actionsRect.left - textRight,
+      actionsWrapped: actionsRect.top >= textBottom - 1,
+      actionRowGap: actionsRect.top - textBottom,
+      viewportWidth: document.documentElement.clientWidth,
+      controls: [title, ...actions.querySelectorAll('button')].map((control) =>
+        control.getBoundingClientRect().toJSON(),
+      ),
       iconCount: element.querySelectorAll('.dia-dock__icon').length,
       panelOpen: element.getAttribute('data-panel-open'),
       chevronOpen: element.querySelector('.dia-dock__chevron')?.getAttribute('data-open'),
@@ -325,7 +335,15 @@ async function compactSummaryRegression(page, variant) {
     `the visible compact box must align to the composer right edge: ${JSON.stringify(compact)}`,
   )
   assert(
-    compact.actionGap >= -1 && compact.actionGap <= 24 * variant.zoom,
+    compact.controls.every(
+      (rect) => rect.width > 0 && rect.left >= -0.5 && rect.right <= compact.viewportWidth + 0.5,
+    ),
+    `the compact summary, mode, attachment, and fold buttons must remain inside the viewport: ${JSON.stringify(compact)}`,
+  )
+  assert(
+    compact.actionsWrapped
+      ? compact.actionRowGap >= -1 && compact.actionRowGap <= 12 * variant.zoom
+      : compact.actionGap >= -1 && compact.actionGap <= 24 * variant.zoom,
     `the compact box must fit its text and actions without a stretched blank gap: ${JSON.stringify(compact)}`,
   )
   assert(compact.iconCount === 0, 'compact summaries must omit the left annotation icon')
@@ -338,6 +356,10 @@ async function compactSummaryRegression(page, variant) {
       compact.body.width < compact.shell.width - 100,
       `wide compact summaries must shrink to their content: ${JSON.stringify(compact)}`,
     )
+  }
+  if (variant.name === 'narrow-light-200') {
+    await page.getByRole('button', { name: 'Processing mode: Answer individually' }).click()
+    await page.getByRole('menuitem', { name: 'Answer individually', exact: true }).click()
   }
   await summary.click()
   const panel = page.locator('.dia-inline-panel')
@@ -511,7 +533,7 @@ async function compactSummaryRegression(page, variant) {
     (await page.locator('main').getAttribute('data-annotation-count')) === '6',
     'changing summary layout must not modify the annotation drafts',
   )
-  await page.getByRole('button', { name: 'Detach 6 annotations' }).click()
+  await page.getByRole('button', { name: 'Hold these 6 annotations for later' }).click()
 }
 
 async function readingRegression(browser, url, variant) {
@@ -710,7 +732,7 @@ async function readingRegression(browser, url, variant) {
         await editorInput.press('Enter')
         await page.getByRole('dialog', { name: 'Edit annotation' }).waitFor({ state: 'detached' })
       } else {
-        await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+        await page.getByRole('button', { name: 'Discard this edit', exact: true }).click()
       }
     }
     if (variant.blocked) {
@@ -726,7 +748,7 @@ async function readingRegression(browser, url, variant) {
         (await input.inputValue()) === 'Reading note 6.',
         'a note without an inline marker must remain editable through the Dock',
       )
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await page.getByRole('button', { name: 'Discard this edit', exact: true }).click()
     }
     assert(errors.length === 0, `${variant.name} browser errors: ${errors.join('\n')}`)
     console.log(`PASS reading layout ${variant.name}`)
@@ -901,6 +923,523 @@ async function replyRegression(browser, url) {
   }
 }
 
+async function interactionJSON(page, testId) {
+  const raw = await page.getByTestId(testId).textContent()
+  assert(raw !== null && raw !== '', `${testId} must contain JSON output`)
+  return JSON.parse(raw)
+}
+
+async function resetInteraction(page, url) {
+  await page.goto(`${url}?scenario=interaction&reset=1`, { waitUntil: 'networkidle' })
+  await page.getByTestId('interaction-fixture').waitFor()
+  assert(
+    new URL(page.url()).searchParams.get('reset') === null,
+    'the interaction fixture must consume the one-shot reset flag so reload preserves storage',
+  )
+}
+
+async function openInteractionDock(page) {
+  const main = page.locator('.dia-dock__main')
+  await main.waitFor()
+  if ((await main.getAttribute('aria-expanded')) !== 'true') await main.click()
+  await page.locator('.dia-inline-panel').waitFor()
+}
+
+async function chooseProcessingMode(page, label) {
+  const trigger = page.getByRole('button', { name: /^Processing mode:/ })
+  await trigger.click()
+  await page.getByRole('menuitem', { name: label, exact: true }).click()
+}
+
+async function assertInteractionFits(page, label) {
+  await painted(page)
+  const geometry = await page.evaluate(() => {
+    const viewportWidth = document.documentElement.clientWidth
+    const elements = Array.from(
+      document.querySelectorAll(
+        '.dia-dock-shell, .dia-inline-panel, .dia-selection-strip, .dia-processing-trigger, .dia-selection-button',
+      ),
+    ).map((element) => ({
+      className: element.className,
+      rect: element.getBoundingClientRect().toJSON(),
+    }))
+    return {
+      viewportWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      elements,
+    }
+  })
+  assert(
+    geometry.documentWidth <= geometry.viewportWidth + 1,
+    `${label}: interaction fixture must not overflow horizontally: ${JSON.stringify(geometry)}`,
+  )
+  assert(
+    geometry.elements.every(
+      ({ rect }) =>
+        rect.width > 0 && rect.height > 0 && rect.left >= -1 && rect.right <= geometry.viewportWidth + 1,
+    ),
+    `${label}: every selection and processing control must remain visible: ${JSON.stringify(geometry)}`,
+  )
+}
+
+async function interactionResponsiveRegression(browser, url, variant) {
+  const context = await browser.newContext({
+    viewport: { width: variant.width, height: 900 },
+    colorScheme: variant.color,
+    reducedMotion: 'reduce',
+  })
+  const page = await context.newPage()
+  const errors = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text())
+  })
+  try {
+    await resetInteraction(page, url)
+    await page.getByTestId('seed-three').click()
+    await page.getByTestId('selection-individual').click()
+    await page.getByRole('button', { name: 'Annotation 1: Hold for later', exact: true }).click()
+    await page.getByRole('button', { name: 'Annotation 3: Hold for later', exact: true }).click()
+    await page.getByTestId('attachments-load').click()
+    await chooseProcessingMode(page, 'Revise by annotation')
+    await openInteractionDock(page)
+    await assertInteractionFits(page, `interaction ${variant.name}`)
+    const selectedButton = page.getByRole('button', {
+      name: 'Annotation 1: Send with message',
+      exact: true,
+    })
+    const paint = await selectedButton.evaluate((button) => {
+      const style = getComputedStyle(button)
+      const luminance = (rgb) => {
+        const channels = rgb
+          .match(/[\d.]+/g)
+          .slice(0, 3)
+          .map(Number)
+          .map((value) => {
+            const channel = value / 255
+            return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+          })
+        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+      }
+      const text = luminance(style.color)
+      const background = luminance(style.backgroundColor)
+      return {
+        background: style.backgroundColor,
+        contrast: (Math.max(text, background) + 0.05) / (Math.min(text, background) + 0.05),
+      }
+    })
+    assert(
+      paint.background !== 'rgba(0, 0, 0, 0)' && paint.contrast >= 4.5,
+      `interaction ${variant.name}: selected official buttons need an opaque fill and readable text: ${JSON.stringify(paint)}`,
+    )
+    await selectedButton.click()
+    await page.getByRole('button', { name: 'Annotation 1: Hold for later', exact: true }).waitFor()
+    await page.screenshot({
+      path: join(artifacts, `interaction-${variant.name}.png`),
+      fullPage: true,
+    })
+    assert(errors.length === 0, `interaction ${variant.name} browser errors: ${errors.join('\n')}`)
+    console.log(`PASS interaction layout ${variant.name}`)
+  } catch (error) {
+    await page.screenshot({
+      path: join(artifacts, `interaction-${variant.name}-failure.png`),
+      fullPage: true,
+    })
+    throw error
+  } finally {
+    await context.close()
+  }
+}
+
+async function interactionRegression(browser, url) {
+  const context = await browser.newContext({
+    viewport: { width: 1180, height: 1000 },
+    colorScheme: 'light',
+    reducedMotion: 'reduce',
+  })
+  const page = await context.newPage()
+  const errors = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text())
+  })
+  try {
+    await resetInteraction(page, url)
+
+    // Explicit selection uses buttons, carries ordered fixture-owned attachment metadata,
+    // and renumbers the submitted subset without consuming the held middle draft.
+    await page.getByTestId('seed-three').click()
+    await page.getByTestId('selection-individual').click()
+    const selectionGroup = page.getByRole('group', {
+      name: 'Choose annotations to send with this message',
+    })
+    await selectionGroup.waitFor()
+    assert(
+      (await selectionGroup.locator('input[type="checkbox"]').count()) === 0 &&
+        (await selectionGroup.getByRole('button').count()) === 3,
+      'individual annotation choices must be buttons rather than checkboxes',
+    )
+    await page.getByTestId('attachments-load').click()
+    const composer = page.getByRole('textbox', { name: 'Official composer' })
+    await composer.fill('Rewrite only the selected notes.')
+    await page.getByRole('button', { name: 'Annotation 1: Hold for later', exact: true }).click()
+    await page.getByRole('button', { name: 'Annotation 3: Hold for later', exact: true }).click()
+    await chooseProcessingMode(page, 'Integrated rewrite')
+    assert(
+      (await page.getByTestId('interaction-fixture').getAttribute('data-selected-count')) === '2',
+      'changing processing mode must not select hidden annotations',
+    )
+    assert(
+      (await page.getByTestId('interaction-fixture').getAttribute('data-composer-phase')) === 'claimed',
+      'an explicit non-empty selection must claim the fixture composer',
+    )
+    await page.getByRole('button', { name: 'Send fixture message' }).click()
+    const selectedRecord = await interactionJSON(page, 'interaction-submit-json')
+    assert(selectedRecord.kind === 'annotation', 'selected annotations must use the annotation claim')
+    assert(
+      selectedRecord.payload.processingMode === 'rewrite' &&
+        selectedRecord.payload.overallRequirement === 'Rewrite only the selected notes.',
+      `the selected payload must freeze mode and composer requirement: ${JSON.stringify(selectedRecord)}`,
+    )
+    assert(
+      JSON.stringify(selectedRecord.payload.annotations.map((item) => [item.annotation, item.ordinal])) ===
+        JSON.stringify([
+          ['First saved note', 1],
+          ['Third saved note', 2],
+        ]),
+      `only first and third must be submitted with batch ordinals 1/2: ${JSON.stringify(selectedRecord)}`,
+    )
+    assert(
+      JSON.stringify(selectedRecord.attachments) ===
+        JSON.stringify({
+          count: 2,
+          kinds: ['image', 'file'],
+          mediaTypes: ['image/png'],
+          names: ['evidence.png'],
+        }),
+      `fixture metadata must preserve ordered image/file kinds without claiming Host transport: ${JSON.stringify(selectedRecord)}`,
+    )
+    const selectedView = await interactionJSON(page, 'interaction-view-json')
+    assert(
+      selectedView.annotations.some(
+        (item) => item.annotation === 'Middle retained note' && item.status === 'draft',
+      ),
+      'the unselected middle annotation must remain a saved draft',
+    )
+
+    // Durable history exposes natural-language mode immediately, but identifiers only
+    // after both disclosure levels are explicitly opened.
+    const timeline = page.locator('.dia-timeline')
+    await timeline.waitFor()
+    assert((await timeline.getAttribute('open')) === null, 'annotation history must start folded')
+    assert(
+      (await timeline.locator(':scope > summary').textContent())?.includes('Integrated rewrite') === true,
+      'history must describe the frozen processing mode in natural language',
+    )
+    const hiddenSubmissionId = timeline.locator('.dia-diagnostics code').first()
+    assert(!(await hiddenSubmissionId.isVisible()), 'submission and annotation ids must be hidden by default')
+    await timeline.locator(':scope > summary').click()
+    const diagnostics = timeline.locator('.dia-diagnostics').first()
+    assert(!(await hiddenSubmissionId.isVisible()), 'opening history must keep diagnostic ids folded')
+    await diagnostics.locator('summary').click()
+    assert(
+      (await hiddenSubmissionId.isVisible()) &&
+        (await hiddenSubmissionId.textContent()) === selectedRecord.payload.submissionId,
+      'opening Diagnostic details must reveal the immutable submission id',
+    )
+
+    // Selecting sent source text requires an explicit target and creates a linked
+    // supplemental draft instead of mutating durable history.
+    await selectExact(page, 'Alpha')
+    await page.locator('.dia-selection-bar').getByRole('button', { name: 'Add annotation' }).click()
+    const sentOverlap = page.getByRole('dialog', {
+      name: 'This selection overlaps existing annotations',
+    })
+    await sentOverlap.waitFor()
+    const beforeSupplement = await interactionJSON(page, 'interaction-view-json')
+    const sentOriginal = beforeSupplement.annotations.find((item) => item.annotation === 'First saved note')
+    await sentOverlap
+      .getByRole('button', { name: `Supplement annotation ${sentOriginal.ordinal}`, exact: true })
+      .click()
+    const sentSupplementEditor = page.getByRole('dialog', { name: 'Add annotation' })
+    await sentSupplementEditor.getByRole('textbox', { name: 'Your annotation' }).fill('Sent follow-up')
+    await sentSupplementEditor.getByRole('button', { name: 'Save annotation' }).click()
+    const afterSupplement = await interactionJSON(page, 'interaction-view-json')
+    const linked = afterSupplement.annotations.find((item) => item.annotation === 'Sent follow-up')
+    assert(
+      linked !== undefined &&
+        linked.annotationId !== sentOriginal.annotationId &&
+        linked.supplementalTo === sentOriginal.annotationId &&
+        afterSupplement.annotations.find((item) => item.annotationId === sentOriginal.annotationId)
+          ?.annotation === 'First saved note',
+      `supplementing sent history must create a linked id and leave the sent item immutable: ${JSON.stringify(afterSupplement.annotations)}`,
+    )
+    assert(
+      afterSupplement.selectedAnnotationIds.length === 0 &&
+        (await page.getByTestId('interaction-fixture').getAttribute('data-composer-phase')) === 'plain',
+      'saving a new individual-mode annotation must hold it back instead of claiming the composer',
+    )
+
+    // An empty individual selection never claims the composer. Host-like image/file
+    // attachment state and ordinary text remain usable through select/deselect cycles.
+    await resetInteraction(page, url)
+    await page.getByTestId('seed-three').click()
+    await page.getByTestId('selection-individual').click()
+    await page.getByTestId('attachments-load').click()
+    await composer.fill('Ordinary message with attachments')
+    assert(
+      (await page.getByTestId('interaction-fixture').getAttribute('data-composer-phase')) === 'plain',
+      'individual mode with zero selected annotations must leave the composer plain',
+    )
+    const firstChoice = page.getByRole('button', {
+      name: 'Annotation 1: Hold for later',
+      exact: true,
+    })
+    await firstChoice.click()
+    await page.getByRole('button', { name: 'Annotation 1: Send with message', exact: true }).click()
+    assert(
+      (await page.getByTestId('interaction-fixture').getAttribute('data-composer-phase')) === 'plain' &&
+        (await page.getByTestId('interaction-fixture').getAttribute('data-attachment-count')) === '2' &&
+        (await composer.textContent()) === 'Ordinary message with attachments',
+      'deselecting every annotation must release the claim without clearing text or attachments',
+    )
+    await chooseProcessingMode(page, 'Revise by annotation')
+    assert(
+      (await page.getByTestId('interaction-fixture').getAttribute('data-selected-count')) === '0',
+      'a processing-mode change must not implicitly select every annotation',
+    )
+    await page.getByRole('button', { name: 'Send fixture message' }).click()
+    const plainRecord = await interactionJSON(page, 'interaction-submit-json')
+    assert(
+      plainRecord.kind === 'plain' &&
+        plainRecord.plain === 'Ordinary message with attachments' &&
+        plainRecord.attachments.map((item) => item.type).join(',') === 'image,file',
+      `zero selection must use the ordinary composer while retaining attachments: ${JSON.stringify(plainRecord)}`,
+    )
+    const plainView = await interactionJSON(page, 'interaction-view-json')
+    assert(plainView.outbox.length === 0, 'an ordinary fixture send must not create an annotation outbox')
+
+    // An unfinished edit is immediately ineligible and unselected. Pending submission
+    // disables editor controls, while outside/Escape preserve independent buffers.
+    await firstChoice.click()
+    await openInteractionDock(page)
+    const firstRow = page.locator('.dia-item').filter({ hasText: 'First saved note' })
+    await firstRow.getByRole('button', { name: 'Edit', exact: true }).click()
+    let editor = page.getByRole('dialog', { name: 'Edit annotation' })
+    let editorInput = editor.getByRole('textbox', { name: 'Your annotation' })
+    await editorInput.fill('Unsaved replacement')
+    await page.locator('h1').dispatchEvent('pointerdown')
+    await editor.waitFor({ state: 'detached' })
+    assert(
+      (await page.getByTestId('interaction-fixture').getAttribute('data-selected-count')) === '0' &&
+        (await page
+          .getByRole('button', { name: 'Annotation 1: Not included in this send', exact: true })
+          .getAttribute('data-send-state')) === 'unsaved',
+      'an unfinished edit must become ineligible and cancel its individual selection',
+    )
+    await openInteractionDock(page)
+    const savedEditBuffer = page.locator('.dia-editor-draft').filter({ hasText: 'Unsaved replacement' })
+    await savedEditBuffer.getByRole('button', { name: 'Continue editing' }).click()
+    editor = page.getByRole('dialog', { name: 'Edit annotation' })
+    editorInput = editor.getByRole('textbox', { name: 'Your annotation' })
+    await page.getByTestId('submitting-on').dispatchEvent('click')
+    await page.waitForFunction(
+      () =>
+        document.querySelector('[data-testid="interaction-fixture"]')?.getAttribute('data-composer-phase') ===
+        'submitting',
+    )
+    assert(
+      (await editorInput.isDisabled()) &&
+        (await editor.getByRole('button', { name: 'Save annotation' }).isDisabled()) &&
+        (await editor.getByRole('button', { name: 'Discard this edit' }).isDisabled()),
+      'a pending send must disable the editor textarea, save, and discard controls',
+    )
+    await page.getByTestId('submitting-off').dispatchEvent('click')
+    await page.waitForFunction(
+      () =>
+        document.querySelector('[data-testid="interaction-fixture"]')?.getAttribute('data-composer-phase') !==
+        'submitting',
+    )
+    await editorInput.press('Escape')
+    await editor.waitFor({ state: 'detached' })
+
+    await selectExact(page, 'the rest')
+    await page.locator('.dia-selection-bar').getByRole('button', { name: 'Add annotation' }).click()
+    const newEditor = page.getByRole('dialog', { name: 'Add annotation' })
+    await newEditor.getByRole('textbox', { name: 'Your annotation' }).fill('Second recovery buffer')
+    await newEditor.getByRole('textbox', { name: 'Your annotation' }).press('Escape')
+    await newEditor.waitFor({ state: 'detached' })
+    await openInteractionDock(page)
+    assert(
+      (await page.locator('.dia-editor-draft').count()) === 2 &&
+        (await page.getByText('Unsaved replacement', { exact: true }).count()) === 1 &&
+        (await page.getByText('Second recovery buffer', { exact: true }).count()) === 1,
+      'outside pointer and Escape must retain two independent editor buffers',
+    )
+
+    await page.reload({ waitUntil: 'networkidle' })
+    await page.getByTestId('interaction-fixture').waitFor()
+    await openInteractionDock(page)
+    assert(
+      (await page.locator('.dia-editor-draft').count()) === 2 &&
+        (await page.getByText('Unsaved replacement', { exact: true }).count()) === 1 &&
+        (await page.getByText('Second recovery buffer', { exact: true }).count()) === 1,
+      'page reload must restore every suspended editor buffer',
+    )
+    await page.getByTestId('session-b').dispatchEvent('click')
+    await page.locator('[data-testid="interaction-fixture"][data-active-session="b"]').waitFor()
+    assert(
+      (await page.locator('.dia-editor-draft').count()) === 0 &&
+        (await page.getByTestId('interaction-fixture').getAttribute('data-annotation-count')) === '0',
+      'Session B must use independent controller and storage state',
+    )
+    await page.getByTestId('session-a').dispatchEvent('click')
+    await page.locator('[data-testid="interaction-fixture"][data-active-session="a"]').waitFor()
+    await openInteractionDock(page)
+    assert(
+      (await page.locator('.dia-editor-draft').count()) === 2,
+      'switching back to Session A must restore its independent buffers',
+    )
+
+    const restoredEdit = page.locator('.dia-editor-draft').filter({ hasText: 'Unsaved replacement' })
+    await restoredEdit.getByRole('button', { name: 'Continue editing' }).click()
+    editor = page.getByRole('dialog', { name: 'Edit annotation' })
+    editorInput = editor.getByRole('textbox', { name: 'Your annotation' })
+    await editorInput.evaluate((element) => {
+      element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }))
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true }))
+      element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    assert(
+      (await editor.count()) === 1 && (await editorInput.inputValue()) === 'Unsaved replacement',
+      'IME Enter, Escape, and immediate post-composition Enter must neither save nor collapse the editor',
+    )
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)))
+    await page.locator('h1').dispatchEvent('pointerdown')
+    await editor.waitFor({ state: 'detached' })
+    await openInteractionDock(page)
+    await page
+      .locator('.dia-editor-draft')
+      .filter({ hasText: 'Unsaved replacement' })
+      .getByRole('button', { name: 'Discard', exact: true })
+      .click()
+    const afterDiscard = await interactionJSON(page, 'interaction-view-json')
+    assert(
+      afterDiscard.editorDrafts.length === 1 &&
+        afterDiscard.annotations.find((item) => item.ordinal === 1)?.annotation === 'First saved note',
+      'explicitly discarding one edit buffer must preserve the saved annotation and the other buffer',
+    )
+
+    // A selection overlapping two drafts cannot proceed until the user chooses a
+    // precise target; draft supplementation appends text and updates only that target.
+    await resetInteraction(page, url)
+    await page.getByTestId('seed-overlap').click()
+    const overlap = page.getByRole('dialog', { name: 'This selection overlaps existing annotations' })
+    await overlap.waitFor()
+    assert(
+      (await overlap.getByRole('button', { name: 'New annotation', exact: true }).count()) === 1 &&
+        (await overlap.getByRole('button', { name: /^Supplement annotation / }).count()) === 2,
+      'an overlap with two candidates must require an explicit new-or-target choice',
+    )
+    await overlap.getByRole('button', { name: 'Supplement annotation 2', exact: true }).click()
+    const supplementEditor = page.getByRole('dialog', { name: 'Supplement annotation' })
+    await supplementEditor.getByRole('textbox', { name: 'Your annotation' }).fill('Additional overlap note')
+    await supplementEditor.getByRole('button', { name: 'Save annotation' }).click()
+    const overlapView = await interactionJSON(page, 'interaction-view-json')
+    assert(
+      overlapView.annotations[0].annotation === 'First overlap note' &&
+        overlapView.annotations[1].annotation === 'Second overlap note\n\nAdditional overlap note' &&
+        overlapView.annotations[1].quote.exact === 'phrase and the',
+      `supplementation must append only to the chosen draft: ${JSON.stringify(overlapView.annotations)}`,
+    )
+
+    // Failed retry content is immutable. Later mode, selection, setting-mode, text,
+    // and attachment intent changes cannot mutate the frozen payload.
+    await resetInteraction(page, url)
+    await page.getByTestId('seed-three').click()
+    await page.getByTestId('selection-individual').click()
+    await page.getByTestId('attachments-load').click()
+    await page.getByRole('button', { name: 'Annotation 1: Hold for later', exact: true }).click()
+    await chooseProcessingMode(page, 'Integrated rewrite')
+    await composer.fill('Original frozen requirement')
+    await page.getByTestId('fail-next').click()
+    await page.getByRole('button', { name: 'Send fixture message' }).click()
+    const failedRecord = await interactionJSON(page, 'interaction-submit-json')
+    const frozenPayload = JSON.stringify(failedRecord.payload)
+    await openInteractionDock(page)
+    const cancelRetry = page.getByRole('button', { name: 'Cancel retry', exact: true })
+    await cancelRetry.click()
+    assert(
+      (await page.getByTestId('interaction-fixture').getAttribute('data-composer-phase')) === 'plain',
+      'canceling an explicit retry must return the composer to ordinary plain mode',
+    )
+    await chooseProcessingMode(page, 'Revise by annotation')
+    await page.getByRole('button', { name: 'Annotation 3: Hold for later', exact: true }).click()
+    await composer.fill('Later unrelated text')
+    await page.getByTestId('selection-all').click()
+    await page.getByTestId('selection-individual').click()
+    const changedView = await interactionJSON(page, 'interaction-view-json')
+    assert(
+      changedView.selectedAnnotationIds.length === 0 &&
+        JSON.stringify(changedView.outbox[0].payload) === frozenPayload,
+      'accepted selection-mode changes must clear current intent without mutating a frozen outbox',
+    )
+    await openInteractionDock(page)
+    await page.getByRole('button', { name: 'Retry this batch', exact: true }).click()
+    const frozenMode = page.getByRole('button', { name: 'Processing mode: Integrated rewrite' })
+    assert(await frozenMode.isDisabled(), 'an active retry must expose its frozen mode as disabled')
+    await page.getByRole('button', { name: 'Send fixture message' }).click()
+    const retriedRecord = await interactionJSON(page, 'interaction-submit-json')
+    assert(
+      JSON.stringify(retriedRecord.payload) === frozenPayload &&
+        retriedRecord.payload.processingMode === 'rewrite' &&
+        retriedRecord.payload.overallRequirement === 'Original frozen requirement' &&
+        retriedRecord.payload.annotations.length === 1,
+      `retry must ignore later selection, mode, setting, and text changes: ${JSON.stringify(retriedRecord)}`,
+    )
+
+    // Every processing choice reaches the immutable payload through its real menu.
+    for (const [label, mode] of [
+      ['Answer individually', 'answer'],
+      ['Integrated rewrite', 'rewrite'],
+      ['Revise by annotation', 'modify'],
+    ]) {
+      await resetInteraction(page, url)
+      await page.getByTestId('seed-three').click()
+      await page.getByTestId('selection-individual').click()
+      await page.getByRole('button', { name: 'Annotation 2: Hold for later', exact: true }).click()
+      await chooseProcessingMode(page, label)
+      await composer.fill(`Mode ${mode}`)
+      await page.getByRole('button', { name: 'Send fixture message' }).click()
+      const record = await interactionJSON(page, 'interaction-submit-json')
+      assert(
+        record.payload.processingMode === mode,
+        `${label} must freeze ${mode} in the payload: ${JSON.stringify(record)}`,
+      )
+    }
+
+    assert(errors.length === 0, `interaction browser errors:\n${errors.join('\n')}`)
+    await page.screenshot({ path: join(artifacts, 'interaction-workflow.png'), fullPage: true })
+    console.log(
+      'PASS interaction selection, attachments metadata, plain fallback, recovery, sessions, IME, overlap, retry freezing, processing modes, and folded diagnostics',
+    )
+  } catch (error) {
+    await page.screenshot({ path: join(artifacts, 'interaction-failure.png'), fullPage: true })
+    throw error
+  } finally {
+    await context.close()
+  }
+
+  for (const variant of [
+    { name: 'wide-light', width: 1280, color: 'light' },
+    { name: 'narrow-dark', width: 390, color: 'dark' },
+  ]) {
+    await interactionResponsiveRegression(browser, url, variant)
+  }
+}
+
 const server = await createServer({
   root,
   logLevel: 'error',
@@ -938,7 +1477,8 @@ try {
   }
   browser = await chromium.launch({ headless: true })
   if (selectedCase === undefined || selectedCase === 'legacy') {
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'dark' })
+    // This positive marker case needs inline space after the endpoint line; 390px overflow has its own case.
+    const context = await browser.newContext({ viewport: { width: 410, height: 844 }, colorScheme: 'dark' })
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     page = await context.newPage()
     page.on('pageerror', (error) => failures.push(error.message))
@@ -1100,6 +1640,15 @@ try {
 
     await page.locator('h1').dispatchEvent('pointerdown')
     await dialog.waitFor({ state: 'detached' })
+    const emptyDraftDock = page.locator('.dia-dock__main')
+    await emptyDraftDock.click()
+    const emptyDraft = page.locator('.dia-editor-draft').filter({ hasText: 'No note entered yet' })
+    await emptyDraft.waitFor()
+    await emptyDraft.getByRole('button', { name: 'Discard', exact: true }).click()
+    assert(
+      (await page.locator('.dia-editor-draft').count()) === 0,
+      'only explicit discard may remove the suspended empty editor buffer',
+    )
 
     await selectExact(page, 'selected phrase')
     await selectionBar.waitFor()
@@ -1112,15 +1661,27 @@ try {
     assert(stored?.includes('Needs a concrete explanation.') === true, 'unfinished input must be autosaved')
 
     await page.locator('h1').dispatchEvent('pointerdown')
-    assert((await dialog.count()) === 1, 'dirty outside click must keep the editor open')
+    await dialog.waitFor({ state: 'detached' })
+    const dockMainAfterSuspend = page.locator('.dia-dock__main')
+    if ((await dockMainAfterSuspend.getAttribute('aria-expanded')) !== 'true') {
+      await dockMainAfterSuspend.click()
+    }
+    const suspendedDraft = page.locator('.dia-editor-draft').filter({
+      hasText: 'Needs a concrete explanation.',
+    })
+    await suspendedDraft.waitFor()
     assert(
-      (await dialog.getAttribute('data-decision-required')) === 'true',
-      'dirty editor must require a decision',
+      (await suspendedDraft.getByRole('button', { name: 'Continue editing' }).count()) === 1,
+      'outside pointer dismissal must retain a resumable editor buffer',
     )
-    const borderColor = await input.evaluate((element) => getComputedStyle(element).borderColor)
-    assert(borderColor === 'rgb(211, 58, 58)', `dirty editor border must be red, received ${borderColor}`)
-    const animationName = await input.evaluate((element) => getComputedStyle(element).animationName)
-    assert(animationName.startsWith('dia-editor-shake-'), 'dirty editor must shake after an outside click')
+    await suspendedDraft.getByRole('button', { name: 'Continue editing' }).click()
+    dialog = page.getByRole('dialog', { name: 'Add annotation' })
+    const resumedInput = dialog.getByRole('textbox', { name: 'Your annotation' })
+    await dialog.waitFor()
+    assert(
+      (await resumedInput.inputValue()) === 'Needs a concrete explanation.',
+      'resuming after outside dismissal must restore the autosaved text',
+    )
     await dialog.getByRole('button', { name: 'Save annotation' }).click()
     await page.waitForFunction(() => {
       const root = document.querySelector('[data-composer-input]')
@@ -1149,10 +1710,14 @@ try {
     await page.screenshot({ path: join(artifacts, 'lexical-composer-focus.png'), fullPage: true })
     await composer.fill('')
     await dialog.waitFor({ state: 'detached' })
-    const autoDetach = page.getByRole('button', { name: 'Detach 1 annotations' })
+    const autoDetach = page.getByRole('button', { name: 'Hold these 1 annotations for later' })
     await autoDetach.waitFor()
     assert((await autoDetach.count()) === 1, 'saving a new annotation must attach it by default')
-    const attachedChip = page.getByRole('button', { name: 'Annotations ×1' })
+    if ((await page.locator('.dia-dock__main').getAttribute('aria-expanded')) === 'true') {
+      await page.locator('.dia-dock__fold').click()
+      await page.locator('.dia-inline-panel').waitFor({ state: 'detached' })
+    }
+    const attachedChip = page.getByRole('button', { name: '1 selected for this send' })
     await attachedChip.hover()
     const attachedOverview = page.locator('.dia-chip-overview')
     await attachedOverview.waitFor()
@@ -1171,11 +1736,11 @@ try {
       `an attached-annotation hover overview must open six pixels above the summary button, received ${JSON.stringify(overviewPlacement)}`,
     )
     await autoDetach.click()
-    await page.getByRole('button', { name: 'Attach 1 annotations to the next send' }).waitFor()
+    await page.getByRole('button', { name: 'Send 1 annotations with the next message' }).waitFor()
     await page.locator('.browser-scroller').evaluate((element) => {
       element.scrollTop = 0
     })
-    await page.locator('.dia-dock').click()
+    await page.locator('.dia-dock__main').click()
     const firstLocate = page.locator('.dia-item').first().getByRole('button', { name: 'Locate source' })
     assert(
       (await firstLocate.locator('svg.lucide-map-pin').count()) === 1,
@@ -1327,7 +1892,7 @@ try {
 
     const dockMain = page.locator('.dia-dock__main')
     if ((await dockMain.getAttribute('aria-expanded')) !== 'true') await dockMain.click()
-    const attach = page.getByRole('button', { name: 'Attach 5 annotations to the next send' })
+    const attach = page.getByRole('button', { name: 'Send 5 annotations with the next message' })
     const fold = page.getByRole('button', { name: 'Collapse annotations' })
     await attach.waitFor()
     assert(
@@ -1457,7 +2022,7 @@ try {
       (await fold.getAttribute('aria-expanded')) === 'true',
       'attaching must not fold the annotation list',
     )
-    const detach = page.getByRole('button', { name: 'Detach 5 annotations' })
+    const detach = page.getByRole('button', { name: 'Hold these 5 annotations for later' })
     await detach.waitFor()
     const attachColors = await detach.evaluate((element) => ({
       background: getComputedStyle(element).backgroundColor,
@@ -1521,9 +2086,9 @@ try {
     await page.getByTestId('seed-failed').click()
     await page
       .getByRole('alert')
-      .filter({ hasText: 'Send failed; annotations remain attached and retry with submission id sub-' })
+      .filter({ hasText: '1 annotations failed to send; select the pending retry record to try again' })
       .waitFor()
-    const retryDetach = page.getByRole('button', { name: 'Detach 1 annotations' })
+    const retryDetach = page.getByRole('button', { name: 'Hold these 1 annotations for later' })
     await retryDetach.waitFor()
     await page.getByRole('textbox', { name: 'Official composer' }).fill('')
     await page.getByRole('button', { name: 'Send official task' }).click()
@@ -1545,6 +2110,9 @@ try {
     page = undefined
   }
   const fixtureURL = `http://127.0.0.1:${address.port}/`
+  if (selectedCase === undefined || selectedCase === 'interaction') {
+    await interactionRegression(browser, fixtureURL)
+  }
   for (const variant of readingVariants) {
     if (selectedCase === undefined || selectedCase === variant.name)
       await readingRegression(browser, fixtureURL, variant)

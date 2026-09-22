@@ -4,6 +4,31 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+### Added
+
+- Add the plugin-owned **Annotate code Diff** panel for real worktree (index → captured file) and staged (HEAD → index) comparisons, with keyboard-accessible old/new gutter actions, continuous same-side ranges, frozen context folds, sticky markers and the existing editor/selected-send workflow.
+- Retain complete immutable file sides, Git blob/commit identities, working-content hashes, rename paths, context and Host-attested coordinates. Historical navigation opens the original snapshot; only an explicit unique-match rebind creates a linked supplement, preserving its earliest source.
+- Validate paths and coordinates through public Host filesystem/subprocess services, persist the signing identity in a private storage domain, reject unsupported text sources, and cover real Git races, mixed submissions, storage restart and browser-to-model replay.
+
+- Add default aggregate sending plus a Host-backed, default-off individual-selection mode. Individual mode ignores default-on `autoAttach`, requires explicit eligible annotations, and clears unsent selections and the active retry with a notice when the mode changes without altering outbox records.
+- Add multiple recoverable editor buffers keyed by draft or annotation identity. Outside clicks and Escape suspend unfinished work without blocking the original action; unfinished edits stay out of submissions, and explicit buffer discard never deletes a saved annotation.
+- Add explicit overlap resolution. A new-target choice preserves existing buffers; a clean draft target appends text and displays quote-range changes; a target with unfinished editing resumes its old buffer without merging; and a queued, sent, or processed target creates a new annotation linked by `supplementalTo`.
+- Add `answer`, `rewrite`, and `modify` processing modes with Chinese and English model instructions, per-annotation association notes, and acknowledgement of only ids actually completed. Overall requirements specify goals and constraints; the mode specifies the deliverable, with direct conflicts requiring clarification.
+- Add attachment preflight through the existing internal command. New payloads freeze ordered Host attachment identities, allowing original-file reuploads while rejecting different content, names, or order on retry; failed preflight preserves composer input without creating an outbox.
+
+### Changed
+
+- Freeze the selected annotation set and contiguous ordinals, processing mode, overall requirement, protocol locale, target Session, and ordered attachment metadata in every outbox payload. Retry reuses that payload instead of current UI choices.
+- Write protocol v3 with explicit message/Diff sources and `storageVersion: 3`; migrate browser v1/v2 state under the existing key and keep frozen v2 payloads at v2, retaining the existing v1-to-v2 normalization. `processingMode`, `supplementalTo`, `attachmentIdentities`, multiple editor buffers, selection state, and retry selection are additive fields with compatible defaults. Missing legacy processing mode reads as `answer`, while explicit invalid values reject. Missing legacy attachment identities stay absent and retain the count/kind-only guard.
+
+### Fixed
+
+- Abort asynchronous preparation when a captured annotation is deleted, changed, or made ineligible before outbox creation, preventing a stale payload from replacing current draft state while leaving later next-batch choices independent.
+- Preserve queued and sent authority across late retry, transport, and discard paths; direct discard applies only before queue authority is established. Durable confirmation after an ambiguous discard restores the frozen original and ordinal while retaining later saved or unfinished changes under new linked, unselected identities.
+- Preserve an earlier editor buffer when overlap resolution chooses New annotation, and restore historical annotation ordinals from durable payloads rather than current browser ordering.
+- Exclude later optional source fields when restoring an immutable historical annotation, while retaining the newer work separately.
+- Label every suspended editor as not included in the current send, in both languages; remove the obsolete forced-save prompt.
+
 ## [0.9.0] - 2026-09-20
 
 Target host: DeepSeek Harness `0.1.6-alpha.2`, source tag `dsh-v0.1.6-alpha.2` at commit `ddefc45fbc7f8e46dd73185e68295696d1297887`.

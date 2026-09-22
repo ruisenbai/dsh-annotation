@@ -12,6 +12,9 @@ export const DEFAULT_ANNOTATION_ENABLED = true
 /** 新增注解后，默认把它附着到官方输入框。 */
 export const DEFAULT_ANNOTATION_AUTO_ATTACH = true
 
+/** 发送时默认使用已附着的全部注解，而不是逐条选择。 */
+export const DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION = false
+
 /** 注解汇总条默认靠右显示，宽度随内容自适应。 */
 export const DEFAULT_ANNOTATION_COMPACT_SUMMARY = true
 
@@ -116,6 +119,8 @@ export interface AnnotationSettings extends TranscriptVisibilitySettings {
   readonly enabled: boolean
   /** Whether saving a new annotation arms the official composer automatically. */
   readonly autoAttach: boolean
+  /** Whether each send uses the annotations selected for that send. */
+  readonly individualSelection: boolean
   /** 是否使用靠右、宽度自适应且隐藏最左图标的汇总条；关闭时显示完整长条。 */
   readonly compactSummary: boolean
 }

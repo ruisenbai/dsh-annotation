@@ -8,6 +8,8 @@ import { createAnnotationCommand } from '../src/host/command.ts'
 import { encodeSubmissionCommand } from '../src/shared/codec.ts'
 import { DEFAULT_CONFIG } from '../src/shared/config.ts'
 import { fixturePayload } from './fixtures.ts'
+import { parseAttachmentIdentities } from '../src/shared/protocol.ts'
+import { ATTACHMENT_PREPARE_INPUT, ATTACHMENT_IDENTITY_MISMATCH } from '../src/shared/types.ts'
 
 describe('official Host command attachment admission', () => {
   it('admits mixed attachments before enqueueing one idempotent annotation message', async () => {
@@ -40,19 +42,46 @@ describe('official Host command attachment admission', () => {
       // 图片字节在官方命令器中解码，持久化由此进程内存储替身接收。
       const saveImages = vi.fn().mockResolvedValue([image])
       ctx.provide('attachments', { saveImages } as never)
-      ctx.commands.registerFileReceiptResolver((receivingAgent, receiptId) =>
-        receivingAgent === agent && receiptId === 'document-receipt' ? file : undefined,
-      )
+      ctx.commands.registerFileReceiptResolver((receivingAgent, receiptId) => {
+        if (receivingAgent !== agent) return undefined
+        if (receiptId === 'document-receipt' || receiptId === 'new-receipt-for-original') return file
+        if (receiptId === 'replacement-receipt')
+          return { ...file, attachmentId: 'other-file' as FileBlock['attachment']['attachmentId'] }
+        return undefined
+      })
       ctx.commands.register(createAnnotationCommand(DEFAULT_CONFIG))
-      const payload = fixturePayload()
-      const line = encodeSubmissionCommand(DEFAULT_CONFIG.commandName, payload)
       const attachments: readonly CommandSubmitAttachment[] = [
         { type: 'file', receiptId: 'document-receipt' },
         { type: 'image', mediaType: 'image/png', data: 'aGVsbG8=', name: 'shot.png' },
       ]
 
+      const prepared = await ctx.commands.execute(
+        agent,
+        `/annotation_submit ${ATTACHMENT_PREPARE_INPUT}`,
+        attachments,
+        new AbortController().signal,
+      )
+      expect(prepared?.result.kind).toBe('success')
+      expect(nextTurn).toEqual([])
+      const payload = fixturePayload({
+        attachmentIdentities: parseAttachmentIdentities(JSON.parse(prepared?.result.text ?? 'null')),
+      })
+      const line = encodeSubmissionCommand(DEFAULT_CONFIG.commandName, payload)
       const first = await ctx.commands.execute(agent, line, attachments, new AbortController().signal)
-      const retry = await ctx.commands.execute(agent, line, attachments, new AbortController().signal)
+      const retry = await ctx.commands.execute(
+        agent,
+        line,
+        [{ type: 'file', receiptId: 'new-receipt-for-original' }, attachments[1]!],
+        new AbortController().signal,
+      )
+      await expect(
+        ctx.commands.execute(
+          agent,
+          line,
+          [{ type: 'file', receiptId: 'replacement-receipt' }, attachments[1]!],
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow(ATTACHMENT_IDENTITY_MISMATCH)
 
       expect(first?.result).toMatchObject({ kind: 'success', text: 'Annotation batch accepted.' })
       expect(retry?.result).toMatchObject({ kind: 'success', text: 'Annotation batch was already accepted.' })
@@ -66,7 +95,7 @@ describe('official Host command attachment admission', () => {
         { data: Uint8Array.from([104, 101, 108, 108, 111]), mediaType: 'image/png', name: 'shot.png' },
       ])
       const events = session.snapshotEvents()
-      expect(events.filter((event) => event.type === 'command/done')).toHaveLength(2)
+      expect(events.filter((event) => event.type === 'command/done')).toHaveLength(4)
       expect(JSON.stringify(events)).not.toContain('document-receipt')
       expect(JSON.stringify(events)).not.toContain('aGVsbG8=')
       expect(JSON.stringify(events)).not.toContain(line.split(' ')[1])

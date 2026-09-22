@@ -25,6 +25,8 @@ function cardProps(
     overridden: false,
     autoAttach: true,
     autoAttachOverridden: false,
+    individualSelection: false,
+    individualSelectionOverridden: false,
     compactSummary: true,
     compactSummaryOverridden: false,
     transcriptVisibility: DEFAULT_TRANSCRIPT_VISIBILITY,
@@ -57,6 +59,8 @@ function cardProps(
     resetEnabled: vi.fn(),
     setAutoAttach: vi.fn(),
     resetAutoAttach: vi.fn(),
+    setIndividualSelection: vi.fn(),
+    resetIndividualSelection: vi.fn(),
     setCompactSummary: vi.fn(),
     resetCompactSummary: vi.fn(),
     setTranscriptVisibility: vi.fn(),
@@ -89,8 +93,9 @@ describe('compact summary setting card', () => {
     render(<AnnotationPluginCard {...props} />)
 
     const control = screen.getByRole('switch', { name: '紧凑注解汇总' })
-    expect(screen.getAllByRole('switch')).toHaveLength(3 + TRANSCRIPT_VISIBILITY_KEYS.length)
+    expect(screen.getAllByRole('switch')).toHaveLength(4 + TRANSCRIPT_VISIBILITY_KEYS.length)
     expect(screen.getByRole('switch', { name: zh['settings.toggle'] })).toBeChecked()
+    expect(screen.getByRole('switch', { name: zh['settings.individualSelection'] })).not.toBeChecked()
     expect(screen.getByRole('switch', { name: zh['settings.autoAttach'] })).toBeChecked()
     expect(screen.queryByRole('switch', { name: '显示本地数据控件' })).not.toBeInTheDocument()
     expect(control).toBeChecked()
@@ -99,6 +104,30 @@ describe('compact summary setting card', () => {
     expect(props.setCompactSummary).toHaveBeenCalledWith(false)
     expect(props.save).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: zh['settings.save'] })).toBeDisabled()
+  })
+
+  it('stages individual selection and explains how it changes auto-attach sending', () => {
+    const props = cardProps()
+    const view = render(<AnnotationPluginCard {...props} />)
+    const control = screen.getByRole('switch', { name: en['settings.individualSelection'] })
+
+    expect(control).not.toBeChecked()
+    expect(screen.getByText(en['settings.individualSelectionHint'])).toBeInTheDocument()
+    expect(screen.queryByText(en['settings.autoAttachIndividualHint'])).not.toBeInTheDocument()
+    fireEvent.click(control)
+    expect(props.setIndividualSelection).toHaveBeenCalledExactlyOnceWith(true)
+    expect(props.save).not.toHaveBeenCalled()
+
+    const stagedProps = cardProps({
+      individualSelection: true,
+      individualSelectionOverridden: true,
+      dirty: true,
+    })
+    view.rerender(<AnnotationPluginCard {...stagedProps} />)
+    expect(screen.getByRole('switch', { name: en['settings.individualSelection'] })).toBeChecked()
+    expect(screen.getByText(en['settings.autoAttachIndividualHint'])).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: en['settings.reset'] }))
+    expect(stagedProps.resetIndividualSelection).toHaveBeenCalledOnce()
   })
 
   it('shows staged changes and routes reset save and discard to their settings actions', () => {
@@ -189,6 +218,9 @@ describe('transcript visibility settings card', () => {
         ).not.toBeInTheDocument()
       }
       expect(screen.getByRole('switch', { name: dictionary['settings.toggle'] })).toBeChecked()
+      expect(
+        screen.getByRole('switch', { name: dictionary['settings.individualSelection'] }),
+      ).not.toBeChecked()
       expect(screen.getByRole('switch', { name: dictionary['settings.autoAttach'] })).toBeChecked()
       expect(screen.getByRole('switch', { name: dictionary['settings.compactSummary'] })).toBeChecked()
     },
@@ -224,6 +256,7 @@ describe('transcript visibility settings card', () => {
     expect(stagedProps.discard).toHaveBeenCalledOnce()
     expect(stagedProps.setEnabled).not.toHaveBeenCalled()
     expect(stagedProps.setAutoAttach).not.toHaveBeenCalled()
+    expect(stagedProps.setIndividualSelection).not.toHaveBeenCalled()
     expect(stagedProps.setCompactSummary).not.toHaveBeenCalled()
   })
 

@@ -1,15 +1,18 @@
 [DSH annotation submission]
 Submission ID: profile-submission
 Reply annotations: 1
+Processing mode: answer
 
 Overall requirement:
 Clarify the local document.
+The overall requirement defines goals, scope, and constraints; the processing mode defines the deliverable. If they directly conflict, explain the conflict and ask for clarification instead of silently ignoring either one.
 
-Respond to every annotation in order.
-Start each section with "Annotation N:".
-Do not merge different annotations.
-"Highlight only" means reviewing and responding to the selected text; never skip an item because its annotation content is empty.
-Emit the annotation’s hidden association marker (an HTML comment, invisible to the user) before each section.
+Delivery mode: answer
+Answer every annotation in order:
+- Start each section with "Annotation N:", where N is the annotation ordinal.
+- Do not merge different annotations; use a separate section for each.
+- Emit the annotation’s hidden association marker (an HTML comment, invisible to the user) before each section.
+- "Highlight only" means there is no additional annotation text; still handle the selected text in the current delivery mode and never skip it.
 
 <!-- dsh-annotation-reply:{"submissionId":"profile-submission","annotationId":"profile-note","ordinal":1} -->
 Annotation 1 (profile-note)
@@ -21,6 +24,7 @@ User annotation:
 Explain this claim.
 
 Processing acknowledgement:
-Only include annotation ids you actually handled in processed; append one hidden HTML comment at the end of the reply:
+Only include annotation ids actually completed in this reply under the selected processing mode; do not automatically include the full batch.
+Append one hidden HTML comment at the end of the reply:
 <!-- dsh-annotation:{"submissionId":"profile-submission","processed":["annotation-id"]} -->
-Do not include annotation ids in processed unless your answer addresses them.
+Do not include an annotation id in processed unless its requested handling was actually completed.

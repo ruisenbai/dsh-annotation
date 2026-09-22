@@ -43,6 +43,12 @@ function fixtureView(): AnnotationView {
     outbox: [],
     overallRequirementDraft: '',
     editor: null,
+    editorDrafts: [],
+    selectionMode: 'all',
+    selectedAnnotationIds: [],
+    processingMode: 'answer',
+    retrySubmissionId: null,
+    overlap: null,
     editorSaveStatus: 'idle',
     deletedDraft: null,
     panelOpen: false,
@@ -75,6 +81,14 @@ function dockProps(view: AnnotationView, compactSummary: boolean): InputAnnotati
     autoAttachEnabled: () => false,
     ensureComposerAttachment: vi.fn(() => true),
     setPanelOpen: vi.fn(),
+    chooseOverlap: vi.fn(),
+    dismissOverlap: vi.fn(),
+    suspendEditor: vi.fn(),
+    resumeEditor: vi.fn(),
+    discardEditorDraft: vi.fn(),
+    toggleSelected: vi.fn(),
+    setProcessingMode: vi.fn(),
+    selectRetry: vi.fn(),
     openAnnotation: vi.fn(),
     closeEditor: vi.fn(() => false),
     saveEditor: vi.fn(() => view.annotations[0]!.annotationId),
@@ -102,14 +116,14 @@ describe('compact annotation summary', () => {
     const { rerender } = render(<StyledDock {...props} />)
     const shell = screen.getByRole('region', { name: 'Annotations' })
     const summary = screen.getByRole('button', { name: 'Annotations' })
-    const attach = screen.getByRole('button', { name: 'Attach 2 annotations to the next send' })
+    const attach = screen.getByRole('button', { name: t('attach.add', { count: 2 }) })
     const fold = screen.getByRole('button', { name: 'Expand annotations' })
     const body = summary.closest('.dia-dock-body')!
 
     expect(shell).toHaveAttribute('data-compact-summary', 'true')
     expect(shell).toHaveAttribute('data-panel-open', 'false')
     expect(summary.querySelector('svg')).toBeNull()
-    expect(summary).toHaveTextContent('Annotations2 ready to attach')
+    expect(summary).toHaveTextContent(`Annotations${t('panel.pending', { count: 2 })}`)
     expect(getComputedStyle(body)).toMatchObject({
       width: 'fit-content',
       marginLeft: 'auto',
@@ -128,10 +142,10 @@ describe('compact annotation summary', () => {
     expect(shell).toHaveAttribute('data-compact-summary', 'false')
     expect(screen.getByRole('button', { name: 'Annotations' })).toBe(summary)
     expect(summary.querySelector('svg')).not.toBeNull()
-    expect(summary).toHaveTextContent('Annotations2 ready to attach')
+    expect(summary).toHaveTextContent(`Annotations${t('panel.pending', { count: 2 })}`)
     expect(getComputedStyle(summary)).toMatchObject({ flexGrow: '1', gap: '10px' })
     expect(getComputedStyle(attach.closest('.dia-dock__actions')!)).toMatchObject({
-      gap: '10px',
+      gap: '8px',
       marginRight: '-7px',
     })
   })
@@ -144,12 +158,12 @@ describe('compact annotation summary', () => {
         input={{ ...props.input, draft: `${COMPOSER_ATTACHMENT_TOKEN}Keep composer text` }}
       />,
     )
-    const summary = screen.getByRole('button', { name: 'Annotations ×2' })
-    const attach = screen.getByRole('button', { name: 'Detach 2 annotations' })
+    const summary = screen.getByRole('button', { name: t('compact.count', { count: 2 }) })
+    const attach = screen.getByRole('button', { name: t('attach.remove', { count: 2 }) })
     expect(attach).toHaveAttribute('aria-pressed', 'true')
-    expect(summary).not.toHaveTextContent('ready to attach')
+    expect(summary).not.toHaveTextContent(t('panel.pending', { count: 2 }))
     fireEvent.pointerEnter(summary)
-    const preview = screen.getByRole('tooltip', { name: 'Attached annotations overview' })
+    const preview = screen.getByRole('tooltip', { name: t('compact.overview') })
     expect(within(preview).getByText('Explain this claim.')).toBeInTheDocument()
     expect(within(preview).getByText('Add a concrete example.')).toBeInTheDocument()
     expect(within(preview).queryByText('Already sent annotation.')).not.toBeInTheDocument()
@@ -176,18 +190,18 @@ describe('compact annotation summary', () => {
       draft: `${COMPOSER_ATTACHMENT_TOKEN}Keep composer text`,
     }
     const { rerender } = render(<StyledDock {...dockProps(collapsedView, true)} input={attachedInput} />)
-    const summary = screen.getByRole('button', { name: 'Annotations ×2' })
+    const summary = screen.getByRole('button', { name: t('compact.count', { count: 2 }) })
     fireEvent.pointerEnter(summary)
-    expect(screen.getByRole('tooltip', { name: 'Attached annotations overview' })).toBeInTheDocument()
+    expect(screen.getByRole('tooltip', { name: t('compact.overview') })).toBeInTheDocument()
 
     const expandedView = { ...collapsedView, panelOpen: true }
     rerender(<StyledDock {...dockProps(expandedView, true)} input={attachedInput} />)
     expect(screen.getByRole('region', { name: 'Annotations' })).toHaveAttribute('data-panel-open', 'true')
-    expect(screen.queryByRole('tooltip', { name: 'Attached annotations overview' })).toBeNull()
-    const expandedSummary = screen.getByRole('button', { name: 'Annotations ×2' })
+    expect(screen.queryByRole('tooltip', { name: t('compact.overview') })).toBeNull()
+    const expandedSummary = screen.getByRole('button', { name: t('compact.count', { count: 2 }) })
     fireEvent.pointerEnter(expandedSummary)
     fireEvent.focus(expandedSummary)
-    expect(screen.queryByRole('tooltip', { name: 'Attached annotations overview' })).toBeNull()
+    expect(screen.queryByRole('tooltip', { name: t('compact.overview') })).toBeNull()
   })
 
   it('keeps the expanded list and summary row connected at the same readable width', () => {
@@ -351,7 +365,8 @@ describe('compact annotation summary', () => {
     const editor = screen.getByRole('dialog', { name: 'Edit annotation' })
     const input = within(editor).getByRole('textbox', { name: 'Your annotation' })
     fireEvent.pointerDown(document.body, { button: 0 })
-    expect(editor).toHaveAttribute('data-decision-required', 'true')
+    expect(editor).not.toHaveAttribute('data-decision-required')
+    expect(props.suspendEditor).toHaveBeenCalledOnce()
     expect(input).toHaveFocus()
     fireEvent.compositionStart(input)
 
@@ -360,7 +375,8 @@ describe('compact annotation summary', () => {
     expect(within(editor).getByRole('textbox', { name: 'Your annotation' })).toBe(input)
     expect(input).toHaveValue('未保存的注解')
     expect(input).toHaveFocus()
-    expect(editor).toHaveAttribute('data-decision-required', 'true')
+    expect(editor).not.toHaveAttribute('data-decision-required')
+    expect(props.suspendEditor).toHaveBeenCalledOnce()
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(props.saveEditor).not.toHaveBeenCalled()
     fireEvent.click(within(editor).getByRole('button', { name: 'Save annotation' }))

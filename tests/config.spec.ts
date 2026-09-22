@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type Schema from '@deepseek-ai/schemastery'
 import {
+  DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
   DEFAULT_TRANSCRIPT_VISIBILITY,
   TRANSCRIPT_VISIBILITY_KEYS,
   type AnnotationSettings,
@@ -44,15 +45,29 @@ describe('configuration', () => {
   })
 
   it('accepts deployment overrides', () => {
-    expect(resolveConfig({ commandName: 'review_submit', locateHistoryPages: 3 })).toMatchObject({
+    expect(
+      resolveConfig({
+        commandName: 'review_submit',
+        locateHistoryPages: 3,
+        maxDiffFileBytes: 2048,
+        maxDiffLines: 30,
+        diffTimeoutMs: 5000,
+      }),
+    ).toMatchObject({
       commandName: 'review_submit',
       locateHistoryPages: 3,
+      maxDiffFileBytes: 2048,
+      maxDiffLines: 30,
+      diffTimeoutMs: 5000,
     })
   })
 
   it.each([
     [{ commandName: 'Bad Name' }, 'commandName'],
     [{ maxPayloadBytes: 0 }, 'maxPayloadBytes'],
+    [{ maxDiffFileBytes: 0 }, 'maxDiffFileBytes'],
+    [{ maxDiffLines: 1.5 }, 'maxDiffLines'],
+    [{ diffTimeoutMs: Number.POSITIVE_INFINITY }, 'diffTimeoutMs'],
     [{ maxAnnotationsPerSubmission: 1.5 }, 'maxAnnotationsPerSubmission'],
   ])('rejects invalid config %#', (value, message) => {
     expect(() => resolveConfig(value)).toThrow(message)
@@ -66,7 +81,8 @@ describe('configuration', () => {
       effect(install: () => unknown) {
         install()
       },
-      inject(_services: string[], install: (settingsCtx: unknown) => void) {
+      inject(services: string[], install: (settingsCtx: unknown) => void) {
+        if (!services.includes('settings')) return
         install({
           settings: {
             register: registerSettings,
@@ -90,9 +106,11 @@ describe('configuration', () => {
     expect((registerSettings.mock.calls[0] as unknown[])[0]).toBe('dsh-annotation')
     expect((registerSettings.mock.calls[1] as unknown[])[0]).toBe('inline-comments')
     const schema = (registerSettings.mock.calls[0] as unknown[])[1] as Schema<unknown, AnnotationSettings>
+    expect(DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION).toBe(false)
     const defaults: AnnotationSettings = {
       enabled: true,
       autoAttach: true,
+      individualSelection: DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
       compactSummary: true,
       ...DEFAULT_TRANSCRIPT_VISIBILITY,
     }
@@ -102,11 +120,21 @@ describe('configuration', () => {
       expect(schema({ [field]: false })).toEqual(defaults)
       expect(() => schema({ [field]: 'true' })).toThrow()
     }
+    expect(schema({ individualSelection: true }).individualSelection).toBe(true)
+    expect(schema({ individualSelection: false }).individualSelection).toBe(
+      DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
+    )
+    expect(() => schema({ individualSelection: 'false' })).toThrow()
     expect(schema({ compactSummary: false }).compactSummary).toBe(false)
     expect(() => schema({ compactSummary: 'false' })).toThrow()
     expect(schema.dict).not.toHaveProperty('localTools')
     const legacyUser = { enabled: false, autoAttach: false, compactSummary: false, localTools: false }
-    expect(schema(legacyUser)).toMatchObject({ enabled: false, autoAttach: false, compactSummary: false })
+    expect(schema(legacyUser)).toMatchObject({
+      enabled: false,
+      autoAttach: false,
+      individualSelection: DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
+      compactSummary: false,
+    })
     expect(legacyUser).toEqual({
       enabled: false,
       autoAttach: false,
@@ -128,7 +156,8 @@ describe('configuration', () => {
       effect(install: () => unknown) {
         install()
       },
-      inject(_services: string[], install: (settingsCtx: unknown) => void) {
+      inject(services: string[], install: (settingsCtx: unknown) => void) {
+        if (!services.includes('settings')) return
         install({
           settings: {
             register: registerSettings,
@@ -157,7 +186,8 @@ describe('configuration', () => {
       effect(install: () => unknown) {
         install()
       },
-      inject(_services: string[], install: (settingsCtx: unknown) => void) {
+      inject(services: string[], install: (settingsCtx: unknown) => void) {
+        if (!services.includes('settings')) return
         install({
           settings: {
             register: registerSettings,

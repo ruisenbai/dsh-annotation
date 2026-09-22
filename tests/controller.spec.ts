@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { AnnotationController, type AnnotationReconciliationSnapshot } from '../src/client/controller.ts'
 import { AnnotationStorage } from '../src/client/storage.ts'
 import { DEFAULT_CONFIG } from '../src/shared/config.ts'
+import { DEFAULT_PROCESSING_MODE } from '../src/shared/types.ts'
 import type { AnnotationId, MessageIdentity, SessionIdentity } from '../src/shared/types.ts'
 import type { SelectionCapture } from '../src/client/selection.ts'
 
@@ -181,7 +182,7 @@ describe('annotation controller', () => {
     expect(controller.getSnapshot().outbox[0]?.status).toBe('queued')
   })
 
-  it('keeps marker previews and marker-anchored editors outside the summary panel', () => {
+  it('clears marker transient state when a marker-anchored editor closes', () => {
     const { controller } = harness()
     const id = saveDraft(controller)
 
@@ -192,7 +193,13 @@ describe('annotation controller', () => {
       activeAnnotationId: id,
       markerAnnotationId: id,
     })
+    controller.openAnnotation(id, 'marker')
+    expect(controller.getSnapshot()).toMatchObject({
+      activeAnnotationId: null,
+      markerAnnotationId: null,
+    })
 
+    controller.openAnnotation(id, 'marker')
     controller.openAnnotation(id, 'marker-edit')
     expect(controller.getSnapshot()).toMatchObject({
       editor: { kind: 'edit', annotationId: id },
@@ -202,14 +209,9 @@ describe('annotation controller', () => {
     expect(controller.closeEditor()).toBe(true)
     expect(controller.getSnapshot()).toMatchObject({
       editor: null,
-      activeAnnotationId: id,
-      markerAnnotationId: id,
-    })
-
-    controller.openAnnotation(id, 'marker')
-    expect(controller.getSnapshot()).toMatchObject({
       activeAnnotationId: null,
       markerAnnotationId: null,
+      editorDrafts: [],
     })
 
     controller.openAnnotation(id)
@@ -219,20 +221,36 @@ describe('annotation controller', () => {
     })
   })
 
-  it('closes an unchanged edit directly and requires confirmation only after changes', () => {
+  it('collapses changed edits for later resume and discards only the edit buffer', () => {
     const { controller } = harness()
     const id = saveDraft(controller)
 
     controller.openAnnotation(id)
     expect(controller.closeEditor()).toBe(true)
-    expect(controller.getSnapshot().editor).toBeNull()
+    expect(controller.getSnapshot()).toMatchObject({ editor: null, editorDrafts: [] })
 
     controller.openAnnotation(id)
     controller.updateEditorText('Changed but unsaved')
-    expect(controller.closeEditor()).toBe(false)
-    expect(controller.getSnapshot().editor).not.toBeNull()
+    expect(controller.closeEditor()).toBe(true)
+    expect(controller.getSnapshot()).toMatchObject({
+      editor: null,
+      editorDrafts: [{ kind: 'edit', annotationId: id, text: 'Changed but unsaved' }],
+    })
+    expect(controller.getSnapshot().annotations).toMatchObject([
+      { annotationId: id, annotation: 'Please revise this sentence.' },
+    ])
+
+    controller.resumeEditor(`edit:${id}`)
+    expect(controller.getSnapshot().editor).toMatchObject({
+      kind: 'edit',
+      annotationId: id,
+      text: 'Changed but unsaved',
+    })
     expect(controller.closeEditor(true)).toBe(true)
-    expect(controller.getSnapshot().editor).toBeNull()
+    expect(controller.getSnapshot()).toMatchObject({ editor: null, editorDrafts: [] })
+    expect(controller.getSnapshot().annotations).toMatchObject([
+      { annotationId: id, annotation: 'Please revise this sentence.' },
+    ])
   })
 
   it('autosaves unfinished editor text after 400ms and restores it', () => {
@@ -368,15 +386,31 @@ describe('annotation controller', () => {
     expect(restored.getSnapshot().annotations[0]?.status).toBe('processed')
   })
 
-  it('merges overlapping selections into the existing editable annotation', () => {
+  it('requires an overlap choice before appending text to an unsent annotation', () => {
     const { controller } = harness()
     const id = saveDraft(controller)
     controller.beginSelection(capture(3, 15))
-    expect(controller.getSnapshot().editor).toMatchObject({ kind: 'edit', annotationId: id })
+    expect(controller.getSnapshot()).toMatchObject({
+      editor: null,
+      overlap: { annotationIds: [id] },
+    })
+
+    controller.chooseOverlap(id)
+    expect(controller.getSnapshot().editor).toMatchObject({
+      kind: 'edit',
+      annotationId: id,
+      supplement: true,
+      text: '',
+      expandedCapture: { quote: { start: 3, end: 15 } },
+    })
     controller.updateEditorText('Expanded comment')
-    controller.saveEditor()
+    expect(controller.saveEditor()).toBe(id)
     expect(controller.getSnapshot().annotations).toHaveLength(1)
-    expect(controller.getSnapshot().annotations[0]?.quote).toMatchObject({ start: 3, end: 15 })
+    expect(controller.getSnapshot().annotations[0]).toMatchObject({
+      annotationId: id,
+      annotation: 'Please revise this sentence.\n\nExpanded comment',
+      quote: { start: 3, end: 15 },
+    })
   })
 
   it('restores a supplemental editor without mutating sent history', () => {
@@ -416,7 +450,7 @@ describe('annotation controller', () => {
     }
   })
 
-  it('turns an overlapping submitted selection into a supplement instead of an edit', () => {
+  it('creates a linked annotation after choosing an overlapping submitted annotation', () => {
     const { controller } = harness()
     const id = saveDraft(controller)
     const outbox = controller.createOutbox('queue', 'session-test' as SessionIdentity)
@@ -424,12 +458,26 @@ describe('annotation controller', () => {
       snapshot([{ kind: 'user', data: { source: { kind: 'user', inlineComments: outbox.payload } } }]),
     )
     controller.beginSelection(capture(4, 12))
-    expect(controller.getSnapshot().editor).toMatchObject({ kind: 'new' })
+    expect(controller.getSnapshot()).toMatchObject({
+      editor: null,
+      overlap: { annotationIds: [id] },
+    })
+
+    controller.chooseOverlap(id)
+    expect(controller.getSnapshot().editor).toMatchObject({
+      kind: 'new',
+      supplementalTo: id,
+      capture: { quote: { start: 4, end: 12 } },
+    })
     controller.updateEditorText('Clarify the submitted note.')
     const supplement = controller.saveEditor()
+    expect(supplement).not.toBe(id)
     expect(
-      controller.getSnapshot().annotations.find((item) => item.annotationId === supplement)?.supplementalTo,
-    ).toBe(id)
+      controller.getSnapshot().annotations.find((item) => item.annotationId === supplement),
+    ).toMatchObject({
+      annotation: 'Clarify the submitted note.',
+      supplementalTo: id,
+    })
   })
 
   it('requires a durable submission before an acknowledgement can process ids', () => {
@@ -645,6 +693,11 @@ describe('annotation controller', () => {
           annotations: expected.annotations,
           outbox: expected.outbox,
           editor: expected.editor,
+          editorDrafts: [],
+          selectionMode: 'all',
+          selectedAnnotationIds: [],
+          processingMode: DEFAULT_PROCESSING_MODE,
+          retrySubmissionId: null,
           overallRequirementDraft: expected.overallRequirementDraft,
           storageAvailable: true,
         })
@@ -655,15 +708,25 @@ describe('annotation controller', () => {
           annotations: expected.annotations.filter((item) => item.annotationId !== draftId),
           outbox: expected.outbox,
           editor: expected.editor,
+          editorDrafts: [],
+          selectionMode: 'all',
+          selectedAnnotationIds: [],
+          processingMode: DEFAULT_PROCESSING_MODE,
+          retrySubmissionId: null,
           overallRequirementDraft: expected.overallRequirementDraft,
         })
         restored.undoDelete()
         expect(restored.getSnapshot().annotations).toEqual(expected.annotations)
         expect(new AnnotationStorage(memory, controller.sessionId).load()).toEqual({
-          storageVersion: 2,
+          storageVersion: 3,
           annotations: expected.annotations,
           outbox: expected.outbox,
           editorDraft: expected.editor,
+          editorDrafts: [],
+          selectionMode: 'all',
+          selectedAnnotationIds: [],
+          processingMode: DEFAULT_PROCESSING_MODE,
+          retrySubmissionId: null,
           overallRequirementDraft: expected.overallRequirementDraft,
         })
       } finally {

@@ -42,7 +42,7 @@ describe('draft storage', () => {
       overallRequirementDraft: 'whole task',
     }
     expect(storage.save(state)).toBe(true)
-    expect(storage.load()).toEqual(state)
+    expect(storage.load()).toEqual({ ...state, storageVersion: 3 })
     expect(storage.lastError()).toBeNull()
     expect(storage.usageBytes()).toBeGreaterThan(0)
     storage.clear()
@@ -194,7 +194,7 @@ describe('draft storage', () => {
     expect(memory.values.has('dsh-inline-annotations:v1:session-1')).toBe(true)
   })
 
-  it('restores an unfinished compact editor from version-two storage', () => {
+  it('mints and preserves a draft id when restoring a legacy unfinished editor', () => {
     const memory = new MemoryStorage()
     const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
     const source = fixturePayload().annotations[0]!
@@ -212,7 +212,14 @@ describe('draft storage', () => {
     }
     const state = { ...emptyPersistedState(), editorDraft }
     expect(storage.save(state)).toBe(true)
-    expect(storage.load().editorDraft).toEqual(editorDraft)
+
+    const restored = storage.load().editorDraft
+    expect(restored).toMatchObject(editorDraft)
+    if (restored?.kind !== 'new' || restored.draftId === undefined) {
+      throw new Error('restored new editor must have a draft id')
+    }
+    const draftId = restored.draftId
+    expect(storage.load().editorDraft).toMatchObject({ ...editorDraft, draftId })
   })
 
   it('drops a corrupt optional editor without losing valid recovery records', () => {
@@ -268,7 +275,7 @@ describe('draft storage', () => {
         }),
       )
       const restored = storage.load()
-      expect(restored.storageVersion).toBe(2)
+      expect(restored.storageVersion).toBe(3)
       expect(restored.outbox[0]).toMatchObject({
         status: 'failed',
         attempts: 1,

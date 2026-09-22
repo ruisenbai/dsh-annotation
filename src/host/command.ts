@@ -1,3 +1,5 @@
+import type { AnnotationDiffHost } from './diff.ts'
+import type { SubmittedAnnotation } from '../shared/types.ts'
 import { Buffer } from 'node:buffer'
 import { TextDecoder } from 'node:util'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -7,16 +9,19 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 import {
   formatSubmissionMessage,
   parseSubmissionPayload,
+  sameAttachmentIdentities,
   validateSubmissionLimits,
 } from '../shared/protocol.ts'
 import { LEGACY_COMMAND_NAMES } from '../shared/config.ts'
 import { submissionMessageId } from '../shared/ids.ts'
+import { ATTACHMENT_PREPARE_INPUT, ATTACHMENT_IDENTITY_MISMATCH } from '../shared/types.ts'
 import type {
   AnnotationConfig,
   AnnotationMessageSource,
   AnnotationSubmissionPayload,
   InlineCommentMessageSource,
   LegacyInlineAnnotationMessageSource,
+  SubmittedAttachmentIdentity,
 } from '../shared/types.ts'
 
 /** Make the plugin's durable user provenance visible to DSH's merge-extensible source union. */
@@ -60,6 +65,27 @@ function hasMessage(agent: Agent, messageId: string): boolean {
     .some((event) => event.type === 'user/message' && event.data.id === messageId)
 }
 
+function identitiesOf(
+  attachments: readonly (ImageBlock | FileBlock)[],
+): readonly SubmittedAttachmentIdentity[] {
+  return Object.freeze(
+    attachments.map((block): SubmittedAttachmentIdentity => {
+      const { attachmentId, bytes, name } = block.attachment
+      return Object.freeze(
+        block.type === 'file'
+          ? { type: 'file', attachmentId, bytes, name: block.attachment.name }
+          : {
+              type: 'image',
+              attachmentId,
+              bytes,
+              mediaType: block.attachment.mediaType,
+              ...(name === undefined ? {} : { name }),
+            },
+      )
+    }),
+  )
+}
+
 function createAnnotationMessage(
   payload: AnnotationSubmissionPayload,
   attachments: readonly (ImageBlock | FileBlock)[],
@@ -81,9 +107,21 @@ export function submitAnnotationPayload(
   agent: Agent,
   payload: AnnotationSubmissionPayload,
   attachments: readonly (ImageBlock | FileBlock)[] = [],
+  validateDiff?: (annotation: SubmittedAnnotation) => void,
 ): { readonly duplicate: boolean; readonly messageId: string } {
   if (String(agent.id) !== payload.sessionId) {
     throw new Error(`annotation payload targets session ${payload.sessionId}, not ${String(agent.id)}`)
+  }
+  if (
+    payload.attachmentIdentities !== undefined &&
+    !sameAttachmentIdentities(payload.attachmentIdentities, identitiesOf(attachments))
+  ) {
+    throw new Error(ATTACHMENT_IDENTITY_MISMATCH)
+  }
+  for (const item of payload.annotations) {
+    if (item.source?.kind !== 'diff') continue
+    if (validateDiff === undefined) throw new Error('Diff source verification is unavailable')
+    validateDiff(item)
   }
   const messageId = submissionMessageId(payload.submissionId)
   if (hasMessage(agent, messageId)) return Object.freeze({ duplicate: true, messageId })
@@ -94,18 +132,48 @@ export function submitAnnotationPayload(
 }
 
 /** Build the internal command definition used by the browser half. */
-export function createAnnotationCommand(config: AnnotationConfig): CommandDefinition {
+export function createAnnotationCommand(
+  config: AnnotationConfig,
+  diffHost: () => AnnotationDiffHost | undefined = () => undefined,
+): CommandDefinition {
   return Object.freeze({
     name: config.commandName,
     description: 'Submit an idempotent batch of annotations for an earlier assistant reply',
     input: { hint: '<internal-base64url-payload>', attachments: true },
     recordInput: false,
-    handler(invocation: CommandInvocation): CommandResult {
+    handler(invocation: CommandInvocation): CommandResult | Promise<CommandResult> {
       if (invocation.signal.aborted) {
         throw invocation.signal.reason ?? new Error('annotation submission was aborted')
       }
+      if (invocation.rawInput.trim() === ATTACHMENT_PREPARE_INPUT) {
+        const text = JSON.stringify(identitiesOf(invocation.attachments))
+        if (Buffer.byteLength(text) > config.maxPayloadBytes)
+          throw new Error('Attachment identities exceed the submission-size limit.')
+        return Object.freeze({ kind: 'success', text })
+      }
+      const rawInput = invocation.rawInput.trim()
+      if (rawInput.startsWith('diff ')) {
+        const host = diffHost()
+        if (host === undefined)
+          throw new Error('Diff requires the Host filesystem, subprocess and persistent storage services')
+        const encoded = rawInput.slice(5).trim()
+        if (!/^[A-Za-z0-9_-]+$/u.test(encoded)) throw new Error('Invalid Diff request encoding')
+        const bytes = Buffer.from(encoded, 'base64url')
+        if (bytes.byteLength > config.maxPayloadBytes) throw new Error('Diff request exceeds the size limit')
+        const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+        return host.request(invocation.agent, value, invocation.signal).then((result) => {
+          const text = JSON.stringify(result)
+          if (Buffer.byteLength(text) > config.maxPayloadBytes)
+            throw new Error('Diff response exceeds the size limit')
+          return { kind: 'success' as const, text }
+        })
+      }
       const payload = decodePayload(invocation.rawInput, config)
-      const result = submitAnnotationPayload(invocation.agent, payload, invocation.attachments)
+      const result = submitAnnotationPayload(invocation.agent, payload, invocation.attachments, (item) => {
+        const host = diffHost()
+        if (host === undefined) throw new Error('Diff source verification is unavailable')
+        host.validate(item, invocation.agent)
+      })
       return Object.freeze({
         kind: 'success',
         text: result.duplicate ? 'Annotation batch was already accepted.' : 'Annotation batch accepted.',
@@ -115,8 +183,11 @@ export function createAnnotationCommand(config: AnnotationConfig): CommandDefini
 }
 
 /** Create the shared handler behind the new command and every invisible pre-rename alias. */
-export function createLegacyAnnotationAliases(config: AnnotationConfig): readonly CommandDefinition[] {
-  const primary = createAnnotationCommand(config)
+export function createLegacyAnnotationAliases(
+  config: AnnotationConfig,
+  diffHost: () => AnnotationDiffHost | undefined = () => undefined,
+): readonly CommandDefinition[] {
+  const primary = createAnnotationCommand(config, diffHost)
   return Object.freeze(
     LEGACY_COMMAND_NAMES.map((name) =>
       Object.freeze({

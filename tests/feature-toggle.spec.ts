@@ -25,6 +25,7 @@ vi.mock('@deepseek-ai/dsh-client-store', () => ({
 
 import { AnnotationSettingsController } from '../src/client/feature-toggle.ts'
 import {
+  DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
   DEFAULT_TRANSCRIPT_VISIBILITY,
   LEGACY_ANNOTATION_ENABLED_STORAGE_KEY,
   TRANSCRIPT_VISIBILITY_KEYS,
@@ -56,6 +57,7 @@ function settingsScope(
       ...user,
       enabled: user.enabled ?? true,
       autoAttach: user.autoAttach ?? true,
+      individualSelection: user.individualSelection ?? DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
       compactSummary: user.compactSummary ?? true,
     },
     base: undefined,
@@ -90,6 +92,7 @@ function settingsScope(
         if (
           (field === 'enabled' ||
             field === 'autoAttach' ||
+            field === 'individualSelection' ||
             field === 'compactSummary' ||
             TRANSCRIPT_VISIBILITY_KEYS.some((key) => key === field)) &&
           typeof value === 'boolean'
@@ -107,6 +110,7 @@ function settingsScope(
         writable &&
         (field === 'enabled' ||
           field === 'autoAttach' ||
+          field === 'individualSelection' ||
           field === 'compactSummary' ||
           TRANSCRIPT_VISIBILITY_KEYS.some((key) => key === field))
       ) {

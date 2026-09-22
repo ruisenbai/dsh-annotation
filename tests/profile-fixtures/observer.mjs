@@ -27,10 +27,30 @@ class FixtureAdapter extends LlmAdapter {
   }
   async *stream(options) {
     this.requests.push(options.messages)
-    const text =
+    let text =
       this.requests.length === 1
         ? 'Review the [local notes](./notes.md). Selected source needs clarification.'
         : 'Annotation received and revision completed.'
+    const batch = options.messages.findLast((message) =>
+      message.source?.annotationSubmission?.annotations.some((item) => item.source?.kind === 'diff'),
+    )?.source.annotationSubmission
+    if (batch !== undefined) {
+      text =
+        `Diff review completed for ${batch.annotations.length} selected annotations.\n` +
+        batch.annotations
+          .map(
+            (item) =>
+              `\n<!-- dsh-annotation-reply:${JSON.stringify({ submissionId: batch.submissionId, annotationId: item.annotationId, ordinal: item.ordinal })} -->\n注解 ${item.ordinal}：已处理 ${item.annotation}`,
+          )
+          .join('\n') +
+        `\n<!-- dsh-annotation:${JSON.stringify({ submissionId: batch.submissionId, processed: batch.annotations.map((item) => item.annotationId) })} -->`
+    } else if (
+      options.messages.some((message) =>
+        message.content?.some((block) => block.type === 'text' && block.text === 'Diff browser review'),
+      )
+    ) {
+      text = 'Keep this sentence for a message annotation.'
+    }
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'text-delta', index: 0, text }
     yield { type: 'block-end', index: 0, block: { type: 'text', text } }
@@ -91,6 +111,125 @@ export function apply(ctx) {
         modelRequests: adapter.requests.length,
       }
     }
+    if (action === 'model-requests') return adapter.requests
+    if (action === 'diff-session') {
+      const handle = await ctx.agents.create({
+        sessionId: 'annotation-diff-browser',
+        meta: { cwd: process.cwd(), agentPreset: 'standard' },
+        agentOptions: { provider: 'annotation-fixture', model: 'fixture' },
+        setup: (scope) => ctx.agentPresets.mount(scope, 'standard').then(() => undefined),
+      })
+      try {
+        handle.agent.followup(
+          createUserMessage({
+            content: [{ type: 'text', text: 'Diff browser review' }],
+            source: { kind: 'user' },
+          }),
+        )
+        await handle.agent.whenIdle()
+        return { sessionId: handle.agent.id }
+      } finally {
+        await handle.dispose()
+      }
+    }
+    if (action === 'attachment-smoke') {
+      const handle = await ctx.agents.create({
+        sessionId: 'annotation-attachment-smoke',
+        meta: { cwd: process.cwd(), agentPreset: 'standard' },
+        agentOptions: { provider: 'annotation-fixture', model: 'fixture' },
+        setup: (scope) => ctx.agentPresets.mount(scope, 'standard').then(() => undefined),
+      })
+      try {
+        const agent = handle.agent
+        agent.followup(
+          createUserMessage({
+            content: [{ type: 'text', text: 'Attachment identity smoke' }],
+            source: { kind: 'user' },
+          }),
+        )
+        await agent.whenIdle()
+        const assistant = agent.session.snapshotEvents().find((event) => event.type === 'assistant/message')
+        if (assistant === undefined) throw new Error('Missing attachment smoke source reply')
+        const attachments = [
+          {
+            type: 'image',
+            mediaType: 'image/gif',
+            name: 'pixel.gif',
+            data: 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+          },
+        ]
+        const beforePreflight = adapter.requests.length
+        const prepared = await ctx.commands.execute(
+          agent,
+          '/annotation_submit prepare-attachments',
+          attachments,
+          new AbortController().signal,
+        )
+        const afterPreflight = adapter.requests.length
+        const attachmentIdentities = JSON.parse(prepared?.result.text ?? 'null')
+        if (!Array.isArray(attachmentIdentities)) throw new Error('Missing attachment preflight identities')
+        const quote = 'Annotation received'
+        const payload = {
+          protocolVersion: 2,
+          source: 'dsh-annotation',
+          submissionId: 'profile-attachment-submission',
+          sessionId: agent.id,
+          delivery: 'queue',
+          protocolLocale: 'en',
+          processingMode: 'rewrite',
+          createdAt: 1_700_000_000_100,
+          overallRequirement: 'Attachment identity review.',
+          attachmentIdentities,
+          annotations: [
+            {
+              annotationId: 'profile-attachment-note',
+              ordinal: 1,
+              messageId: assistant.data.message.id,
+              responseVersion: assistant.data.message.id,
+              messageSeq: assistant.seq,
+              quote: {
+                exact: quote,
+                prefix: '',
+                suffix: ' and revision completed.',
+                start: 0,
+                end: quote.length,
+              },
+              annotation: 'Revise with the attached image.',
+              kind: 'note',
+              createdAt: 1_700_000_000_100,
+            },
+          ],
+        }
+        const command = `/annotation_submit ${Buffer.from(JSON.stringify(payload)).toString('base64url')}`
+        const first = await ctx.commands.execute(agent, command, attachments, new AbortController().signal)
+        await agent.whenIdle()
+        const afterFirst = adapter.requests.length
+        const retry = await ctx.commands.execute(agent, command, attachments, new AbortController().signal)
+        await agent.whenIdle()
+        let mismatch = null
+        try {
+          await ctx.commands.execute(agent, command, [], new AbortController().signal)
+        } catch (error) {
+          mismatch = error.message
+        }
+        return {
+          prepared,
+          first,
+          retry,
+          mismatch,
+          beforePreflight,
+          afterPreflight,
+          afterFirst,
+          afterRetry: adapter.requests.length,
+          requests: adapter.requests.slice(beforePreflight),
+          payload,
+          events: agent.session.snapshotEvents(),
+          sessionId: agent.id,
+        }
+      } finally {
+        await handle.dispose()
+      }
+    }
     if (action === 'submit') {
       await ctx.workspaceRegistry.create(process.cwd(), 'Annotation smoke')
       const handle = await ctx.agents.create({
@@ -119,6 +258,7 @@ export function apply(ctx) {
           sessionId: agent.id,
           delivery: 'queue',
           protocolLocale: 'en',
+          processingMode: 'answer',
           createdAt: 1_700_000_000_000,
           overallRequirement: 'Clarify the local document.',
           annotations: [

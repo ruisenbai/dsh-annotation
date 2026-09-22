@@ -1,3 +1,4 @@
+import { installDiffHost } from './host/diff-storage.ts'
 /** Host half: validates config and registers the idempotent annotation command. */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -10,6 +11,7 @@ import {
   ANNOTATION_SETTINGS_NAMESPACE,
   DEFAULT_ANNOTATION_AUTO_ATTACH,
   DEFAULT_ANNOTATION_COMPACT_SUMMARY,
+  DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
   DEFAULT_ANNOTATION_ENABLED,
   DEFAULT_TRANSCRIPT_VISIBILITY,
   LEGACY_ANNOTATION_SETTINGS_NAMESPACES,
@@ -28,11 +30,15 @@ export const Config: Schema<Config> = Schema.object({
   maxAnnotationsPerSubmission: Schema.number().default(DEFAULT_CONFIG.maxAnnotationsPerSubmission),
   warnSelectionChars: Schema.number().default(DEFAULT_CONFIG.warnSelectionChars),
   locateHistoryPages: Schema.number().default(DEFAULT_CONFIG.locateHistoryPages),
+  maxDiffFileBytes: Schema.number().default(DEFAULT_CONFIG.maxDiffFileBytes),
+  maxDiffLines: Schema.number().default(DEFAULT_CONFIG.maxDiffLines),
+  diffTimeoutMs: Schema.number().default(DEFAULT_CONFIG.diffTimeoutMs),
 })
 
 const SettingsSchema: Schema<AnnotationSettings> = Schema.object({
   enabled: Schema.boolean().default(DEFAULT_ANNOTATION_ENABLED),
   autoAttach: Schema.boolean().default(DEFAULT_ANNOTATION_AUTO_ATTACH),
+  individualSelection: Schema.boolean().default(DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION),
   compactSummary: Schema.boolean().default(DEFAULT_ANNOTATION_COMPACT_SUMMARY),
   hideReasoning: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideReasoning),
   hideTools: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideTools),
@@ -57,11 +63,12 @@ const SettingsSchema: Schema<AnnotationSettings> = Schema.object({
 /** Register the Host command bridge and optional user-settings section. */
 export function apply(ctx: Context, input: Config): void {
   const config = resolveConfig(input)
+  const diffHost = installDiffHost(ctx, config)
   ctx.effect(
-    () => ctx.commands.register(createAnnotationCommand(config)),
+    () => ctx.commands.register(createAnnotationCommand(config, diffHost)),
     'dsh-annotation: internal submission command',
   )
-  for (const alias of createLegacyAnnotationAliases(config)) {
+  for (const alias of createLegacyAnnotationAliases(config, diffHost)) {
     ctx.effect(() => ctx.commands.register(alias), `dsh-annotation: legacy alias /${alias.name}`)
   }
   ctx.inject(['settings'], (settingsCtx) => {

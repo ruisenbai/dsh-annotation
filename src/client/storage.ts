@@ -1,15 +1,17 @@
-import { submissionMessageId } from '../shared/ids.ts'
+import { sourceKey, sourceFields } from '../shared/annotation-source.ts'
+import { createAnnotationId, submissionMessageId } from '../shared/ids.ts'
 import {
+  parseAnnotationAnchor,
+  parseAnnotationQuote,
+  parseProcessingMode,
   parseStructuredSelection,
   parseSubmissionPayload,
   parseSubmittedAnnotation,
-  parseTextQuoteSelector,
 } from '../shared/protocol.ts'
 import type {
   AnnotationDraft,
   AnnotationSelectionCapture,
   AnnotationStatus,
-  MessageIdentity,
   OutboxEntry,
   OutboxAttachments,
   OutboxImages,
@@ -45,9 +47,21 @@ function byteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength
 }
 
+function needsEditorIds(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const source = value as Record<string, unknown>
+  return [source.editorDraft, ...(Array.isArray(source.editorDrafts) ? source.editorDrafts : [])].some(
+    (candidate: unknown) => {
+      if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return false
+      const editor = candidate as Record<string, unknown>
+      return editor.kind === 'new' && editor.draftId === undefined
+    },
+  )
+}
+
 export function emptyPersistedState(): PersistedSessionState {
   return Object.freeze({
-    storageVersion: 2,
+    storageVersion: 3,
     annotations: Object.freeze([]),
     outbox: Object.freeze([]),
     overallRequirementDraft: '',
@@ -134,6 +148,14 @@ function parseOutbox(value: unknown): OutboxEntry {
     throw new Error('invalid lastError')
   const images = parseOutboxImages(source.images)
   const attachments = parseOutboxAttachments(source.attachments)
+  if (payload.attachmentIdentities !== undefined) {
+    const count = attachments?.count ?? images?.count ?? 0
+    if (
+      payload.attachmentIdentities.length !== count ||
+      payload.attachmentIdentities.some((item, index) => item.type !== (attachments?.kinds[index] ?? 'image'))
+    )
+      throw new Error('outbox attachment identities do not match metadata')
+  }
   const interrupted = source.status === 'sending' || source.status === 'accepted'
   return Object.freeze({
     payload,
@@ -167,27 +189,22 @@ function persistedId<T extends string>(value: unknown, field: string): T {
 
 function parseCapture(value: unknown, field: string): AnnotationSelectionCapture {
   const source = object(value, field)
-  const messageId = persistedId<MessageIdentity>(source.messageId, `${field}.messageId`)
-  const responseVersion = persistedId<MessageIdentity>(source.responseVersion, `${field}.responseVersion`)
-  if (responseVersion !== messageId) throw new Error(`${field}.responseVersion must match messageId`)
-  if (!Number.isSafeInteger(source.messageSeq) || (source.messageSeq as number) < 0) {
-    throw new Error(`${field}.messageSeq must be a non-negative safe integer`)
-  }
+  const anchor = parseAnnotationAnchor(source)
   const rectSource = object(source.rect, `${field}.rect`)
   const coordinates = ['top', 'left', 'bottom', 'right'] as const
   if (coordinates.some((coordinate) => !Number.isFinite(rectSource[coordinate]))) {
     throw new Error(`${field}.rect must contain finite coordinates`)
   }
   const parsedStructure = parseStructuredSelection(source.structure, `${field}.structure`)
+  if (anchor.source?.kind === 'diff' && parsedStructure !== undefined)
+    throw new Error('Diff captures cannot use message-fragment coordinates')
   if (source.blockIndex !== undefined && !Number.isSafeInteger(source.blockIndex)) {
     throw new Error(`${field}.blockIndex must be a safe integer`)
   }
   return Object.freeze({
-    messageId,
-    messageSeq: source.messageSeq as number,
-    responseVersion,
+    ...sourceFields(anchor),
     ...(source.blockIndex === undefined ? {} : { blockIndex: source.blockIndex as number }),
-    quote: parseTextQuoteSelector(source.quote, `${field}.quote`),
+    quote: parseAnnotationQuote(source.quote, anchor),
     ...(parsedStructure === undefined ? {} : { structure: parsedStructure }),
     rect: Object.freeze({
       top: rectSource.top as number,
@@ -212,6 +229,10 @@ function parseEditorDraft(value: unknown): PersistedEditorDraft | undefined {
         : persistedId<AnnotationId>(source.supplementalTo, 'editorDraft.supplementalTo')
     return Object.freeze({
       kind: 'new',
+      draftId:
+        source.draftId === undefined
+          ? createAnnotationId()
+          : persistedId<AnnotationId>(source.draftId, 'editorDraft.draftId'),
       capture: parseCapture(source.capture, 'editorDraft.capture'),
       text: source.text,
       longSelectionConfirmed: source.longSelectionConfirmed,
@@ -219,6 +240,10 @@ function parseEditorDraft(value: unknown): PersistedEditorDraft | undefined {
     })
   }
   if (source.kind === 'edit') {
+    if (source.supplement !== undefined && typeof source.supplement !== 'boolean')
+      throw new Error('invalid editor supplement flag')
+    if (source.longSelectionConfirmed !== undefined && typeof source.longSelectionConfirmed !== 'boolean')
+      throw new Error('invalid long-selection decision')
     const expandedCapture =
       source.expandedCapture === undefined
         ? undefined
@@ -228,6 +253,10 @@ function parseEditorDraft(value: unknown): PersistedEditorDraft | undefined {
       annotationId: persistedId<AnnotationId>(source.annotationId, 'editorDraft.annotationId'),
       text: source.text,
       ...(expandedCapture === undefined ? {} : { expandedCapture }),
+      ...(source.supplement === undefined ? {} : { supplement: source.supplement }),
+      ...(source.longSelectionConfirmed === undefined
+        ? {}
+        : { longSelectionConfirmed: source.longSelectionConfirmed }),
     })
   }
   throw new Error('editorDraft.kind must be new or edit')
@@ -248,7 +277,7 @@ function parseState(value: unknown): PersistedSessionState {
   const source = value as Record<string, unknown>
   const version = source.storageVersion
   if (
-    (version !== 1 && version !== 2) ||
+    (version !== 1 && version !== 2 && version !== 3) ||
     !Array.isArray(source.annotations) ||
     !Array.isArray(source.outbox)
   ) {
@@ -266,21 +295,94 @@ function parseState(value: unknown): PersistedSessionState {
   if (new Set(outbox.map((item) => item.payload.submissionId)).size !== outbox.length) {
     throw new Error('persisted outbox submission ids must be unique')
   }
-  const candidateEditor = version === 2 ? parseRecoverableEditorDraft(source.editorDraft) : undefined
-  const editorDraft =
-    candidateEditor?.kind === 'edit' &&
-    !annotations.some(
-      (annotation) =>
-        annotation.annotationId === candidateEditor.annotationId && annotation.status === 'draft',
+  const validEditor = (candidate: PersistedEditorDraft | undefined): candidate is PersistedEditorDraft => {
+    if (candidate === undefined) return false
+    if (candidate.kind === 'new')
+      return (
+        !annotations.some((item) => item.annotationId === candidate.draftId) &&
+        candidate.draftId !== candidate.supplementalTo
+      )
+    const target = annotations.find(
+      (item) => item.annotationId === candidate.annotationId && item.status === 'draft',
     )
+    return (
+      target !== undefined &&
+      (candidate.expandedCapture === undefined || sourceKey(candidate.expandedCapture) === sourceKey(target))
+    )
+  }
+  const candidateEditor = version !== 1 ? parseRecoverableEditorDraft(source.editorDraft) : undefined
+  const editorDraft = validEditor(candidateEditor) ? candidateEditor : undefined
+  if (source.editorDrafts !== undefined && !Array.isArray(source.editorDrafts))
+    throw new Error('invalid suspended editor drafts')
+  const editorKey = (editor: PersistedEditorDraft) =>
+    editor.kind === 'edit' ? `edit:${editor.annotationId}` : `new:${editor.draftId}`
+  const editorKeys = new Set(editorDraft === undefined ? [] : [editorKey(editorDraft)])
+  const editorDrafts = ((source.editorDrafts as unknown[] | undefined) ?? [])
+    .map(parseRecoverableEditorDraft)
+    .filter(validEditor)
+    .filter((editor) => {
+      const key = editorKey(editor)
+      if (editorKeys.has(key)) return false
+      editorKeys.add(key)
+      return true
+    })
+  const selectionMode = source.selectionMode
+  if (selectionMode !== undefined && selectionMode !== 'all' && selectionMode !== 'individual')
+    throw new Error('invalid annotation selection mode')
+  if (source.selectedAnnotationIds !== undefined && !Array.isArray(source.selectedAnnotationIds))
+    throw new Error('invalid selected annotation ids')
+  const blocked = new Set(
+    [...editorDrafts, ...(editorDraft === undefined ? [] : [editorDraft])]
+      .filter(
+        (editor) =>
+          editor.kind === 'edit' &&
+          (editor.supplement === true ||
+            editor.expandedCapture !== undefined ||
+            editor.text !==
+              annotations.find((item) => item.annotationId === editor.annotationId)?.annotation),
+      )
+      .map((editor) => (editor.kind === 'edit' ? editor.annotationId : null)),
+  )
+  const draftIds = new Set(
+    annotations
+      .filter((item) => item.status === 'draft' && !blocked.has(item.annotationId))
+      .map((item) => item.annotationId),
+  )
+  const selectedAnnotationIds = [
+    ...new Set(
+      ((source.selectedAnnotationIds as unknown[] | undefined) ?? [])
+        .map((id) => persistedId<AnnotationId>(id, 'selectedAnnotationIds'))
+        .filter((id) => draftIds.has(id)),
+    ),
+  ]
+  const processingMode = parseProcessingMode(source.processingMode)
+  const retryId =
+    source.retrySubmissionId === undefined || source.retrySubmissionId === null
+      ? source.retrySubmissionId
+      : persistedId<SubmissionId>(source.retrySubmissionId, 'retrySubmissionId')
+  const retrySubmissionId =
+    retryId === undefined
       ? undefined
-      : candidateEditor
+      : outbox.some(
+            (entry) =>
+              entry.payload.submissionId === retryId &&
+              (entry.status === 'ready' || entry.status === 'failed'),
+          )
+        ? retryId
+        : null
   return Object.freeze({
-    storageVersion: 2,
+    storageVersion: 3,
     annotations: Object.freeze(annotations),
     outbox: Object.freeze(outbox),
     overallRequirementDraft: source.overallRequirementDraft,
     ...(editorDraft === undefined ? {} : { editorDraft }),
+    ...(source.editorDrafts === undefined ? {} : { editorDrafts: Object.freeze(editorDrafts) }),
+    ...(selectionMode === undefined ? {} : { selectionMode }),
+    ...(source.selectedAnnotationIds === undefined
+      ? {}
+      : { selectedAnnotationIds: Object.freeze(selectedAnnotationIds) }),
+    ...(source.processingMode === undefined ? {} : { processingMode }),
+    ...(retrySubmissionId === undefined ? {} : { retrySubmissionId }),
   })
 }
 
@@ -304,8 +406,18 @@ export class AnnotationStorage {
       const raw = this.readFirstAvailable()
       this.bytes = raw === null ? 0 : byteLength(raw)
       if (raw === null) return emptyPersistedState()
-      const parsed = parseState(JSON.parse(raw))
-      this.writeMigrated(parsed)
+      const decoded: unknown = JSON.parse(raw)
+      const parsed = parseState(decoded)
+      try {
+        this.writeMigrated(
+          parsed,
+          raw,
+          needsEditorIds(decoded) || (decoded as Record<string, unknown>).storageVersion !== 3,
+        )
+      } catch (error: unknown) {
+        this.error = error instanceof Error ? error.message : String(error)
+        return parsed
+      }
       this.error = null
       return parsed
     } catch (error: unknown) {
@@ -357,15 +469,14 @@ export class AnnotationStorage {
     return null
   }
 
-  /** Persist a successful legacy load into the new namespace, then drop legacy keys. */
-  private writeMigrated(state: PersistedSessionState): void {
+  /** Persist namespace migration and newly allocated recovery ids without overwriting a concurrent writer. */
+  private writeMigrated(state: PersistedSessionState, raw: string, normalizeEditors: boolean): void {
     const current = this.storage.getItem(this.key)
-    if (current !== null) {
-      // The new namespace already owns this Session; legacy keys are inert residue.
-      this.removeLegacyKeys()
-      return
+    if (current === null || (normalizeEditors && current === raw)) {
+      const serialized = JSON.stringify(state)
+      this.storage.setItem(this.key, serialized)
+      this.bytes = byteLength(serialized)
     }
-    this.storage.setItem(this.key, JSON.stringify(state))
     this.removeLegacyKeys()
   }
 

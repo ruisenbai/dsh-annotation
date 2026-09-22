@@ -1,3 +1,4 @@
+import { AnnotationSourceLabel } from './AnnotationSourceLabel.tsx'
 import { Fragment, useMemo } from 'react'
 import {
   FileTypeIcon,
@@ -13,6 +14,13 @@ import { parseAnnotationSource } from '../../shared/protocol.ts'
 import type { AnnotationId, AnnotationStatus } from '../../shared/types.ts'
 import type { UserAnnotationProps } from '../contract.ts'
 import { MapPin } from '../icons.ts'
+
+function processingModeLabel(
+  mode: NonNullable<ReturnType<typeof parseAnnotationSource>>['processingMode'],
+  t: UserAnnotationProps<'user'>['t'],
+): string {
+  return t(`processing.${mode}`)
+}
 
 function TimelineStatusIcon({ status }: { status: AnnotationStatus }) {
   if (status === 'queued') return <IconQueueOutline14 size={14} />
@@ -33,9 +41,12 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
     () => new Map(view.annotations.map((item) => [item.annotationId, item])),
     [view.annotations],
   )
+  const hasDiff = payload.annotations.some((item) => item.source?.kind === 'diff')
   const previousVersion =
     view.latestAssistantMessageId !== null &&
-    payload.annotations.some((item) => item.messageId !== view.latestAssistantMessageId)
+    payload.annotations.some(
+      (item) => item.source?.kind !== 'diff' && item.messageId !== view.latestAssistantMessageId,
+    )
   return (
     <details className="dia-timeline">
       <summary>
@@ -43,8 +54,18 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
           <IconListPenOutline16 size={16} />
         </span>
         <span className="dia-timeline__summary-copy">
-          <strong>{t('timeline.summary', { count: payload.annotations.length })}</strong>
-          <small>{previousVersion ? t('timeline.previousVersion') : payload.submissionId}</small>
+          <strong>
+            {t(hasDiff ? 'timeline.sourceSummary' : 'timeline.summary', {
+              count: payload.annotations.length,
+            })}
+          </strong>
+          <small>
+            {hasDiff
+              ? `${t('timeline.frozenSources')} · ${processingModeLabel(payload.processingMode, t)}`
+              : previousVersion
+                ? `${t('timeline.previousVersion')} · ${processingModeLabel(payload.processingMode, t)}`
+                : processingModeLabel(payload.processingMode, t)}
+          </small>
         </span>
         <span className="dia-timeline__disclosure" aria-hidden="true">
           <span data-collapsed="true">
@@ -70,8 +91,8 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
                     <TimelineStatusIcon status={status} />
                     {t(`status.${status}`)}
                   </span>
-                  <code>{item.annotationId}</code>
                 </header>
+                <AnnotationSourceLabel item={item} t={t} diagnostics />
                 <q>{item.quote.exact}</q>
                 <p data-highlight-only={item.kind === 'highlight-only' ? 'true' : undefined}>
                   {item.annotation === '' ? t('highlightOnly') : item.annotation}
@@ -84,6 +105,51 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
                   <MapPin aria-hidden="true" size={12} strokeWidth={1.8} />
                   {t('list.locate')}
                 </button>
+                <details className="dia-diagnostics">
+                  <summary>{t('diagnostics.title')}</summary>
+                  <dl>
+                    <div>
+                      <dt>{t('diagnostics.submissionId')}</dt>
+                      <dd>
+                        <code>{payload.submissionId}</code>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t('diagnostics.annotationId')}</dt>
+                      <dd>
+                        <code>{item.annotationId}</code>
+                      </dd>
+                    </div>
+                    {item.source?.kind !== 'diff' && (
+                      <>
+                        <div>
+                          <dt>{t('diagnostics.messageId')}</dt>
+                          <dd>
+                            <code>{item.messageId}</code>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>{t('diagnostics.messageSeq')}</dt>
+                          <dd>{item.messageSeq}</dd>
+                        </div>
+                        <div>
+                          <dt>{t('diagnostics.responseVersion')}</dt>
+                          <dd>
+                            <code>{item.responseVersion}</code>
+                          </dd>
+                        </div>
+                      </>
+                    )}
+                    <div>
+                      <dt>{t('diagnostics.processingMode')}</dt>
+                      <dd>{processingModeLabel(payload.processingMode, t)}</dd>
+                    </div>
+                    <div>
+                      <dt>{t('diagnostics.protocol')}</dt>
+                      <dd>{payload.protocolVersion}</dd>
+                    </div>
+                  </dl>
+                </details>
               </article>
             )
           })}

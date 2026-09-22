@@ -14,14 +14,16 @@ export function BrowserComposer({
   text,
   onText,
   onSubmit,
+  disabled = false,
 }: {
   text: string
   onText: (text: string) => void
   onSubmit: () => void
+  disabled?: boolean
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
-  const callbacks = useRef({ onText, onSubmit })
-  callbacks.current = { onText, onSubmit }
+  const callbacks = useRef({ onText, onSubmit, disabled })
+  callbacks.current = { onText, onSubmit, disabled }
   const editor = useMemo(
     () =>
       createEditor({
@@ -36,12 +38,17 @@ export function BrowserComposer({
     editor.setRootElement(rootRef.current)
     const unregisterPlainText = registerPlainText(editor)
     const unregisterUpdate = editor.registerUpdateListener(({ editorState }) => {
-      callbacks.current.onText(editorState.read(() => $getRoot().getTextContent()))
+      if (!callbacks.current.disabled)
+        callbacks.current.onText(editorState.read(() => $getRoot().getTextContent()))
     })
     const unregisterEnter = editor.registerCommand(
       KEY_ENTER_COMMAND,
       (event) => {
         if (event === null || event.shiftKey || event.isComposing || editor.isComposing()) return false
+        if (callbacks.current.disabled) {
+          event.preventDefault()
+          return true
+        }
         event.preventDefault()
         callbacks.current.onSubmit()
         return true
@@ -70,11 +77,12 @@ export function BrowserComposer({
     <div
       ref={rootRef}
       data-composer-input
-      contentEditable
+      contentEditable={!disabled}
       suppressContentEditableWarning
       role="textbox"
       aria-multiline="true"
       aria-label="Official composer"
+      aria-disabled={disabled}
     />
   )
 }
