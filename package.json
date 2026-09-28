@@ -105,7 +105,7 @@
   "dependencies": {
     "lucide-react": "0.468.0",
     "yaml": "^2.9.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.5"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
