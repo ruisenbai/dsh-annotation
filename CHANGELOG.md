@@ -4,40 +4,33 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-28
+
+Target host: DeepSeek Harness `0.1.7-rc.2`, official source tag `dsh-v0.1.7-rc.2` at commit `477b4f420553e8a52c2fbccc464d7561b239c443`.
+
 ### Added
 
-- Add default aggregate sending plus a Host-backed, default-off individual-selection mode. Individual mode ignores default-on `autoAttach`, requires explicit eligible annotations, and clears unsent selections and the active retry with a notice when the mode changes without altering outbox records.
-- Add multiple recoverable editor buffers keyed by draft or annotation identity. Outside clicks and Escape suspend unfinished work without blocking the original action; unfinished edits stay out of submissions, and explicit buffer discard never deletes a saved annotation.
-- Add explicit overlap resolution. A new-target choice preserves existing buffers; a clean draft target appends text and displays quote-range changes; a target with unfinished editing resumes its old buffer without merging; and a queued, sent, or processed target creates a new annotation linked by `supplementalTo`.
-- Add `answer`, `rewrite`, and `modify` processing modes with Chinese and English model instructions, per-annotation association notes, and acknowledgement of only ids actually completed. Overall requirements specify goals and constraints; the mode specifies the deliverable, with direct conflicts requiring clarification.
-- Add attachment preflight through the existing internal command. New payloads freeze ordered Host attachment identities, allowing original-file reuploads while rejecting different content, names, or order on retry; failed preflight preserves composer input without creating an outbox.
+- Add source-end numbered bubbles, a compact annotation editor, and an annotation record beside the official composer. New notes attach to the next message by default; sent notes can be attached again without duplicating their IDs or source bubbles.
+- Show annotation counts above sent user messages. Single annotations support hover preview and double-click source location; multiple annotations expand into a list with per-row navigation.
+- Add browser-local recovery for unfinished edits, corrupt or unsupported storage, and concurrent tabs. Separate journal entries and Web Locks prevent stale tabs from silently overwriting drafts or reviving deletions; conflicting edits retain both versions.
+- Add current Chinese Web screenshots for selection, editing, source bubbles, records, sending, reattachment, and settings.
 
 ### Changed
 
-- Align the composer annotation count with the Host add-file button's 8 px inset and restyle it as a rounded neutral selector; show its detach icon only on hover or keyboard focus while keeping the count and preview accessible.
-- Show submitted comment counts above user messages. A single comment previews its quote and note on hover and locates its source on double-click; multiple comments expand into a task-style list with per-row map pins. Remove sent-message diagnostic details, shorten the record heading, and apply a fine frosted grain to translucent plugin surfaces while matching the Host task panel material.
-- Match the annotation record's background, blur, and shadow to the official task panel without an extra texture layer.
-- Use the approved compact annotation popup for new, draft, and sent notes: the source-end anchor favors the space below the final selected character, the field grows from one to seven visual lines without manual resizing, and longer notes scroll inside the field while actions remain visible.
-- Target DSH `0.1.7-rc.1` with plugin version `0.10.0`, official source tag `dsh-v0.1.7-rc.1` at `46a7f68b0922371ce7144b668b90e377d8e799f4`, Cordis `^4.0.4` and Schemastery `^3.18.4`.
-- Use volatile Config fields and shared `configForms`, weight-named official icons with explicit sizes, and a Chat-only ungrouped display policy while transcript filters are active. Saved Host presentation preferences and other view targets remain untouched.
-- Recover supported annotation preferences from retained Host settings archives with current-user-override precedence, atomic revision checks and a completion marker. Retain the original archive and preserve annotation protocols and outbox.
-- Restore frozen Session v3 test recordings with the official v4 migration catalog and compare adjacent v4 fixtures, preserving predecessor files and native tool-result semantics.
-
-- Freeze the selected annotation set and contiguous ordinals, processing mode, overall requirement, protocol locale, target Session, and ordered attachment metadata in every outbox payload. Retry reuses that payload instead of current UI choices.
-- Write protocol v3 with explicit message sources and retain historical Diff reads; write `storageVersion: 3`; migrate browser v1/v2 state under the existing key and keep frozen v2 payloads at v2, retaining the existing v1-to-v2 normalization. `processingMode`, `supplementalTo`, `attachmentIdentities`, multiple editor buffers, selection state, and retry selection are additive fields with compatible defaults. Missing legacy processing mode reads as `answer`, while explicit invalid values reject. Missing legacy attachment identities stay absent and retain the count/kind-only guard.
-
-### Removed
-
-- Remove Code Diff annotation controls, Git reading and attestation services, preview command, and new Diff submissions. Historical Diff records, editor buffers, and failed batches stay readable but are read-only.
+- Match the official task panel's material and layout for the annotation record; retain annotation-only settings for enablement, automatic attachment, and optional dsh-market updates.
+- Send annotations, optional composer text, and attachment identities as one frozen submission. Retries reuse the payload; existing Session and browser storage records remain readable under protocol v3 and storage v3 migrations.
+- Reconcile Chat history and Inbox changes separately. Reuse unchanged protocol parses, DOM text indexes, and annotation references; skip unchanged storage writes and subscriber notifications.
+- Adapt the manifest, lockfile, client integration, CI source checkout, and real-profile verification to the exact `0.1.7-rc.2` Host family.
 
 ### Fixed
 
-- Keep the original and resent assistant reply headings interactive when one sent annotation is attached to another message, including after Session restoration; the annotation record and source bubble remain single instances.
-- Abort asynchronous preparation when a captured annotation is deleted, changed, or made ineligible before outbox creation, preventing a stale payload from replacing current draft state while leaving later next-batch choices independent.
-- Preserve queued and sent authority across late retry, transport, and discard paths; direct discard applies only before queue authority is established. Durable confirmation after an ambiguous discard restores the frozen original and ordinal while retaining later saved or unfinished changes under new linked, unselected identities.
-- Preserve an earlier editor buffer when overlap resolution chooses New annotation, and restore historical annotation ordinals from durable payloads rather than current browser ordering.
-- Exclude later optional source fields when restoring an immutable historical annotation, while retaining the newer work separately.
-- Label every suspended editor as not included in the current send, in both languages; remove the obsolete forced-save prompt.
+- Preserve original and resent reply-heading interactions after Session restoration. Explicit record-row attachment works when automatic attachment is disabled.
+- Keep the source bubble clipped with its reply, the quick editor below the selected text, and its actions visible as the note grows to the seven-line scrolling limit.
+- Preserve queued and sent authority across late failures and retries; reject stale asynchronous preparation when its source annotation changes before submission.
+
+### Removed
+
+- Remove Code Diff annotation creation and editing, transcript visibility controls, duplicate assistant-body rendering, and other non-annotation UI. Historical Diff messages and frozen retries remain readable without rewriting their data.
 
 ## [0.9.0] - 2026-09-20
 
@@ -259,7 +252,9 @@ Target host: DeepSeek Harness `0.1.6-alpha.2`, source tag `dsh-v0.1.6-alpha.2` a
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.9.0...v1.0.0
+[0.9.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.2...v0.6.0

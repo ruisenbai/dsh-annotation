@@ -784,6 +784,39 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.dispose()
   })
 
+  it.for(['', 'Keep this composer text.'])(
+    'arms explicit paperclip selection with automatic attachment disabled and draft %j',
+    async (draft, { onTestFinished }) => {
+      const command = vi.fn().mockResolvedValue(remoteSuccess())
+      const fixture = fixtureContext(command)
+      onTestFinished(() => fixture.dispose())
+      apply(fixture.ctx)
+      await fixture.setAutoAttach(false)
+      const face = fixture.face()
+      saveAnnotation(face)
+      const id = face.hooks.annotations.getSnapshot().annotations[0]!.annotationId
+      face.toggleSelected(id)
+      fixture.setPlainComposerText(draft)
+      expect(fixture.inputSnapshot()).toMatchObject({ phase: 'plain', claim: null, draft })
+
+      face.toggleSelected(id)
+      expect(fixture.inputSnapshot()).toMatchObject({
+        phase: 'claimed',
+        claim: { token: COMPOSER_ATTACHMENT_TOKEN },
+      })
+      face.toggleSelected(id)
+      expect(fixture.inputSnapshot()).toMatchObject({ phase: 'plain', claim: null, draft })
+      face.repairComposerAttachment()
+      expect(fixture.inputSnapshot().phase).toBe('plain')
+      face.toggleSelected(id)
+      await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
+      const payload = face.hooks.annotations.getSnapshot().outbox[0]!.payload
+      expect(payload.overallRequirement).toBe(draft || undefined)
+      expect(payload.annotations.map((item) => item.annotationId)).toEqual([id])
+      expect(command).toHaveBeenCalledOnce()
+    },
+  )
+
   it('projects the auto-attach switch and keeps attach-only arming idempotent', async () => {
     const fixture = fixtureContext(vi.fn())
     apply(fixture.ctx)

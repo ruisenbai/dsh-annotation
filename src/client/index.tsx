@@ -802,11 +802,13 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       discardEditorDraft: (key) => changeSendIntent(() => controller.discardEditorDraft(key)),
       toggleSelected: (annotationId) =>
         changeSendIntent(() => {
-          if (!controller.getSnapshot().selectedAnnotationIds.includes(annotationId)) {
+          const selecting = !controller.getSnapshot().selectedAnnotationIds.includes(annotationId)
+          if (selecting) {
             const entry = controllers.get(sessionId)
             if (entry !== undefined) entry.manualDetached = false
           }
           controller.toggleSelected(annotationId)
+          if (selecting) ensureComposerAttachment(sessionId)
         }),
       setProcessingMode: (mode) => changeSendIntent(() => controller.setProcessingMode(mode)),
       selectRetry: (submissionId) =>

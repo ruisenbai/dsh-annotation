@@ -17,6 +17,7 @@ export interface AnnotationInjected {
   readonly suspendEditor: () => void
   readonly resumeEditor: (key: string) => void
   readonly discardEditorDraft: (key: string) => void
+  /** Explicit selection arms the composer even when automatic attachment is disabled. */
   readonly toggleSelected: (annotationId: AnnotationId) => void
   readonly setProcessingMode: (mode: ProcessingMode) => void
   readonly selectRetry: (submissionId: SubmissionId) => void

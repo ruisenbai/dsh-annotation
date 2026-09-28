@@ -8,7 +8,6 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import { createSessionFormatCatalogWithChildren } from '@deepseek-ai/dsh-session-format-catalog'
 import { exerciseLegacyDiffHistory } from './profile-legacy-diff.mjs'
-import { exerciseTranscriptVisibility } from './profile-transcript-visibility.mjs'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
 const artifacts = join(project, 'artifacts/browser')
@@ -181,6 +180,8 @@ async function selectReadingSource(page, source) {
 }
 
 async function openAnnotationSettings(page) {
+  // The Host's initial empty-Hero transition can dismiss a panel opened before Session hydration.
+  await page.locator('[data-composer-card] [contenteditable="true"]').waitFor()
   await page.getByRole('button', { name: '设置', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('button', { name: '注解', exact: true }).click()
@@ -189,22 +190,63 @@ async function openAnnotationSettings(page) {
   return card
 }
 
-async function summaryGeometry(page) {
-  await page.evaluate(async () => {
-    await document.fonts.ready
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+/** Capture repository screenshots from the installed Chinese Web profile. */
+async function captureReleaseScreenshots(page, request) {
+  const source = '这段说明可以帮助我们更清楚地定位问题。'
+  const note = '请补充判断依据，并给出一个具体例子。'
+  const settings = await openAnnotationSettings(page)
+  const autoAttach = settings.getByRole('switch', {
+    name: '新增注解后自动随下一条消息发送',
+    exact: true,
   })
-  return page.locator('.dia-dock-shell').evaluate((shell) => {
-    const body = shell.querySelector('.dia-dock-body')
-    return {
-      shell: shell.getBoundingClientRect().toJSON(),
-      body: body.getBoundingClientRect().toJSON(),
-      composer: document.querySelector('[data-composer-card]').getBoundingClientRect().toJSON(),
-      shellBorder: getComputedStyle(shell).borderTopWidth,
-      shellBackground: getComputedStyle(shell).backgroundColor,
-      iconCount: shell.querySelectorAll('.dia-dock__icon').length,
-    }
-  })
+  if ((await autoAttach.getAttribute('aria-checked')) === 'false') {
+    await autoAttach.click()
+    await settings.getByRole('button', { name: '保存', exact: true }).click()
+    await settings.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
+  }
+  await request('release-showcase')
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  const group = page.getByRole('treeitem', { name: /未分组/ }).first()
+  await group.waitFor()
+  if ((await group.getAttribute('aria-expanded')) !== 'true') await group.click()
+  await page.getByRole('treeitem', { name: /请说明如何提出清晰的反馈/ }).click()
+  await page.locator('.dia-assistant__body').getByText(source, { exact: true }).waitFor()
+  await selectReadingSource(page, source)
+  await mkdir(artifacts, { recursive: true })
+  await page.screenshot({ path: join(artifacts, 'release-selection.png'), fullPage: true })
+
+  await page.getByRole('button', { name: '添加注解', exact: true }).click()
+  const editor = page.locator('.dia-record-editor--quick')
+  await editor.getByRole('textbox', { name: '你的注解', exact: true }).fill(note)
+  await page.screenshot({ path: join(artifacts, 'release-editor.png'), fullPage: true })
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await editor.waitFor({ state: 'hidden' })
+  await page.locator('.dia-marker').first().click()
+  await page.locator('.dia-record-editor--detail').waitFor()
+  await page.screenshot({ path: join(artifacts, 'release-bubble.png'), fullPage: true })
+  await page.keyboard.press('Escape')
+
+  await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
+  await page.locator('.dia-record-row').getByText(note).waitFor()
+  await page.screenshot({ path: join(artifacts, 'release-record.png'), fullPage: true })
+  await openAnnotationSettings(page)
+  await page.screenshot({ path: join(artifacts, 'release-settings.png'), fullPage: true })
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.locator('.dia-composer-chip').waitFor()
+  const composer = page.locator('[data-composer-card] [contenteditable="true"]')
+  await composer.click()
+  await composer.press('Enter')
+  await page.locator('.dia-composer-chip').waitFor({ state: 'hidden' })
+  await page.locator('.dia-user-submission').waitFor()
+  await page.getByText('已补充判断依据和一个具体例子。', { exact: false }).last().waitFor()
+  await page.screenshot({ path: join(artifacts, 'release-sent.png'), fullPage: true })
+
+  await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
+  const sent = page.locator('.dia-record-row').filter({ hasText: note })
+  await sent.getByRole('button', { name: '重新随消息发送', exact: true }).click()
+  await page.locator('.dia-composer-chip').waitFor()
+  await page.screenshot({ path: join(artifacts, 'release-reattach.png'), fullPage: true })
 }
 
 try {
@@ -336,28 +378,17 @@ try {
     await mkdir(artifacts, { recursive: true })
   } else {
     let card = await openAnnotationSettings(page)
-    const visibilityCells = card.locator(
-      '[data-transcript-visibility-grid] > .dia-plugin-card__field--visibility',
+    assert.equal(
+      await card.getByRole('switch').count(),
+      2,
+      'Only enablement and auto-attachment are editable',
     )
-    assert.equal(await visibilityCells.count(), 18)
-    const wideFirst = await visibilityCells.nth(0).boundingBox()
-    const wideSecond = await visibilityCells.nth(1).boundingBox()
-    assert.ok(wideFirst)
-    assert.ok(wideSecond)
-    assert.ok(Math.abs(wideFirst.y - wideSecond.y) <= 1, 'Normal Settings width must use two columns')
-    await page.setViewportSize({ width: 640, height: 900 })
-    const narrowFirst = await visibilityCells.nth(0).boundingBox()
-    const narrowSecond = await visibilityCells.nth(1).boundingBox()
-    assert.ok(narrowFirst)
-    assert.ok(narrowSecond)
-    assert.ok(
-      narrowSecond.y >= narrowFirst.y + narrowFirst.height,
-      'Narrow Settings width must collapse to one column',
-    )
-    await page.setViewportSize({ width: 1280, height: 900 })
-    const recoveredReasoning = card.getByRole('group', { name: '隐藏思考过程', exact: true })
-    assert.equal(await recoveredReasoning.getByRole('switch').getAttribute('aria-checked'), 'true')
-    await recoveredReasoning.getByRole('button', { name: '恢复默认', exact: true }).click()
+    assert.equal(await card.locator('[data-transcript-visibility-grid]').count(), 0)
+    const autoAttachLabel = '新增注解后自动随下一条消息发送'
+    const autoAttachField = card.locator('.dia-plugin-card__field').filter({
+      has: page.getByRole('switch', { name: autoAttachLabel, exact: true }),
+    })
+    await autoAttachField.getByRole('button', { name: '恢复默认', exact: true }).click()
     const toggle = card.getByRole('switch', { name: '启用 DSH 注解', exact: true })
     assert.equal(await toggle.getAttribute('aria-checked'), 'true')
     await toggle.click()
@@ -365,16 +396,17 @@ try {
     await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
     const saved = await request('inspect')
     assert.equal(saved.settings.user.enabled, false)
-    assert.equal(Object.hasOwn(saved.settings.user, 'hideReasoning'), false)
-    assert.equal(saved.settings.value.hideReasoning, false)
+    assert.equal(Object.hasOwn(saved.settings.user, 'autoAttach'), false)
+    assert.equal(saved.settings.value.autoAttach, true)
+    assert.equal(saved.settings.user.hideReasoning, true, 'Retired values remain stored without controls')
     assert.equal(saved.settings.user.archivedPreferencesImported, true)
     const settingsFile = await readFile(initial.settingsDocumentPath, 'utf8')
     assert.match(settingsFile, /id: dsh-annotation[\s\S]*enabled: false/)
     await page.reload({ waitUntil: 'domcontentloaded' })
     card = await openAnnotationSettings(page)
     const afterReset = await request('inspect')
-    assert.equal(Object.hasOwn(afterReset.settings.user, 'hideReasoning'), false)
-    assert.equal(afterReset.settings.value.hideReasoning, false)
+    assert.equal(Object.hasOwn(afterReset.settings.user, 'autoAttach'), false)
+    assert.equal(afterReset.settings.value.autoAttach, true)
     assert.equal(await readFile(archivePath, 'utf8'), archivedPreferences)
     console.log('PASS Reset does not restore an archived preference again')
     const disabledToggle = card.getByRole('switch', { name: '启用 DSH 注解', exact: true })
@@ -384,9 +416,6 @@ try {
     await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
     assert.equal((await request('inspect')).settings.user.enabled, true)
     if (process.env.DSH_PROFILE_SCREENSHOT) {
-      await card
-        .getByRole('region', { name: '会话记录显示', exact: true })
-        .evaluate((element) => element.scrollIntoView({ block: 'start' }))
       await mkdir(dirname(process.env.DSH_PROFILE_SCREENSHOT), { recursive: true })
       await page.screenshot({ path: process.env.DSH_PROFILE_SCREENSHOT, fullPage: true })
     }
@@ -436,7 +465,7 @@ try {
       .getByText('Selected source needs clarification.', { exact: false })
       .waitFor()
     const submissionCard = page.locator('.dia-user-submission')
-    await submissionCard.locator('.dia-timeline__trigger').click()
+    await submissionCard.getByRole('button', { name: '1 条注释，双击定位原文', exact: true }).waitFor()
     const conversation = `# Assistant\n${await page.locator('.dia-assistant__body').first().ariaSnapshot()}\n\n# Annotation submission\n${await submissionCard.ariaSnapshot()}\n`
     await mkdir(artifacts, { recursive: true })
     await writeFile(join(artifacts, 'conversation.actual.txt'), conversation)
@@ -449,7 +478,7 @@ try {
       await page.locator('.dia-user').first().innerText(),
       'Please review [local notes](./notes.md).',
     )
-    await page.getByText('1 条历史注解', { exact: true }).waitFor()
+    await page.getByRole('button', { name: '显示注解记录', exact: true }).waitFor()
     console.log(
       'PASS persisted user/assistant Markdown and annotation history render in the real conversation',
     )
@@ -459,160 +488,104 @@ try {
       await request('seed-session', { header: replay.header, events: replay.events }),
       replay,
     )
-    assert.equal(initial.settings.value.compactSummary, true, 'Compact summaries must be enabled by default')
-    assert.equal(
-      Object.hasOwn(initial.settings.value, 'localTools'),
-      false,
-      'Local data tools must not be part of the effective settings',
-    )
     await openReadingSession(page, workspace, replay.source)
+    assert.equal(await page.locator('.dia-record, .dia-composer-chip').count(), 0)
     await selectReadingSource(page, replay.source)
     await page.getByRole('button', { name: '添加注解', exact: true }).click()
     const note = 'Clarify this recorded statement.'
-    const editor = page.getByRole('textbox', { name: '你的注解', exact: true })
-    await editor.fill(note)
-    await page.getByRole('button', { name: '保存', exact: true }).click()
+    const editor = page.locator('.dia-record-editor--quick')
+    await editor.getByRole('textbox', { name: '你的注解', exact: true }).fill(note)
+    await editor.getByRole('button', { name: '保存', exact: true }).click()
     await editor.waitFor({ state: 'hidden' })
-    await page.locator('.dia-dock-shell[data-compact-summary="true"]').waitFor()
-    const compact = await summaryGeometry(page)
-    assert.equal(compact.iconCount, 0, 'Compact summaries must omit the leftmost annotation icon')
-    assert.equal(parseFloat(compact.shellBorder), 0)
-    assert.equal(compact.shellBackground, 'rgba(0, 0, 0, 0)')
-    assert.ok(
-      compact.body.width < compact.shell.width - 100,
-      `Summary must fit its content: ${JSON.stringify(compact)}`,
-    )
-    assert.ok(Math.abs(compact.body.right - compact.shell.right) <= 1, 'Compact summary must align right')
-    assert.ok(
-      compact.body.left >= compact.composer.left + compact.composer.width / 2 &&
-        compact.body.right <= compact.composer.right + 1 &&
-        compact.body.bottom <= compact.composer.top + 1,
-      `Compact summary must sit above the composer on its right side: ${JSON.stringify(compact)}`,
-    )
-    await page.screenshot({ path: join(artifacts, 'compact-summary-profile-default.png'), fullPage: true })
-    await page.getByRole('button', { name: '展开注解', exact: true }).click()
-    const readingPanel = page.locator('.dia-inline-panel')
-    await readingPanel.getByText(note, { exact: true }).waitFor()
-    assert.equal(await readingPanel.locator('.dia-local-data, .dia-local-status').count(), 0)
-    assert.equal(await readingPanel.getByRole('button', { name: /导出|清空草稿/u }).count(), 0)
-    assert.equal(await readingPanel.getByText(/本地数据/u).count(), 0)
-    await page.screenshot({ path: join(artifacts, 'local-data-removed-profile-panel.png'), fullPage: true })
-    await page.getByRole('button', { name: '收起注解', exact: true }).click()
-    await readingPanel.waitFor({ state: 'hidden' })
-    assertRecordedSession(await request('read-session', { sessionId: replay.header.id }), replay)
-    console.log(
-      'PASS recorded Session replay supports local annotations without local-data controls in the compact summary',
-    )
-
-    card = await openAnnotationSettings(page)
-    const compactToggle = card.getByRole('switch', { name: '紧凑注解汇总', exact: true })
-    assert.equal(await compactToggle.getAttribute('aria-checked'), 'true')
-    assert.equal(
-      await card.getByRole('switch').count(),
-      22,
-      'Four annotation settings and eighteen transcript filters remain',
-    )
-    assert.equal(await card.getByRole('switch', { name: '显示本地数据控件', exact: true }).count(), 0)
-    await page.screenshot({ path: join(artifacts, 'compact-summary-profile-settings.png'), fullPage: true })
-    await compactToggle.click()
-    await card.getByRole('button', { name: '保存', exact: true }).click()
-    await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
-    assert.equal((await request('inspect')).settings.user.compactSummary, false)
-    assert.match(
-      await readFile(initial.settingsDocumentPath, 'utf8'),
-      /id: dsh-annotation[\s\S]*compactSummary: false/,
-    )
-
+    const chip = page.locator('.dia-composer-chip')
+    await chip.waitFor()
+    assert.equal(await page.locator('.dia-record').count(), 0, 'Saving does not open the record')
+    await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
+    const record = page.locator('.dia-record')
+    const row = record.locator('.dia-record-row').filter({ hasText: note })
+    await row.waitFor()
+    await row.getByRole('button', { name: '定位原文', exact: true }).click()
+    assert.equal(await record.isVisible(), true, 'Navigation preserves the open record')
+    await row.getByRole('button', { name: '取消随消息发送', exact: true }).click()
+    await chip.waitFor({ state: 'hidden' })
+    await row.getByRole('button', { name: '随消息发送', exact: true }).click()
+    await chip.waitFor()
     await page.reload({ waitUntil: 'domcontentloaded' })
     await page.locator('.dia-assistant__body').getByText(replay.source, { exact: true }).waitFor()
-    await page.locator('.dia-dock-shell[data-compact-summary="false"]').waitFor()
-    const full = await summaryGeometry(page)
-    assert.equal(full.iconCount, 1, 'Disabling compact summaries must restore the leftmost icon')
-    assert.ok(parseFloat(full.shellBorder) > 0)
-    assert.notEqual(full.shellBackground, 'rgba(0, 0, 0, 0)')
-    assert.ok(
-      Math.abs(full.body.width - full.shell.width) <= 2,
-      'Disabled summaries must restore the full-width bar',
-    )
-    assert.ok(
-      full.body.width > compact.body.width + 100,
-      'The restored bar must be wider than the compact summary',
-    )
-    await page.getByRole('button', { name: '展开注解', exact: true }).click()
-    await page.locator('.dia-item').getByText(note, { exact: true }).waitFor()
-    assert.equal(await readingPanel.locator('.dia-local-data, .dia-local-status').count(), 0)
-    assert.equal(await readingPanel.getByRole('button', { name: /导出|清空草稿/u }).count(), 0)
-    assert.equal(await readingPanel.getByText(/本地数据/u).count(), 0)
-    assert.equal(
-      await page.locator('.dia-item').count(),
-      1,
-      'The local annotation must survive settings and reload',
-    )
-    await page.getByRole('button', { name: '收起注解', exact: true }).click()
-    await page.locator('.dia-inline-panel').waitFor({ state: 'hidden' })
-    await page.screenshot({ path: join(artifacts, 'compact-summary-profile-full-width.png'), fullPage: true })
-    const reloaded = await request('inspect')
-    assert.equal(reloaded.settings.user.compactSummary, false)
-    assert.equal(
-      reloaded.modelRequests,
-      submission.requests.length,
-      'The reading replay must not call the model',
-    )
+    await chip.waitFor()
+    await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
+    await row.waitFor()
+    assert.equal(await record.locator('.dia-record-row').count(), 1)
+    assert.equal(await record.locator('.dia-local-data, .dia-local-status').count(), 0)
     assertRecordedSession(await request('read-session', { sessionId: replay.header.id }), replay)
+    assert.equal((await request('inspect')).modelRequests, submission.requests.length)
+    await page.screenshot({ path: join(artifacts, 'annotation-record-profile.png'), fullPage: true })
     console.log(
-      'PASS saved compact-summary preference survives reload while the recorded Session remains unchanged',
-    )
-    card = await openAnnotationSettings(page)
-    const individualToggle = card.getByRole('switch', { name: '逐条选择要发送的注解', exact: true })
-    assert.equal(await individualToggle.getAttribute('aria-checked'), 'false')
-    await individualToggle.click()
-    await card.getByRole('button', { name: '保存', exact: true }).click()
-    await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
-    assert.equal((await request('inspect')).settings.user.individualSelection, true)
-    await page.reload({ waitUntil: 'domcontentloaded' })
-    await page.locator('.dia-dock-shell[data-selection-mode="individual"]').waitFor()
-    const choices = page
-      .getByRole('group', { name: '选择本次随消息发送的注解', exact: true })
-      .getByRole('button')
-    assert.equal(await choices.count(), 1)
-    assert.equal(await choices.first().getAttribute('aria-pressed'), 'false')
-    assert.equal(await page.locator('.dia-dock__attach').count(), 0)
-    await choices.first().click()
-    await page.locator('.dia-dock[data-attached="true"]').waitFor()
-    await page.getByRole('button', { name: '处理方式：逐条解答', exact: true }).click()
-    await page.getByText('整合改写', { exact: true }).click()
-    await page.getByRole('button', { name: '处理方式：整合改写', exact: true }).waitFor()
-    await page.reload({ waitUntil: 'domcontentloaded' })
-    await page.locator('.dia-dock-shell[data-selection-mode="individual"]').waitFor()
-    await page.locator('.dia-dock[data-attached="true"]').waitFor()
-    assert.equal(await choices.first().getAttribute('aria-pressed'), 'true')
-    await page.getByRole('button', { name: '处理方式：整合改写', exact: true }).waitFor()
-    await page.screenshot({ path: join(artifacts, 'individual-selection-profile.png'), fullPage: true })
-    await choices.first().click()
-    await page.locator('.dia-dock[data-attached="false"]').waitFor()
-    assertRecordedSession(await request('read-session', { sessionId: replay.header.id }), replay)
-    card = await openAnnotationSettings(page)
-    await card.getByRole('switch', { name: '逐条选择要发送的注解', exact: true }).click()
-    await card.getByRole('button', { name: '保存', exact: true }).click()
-    await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
-    await page.reload({ waitUntil: 'domcontentloaded' })
-    await page.locator('.dia-dock-shell[data-selection-mode="all"]').waitFor()
-    await page.locator('.dia-dock[data-attached="false"]').waitFor()
-    assert.equal((await request('inspect')).settings.user.individualSelection, false)
-    console.log(
-      'PASS individual selection and processing mode persist in the built official profile without changing the recorded Session',
+      'PASS recorded Session supports selection, navigation, attachment, and reload without log changes',
     )
 
-    await exerciseTranscriptVisibility(page, {
-      request,
-      readReplay: readRecordedReplay,
-      openSession: openReadingSession,
-      assertRecordedSession,
-      workspace,
-      artifacts,
-      settingsPath: initial.settingsDocumentPath,
-    })
+    card = await openAnnotationSettings(page)
+    await card.getByRole('switch', { name: autoAttachLabel, exact: true }).click()
+    await card.getByRole('button', { name: '保存', exact: true }).click()
+    await card.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
+    assert.equal((await request('inspect')).settings.user.autoAttach, false)
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await chip.waitFor()
+    await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
+    await row.getByRole('button', { name: '取消随消息发送', exact: true }).click()
+    await chip.waitFor({ state: 'hidden' })
+    await row.getByRole('button', { name: '随消息发送', exact: true }).click()
+    await chip.waitFor()
+    assert.equal((await request('inspect')).settings.value.autoAttach, false)
     assertRecordedSession(await request('read-session', { sessionId: replay.header.id }), replay)
+    console.log('PASS saved auto-attachment preference preserves explicit paperclip attachment')
+
+    // Frozen reading-only fixtures omit the live Session's protected system head.
+    await page.getByRole('treeitem', { name: /Please review/ }).click()
+    await page.locator('.dia-user-submission').waitFor()
+    await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
+    const sentRow = record.locator('.dia-record-row').filter({ hasText: 'Explain this claim.' })
+    await sentRow.getByRole('button', { name: '重新随消息发送', exact: true }).click()
+    await chip.waitFor()
+    const composer = page.locator('[data-composer-card] [contenteditable="true"]')
+    await composer.click()
+    await composer.press('End')
+    await composer.pressSequentially('Please answer the attached annotation.')
+    await composer.press('Enter')
+    await chip.waitFor({ state: 'hidden' })
+    await page.locator('.dia-user-submission').nth(1).waitFor()
+    await record.waitFor({ state: 'hidden' })
+    const firstSend = await request('read-session', { sessionId: submission.sessionId })
+    const annotationsIn = (session) =>
+      session.events.filter(
+        (event) => event.type === 'user/message' && event.data.source.annotationSubmission,
+      )
+    const firstAdmissions = annotationsIn(firstSend)
+    assert.equal(firstAdmissions.length, 2)
+    const firstPayload = firstAdmissions[1].data.source.annotationSubmission
+    assert.equal(firstPayload.processingMode, 'answer')
+    assert.equal(firstPayload.overallRequirement, 'Please answer the attached annotation.')
+    assert.equal(firstPayload.annotations[0].annotation, reference.annotation)
+    assert.equal(firstPayload.annotations[0].quote.exact, reference.quote.exact)
+    assert.equal(firstPayload.annotations[0].annotationId, reference.annotationId)
+    await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
+    await sentRow.getByRole('button', { name: '重新随消息发送', exact: true }).click()
+    await chip.waitFor()
+    await composer.click()
+    await composer.press('Enter')
+    await chip.waitFor({ state: 'hidden' })
+    await page.locator('.dia-user-submission').nth(2).waitFor()
+    const secondAdmissions = annotationsIn(await request('read-session', { sessionId: submission.sessionId }))
+    assert.equal(secondAdmissions.length, 3)
+    const secondPayload = secondAdmissions[2].data.source.annotationSubmission
+    assert.equal(secondPayload.annotations[0].annotationId, firstPayload.annotations[0].annotationId)
+    assert.notEqual(secondPayload.submissionId, firstPayload.submissionId)
+    await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
+    await sentRow.waitFor()
+    assert.equal(await record.locator('.dia-record-row').count(), 1)
+    await page.screenshot({ path: join(artifacts, 'composer-resend-profile.png'), fullPage: true })
+    console.log('PASS official composer sends text plus annotations and reuses the annotation ID on resend')
+
     const attachmentRun = await request('attachment-smoke')
     assert.equal(attachmentRun.prepared?.result.kind, 'success')
     assert.equal(
@@ -683,6 +656,10 @@ try {
     workspace,
     artifacts,
   })
+  if (process.env.DSH_RELEASE_SCREENSHOTS === '1') {
+    await captureReleaseScreenshots(page, request)
+    console.log('PASS seven release screenshots captured from the Chinese Web profile')
+  }
   assert.deepEqual(pageErrors, [])
 } catch (error) {
   console.error(output)

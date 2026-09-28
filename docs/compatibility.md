@@ -2,33 +2,57 @@
 
 ## Host requirement
 
-This baseline applies to `0.10.0` (unreleased). Release verification results must be recorded separately; the baseline declaration does not assert that behavior checks passed.
+This baseline applies to `1.0.0`. Release verification results are recorded separately; the baseline declaration does not assert that behavior checks passed.
 
 | Component                | Supported baseline                                                                  |
 | ------------------------ | ----------------------------------------------------------------------------------- |
-| DeepSeek Harness host    | `0.1.7-rc.1` exactly                                                                |
-| `engines.dsh`            | `0.1.7-rc.1`                                                                        |
-| Development declarations | `0.1.7-rc.1`                                                                        |
+| DeepSeek Harness host    | `0.1.7-rc.2` exactly                                                                |
+| `engines.dsh`            | `0.1.7-rc.2`                                                                        |
+| Development declarations | `0.1.7-rc.2`                                                                        |
 | Cordis                   | `^4.0.4`                                                                            |
 | Node.js                  | `^22.19.0` or `>=24`                                                                |
 | React                    | `^18.2.0`                                                                           |
 | Browser                  | Current Chromium-based DSH Web target; other modern browsers retain marker fallback |
 
-The release manifest declares `engines.dsh: "0.1.7-rc.1"`, and the lockstep `@deepseek-ai/dsh-*` peers, development dependencies, and lockfile use that version. The Host source is unchanged. The plugin was built and exercised against the local `0.1.7-rc.1` Web Host.
+The release manifest declares `engines.dsh: "0.1.7-rc.2"`, and the lockstep `@deepseek-ai/dsh-*` peers, development dependencies, lockfile, and CI checkout use that release. The strict-peer development environment includes `@deepseek-ai/dsh-llm-deepseek`, required by the official provider packages. Host source, annotation protocol v3, browser storage v3, and frozen Session recordings are unchanged.
 
 ## Dependency source
 
-Every DSH dependency used for verification must identify the same `0.1.7-rc.1` source generation. [source-baseline.json](../source-baseline.json) pins official tag `dsh-v0.1.7-rc.1` at commit `46a7f68b0922371ce7144b668b90e377d8e799f4`. The npm family is available and the registry lockfile targets it; verify the complete peer closure with `pnpm install --frozen-lockfile --strict-peer-dependencies`. A matching version string or a regenerated lockfile is not a behavior-test result.
+Every DSH dependency used for verification must identify the same `0.1.7-rc.2` source generation. [source-baseline.json](../source-baseline.json) pins official tag `dsh-v0.1.7-rc.2` at commit `477b4f420553e8a52c2fbccc464d7561b239c443`. The npm family is available and the registry lockfile targets it; verify the complete peer closure with `pnpm install --frozen-lockfile --strict-peer-dependencies`. A matching version string or a regenerated lockfile is not a behavior-test result.
 
 For an unpublished family, use verifiable official source or official artifacts in a disposable directory. Confirm the repository, source commit or artifact URL, package names, and package versions before deriving integrity values. Include the DSH and vendored Cordis package families and the Landlock entry package, and enforce strict peers in the temporary install. Machine-local `file:` URLs, workspace links, and generated overlay lockfiles must never enter the released plugin manifest or checked-in lockfile. Record the actual source and commands in the release verification evidence; an old lockfile or a successful build against a different host does not verify this baseline.
 
 The source verification helper provides independent source checks: it checks the pinned checkout commit, clean tracked files, DSH tarball versions, and required direct official packages before preparing a separate plugin directory. It omits the registry lockfile, supplies all provided official packages as temporary development dependencies, and adds tarball overrides. Restore the source manifest after verification and before packaging so those temporary dependency entries do not enter the release. [Development](development.md#official-source-verification) owns the complete procedure.
 
+## Verification
+
+The rc.2 registry packages were checked on Linux with Node.js `26.10.0`, pnpm `11.7.0`, and Chromium `151.0.7922.34`. The following commands completed successfully in the plugin directory:
+
+```bash
+pnpm install --frozen-lockfile --strict-peer-dependencies --ignore-scripts
+pnpm run typecheck
+pnpm run lint
+pnpm run format:check
+pnpm run test
+pnpm run build
+pnpm run verify:bundle
+pnpm run publint
+pnpm run test:browser
+pnpm run test:profile
+pnpm run test:coverage
+DSH_RELEASE_SCREENSHOTS=1 node scripts/profile-smoke.mjs
+pnpm --config.ignoreScripts=true pack --pack-destination artifacts
+```
+
+The 440 unit/component tests include empty and nonempty composer drafts with automatic attachment disabled. The two browser cases cover wide/light and narrow/dark interactions. The isolated official Web profile checks built-plugin discovery, settings persistence and archive recovery, command admission and retry deduplication, recorded-history selection and navigation, manual composer attachment and same-ID resend, image attachment identity, and read-only historical Diff records. Its browser and Host process close after the check. The retained reading fixtures are read-only; send checks use a live Host-created Session with its protected system head. The screenshot run captured seven Chinese Web views from that profile. The packed tarball contains all seven images; installing it into a disposable DSH `0.1.7-rc.2` Web profile succeeded, and that profile loaded the plugin and started the Web server.
+
+The official `dsh-client-ui-primitives` rc.2 npm bundle references a missing source map; Vitest reports the warning while all tests pass. This verification uses a deterministic model adapter, not a live provider. Windows, macOS, the Node 22/24 CI matrix, and the independent source-build CI workflow are not covered by these local results. Installation into an existing user profile and a live-provider check remain separate release steps.
+
 ## Marketplace placement
 
 The catalog submission uses **Sessions & Messages** (`session`). The plugin annotates assistant messages, persists drafts per Session, submits one user message through the official composer, and reconciles queue and durable message state; visual decoration supports that message workflow rather than acting as a theme or general appearance extension.
 
-The repository-owned `screenshots.json` lists the five curated images that storefronts should present. The catalog entry uses the stable `dsh-annotation.tgz` GitHub Release alias, so installation never depends on a local source build.
+The repository-owned `screenshots.json` lists seven screenshots from the Chinese Web profile. The catalog entry uses the stable `dsh-annotation.tgz` GitHub Release alias, so installation never depends on a local source build.
 
 ## Marketplace update API
 
@@ -68,7 +92,7 @@ The plugin uses two different integration mechanisms:
 
 For assistant rows, the decorator keeps the existing component as the body renderer, composes the existing `inject` face with the annotation face, and restores both fields when the feature is disabled or unloaded. It also watches `slots/changed`, so an assistant renderer registered later, including `dsh-smooth-stream`, is decorated without a same-key registration.
 
-DSH `0.1.7-rc.1` renders HTML as literal text. The decorator removes this plugin's acknowledgement and reply comments, including legacy prefixes, from the text and reasoning blocks sent to the inner renderer. The outer annotation parser and persisted Session content retain the raw markers. Unmarked nodes keep their original references, and the Host's Markdown policy is unchanged. [Decision 0003](decisions/0003-assistant-renderer-decoration.md) defines the streaming and incomplete-marker rules.
+DSH `0.1.7-rc.2` renders HTML as literal text. The decorator removes this plugin's acknowledgement and reply comments, including legacy prefixes, from the text and reasoning blocks sent to the inner renderer. The outer annotation parser and persisted Session content retain the raw markers. Unmarked nodes keep their original references, and the Host's Markdown policy is unchanged. [Decision 0003](decisions/0003-assistant-renderer-decoration.md) defines the streaming and incomplete-marker rules.
 
 Source navigation consumes the injected `TurnProcessOwnerProps` fields `foldable`, `open`, and `setOpen`, and recognizes actual folded wrappers through `[data-turn-process-hidden]` or `[hidden="until-found"]`. It expands before measuring only when both signals show a folded source. The quote flash uses positioned DOM rectangles rather than the CSS Custom Highlight registry, and a Session-wide navigation epoch cancels stale local overlays and stale history-load continuations.
 
@@ -101,7 +125,7 @@ The internal command is registered through the public command registry. DSH curr
 
 ## Historical Diff compatibility and persistence acknowledgement
 
-DSH `0.1.7-rc.1` writes Session format v4. Plugin protocol and browser storage v3 are independent version domains. The profile smoke restores frozen Session v3 recordings through the official migration catalog, compares them with adjacent v4 fixtures, and verifies that reading preserves the migrated events. Existing v3 fixture generations remain unchanged.
+DSH `0.1.7-rc.2` writes Session format v4. Plugin protocol and browser storage v3 are independent version domains. The profile smoke restores frozen Session v3 recordings through the official migration catalog, compares them with adjacent v4 fixtures, and verifies that reading preserves the migrated events. Existing v3 fixture generations remain unchanged.
 
 The current plugin emits message-source annotations only. Protocol v1/v2 messages, code-block selections, tables, old source namespaces, acknowledgement/reply markers, and failed message-source retries remain readable. Historical protocol v3 Diff sources and complete snapshots in standard `user/message` metadata remain parseable and visible as read-only history. Browser-local Diff drafts, suspended editors, and failed batches are preserved without automatic migration, retry, or deletion. The former Diff modal, Git reader, signing domain, and preview command are absent. A new Diff submission is rejected by the Host even if an older Client constructs one.
 

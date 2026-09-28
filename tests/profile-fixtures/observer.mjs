@@ -27,6 +27,11 @@ class FixtureAdapter extends LlmAdapter {
   }
   async *stream(options) {
     this.requests.push(options.messages)
+    const lastUser = options.messages.findLast((message) => message.role === 'user')
+    const releaseBatch =
+      lastUser?.source?.annotationSubmission?.sessionId === 'annotation-release-showcase'
+        ? lastUser.source.annotationSubmission
+        : undefined
     let text =
       this.requests.length === 1
         ? 'Review the [local notes](./notes.md). Selected source needs clarification.'
@@ -34,7 +39,24 @@ class FixtureAdapter extends LlmAdapter {
     const batch = options.messages.findLast((message) =>
       message.source?.annotationSubmission?.annotations.some((item) => item.source?.kind === 'diff'),
     )?.source.annotationSubmission
-    if (batch !== undefined) {
+    if (releaseBatch !== undefined) {
+      text =
+        releaseBatch.annotations
+          .map(
+            (item) =>
+              `<!-- dsh-annotation-reply:${JSON.stringify({ submissionId: releaseBatch.submissionId, annotationId: item.annotationId, ordinal: item.ordinal })} -->\n注解 ${item.ordinal}：已补充判断依据和一个具体例子。`,
+          )
+          .join('\n\n') +
+        `\n<!-- dsh-annotation:${JSON.stringify({ submissionId: releaseBatch.submissionId, processed: releaseBatch.annotations.map((item) => item.annotationId) })} -->`
+    } else if (
+      options.messages.some((message) =>
+        message.content?.some(
+          (block) => block.type === 'text' && block.text.includes('请说明如何提出清晰的反馈'),
+        ),
+      )
+    ) {
+      text = '这段说明可以帮助我们更清楚地定位问题。'
+    } else if (batch !== undefined) {
       text =
         `Diff review completed for ${batch.annotations.length} selected annotations.\n` +
         batch.annotations
@@ -318,6 +340,26 @@ export function apply(ctx) {
           events: agent.session.snapshotEvents(),
           sessionId: agent.id,
         }
+      } finally {
+        await handle.dispose()
+      }
+    }
+    if (action === 'release-showcase') {
+      const handle = await ctx.agents.create({
+        sessionId: 'annotation-release-showcase',
+        meta: { cwd: process.cwd(), agentPreset: 'standard' },
+        agentOptions: { provider: 'annotation-fixture', model: 'fixture' },
+        setup: (scope) => ctx.agentPresets.mount(scope, 'standard').then(() => undefined),
+      })
+      try {
+        handle.agent.followup(
+          createUserMessage({
+            content: [{ type: 'text', text: '请说明如何提出清晰的反馈。' }],
+            source: { kind: 'user' },
+          }),
+        )
+        await handle.agent.whenIdle()
+        return { sessionId: handle.agent.id }
       } finally {
         await handle.dispose()
       }
