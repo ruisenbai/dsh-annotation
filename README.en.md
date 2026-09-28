@@ -44,7 +44,27 @@ After the official composer sends a message, an annotation count appears above i
 
 ## Install and compatibility
 
-Download `dsh-annotation.tgz` from [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/latest) and install it with plugin management in a matching DSH Web release. Release tarballs are published through GitHub Releases, not npm. See the [development guide](docs/development.md#install-and-verify) for local builds and the [compatibility guide](docs/compatibility.md) for exact dependencies and executed checks.
+Release tarballs are published through [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.0.0), not npm. These commands install the pinned `1.0.0` release into the DSH Web `web` profile. The target Host must be `0.1.7-rc.2`.
+
+### Manual installation
+
+```bash
+dsh --version
+dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.0.0/dsh-annotation.tgz
+dsh plugin --profile web why dsh-annotation
+```
+
+The first command must print `0.1.7-rc.2`; the last must show `dsh-annotation@1.0.0`. If you use a custom profile, replace both instances of `web` with its name. Restart that profile's Web Host after installation, then check **Settings → Annotations**. See the [development guide](docs/development.md#install-and-verify) for local builds and the [compatibility guide](docs/compatibility.md) for exact dependencies and executed checks.
+
+### Install with an AI agent
+
+Give this prompt to an AI agent that can operate your local terminal:
+
+```text
+Install dsh-annotation 1.0.0 into my local DeepSeek Harness Web profile. Determine the target profile name first; use web if I have no custom profile. Run dsh --version and continue only if it prints exactly 0.1.7-rc.2. If it differs, stop and report the version without changing Host dependencies.
+Run dsh plugin --profile <actual profile name> add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.0.0/dsh-annotation.tgz. Then run dsh plugin --profile <actual profile name> why dsh-annotation and confirm it shows dsh-annotation@1.0.0.
+Do not modify DSH or plugin source, and do not clear Session or browser data. If the Web Host is running, tell me to restart that profile. Report the commands you ran, the versions, the installation result, and any warnings.
+```
 
 A new Session without annotations shows no record or empty-state copy. The plugin provides annotation features only; it does not hide reasoning, tool calls, or other conversation content. Creating and editing Code Diff annotations has been removed. Earlier Diff annotations and their snapshots remain readable in message history.
 
