@@ -180,14 +180,21 @@ async function selectReadingSource(page, source) {
 }
 
 async function openAnnotationSettings(page) {
-  // The Host's initial empty-Hero transition can dismiss a panel opened before Session hydration.
-  await page.locator('[data-composer-card] [contenteditable="true"]').waitFor()
-  await page.getByRole('button', { name: '设置', exact: true }).click()
-  const dialog = page.getByRole('dialog')
-  await dialog.getByRole('button', { name: '注解', exact: true }).click()
-  const card = dialog.locator('.dia-plugin-card')
-  await card.waitFor()
-  return card
+  await page.locator('[data-composer-card]').waitFor()
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    try {
+      await dialog.getByRole('button', { name: '注解', exact: true }).click({ timeout: 5_000 })
+      const card = dialog.locator('.dia-plugin-card')
+      await card.waitFor({ timeout: 5_000 })
+      return card
+    } catch (error) {
+      // The Host can replace the empty Hero and dismiss Settings during hydration.
+      if (await dialog.isVisible()) throw error
+    }
+  }
+  throw new Error('Annotation Settings closed during Host hydration')
 }
 
 /** Capture repository screenshots from the installed Chinese Web profile. */
