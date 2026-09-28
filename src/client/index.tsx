@@ -18,7 +18,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { resolveConfig, LEGACY_COMMAND_NAMES } from '../shared/config.ts'
-import { encodeSubmissionCommand, encodeJsonCommand } from '../shared/codec.ts'
+import { encodeSubmissionCommand } from '../shared/codec.ts'
 import { parseAttachmentIdentities, sameAttachmentIdentities } from '../shared/protocol.ts'
 import { ATTACHMENT_PREPARE_INPUT, ATTACHMENT_IDENTITY_MISMATCH } from '../shared/types.ts'
 import { ANNOTATION_SETTINGS_NAMESPACE, type AnnotationSettings } from '../shared/settings.ts'
@@ -55,19 +55,16 @@ import { MarketUpdateController } from './market-update.ts'
 import { createFocusChatAdapter } from './focus-adapter.ts'
 import { HighlightManager } from './highlight.ts'
 import { AnnotationStorage } from './storage.ts'
-import type { StorageLike } from './storage.ts'
+import type { StorageCoordination, StorageLike } from './storage.ts'
 import { styles } from './styles.ts'
 import { en, zh } from './locales.ts'
 import { decorateAssistantRenderers } from './assistant-renderer-decorator.tsx'
-import {
-  decorateTranscriptNodes,
-  decorateTranscriptView,
-  FILTERED_CHAT_PRESENTATION,
-  type TranscriptVisibilityInjected,
-} from './transcript-renderer.tsx'
-import { createTranscriptPresentation } from './transcript-visibility.ts'
 import { AnnotatedUserNode } from './components/AnnotatedUserNode.tsx'
-import { AnnotationDock } from './components/AnnotationDock.tsx'
+import {
+  AnnotationExperience,
+  AnnotationRecordToggle,
+  AnnotationComposerChip,
+} from './components/AnnotationExperience.tsx'
 import { AssistantAnnotationAction } from './components/AssistantAnnotationAction.tsx'
 import { HiddenCommandRow } from './components/HiddenCommandRow.tsx'
 import { AnnotationPluginCard } from './components/AnnotationPluginCard.tsx'
@@ -156,7 +153,6 @@ function attachmentMetadata(attachments: readonly SubmitAttachment[]): OutboxAtt
 /** Mount every UI contribution and bind one controller to each encountered Session. */
 export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): void {
   const config = resolveConfig(input)
-  const transcriptPresentation = createTranscriptPresentation([config.commandName, ...LEGACY_COMMAND_NAMES])
   const sessions = ctx.sessions as unknown as ISessions
   const conversation = ctx.conversation as unknown as IConversation
   const inputTriggers = ctx.inputTriggers as unknown as InputTriggerServiceContract
@@ -178,29 +174,33 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     // Browser privacy modes can deny the localStorage getter itself.
     browserStorage = unavailableStorage
   }
+  const lockManager = globalThis.navigator?.locks
+  const storageCoordination: StorageCoordination = {
+    keys: () =>
+      browserStorage.key === undefined || browserStorage.length === undefined
+        ? []
+        : Array.from({ length: browserStorage.length }, (_, index) => browserStorage.key!(index)).filter(
+            (key): key is string => key !== null,
+          ),
+    ...(lockManager === undefined
+      ? {}
+      : {
+          runExclusive: (name: string, task: () => void, signal: AbortSignal) =>
+            lockManager.request(name, { mode: 'exclusive', signal }, () => task()),
+        }),
+  }
   const settingsController = new AnnotationSettingsController(
     ctx.configForms.get<AnnotationSettings>(ANNOTATION_SETTINGS_NAMESPACE),
     browserStorage,
   )
   const featureEnabled = settingsController.feature()
   const autoAttachEnabled = settingsController.autoAttach()
-  const individualSelection = settingsController.individualSelection()
   const compactSummaryEnabled = settingsController.compactSummary()
   const marketUpdateController = new MarketUpdateController()
   ctx.effect(() => () => settingsController.dispose(), 'dsh-annotation: settings controller')
   ctx.effect(() => () => marketUpdateController.dispose(), 'dsh-annotation: market update controller')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-annotation: dictionaries')
   const annotationT = ctx.locale.bind(NS)
-  const transcriptFace: TranscriptVisibilityInjected = {
-    hooks: {
-      annotationTranscriptVisibility: settingsController.transcriptVisibility(),
-      annotationExpandedPresentation: {
-        getSnapshot: () => FILTERED_CHAT_PRESENTATION,
-        subscribe: () => () => undefined,
-      },
-    },
-    annotationTranscriptT: annotationT,
-  }
   ctx.effect(() => {
     const style = document.createElement('style')
     style.dataset.dshAnnotation = 'true'
@@ -229,6 +229,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       controller: AnnotationController
       dispose: () => void
       commandReleased: boolean
+      manualDetached: boolean
       submissionSnapshot: { readonly view: AnnotationView; readonly protocolLocale: ProtocolLocale } | null
     }
   >()
@@ -306,33 +307,32 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     if (binding === undefined) throw new Error(`Session ${String(sessionId)} has no client binding`)
     const controller = new AnnotationController(
       sessionId as unknown as SessionIdentity,
-      new AnnotationStorage(browserStorage, sessionId as unknown as SessionIdentity),
+      new AnnotationStorage(browserStorage, sessionId as unknown as SessionIdentity, storageCoordination),
       binding.session,
       config,
     )
     const chat = ctx.uiConversation.binding(binding).target('chat')
     const inboxFace = binding.session.projections.faceOf('inbox')
-    let reconciledSession: ReturnType<typeof binding.session.getSnapshot> | undefined
     let reconciledChat: ChatSnapshot | undefined
     let reconciledInbox: InboxState | undefined
+    let reconciled = false
     const reconcile = () => {
       const sessionSnapshot = binding.session.getSnapshot()
       const chatSnapshot = chat.getSnapshot()
       const inbox = inboxFace.getSnapshot() as InboxState | undefined
-      if (
-        sessionSnapshot === reconciledSession &&
-        chatSnapshot === reconciledChat &&
-        inbox === reconciledInbox
-      )
-        return
-      reconciledSession = sessionSnapshot
+      const refreshChat = !reconciled || chatSnapshot !== reconciledChat
+      if (reconciled && !refreshChat && inbox === reconciledInbox) return
+      reconciled = true
       reconciledChat = chatSnapshot
       reconciledInbox = inbox
-      controller.reconcile({
-        chat: { nodes: chatSnapshot?.nodes ?? EMPTY_CHAT_NODES },
-        queue: annotationQueue(inbox),
-        hasMore: sessionSnapshot.hasMore,
-      })
+      controller.reconcile(
+        {
+          chat: { nodes: chatSnapshot?.nodes ?? EMPTY_CHAT_NODES },
+          queue: annotationQueue(inbox),
+          hasMore: sessionSnapshot.hasMore,
+        },
+        refreshChat,
+      )
       syncMirrors(controller)
     }
     const input = conversation.input.for(binding.ctx)
@@ -361,10 +361,6 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       }
       repair()
     }
-    const mode = individualSelection.getSnapshot()
-    const modeChanged =
-      mode !== null && controller.getSnapshot().selectionMode !== (mode ? 'individual' : 'all')
-    if (mode !== null) controller.setSelectionMode(mode)
     const unsubscribeController = controller.subscribe(repair)
     const unsubscribeInput = input.state.subscribe(observeInput)
     const unsubscribeSession = binding.session.subscribe(reconcile)
@@ -373,6 +369,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     controllers.set(sessionId, {
       controller,
       commandReleased: false,
+      manualDetached: false,
       submissionSnapshot: null,
       dispose: () => {
         unsubscribeInput()
@@ -383,9 +380,6 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         controller.dispose()
       },
     })
-    if (modeChanged && hasComposerAttachment(input.state.getSnapshot())) {
-      if (!detachComposer(binding.ctx, input)) scheduleDetachRetry(sessionId)
-    }
     reconnectMirrors(sessionId, controller)
     reconcile()
     repair()
@@ -558,7 +552,12 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
 
   const withdraw = async (origin: AnnotationController, submissionId: SubmissionId): Promise<void> => {
     const entry = origin.getSnapshot().outbox.find((item) => item.payload.submissionId === submissionId)
-    if (entry === undefined || entry.status !== 'queued') return
+    if (
+      entry === undefined ||
+      entry.status !== 'queued' ||
+      entry.payload.annotations.some((annotation) => annotation.source?.kind === 'diff')
+    )
+      return
     const targetId = entry.targetSessionId as unknown as SessionId
     const binding = sessions.binding(targetId)
     if (binding === undefined) {
@@ -695,7 +694,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     const controller = controllerFor(sessionId)
     const input = conversation.input.for(binding.ctx)
     const state = input.state.getSnapshot()
-    if (hasComposerAttachment(state)) return true
+    if (state.phase === 'claimed' && state.claim?.token === COMPOSER_ATTACHMENT_TOKEN) return true
     if (state.phase !== 'plain') return false
     // Never arm the composer while it carries an official slash command.
     if (isSlashCommandLine(state)) return false
@@ -705,18 +704,24 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     const legacy = snapshot.overallRequirementDraft
     if (legacy.trim() !== '') input.setDraft(mergeLegacyRequirement(state.draft, legacy))
     const attached = attachComposer(binding.ctx, input, claimFor(sessionId))
+    if (attached) {
+      const entry = controllers.get(sessionId)
+      if (entry !== undefined) entry.manualDetached = false
+    }
     if (attached && legacy.trim() !== '') controller.setOverallRequirementDraft('')
     return attached
   }
 
   const toggleComposerAttachment = (sessionId: SessionId): boolean => {
-    if (controllerFor(sessionId).getSnapshot().selectionMode === 'individual') return false
     const binding = sessions.binding(sessionId)
     if (binding === undefined) return false
     const input = conversation.input.for(binding.ctx)
-    return hasComposerAttachment(input.state.getSnapshot())
-      ? detachComposer(binding.ctx, input)
-      : ensureComposerAttachment(sessionId)
+    if (hasComposerAttachment(input.state.getSnapshot())) {
+      const entry = controllers.get(sessionId)
+      if (entry !== undefined) entry.manualDetached = true
+      return detachComposer(binding.ctx, input)
+    }
+    return ensureComposerAttachment(sessionId)
   }
 
   /**
@@ -754,7 +759,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       if (attached) detachComposer(binding.ctx, input)
       return
     }
-    if (state.phase !== 'plain') return
+    if (state.phase !== 'plain' || entry.manualDetached) return
     // Arm the claim only when this plugin owns the release: a surviving
     // unclaimed token, or an exit from our slash-command release. A manual
     // detach stays detached until the user (or auto-attach) arms it again.
@@ -762,9 +767,9 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       if (
         state.draft.startsWith(COMPOSER_ATTACHMENT_TOKEN) ||
         commandReleased ||
-        snapshot.selectionMode === 'individual'
+        autoAttachEnabled.getSnapshot()
       ) {
-        attachComposer(binding.ctx, input, claimFor(sessionId))
+        ensureComposerAttachment(sessionId)
       }
     }
   }
@@ -789,29 +794,20 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         compactSummary: compactSummaryEnabled,
       },
       annotationT,
-      diff: {
-        open: () => controller.openDiffPanel(),
-        close: () => controller.closeDiffPanel(),
-        begin: (capture, extend, supplementalTo) =>
-          changeSendIntent(() => controller.beginDiffSelection(capture, extend, supplementalTo)),
-        request: async (value) => {
-          const outcome = await executeCommand(
-            sessionId,
-            encodeJsonCommand(`${config.commandName} diff`, value),
-            [],
-          )
-          if (!outcome.ok || outcome.text === undefined)
-            throw new Error(outcome.errorText || annotationT('diff.unavailable'))
-          return JSON.parse(outcome.text) as unknown
-        },
-      },
       beginSelection: (capture) => changeSendIntent(() => controller.beginSelection(capture)),
       chooseOverlap: (annotationId) => changeSendIntent(() => controller.chooseOverlap(annotationId)),
       dismissOverlap: () => controller.dismissOverlap(),
       suspendEditor: () => controller.suspendEditor(),
       resumeEditor: (key) => changeSendIntent(() => controller.resumeEditor(key)),
       discardEditorDraft: (key) => changeSendIntent(() => controller.discardEditorDraft(key)),
-      toggleSelected: (annotationId) => changeSendIntent(() => controller.toggleSelected(annotationId)),
+      toggleSelected: (annotationId) =>
+        changeSendIntent(() => {
+          if (!controller.getSnapshot().selectedAnnotationIds.includes(annotationId)) {
+            const entry = controllers.get(sessionId)
+            if (entry !== undefined) entry.manualDetached = false
+          }
+          controller.toggleSelected(annotationId)
+        }),
       setProcessingMode: (mode) => changeSendIntent(() => controller.setProcessingMode(mode)),
       selectRetry: (submissionId) =>
         changeSendIntent(() => {
@@ -826,6 +822,10 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       confirmLongSelection: () => changeSendIntent(() => controller.confirmLongSelection()),
       saveEditor: () => {
         if (!canEdit()) throw new Error(annotationT('error.submitting'))
+        if (controller.getSnapshot().editor?.kind === 'new') {
+          const entry = controllers.get(sessionId)
+          if (entry !== undefined) entry.manualDetached = false
+        }
         return controller.saveEditor()
       },
       closeEditor: (force) => (force === true && !canEdit() ? false : controller.closeEditor(force)),
@@ -833,8 +833,8 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       undoDelete: () => changeSendIntent(() => controller.undoDelete()),
       dismissDeleteUndo: () => controller.dismissDeleteUndo(),
       setPanelOpen: (open) => controller.setPanelOpen(open),
-      autoAttachEnabled: () =>
-        autoAttachEnabled.getSnapshot() && controller.getSnapshot().selectionMode === 'all',
+      setRecordExpanded: (expanded) => controller.setRecordExpanded(expanded),
+      autoAttachEnabled: () => autoAttachEnabled.getSnapshot(),
       ensureComposerAttachment: () => ensureComposerAttachment(sessionId),
       toggleComposerAttachment: () => toggleComposerAttachment(sessionId),
       repairComposerAttachment: () => repairComposerAttachment(sessionId),
@@ -872,9 +872,8 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
 
   const installConversationIntegrations = (): (() => void) => {
     const disposers = [
-      ctx.slots.inject('conversation.view', () => decorateTranscriptView(ctx)),
       ctx.slots.inject('conversation.chat.node', () => {
-        const restoreAssistantRenderers = decorateAssistantRenderers(ctx, faceFor, transcriptPresentation)
+        const restoreAssistantRenderers = decorateAssistantRenderers(ctx, faceFor)
         const removeUser = ctx.slots.register(
           {
             name: 'conversation.chat.node',
@@ -895,10 +894,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
           },
           SteeringNode,
         )
-        const restoreTranscriptNodes = decorateTranscriptNodes(ctx, transcriptPresentation)
         return () => {
-          // Restore both decorators before unregistering rows can notify their listeners.
-          restoreTranscriptNodes()
           restoreAssistantRenderers()
           removeSteering()
           removeUser()
@@ -913,7 +909,31 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
             locale: NS,
             inject: faceFor,
           },
-          AnnotationDock,
+          AnnotationExperience,
+        ),
+      ),
+      ctx.slots.inject('conversation.input.right', () =>
+        ctx.slots.register(
+          {
+            name: 'conversation.input.right',
+            id: 'dsh-annotation-record-toggle',
+            order: -20,
+            locale: NS,
+            inject: faceFor,
+          },
+          AnnotationRecordToggle,
+        ),
+      ),
+      ctx.slots.inject('conversation.input.overlay', () =>
+        ctx.slots.register(
+          {
+            name: 'conversation.input.overlay',
+            id: 'dsh-annotation-composer-chip',
+            order: -20,
+            locale: NS,
+            inject: faceFor,
+          },
+          AnnotationComposerChip,
         ),
       ),
       ctx.slots.inject('conversation.chat.assistant-actions', () =>
@@ -949,13 +969,8 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         ),
       ]),
     ]
-    const removeTranscriptSources = ctx.slots.provideRoot({
-      hooks: transcriptFace.hooks,
-      props: { annotationTranscriptT: transcriptFace.annotationTranscriptT },
-    })
     return () => {
       for (const dispose of disposers.reverse()) dispose()
-      removeTranscriptSources()
     }
   }
 
@@ -1008,26 +1023,6 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   }
 
   ctx.effect(() => {
-    const syncMode = (): void => {
-      const mode = individualSelection.getSnapshot()
-      if (mode === null) return
-      for (const [sessionId, entry] of controllers) {
-        if (entry.controller.getSnapshot().selectionMode === (mode ? 'individual' : 'all')) continue
-        entry.commandReleased = false
-        entry.controller.setSelectionMode(mode)
-        const binding = sessions.binding(sessionId)
-        if (binding === undefined) continue
-        const input = conversation.input.for(binding.ctx)
-        if (hasComposerAttachment(input.state.getSnapshot()) && !detachComposer(binding.ctx, input))
-          scheduleDetachRetry(sessionId)
-      }
-    }
-    const unsubscribe = individualSelection.subscribe(syncMode)
-    syncMode()
-    return unsubscribe
-  }, 'dsh-annotation: conservative selection mode transitions')
-
-  ctx.effect(() => {
     const flush = (): void => {
       for (const entry of controllers.values()) entry.controller.flush()
     }
@@ -1042,6 +1037,19 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       flush()
     }
   }, 'dsh-annotation: editor lifecycle persistence')
+
+  ctx.effect(() => {
+    const synchronize = (event: StorageEvent): void => {
+      if (event.key === null || (event.storageArea !== null && event.storageArea !== browserStorage)) return
+      for (const [sessionId, entry] of controllers) {
+        const prefix = `dsh-annotation:v1:${sessionId}`
+        if (event.key === prefix || event.key.startsWith(`${prefix}:journal:`))
+          entry.controller.synchronizeStorage()
+      }
+    }
+    window.addEventListener('storage', synchronize)
+    return () => window.removeEventListener('storage', synchronize)
+  }, 'dsh-annotation: cross-page storage synchronization')
 
   ctx.effect(
     () => () => {

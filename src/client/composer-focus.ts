@@ -1,4 +1,4 @@
-import { COMPOSER_ATTACHMENT_TOKEN } from './composer-attachment.ts'
+import { stripComposerToken } from './composer-attachment.ts'
 
 interface ComposerPoint {
   readonly node: Node
@@ -25,7 +25,8 @@ export function composerInput(anchor: HTMLElement | null): HTMLElement | null {
 }
 
 function prefixLength(root: HTMLElement): number {
-  return root.textContent?.startsWith(COMPOSER_ATTACHMENT_TOKEN) ? COMPOSER_ATTACHMENT_TOKEN.length : 0
+  const text = root.textContent ?? ''
+  return text.length - stripComposerToken(text).length
 }
 
 function visibleText(root: HTMLElement): string {

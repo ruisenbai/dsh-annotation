@@ -13,6 +13,7 @@ import {
 } from '../src/host/command.ts'
 import type { AnnotationSubmissionPayload } from '../src/shared/types.ts'
 import { fixturePayload } from './fixtures.ts'
+import { legacyDiffPayload } from './diff-fixtures.ts'
 
 function fakeAgent(events: unknown[] = []) {
   const nextTurn: UserMessage[] = []
@@ -73,6 +74,17 @@ describe('Host annotation command', () => {
     })
     expect(submitAnnotationPayload(fake.agent, payload).duplicate).toBe(true)
     expect(fake.followup).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects retired Diff payloads and the former preview command', () => {
+    const fake = fakeAgent()
+    const payload = legacyDiffPayload()
+    expect(() => submitAnnotationPayload(fake.agent, payload)).toThrow('read-only')
+    const command = createAnnotationCommand(DEFAULT_CONFIG)
+    const encoded = encodeSubmissionCommand(DEFAULT_CONFIG.commandName, payload).split(' ')[1]!
+    expect(() => command.handler(invocation(fake.agent, encoded))).toThrow('read-only')
+    expect(() => command.handler(invocation(fake.agent, 'diff abc'))).toThrow('base64url')
+    expect(fake.followup).not.toHaveBeenCalled()
   })
 
   it('keeps the stable message id prefix so old retries stay addressable', () => {

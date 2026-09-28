@@ -4,7 +4,6 @@ import type { Context, Volatile } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-settings'
-import { installDiffHost } from './host/diff-storage.ts'
 import { installSettingsMigration } from './host/settings-migration.ts'
 import { createAnnotationCommand, createLegacyAnnotationAliases } from './host/command.ts'
 import { DEFAULT_CONFIG, resolveConfig } from './shared/config.ts'
@@ -33,9 +32,6 @@ export const Config = Schema.object({
   maxAnnotationsPerSubmission: Schema.number().default(DEFAULT_CONFIG.maxAnnotationsPerSubmission),
   warnSelectionChars: Schema.number().default(DEFAULT_CONFIG.warnSelectionChars),
   locateHistoryPages: Schema.number().default(DEFAULT_CONFIG.locateHistoryPages),
-  maxDiffFileBytes: Schema.number().default(DEFAULT_CONFIG.maxDiffFileBytes),
-  maxDiffLines: Schema.number().default(DEFAULT_CONFIG.maxDiffLines),
-  diffTimeoutMs: Schema.number().default(DEFAULT_CONFIG.diffTimeoutMs),
   [ARCHIVED_PREFERENCES_IMPORTED_FIELD]: Schema.boolean().default(false).volatile(),
   enabled: Schema.boolean().default(DEFAULT_ANNOTATION_ENABLED).volatile(),
   autoAttach: Schema.boolean().default(DEFAULT_ANNOTATION_AUTO_ATTACH).volatile(),
@@ -66,13 +62,12 @@ export const Config = Schema.object({
 /** Register the Host command bridge and optional user-settings section. */
 export function apply(ctx: Context, input: AnnotationConfig): void {
   const config = resolveConfig(input)
-  const diffHost = installDiffHost(ctx, config)
   installSettingsMigration(ctx)
   ctx.effect(
-    () => ctx.commands.register(createAnnotationCommand(config, diffHost)),
+    () => ctx.commands.register(createAnnotationCommand(config)),
     'dsh-annotation: internal submission command',
   )
-  for (const alias of createLegacyAnnotationAliases(config, diffHost)) {
+  for (const alias of createLegacyAnnotationAliases(config)) {
     ctx.effect(() => ctx.commands.register(alias), `dsh-annotation: legacy alias /${alias.name}`)
   }
   ctx.inject(['settings'], (child) => {

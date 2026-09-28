@@ -2,24 +2,17 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AnnotatedAssistantNode } from '../src/client/components/AnnotatedAssistantNode.tsx'
+import { TestAnnotatedAssistantNode as AnnotatedAssistantNode } from './assistant-host-fixture.tsx'
 import { AnnotatedUserNode } from '../src/client/components/AnnotatedUserNode.tsx'
-import { AnnotationDock } from '../src/client/components/AnnotationDock.tsx'
 import {
   AnnotationPluginCard,
   type AnnotationPluginCardProps,
 } from '../src/client/components/AnnotationPluginCard.tsx'
-import { COMPOSER_ATTACHMENT_TOKEN } from '../src/client/composer-attachment.ts'
 import type { AnnotationView } from '../src/client/controller.ts'
-import type {
-  AssistantAnnotationProps,
-  InputAnnotationProps,
-  UserAnnotationProps,
-} from '../src/client/contract.ts'
+import type { AssistantAnnotationProps, UserAnnotationProps } from '../src/client/contract.ts'
 import type { AnnotationLocaleKey } from '../src/client/locales.ts'
 import type { MarketUpdateState } from '../src/client/market-update.ts'
-import { styles } from '../src/client/styles.ts'
-import { DEFAULT_TRANSCRIPT_VISIBILITY, TRANSCRIPT_VISIBILITY_KEYS } from '../src/shared/settings.ts'
+import { DEFAULT_TRANSCRIPT_VISIBILITY } from '../src/shared/settings.ts'
 import { fixturePayload } from './fixtures.ts'
 import { diffAnnotation } from './diff-fixtures.ts'
 import { sourceFields } from '../src/shared/annotation-source.ts'
@@ -42,11 +35,6 @@ const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
     'settings.toggle': 'Enable DSH Inline Comments',
     'settings.autoAttach': 'Attach new comments to the composer automatically',
     'settings.autoAttachHint': 'Saving a new comment attaches it to the official composer.',
-    'settings.autoAttachIndividualHint': 'New comments wait for an individual choice.',
-    'settings.individualSelection': 'Choose comments individually',
-    'settings.individualSelectionHint': 'Choose every comment for this send.',
-    'settings.compactSummary': 'Compact annotation summary',
-    'settings.compactSummaryHint': 'Right-align a content-sized summary; turn off for the full-width bar.',
     'settings.on': 'On',
     'settings.off': 'Off',
     'settings.overridden': 'Overridden',
@@ -83,7 +71,11 @@ const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
     'settings.refresh': 'Refresh page',
     'settings.restart': 'Restart Host',
     'settings.restartManaged': 'Restart it from the Host.',
-    'timeline.summary': `Added ${String(params?.count)} inline comments`,
+    'timeline.single': '1 comment',
+    'timeline.summary': `${String(params?.count)} comments`,
+    'timeline.singleLocate': '1 comment, double-click to locate the source',
+    'timeline.previewSource': `Source: ${String(params?.quote)}`,
+    'timeline.preview': `Source: ${String(params?.quote)}\nAnnotation: ${String(params?.annotation)}`,
     'list.locate': 'Locate source',
     'status.draft': 'Ready to send',
     'status.submitted': 'Submitted; awaiting confirmation',
@@ -122,9 +114,7 @@ const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
     'editor.autosaving': 'Saving locally…',
     'editor.autosaved': 'Automatically saved locally',
     'editor.cancel': 'Cancel',
-    'editor.discard': 'Cancel',
     'editor.save': 'Save comment',
-    'editor.placeholder': 'Explain what to change',
     'editor.supplementPlaceholder': 'Add a clarification',
     'editor.suspendHint': 'Click outside to keep this draft',
     'processing.answer': 'Answer individually',
@@ -164,6 +154,7 @@ function baseView(): AnnotationView {
     editorSaveStatus: 'idle',
     deletedDraft: null,
     panelOpen: false,
+    recordExpanded: true,
     notice: null,
     activeAnnotationId: null,
     navigationEpoch: 0,
@@ -171,59 +162,6 @@ function baseView(): AnnotationView {
     latestAssistantMessageId: null,
     storageAvailable: true,
   }
-}
-
-const idleInput = {
-  draft: '',
-  attachmentIds: [],
-  draftRev: 0,
-  phase: 'plain',
-  occurrences: [],
-  queue: [],
-} as const
-const noAttachmentRepair = () => undefined
-const noAttachmentToggle = () => true
-const noAutoAttach = () => false
-const noEnsureAttachment = () => true
-const noAnnotationAction = () => undefined
-const defaultCompactSummary: InputAnnotationProps['useCompactSummary'] = (selector) => selector(true)
-
-function TestAnnotationDock({
-  input = idleInput as InputAnnotationProps['input'],
-  repairComposerAttachment = noAttachmentRepair,
-  toggleComposerAttachment = noAttachmentToggle,
-  autoAttachEnabled = noAutoAttach,
-  ensureComposerAttachment = noEnsureAttachment,
-  suspendEditor = noAnnotationAction,
-  resumeEditor = noAnnotationAction,
-  discardEditorDraft = noAnnotationAction,
-  chooseOverlap = noAnnotationAction,
-  dismissOverlap = noAnnotationAction,
-  toggleSelected = noAnnotationAction,
-  setProcessingMode = noAnnotationAction,
-  selectRetry = noAnnotationAction,
-  useCompactSummary = defaultCompactSummary,
-  ...props
-}: InputAnnotationProps) {
-  return (
-    <AnnotationDock
-      input={input}
-      repairComposerAttachment={repairComposerAttachment}
-      toggleComposerAttachment={toggleComposerAttachment}
-      autoAttachEnabled={autoAttachEnabled}
-      ensureComposerAttachment={ensureComposerAttachment}
-      suspendEditor={suspendEditor}
-      resumeEditor={resumeEditor}
-      discardEditorDraft={discardEditorDraft}
-      chooseOverlap={chooseOverlap}
-      dismissOverlap={dismissOverlap}
-      toggleSelected={toggleSelected}
-      setProcessingMode={setProcessingMode}
-      selectRetry={selectRetry}
-      useCompactSummary={useCompactSummary}
-      {...props}
-    />
-  )
 }
 
 describe('annotation Settings tab', () => {
@@ -296,21 +234,17 @@ describe('annotation Settings tab', () => {
     const props = cardProps({ dirty: true })
     render(<AnnotationPluginCard {...props} />)
 
-    expect(screen.getAllByRole('switch')).toHaveLength(4 + TRANSCRIPT_VISIBILITY_KEYS.length)
+    expect(screen.getAllByRole('switch')).toHaveLength(2)
     expect(screen.getByRole('heading', { name: 'DSH Inline Comments' })).toBeInTheDocument()
     expect(screen.queryByRole('listitem')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable DSH Inline Comments' }))
-    fireEvent.click(screen.getByRole('switch', { name: 'Choose comments individually' }))
     fireEvent.click(screen.getByRole('switch', { name: 'Attach new comments to the composer automatically' }))
-    fireEvent.click(screen.getByRole('switch', { name: 'Compact annotation summary' }))
     expect(screen.queryByRole('switch', { name: 'Show local data tools' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
 
     expect(props.setEnabled).toHaveBeenCalledWith(false)
-    expect(props.setIndividualSelection).toHaveBeenCalledWith(true)
     expect(props.setAutoAttach).toHaveBeenCalledWith(false)
-    expect(props.setCompactSummary).toHaveBeenCalledWith(false)
     expect(props.save).toHaveBeenCalledOnce()
     expect(props.discard).toHaveBeenCalledOnce()
     expect(screen.getByText('Unsaved')).toBeInTheDocument()
@@ -326,9 +260,7 @@ describe('annotation Settings tab', () => {
     const { rerender } = render(<AnnotationPluginCard {...props} />)
     for (const button of screen.getAllByRole('button', { name: 'Reset to default' })) fireEvent.click(button)
     expect(props.resetEnabled).toHaveBeenCalledOnce()
-    expect(props.resetIndividualSelection).toHaveBeenCalledOnce()
     expect(props.resetAutoAttach).toHaveBeenCalledOnce()
-    expect(props.resetCompactSummary).toHaveBeenCalledOnce()
     rerender(<AnnotationPluginCard {...cardProps({ available: false })} />)
     expect(screen.queryByRole('switch')).not.toBeInTheDocument()
   })
@@ -338,7 +270,7 @@ describe('annotation Settings tab', () => {
     render(<AnnotationPluginCard {...props} />)
 
     expect(screen.getByText('This deployment stores settings read-only.')).toHaveAttribute('role', 'status')
-    expect(screen.getAllByRole('switch')).toHaveLength(4 + TRANSCRIPT_VISIBILITY_KEYS.length)
+    expect(screen.getAllByRole('switch')).toHaveLength(2)
     for (const control of screen.getAllByRole('switch')) expect(control).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Reset to default' })).toBeDisabled()
     expect(screen.getByText('The deployment did not accept this value.')).toBeInTheDocument()
@@ -398,79 +330,137 @@ describe('annotation Settings tab', () => {
 })
 
 describe('inline comment presentation', () => {
-  it('labels mixed source history without claiming all annotations came from a reply', () => {
+  it('changes the active quote without rebuilding mounted base highlights', () => {
+    const submitted = fixturePayload().annotations[0]!
+    const annotation = { ...submitted, status: 'draft' as const, updatedAt: submitted.createdAt }
+    const view: AnnotationView = { ...baseView(), annotations: [annotation] }
+    const updateHighlightRanges = vi.fn()
+    const activateHighlight = vi.fn()
+    const removeHighlights = vi.fn()
+    const selectView = (snapshot: AnnotationView) => (selector: (state: AnnotationView) => unknown) => {
+      const selected = selector(snapshot)
+      return Array.isArray(selected) && selected[0] === annotation ? view.annotations : selected
+    }
+    const props = {
+      node: {
+        data: {
+          status: 'closed',
+          blocks: [{ kind: 'text', text: 'before selected source after' }],
+          finalNode: { messageId: annotation.messageId, seq: annotation.messageSeq },
+        },
+        location: { kind: 'root' },
+      },
+      useTurnData: () => undefined,
+      openFile: vi.fn(),
+      renderMessageImages: () => null,
+      fileMentions: vi.fn(),
+      useAnnotations: selectView(view),
+      beginSelection: vi.fn(),
+      openAnnotation: vi.fn(),
+      registerEndpoint: vi.fn(() => () => undefined),
+      updateHighlightRanges,
+      activateHighlight,
+      removeHighlights,
+      t,
+    } as unknown as AssistantAnnotationProps
+    const { rerender } = render(<AnnotatedAssistantNode {...props} />)
+    expect(updateHighlightRanges).toHaveBeenCalled()
+    updateHighlightRanges.mockClear()
+    removeHighlights.mockClear()
+    activateHighlight.mockClear()
+
+    const activeView: AnnotationView = { ...view, activeAnnotationId: annotation.annotationId }
+    rerender(
+      <AnnotatedAssistantNode
+        {...props}
+        useAnnotations={selectView(activeView) as AssistantAnnotationProps['useAnnotations']}
+      />,
+    )
+    expect(activateHighlight).toHaveBeenCalledOnce()
+    expect(updateHighlightRanges).not.toHaveBeenCalled()
+    expect(removeHighlights).not.toHaveBeenCalled()
+  })
+
+  it('shows a mixed historical batch above the message and keeps Diff sources read-only', () => {
     const message = fixturePayload().annotations[0]!
+    const second = {
+      ...message,
+      annotationId: 'ann-second' as typeof message.annotationId,
+      ordinal: 2,
+      quote: {
+        ...message.quote,
+        exact: 'another source',
+        end: message.quote.start + 'another source'.length,
+      },
+      annotation: 'Another note.',
+    }
     const payload = parseSubmissionPayload({
       ...fixturePayload(),
       protocolVersion: 3,
       annotations: [
         { ...message, ...sourceFields(message) },
-        { ...diffAnnotation(), annotationId: 'ann-diff', ordinal: 2 },
+        { ...second, ...sourceFields(second) },
+        { ...diffAnnotation(), annotationId: 'ann-diff', ordinal: 3 },
       ],
     })
-    const view: AnnotationView = {
-      ...baseView(),
-      annotations: payload.annotations.map((item) => ({
-        ...item,
-        status: 'sent' as const,
-        updatedAt: payload.createdAt,
-        submissionId: payload.submissionId,
-      })),
-    }
     const translate = (key: AnnotationLocaleKey, params?: Record<string, unknown>) =>
       en[key].replace(/\{(\w+)\}/g, (_, name: string) => String(params?.[name] ?? ''))
     const navigate = vi.fn(async () => true)
     const props = {
       node: { data: { source: { kind: 'user', annotationSubmission: payload }, content: [] } },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       navigate,
       renderMessageImages: () => null,
       t: translate,
     } as unknown as UserAnnotationProps<'user'>
-    render(<AnnotatedUserNode {...props} />)
-    const summary = screen.getByText('Submitted 2 annotations with this message').closest('summary')!
-    expect(summary).toHaveTextContent('Bound to their original versions')
-    expect(summary).not.toHaveTextContent('earlier reply')
-    fireEvent.click(summary)
+    const { container } = render(<AnnotatedUserNode {...props} />)
+    const badge = screen.getByRole('button', { name: '3 comments' })
+    expect(container.querySelector('.dia-user-submission')?.firstElementChild).toHaveClass('dia-timeline')
+    expect(badge).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('src/example.ts')).not.toBeInTheDocument()
+    fireEvent.click(badge)
+    expect(badge).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('src/example.ts')).toBeVisible()
     expect(screen.getByText('Working tree · New side · 2–2')).toBeVisible()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Locate source' })[1]!)
-    expect(navigate).toHaveBeenCalledWith('ann-diff')
+    expect(screen.getByText('Legacy Diff annotation (read-only)')).toBeVisible()
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+    expect(screen.getByText('selected source')).toBeVisible()
+    expect(screen.getByText('another source')).toBeVisible()
+    expect(screen.getByText('Explain this claim.')).toBeVisible()
+    expect(screen.getByText('Another note.')).toBeVisible()
+    const locate = screen.getAllByRole('button', { name: 'Locate source' })
+    expect(locate).toHaveLength(2)
+    expect(locate[1]?.querySelector('svg.lucide-map-pin')).toBeInTheDocument()
+    fireEvent.click(locate[1]!)
+    expect(navigate).toHaveBeenCalledWith(second.annotationId)
+    expect(container.querySelector('.dia-diagnostics')).toBeNull()
+    fireEvent.click(badge)
+    expect(badge).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('src/example.ts')).not.toBeInTheDocument()
+    expect(screen.queryByText('Another note.')).not.toBeInTheDocument()
   })
 
-  it('folds a durable comment submission with its frozen mode and navigates by id', () => {
+  it('places one compact comment above the message and locates only on double-click', async () => {
     const payload = fixturePayload({ processingMode: 'rewrite' })
     const navigate = vi.fn(async (_annotationId: unknown) => true)
-    const view: AnnotationView = {
-      ...baseView(),
-      annotations: payload.annotations.map((item) => ({
-        ...item,
-        status: 'sent' as const,
-        updatedAt: payload.createdAt,
-        submissionId: payload.submissionId,
-      })),
-    }
     const props = {
       node: { data: { source: { kind: 'user', inlineComments: payload }, content: [] } },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
       navigate,
       renderMessageImages: () => null,
       t,
     } as unknown as UserAnnotationProps<'user'>
-    render(<AnnotatedUserNode {...props} />)
+    const { container } = render(<AnnotatedUserNode {...props} />)
+    const submission = container.querySelector('.dia-user-submission')!
+    expect(submission.firstElementChild).toHaveClass('dia-timeline')
+    expect(submission.children[1]).toHaveClass('dia-user')
     expect(screen.getByText('Rewrite the proposal coherently.')).toBeInTheDocument()
-    const summary = screen.getByText('Added 1 inline comments').closest('summary')!
-    expect(summary).toHaveTextContent(t('processing.rewrite'))
-    expect(summary).not.toHaveTextContent(payload.submissionId)
-    fireEvent.click(summary)
-    expect(screen.getByText('Explain this claim.')).toBeInTheDocument()
-    const diagnosticId = screen.getByText(payload.annotations[0]!.annotationId)
-    expect(diagnosticId.closest('details')).not.toHaveAttribute('open')
-    expect(diagnosticId).not.toBeVisible()
-    const locate = screen.getByRole('button', { name: 'Locate source' })
-    expect(locate.querySelector('svg.lucide-map-pin')).toBeInTheDocument()
-    fireEvent.click(locate)
-    expect(navigate).toHaveBeenCalledWith(payload.annotations[0]?.annotationId)
+    const badge = screen.getByRole('button', { name: '1 comment, double-click to locate the source' })
+    expect(badge).toHaveTextContent('1 comment')
+    fireEvent.click(badge, { detail: 1 })
+    expect(navigate).not.toHaveBeenCalled()
+    fireEvent.doubleClick(badge)
+    expect(navigate).toHaveBeenCalledWith(payload.annotations[0]!.annotationId)
+    expect(container.querySelector('.dia-diagnostics')).toBeNull()
+    expect(screen.queryByText(payload.annotations[0]!.annotationId)).not.toBeInTheDocument()
   })
 
   it.each(['user', 'steering'] as const)(
@@ -649,433 +639,6 @@ describe('inline comment presentation', () => {
     expect(renderAssistantImages).toHaveBeenCalledOnce()
   })
 
-  it('shows the composer dock only when recoverable comment state exists', () => {
-    const payload = fixturePayload()
-    const setPanelOpen = vi.fn()
-    const view: AnnotationView = {
-      ...baseView(),
-      annotations: [
-        {
-          ...payload.annotations[0]!,
-          status: 'draft',
-          updatedAt: payload.createdAt,
-        },
-      ],
-    }
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      setPanelOpen,
-      t,
-    } as unknown as InputAnnotationProps
-    const { rerender } = render(<TestAnnotationDock {...props} />)
-    fireEvent.click(screen.getByRole('button', { name: /Inline comments/u }))
-    expect(setPanelOpen).toHaveBeenCalledWith(true)
-
-    const emptyProps = {
-      ...props,
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(baseView()),
-    } as unknown as InputAnnotationProps
-    rerender(<TestAnnotationDock {...emptyProps} />)
-    expect(screen.queryByRole('button', { name: /inline comments/u })).not.toBeInTheDocument()
-  })
-
-  it('expands an official-style inline list with two-line rows and icon actions', () => {
-    const payload = fixturePayload()
-    const annotation = {
-      ...payload.annotations[0]!,
-      status: 'draft' as const,
-      updatedAt: payload.createdAt,
-    }
-    const secondAnnotation = {
-      ...annotation,
-      annotationId: 'ann-test-2' as typeof annotation.annotationId,
-      ordinal: 2,
-      quote: { ...annotation.quote, exact: 'second selected source' },
-      annotation: 'Use a concrete example here.',
-    }
-    const navigate = vi.fn(async (_annotationId: unknown) => true)
-    const toggleComposerAttachment = vi.fn(() => true)
-    const view: AnnotationView = {
-      ...baseView(),
-      annotations: [annotation, secondAnnotation],
-      panelOpen: true,
-    }
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      setPanelOpen: vi.fn(),
-      toggleComposerAttachment,
-      openAnnotation: vi.fn(),
-      deleteDraft: vi.fn(),
-      navigate,
-      withdraw: vi.fn(),
-      t,
-    } as unknown as InputAnnotationProps
-    render(
-      <>
-        <style>{styles}</style>
-        <TestAnnotationDock {...props} />
-      </>,
-    )
-
-    const panel = screen.getByRole('region', { name: 'Inline comments' })
-    expect(panel).toBeInTheDocument()
-    expect(screen.queryByRole('dialog', { name: 'Inline comments' })).not.toBeInTheDocument()
-    const rows = panel.querySelectorAll<HTMLElement>('.dia-item')
-    expect(rows).toHaveLength(2)
-    expect(within(panel).getByText(secondAnnotation.annotation)).toBeInTheDocument()
-    const firstRow = within(rows[0]!)
-    const comment = firstRow.getByText(annotation.annotation)
-    expect(comment.parentElement?.children).toHaveLength(2)
-    expect(within(panel).queryByText(annotation.annotationId)).not.toBeInTheDocument()
-    expect(within(panel).queryByLabelText('Overall request (optional)')).not.toBeInTheDocument()
-    expect(within(panel).queryByRole('button', { name: /Send 2 comments/u })).not.toBeInTheDocument()
-
-    for (const name of ['Locate source', 'Edit', 'Delete']) {
-      expect(firstRow.getByRole('button', { name })).not.toHaveTextContent(/\S/u)
-    }
-    const locate = firstRow.getByRole('button', { name: 'Locate source' })
-    expect(locate.querySelector('svg.lucide-map-pin')).toBeInTheDocument()
-    fireEvent.click(locate)
-    expect(navigate).toHaveBeenCalledWith(annotation.annotationId)
-    fireEvent.click(firstRow.getByRole('button', { name: 'Edit' }))
-    expect(props.openAnnotation).toHaveBeenCalledWith(annotation.annotationId)
-    fireEvent.click(firstRow.getByRole('button', { name: 'Delete' }))
-    expect(props.deleteDraft).toHaveBeenCalledWith(annotation.annotationId)
-
-    const attach = screen.getByRole('button', { name: 'Attach 2 comments to the next send' })
-    const summaryActions = attach.closest('.dia-dock__actions')
-    expect(summaryActions).not.toBeNull()
-    expect(window.getComputedStyle(summaryActions!)).toMatchObject({ gap: '6px' })
-    expect(window.getComputedStyle(attach)).toMatchObject({
-      width: '28px',
-      height: '28px',
-      borderRadius: '999px',
-    })
-    expect(
-      attach.compareDocumentPosition(screen.getByRole('button', { name: 'Collapse inline comments' })),
-    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-    fireEvent.click(attach)
-    expect(toggleComposerAttachment).toHaveBeenCalled()
-    expect(props.setPanelOpen).not.toHaveBeenCalled()
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(props.setPanelOpen).toHaveBeenCalledWith(false)
-  })
-
-  it('shows the armed business state and detaches without folding the list', () => {
-    const payload = fixturePayload()
-    const view: AnnotationView = {
-      ...baseView(),
-      annotations: [
-        {
-          ...payload.annotations[0]!,
-          status: 'draft',
-          updatedAt: payload.createdAt,
-        },
-      ],
-      panelOpen: true,
-    }
-    const toggleComposerAttachment = vi.fn(() => true)
-    const setPanelOpen = vi.fn()
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      input: {
-        ...idleInput,
-        draft: `${COMPOSER_ATTACHMENT_TOKEN}Rewrite this.`,
-        draftRev: 2,
-        phase: 'claimed',
-        claim: { token: COMPOSER_ATTACHMENT_TOKEN },
-      },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      setPanelOpen,
-      toggleComposerAttachment,
-      t,
-    } as unknown as InputAnnotationProps
-    render(<TestAnnotationDock {...props} />)
-
-    const detach = screen.getByRole('button', { name: 'Detach 1 comments' })
-    expect(detach).toHaveAttribute('aria-pressed', 'true')
-    fireEvent.click(detach)
-    expect(toggleComposerAttachment).toHaveBeenCalled()
-    expect(setPanelOpen).not.toHaveBeenCalled()
-    expect(screen.getByRole('region', { name: 'Inline comments' })).toBeInTheDocument()
-  })
-
-  it.each([
-    {
-      name: 'running task',
-      session: { pending: [], running: true },
-      archived: false,
-      label: 'Attach 1 comments to the next send',
-      disabled: false,
-    },
-    {
-      name: 'awaiting confirmation',
-      session: { pending: [{}], running: true },
-      archived: false,
-      label: 'Attach 1 comments to the next send',
-      disabled: false,
-    },
-    {
-      name: 'archived task',
-      session: { pending: [], running: false },
-      archived: true,
-      label: 'Archived tasks cannot attach comments',
-      disabled: true,
-    },
-  ])('offers only the composer attachment action for a $name', ({ session, archived, label, disabled }) => {
-    const payload = fixturePayload()
-    const view: AnnotationView = {
-      ...baseView(),
-      annotations: [
-        {
-          ...payload.annotations[0]!,
-          status: 'draft',
-          updatedAt: payload.createdAt,
-        },
-      ],
-      panelOpen: true,
-    }
-    const props = {
-      sessionId: payload.sessionId,
-      session,
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: archived ? [payload.sessionId] : [] }),
-      setPanelOpen: vi.fn(),
-      openAnnotation: vi.fn(),
-      deleteDraft: vi.fn(),
-      navigate: vi.fn(async () => true),
-      withdraw: vi.fn(async () => undefined),
-      t,
-    } as unknown as InputAnnotationProps
-    render(<TestAnnotationDock {...props} />)
-    const attach = screen.getByRole('button', { name: label })
-    expect(attach).toHaveProperty('disabled', disabled)
-    expect(screen.queryByRole('button', { name: /Send 1 comments/u })).not.toBeInTheDocument()
-  })
-
-  it('shows authoritative queued and durable sent Toasts with matching withdrawal rules', async () => {
-    const payload = fixturePayload()
-    const annotation = {
-      ...payload.annotations[0]!,
-      status: 'queued' as const,
-      updatedAt: payload.createdAt,
-      submissionId: payload.submissionId,
-    }
-    const acceptedEntry = {
-      payload,
-      targetSessionId: payload.sessionId,
-      messageId: `dsh-inline-annotations:${payload.submissionId}` as typeof annotation.messageId,
-      status: 'accepted' as const,
-      attempts: 1,
-    }
-    const baseProps = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      setPanelOpen: vi.fn(),
-      setOverallRequirementDraft: vi.fn(),
-      openAnnotation: vi.fn(),
-      deleteDraft: vi.fn(),
-      navigate: vi.fn(async () => true),
-      submit: vi.fn(async () => undefined),
-      withdraw: vi.fn(async () => undefined),
-      t,
-    }
-    const acceptedView: AnnotationView = {
-      ...baseView(),
-      annotations: [annotation],
-      outbox: [acceptedEntry],
-      panelOpen: true,
-    }
-    const { rerender } = render(
-      <TestAnnotationDock
-        {...(baseProps as unknown as InputAnnotationProps)}
-        useAnnotations={(selector) => selector(acceptedView) as never}
-      />,
-    )
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(screen.getByText('Confirming delivery outcome')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Withdraw queued batch' })).not.toBeInTheDocument()
-
-    const queuedView: AnnotationView = {
-      ...acceptedView,
-      outbox: [{ ...acceptedEntry, status: 'queued' }],
-    }
-    rerender(
-      <TestAnnotationDock
-        {...(baseProps as unknown as InputAnnotationProps)}
-        useAnnotations={(selector) => selector(queuedView) as never}
-      />,
-    )
-    expect(await screen.findByRole('alert')).toHaveTextContent('1 comments queued; withdrawal is available')
-    expect(screen.getByRole('button', { name: 'Withdraw queued batch' })).toBeInTheDocument()
-
-    const sentView: AnnotationView = {
-      ...queuedView,
-      annotations: [{ ...annotation, status: 'sent' }],
-      outbox: [{ ...acceptedEntry, status: 'sent' }],
-    }
-    rerender(
-      <TestAnnotationDock
-        {...(baseProps as unknown as InputAnnotationProps)}
-        useAnnotations={(selector) => selector(sentView) as never}
-      />,
-    )
-    expect(await screen.findByRole('alert')).toHaveTextContent('1 comments sent; history cannot be withdrawn')
-    expect(screen.queryByRole('button', { name: 'Withdraw queued batch' })).not.toBeInTheDocument()
-  })
-
-  it('keeps retry explicit and its immutable submission id in collapsed diagnostics', async () => {
-    const payload = fixturePayload()
-    const selectRetry = vi.fn()
-    const annotation = {
-      ...payload.annotations[0]!,
-      status: 'queued' as const,
-      updatedAt: payload.createdAt,
-      submissionId: payload.submissionId,
-    }
-    const sendingEntry = {
-      payload,
-      targetSessionId: payload.sessionId,
-      messageId: `dsh-inline-annotations:${payload.submissionId}` as typeof annotation.messageId,
-      status: 'sending' as const,
-      attempts: 1,
-    }
-    const baseProps = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      setPanelOpen: vi.fn(),
-      setOverallRequirementDraft: vi.fn(),
-      openAnnotation: vi.fn(),
-      deleteDraft: vi.fn(),
-      navigate: vi.fn(async () => true),
-      submit: vi.fn(async () => undefined),
-      withdraw: vi.fn(async () => undefined),
-      t,
-    }
-    const sendingView: AnnotationView = {
-      ...baseView(),
-      annotations: [annotation],
-      outbox: [sendingEntry],
-      panelOpen: true,
-    }
-    const { rerender } = render(
-      <TestAnnotationDock
-        {...(baseProps as unknown as InputAnnotationProps)}
-        useAnnotations={(selector) => selector(sendingView) as never}
-      />,
-    )
-    const failedView: AnnotationView = {
-      ...sendingView,
-      outbox: [{ ...sendingEntry, status: 'failed', lastError: 'offline' }],
-    }
-    rerender(
-      <TestAnnotationDock
-        {...(baseProps as unknown as InputAnnotationProps)}
-        selectRetry={selectRetry}
-        useAnnotations={(selector) => selector(failedView) as never}
-      />,
-    )
-    expect(await screen.findByRole('alert')).toHaveTextContent('1 comments failed to send')
-    expect(screen.queryByRole('button', { name: 'Attach 1 comments to the next send' })).toBeNull()
-    const diagnosticId = screen.getByText(payload.submissionId)
-    expect(diagnosticId.closest('details')).not.toHaveAttribute('open')
-    expect(diagnosticId).not.toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: t('retry.select') }))
-    expect(selectRetry).toHaveBeenCalledWith(payload.submissionId)
-  })
-
-  it('groups statuses and keeps single-note actions without local-data controls', () => {
-    const payload = fixturePayload()
-    const draft = {
-      ...payload.annotations[0]!,
-      status: 'draft' as const,
-      updatedAt: payload.createdAt,
-    }
-    const queued = {
-      ...draft,
-      annotationId: 'ann-queued' as typeof draft.annotationId,
-      ordinal: 2,
-      status: 'queued' as const,
-      submissionId: payload.submissionId,
-      annotation: 'Queued note',
-    }
-    const sent = {
-      ...draft,
-      annotationId: 'ann-sent' as typeof draft.annotationId,
-      ordinal: 3,
-      status: 'sent' as const,
-      submissionId: payload.submissionId,
-      annotation: 'Sent note',
-    }
-    const undoDelete = vi.fn()
-    const openAnnotation = vi.fn()
-    const deleteDraft = vi.fn()
-    const view: AnnotationView = {
-      ...baseView(),
-      annotations: [draft, queued, sent],
-      outbox: [
-        {
-          payload: { ...payload, annotations: [queued] },
-          targetSessionId: payload.sessionId,
-          messageId: `dsh-inline-annotations:${payload.submissionId}` as typeof queued.messageId,
-          status: 'queued',
-          attempts: 1,
-        },
-      ],
-      deletedDraft: { ...draft, annotationId: 'ann-deleted' as typeof draft.annotationId },
-      panelOpen: true,
-    }
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      setPanelOpen: vi.fn(),
-      setOverallRequirementDraft: vi.fn(),
-      openAnnotation,
-      deleteDraft,
-      undoDelete,
-      dismissDeleteUndo: vi.fn(),
-      navigate: vi.fn(async () => true),
-      submit: vi.fn(async () => undefined),
-      withdraw: vi.fn(),
-      t,
-    } as unknown as InputAnnotationProps
-    const { container } = render(<TestAnnotationDock {...props} />)
-
-    expect(screen.getByText('Ready to attach')).toBeInTheDocument()
-    expect(screen.getByText('Queued')).toBeInTheDocument()
-    expect(screen.queryByText('Sent note')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /Sent/u }))
-    expect(screen.getByText('Sent note')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
-    expect(undoDelete).toHaveBeenCalledOnce()
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-    expect(openAnnotation).toHaveBeenCalledWith(draft.annotationId)
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
-    expect(deleteDraft).toHaveBeenCalledWith(draft.annotationId)
-    expect(container.querySelector('.dia-local-data, .dia-local-status')).toBeNull()
-    expect(screen.queryByRole('button', { name: /Export local data|Clear drafts/u })).not.toBeInTheDocument()
-  })
-
   it('shows a selection action bar instead of opening the editor directly', () => {
     const beginSelection = vi.fn()
     Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
@@ -1119,7 +682,7 @@ describe('inline comment presentation', () => {
 
     const bar = screen.getByRole('toolbar', { name: 'Selection actions' })
     expect(bar).toHaveTextContent('Add annotation')
-    expect(bar).toHaveTextContent('Copy')
+    expect(bar).not.toHaveTextContent('Copy')
     expect(bar).toHaveStyle({ left: '40px', top: '50px' })
     expect(beginSelection).not.toHaveBeenCalled()
     expect(selection.isCollapsed).toBe(false)
@@ -1185,61 +748,6 @@ describe('inline comment presentation', () => {
     selection.removeAllRanges()
   })
 
-  it('copies the selection from the action bar and keeps the selection alive', async () => {
-    const beginSelection = vi.fn()
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
-    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({ top: 20, left: 40, right: 150, bottom: 42, width: 110, height: 22 }),
-    })
-    const view = baseView()
-    const props = {
-      node: {
-        data: {
-          status: 'closed',
-          blocks: [{ kind: 'text', text: 'Alpha selected text omega' }],
-          finalNode: { messageId: 'assistant-copy-test', seq: 9 },
-        },
-        location: { kind: 'root' },
-      },
-      useTurnData: () => undefined,
-      openFile: vi.fn(),
-      renderMessageImages: () => null,
-      fileMentions: vi.fn(),
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      beginSelection,
-      openAnnotation: vi.fn(),
-      registerEndpoint: vi.fn(() => () => undefined),
-      updateHighlightRanges: vi.fn(),
-      activateHighlight: vi.fn(),
-      removeHighlights: vi.fn(),
-      t,
-    } as unknown as AssistantAnnotationProps
-    render(<AnnotatedAssistantNode {...props} />)
-
-    const paragraph = screen.getByText('Alpha selected text omega')
-    const text = paragraph.firstChild!
-    const range = document.createRange()
-    range.setStart(text, 6)
-    range.setEnd(text, 19)
-    const selection = window.getSelection()!
-    selection.removeAllRanges()
-    selection.addRange(range)
-    fireEvent.pointerUp(paragraph)
-
-    fireEvent.click(
-      within(screen.getByRole('toolbar', { name: 'Selection actions' })).getByRole('button', {
-        name: 'Copy',
-      }),
-    )
-    await waitFor(() => expect(screen.queryByRole('toolbar')).not.toBeInTheDocument())
-    expect(writeText).toHaveBeenCalledWith('selected text')
-    expect(beginSelection).not.toHaveBeenCalled()
-    expect(selection.isCollapsed).toBe(false)
-    selection.removeAllRanges()
-  })
-
   it('dismisses the selection action bar on outside pointerdown and on Escape', () => {
     Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
       configurable: true,
@@ -1292,133 +800,6 @@ describe('inline comment presentation', () => {
 
     selection.removeAllRanges()
     unmount()
-  })
-
-  it('groups annotations after the complete text line without changing body padding', async () => {
-    const payload = fixturePayload()
-    const annotation = {
-      ...payload.annotations[0]!,
-      status: 'draft' as const,
-      updatedAt: payload.createdAt,
-    }
-    const earlierSelection = {
-      ...annotation,
-      annotationId: 'ann-test-2' as typeof annotation.annotationId,
-      ordinal: 2,
-      quote: {
-        exact: 'before',
-        prefix: '',
-        suffix: ' selected source after',
-        start: 0,
-        end: 6,
-      },
-      annotation: 'Clarify the introduction.',
-    }
-    const rangeRects = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects')
-    const elementRect = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'getBoundingClientRect')
-    let finalLineTop = 150
-    let finalLineRight = 360
-    const rect = (top: number, right: number, width: number): DOMRect =>
-      ({
-        x: right - width,
-        y: top,
-        top,
-        right,
-        bottom: top + 20,
-        left: right - width,
-        width,
-        height: 20,
-        toJSON: () => ({}),
-      }) as DOMRect
-    Object.defineProperty(Range.prototype, 'getClientRects', {
-      configurable: true,
-      value(this: Range) {
-        const ignored = this.startContainer.parentElement?.closest('[data-dsh-annotation-ignore="true"]')
-        if (ignored !== null) return [rect(105, 140, 80)] as unknown as DOMRectList
-        const text = this.toString()
-        if (text === 'selected source') return [rect(finalLineTop, 260, 100)] as unknown as DOMRectList
-        if (text === 'before') return [rect(finalLineTop, 115, 60)] as unknown as DOMRectList
-        if (text === ' after' || text === ' selected source after') {
-          return [rect(finalLineTop, finalLineRight, 100)] as unknown as DOMRectList
-        }
-        return [] as unknown as DOMRectList
-      },
-    })
-    Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
-      configurable: true,
-      value(this: HTMLElement) {
-        if (this.classList.contains('dia-assistant') || this.classList.contains('dia-assistant__body')) {
-          return { ...rect(100, 550, 500), bottom: 400, height: 300 }
-        }
-        return rect(0, 0, 0)
-      },
-    })
-
-    try {
-      const view: AnnotationView = { ...baseView(), annotations: [annotation, earlierSelection] }
-      const props = {
-        node: {
-          data: {
-            status: 'closed',
-            blocks: [
-              { kind: 'reasoning', text: 'before selected source after' },
-              { kind: 'text', text: 'before selected source after' },
-            ],
-            finalNode: { messageId: annotation.messageId, seq: annotation.messageSeq },
-          },
-          location: { kind: 'root' },
-        },
-        useTurnData: () => undefined,
-        openFile: vi.fn(),
-        renderMessageImages: () => null,
-        fileMentions: vi.fn(),
-        useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-        beginSelection: vi.fn(),
-        openAnnotation: vi.fn(),
-        registerEndpoint: vi.fn(() => () => undefined),
-        updateHighlightRanges: vi.fn(),
-        activateHighlight: vi.fn(),
-        removeHighlights: vi.fn(),
-        t,
-      } as unknown as AssistantAnnotationProps
-      render(<AnnotatedAssistantNode {...props} />)
-
-      const marker = screen.getByRole('button', { name: 'View 2 annotations on this line, numbered 1, 2' })
-      await waitFor(() => expect(marker).toHaveStyle({ top: '48px', left: '315px', width: '24px' }))
-      expect(marker).toHaveTextContent('×2')
-      expect(marker).toHaveAttribute(
-        'data-annotation-ids',
-        `${annotation.annotationId} ${earlierSelection.annotationId}`,
-      )
-      expect(document.querySelector<HTMLElement>('.dia-assistant__body')?.style.paddingRight).toBe('')
-      fireEvent.click(marker)
-      expect(props.openAnnotation).toHaveBeenCalledWith(annotation.annotationId, 'marker')
-      const paragraph = screen.getByText('before selected source after', { selector: 'p' })
-      fireEvent.pointerMove(paragraph)
-      fireEvent.click(paragraph)
-      expect(props.openAnnotation).toHaveBeenCalledTimes(1)
-      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
-
-      finalLineTop = 190
-      fireEvent(
-        screen.getByText('assistant.reasoning').closest('.dia-assistant__reasoning')!,
-        new Event('toggle', { bubbles: true }),
-      )
-      await waitFor(() => expect(marker).toHaveStyle({ top: '88px', left: '315px' }))
-
-      const requestFrame = vi.spyOn(window, 'requestAnimationFrame')
-      finalLineRight = 410
-      fireEvent(window, new Event('resize'))
-      fireEvent(window, new Event('resize'))
-      expect(requestFrame).toHaveBeenCalledTimes(1)
-      await waitFor(() => expect(marker).toHaveStyle({ top: '88px', left: '365px' }))
-      expect(document.querySelector<HTMLElement>('.dia-assistant__body')?.style.paddingRight).toBe('')
-    } finally {
-      if (rangeRects === undefined) Reflect.deleteProperty(Range.prototype, 'getClientRects')
-      else Object.defineProperty(Range.prototype, 'getClientRects', rangeRects)
-      if (elementRect === undefined) Reflect.deleteProperty(HTMLElement.prototype, 'getBoundingClientRect')
-      else Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', elementRect)
-    }
   })
 
   it('keeps mobile text width and hides markers when no safe whitespace remains', async () => {
@@ -1487,7 +868,7 @@ describe('inline comment presentation', () => {
       const marker = screen.getByRole('button', {
         name: 'View 5 annotations on this line, numbered 1, 2, 3, 4, 5',
       })
-      expect(marker).toHaveStyle({ left: '285px', width: '24px' })
+      expect(marker).toHaveStyle({ left: '282px', width: '24px' })
       expect(marker).toHaveTextContent('×5')
       expect(marker).toHaveAttribute(
         'data-annotation-ids',
@@ -1885,310 +1266,6 @@ describe('inline comment presentation', () => {
       else Object.defineProperty(Range.prototype, 'getClientRects', rangeRects)
     }
   })
-
-  it('suspends dirty input outside without treating it as a failed save or discard', () => {
-    const payload = fixturePayload()
-    const closeEditor = vi.fn((force = false) => force)
-    const suspendEditor = vi.fn()
-    const saveEditor = vi.fn()
-    const view: AnnotationView = {
-      ...baseView(),
-      editor: {
-        kind: 'new',
-        capture: {
-          messageId: payload.annotations[0]!.messageId,
-          messageSeq: payload.annotations[0]!.messageSeq,
-          responseVersion: payload.annotations[0]!.responseVersion,
-          quote: payload.annotations[0]!.quote,
-          rect: { top: 40, left: 80, right: 180, bottom: 64 },
-        },
-        text: 'Unsaved change',
-        longSelectionConfirmed: true,
-      },
-      editorSaveStatus: 'saved',
-    }
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      closeEditor,
-      saveEditor,
-      updateEditorText: vi.fn(),
-      confirmLongSelection: vi.fn(),
-      t,
-    } as unknown as InputAnnotationProps
-    render(
-      <>
-        <style>{styles}</style>
-        <TestAnnotationDock {...props} suspendEditor={suspendEditor} />
-      </>,
-    )
-
-    const input = screen.getByLabelText('Your annotation')
-    fireEvent.pointerDown(document.body)
-    expect(suspendEditor).toHaveBeenCalledOnce()
-    expect(closeEditor).not.toHaveBeenCalled()
-    expect(input).toHaveAttribute('aria-invalid', 'false')
-    expect(screen.getByText('Click outside to keep this draft')).toBeInTheDocument()
-    expect(screen.getByRole('dialog')).not.toHaveAttribute('data-decision-required')
-
-    for (const name of ['Cancel', 'Save comment']) {
-      expect(screen.getByRole('button', { name })).not.toHaveTextContent(/\S/u)
-    }
-    fireEvent.click(screen.getByRole('button', { name: 'Save comment' }))
-    expect(saveEditor).toHaveBeenCalledOnce()
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(closeEditor).toHaveBeenLastCalledWith(true)
-  })
-
-  it('suspends an empty selection editor on an outside click without discarding it', () => {
-    const payload = fixturePayload()
-    const closeEditor = vi.fn(() => true)
-    const suspendEditor = vi.fn()
-    const view: AnnotationView = {
-      ...baseView(),
-      editor: {
-        kind: 'new',
-        capture: {
-          messageId: payload.annotations[0]!.messageId,
-          messageSeq: payload.annotations[0]!.messageSeq,
-          responseVersion: payload.annotations[0]!.responseVersion,
-          quote: payload.annotations[0]!.quote,
-          rect: { top: 20, left: 30, right: 80, bottom: 40 },
-        },
-        text: '',
-        longSelectionConfirmed: true,
-      },
-    }
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      closeEditor,
-      saveEditor: vi.fn(),
-      updateEditorText: vi.fn(),
-      confirmLongSelection: vi.fn(),
-      t,
-    } as unknown as InputAnnotationProps
-    const { rerender } = render(<TestAnnotationDock {...props} suspendEditor={suspendEditor} />)
-
-    fireEvent.pointerDown(document.body)
-    expect(suspendEditor).toHaveBeenCalledOnce()
-    expect(closeEditor).not.toHaveBeenCalled()
-    rerender(<TestAnnotationDock {...props} useAnnotations={(selector) => selector(baseView()) as never} />)
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  })
-
-  it('keeps an unavailable selection reachable in a panel and preserves keyboard save and attachment', () => {
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      return this.classList.contains('dia-editor') ? new DOMRect(0, 0, 420, 100) : new DOMRect()
-    })
-    const payload = fixturePayload()
-    const saveEditor = vi.fn(() => payload.annotations[0]!.annotationId)
-    const ensureComposerAttachment = vi.fn(() => true)
-    const closeEditor = vi.fn(() => true)
-    const suspendEditor = vi.fn()
-    const setPanelOpen = vi.fn()
-    const view: AnnotationView = {
-      ...baseView(),
-      panelOpen: true,
-      editor: {
-        kind: 'new',
-        capture: {
-          messageId: payload.annotations[0]!.messageId,
-          messageSeq: payload.annotations[0]!.messageSeq,
-          responseVersion: payload.annotations[0]!.responseVersion,
-          quote: payload.annotations[0]!.quote,
-          rect: { top: 40, left: 80, right: 180, bottom: 64 },
-        },
-        text: 'Clarify this claim.',
-        longSelectionConfirmed: true,
-      },
-    }
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      closeEditor,
-      suspendEditor,
-      setPanelOpen,
-      saveEditor,
-      autoAttachEnabled: () => true,
-      ensureComposerAttachment,
-      updateEditorText: vi.fn(),
-      confirmLongSelection: vi.fn(),
-      t,
-    } as unknown as InputAnnotationProps
-    render(
-      <>
-        <style>{styles}</style>
-        <TestAnnotationDock {...props} />
-      </>,
-    )
-
-    const editor = screen.getByRole('dialog', { name: 'Add comment' })
-    expect(editor).toHaveAttribute('data-floating-placement', 'panel')
-    expect(Number.parseFloat(editor.style.top)).toBeGreaterThanOrEqual(12)
-    expect(Number.parseFloat(editor.style.top) + 100).toBeLessThanOrEqual(window.innerHeight - 12)
-    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
-    expect(window.getComputedStyle(editor).boxSizing).toBe('border-box')
-    fireEvent.keyDown(screen.getByLabelText('Your annotation'), { key: 'Enter', ctrlKey: true })
-    expect(saveEditor).toHaveBeenCalledOnce()
-    expect(ensureComposerAttachment).toHaveBeenCalled()
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(suspendEditor).toHaveBeenCalledOnce()
-    expect(closeEditor).not.toHaveBeenCalled()
-    expect(setPanelOpen).not.toHaveBeenCalled()
-  })
-
-  it('edits an existing draft inline inside the summary box with a delete action', () => {
-    const payload = fixturePayload()
-    const annotation = {
-      ...payload.annotations[0]!,
-      status: 'draft' as const,
-      updatedAt: payload.createdAt,
-    }
-    const deleteDraft = vi.fn()
-    const view: AnnotationView = {
-      ...baseView(),
-      annotations: [annotation],
-      editor: { kind: 'edit', annotationId: annotation.annotationId, text: annotation.annotation },
-    }
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      closeEditor: vi.fn(() => true),
-      saveEditor: vi.fn(),
-      updateEditorText: vi.fn(),
-      confirmLongSelection: vi.fn(),
-      deleteDraft,
-      t,
-    } as unknown as InputAnnotationProps
-    render(
-      <>
-        <style>{styles}</style>
-        <TestAnnotationDock {...props} />
-      </>,
-    )
-
-    // 编辑已有注解不再定位正文：编辑器直接内嵌在注解汇总框的向上弹出列表中。
-    const editor = screen.getByRole('dialog', { name: 'Edit comment' })
-    expect(editor).toHaveClass('dia-editor--inline')
-    expect(editor).not.toHaveStyle({ top: expect.any(String), left: expect.any(String) })
-    expect(editor.closest('.dia-inline-panel--dropup')).not.toBeNull()
-    const deleteButton = within(editor).getByRole('button', { name: 'Delete' })
-    expect(deleteButton).toHaveAttribute('data-danger', 'true')
-    fireEvent.click(deleteButton)
-    expect(deleteDraft).toHaveBeenCalledOnce()
-    expect(deleteDraft).toHaveBeenCalledWith(annotation.annotationId)
-  })
-
-  it('shares a measured anchor for grouped annotation tabs and the editor', async () => {
-    const payload = fixturePayload()
-    const annotation = {
-      ...payload.annotations[0]!,
-      status: 'draft' as const,
-      updatedAt: payload.createdAt,
-    }
-    const second = {
-      ...annotation,
-      annotationId: 'ann-grouped-second' as typeof annotation.annotationId,
-      ordinal: 2,
-    }
-    let view: AnnotationView = {
-      ...baseView(),
-      annotations: [annotation, second],
-      activeAnnotationId: annotation.annotationId,
-      markerAnnotationId: annotation.annotationId,
-    }
-    const openAnnotation = vi.fn()
-    const rectSpy = vi
-      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
-      .mockImplementation(function mockRect(this: HTMLElement) {
-        if (this.classList.contains('dia-marker')) {
-          return {
-            top: 112,
-            left: 476,
-            right: 500,
-            bottom: 140,
-            width: 24,
-            height: 28,
-            x: 476,
-            y: 112,
-            toJSON: () => undefined,
-          }
-        }
-        if (this.classList.contains('dia-marker-popover')) return new DOMRect(0, 0, 360, 100)
-        if (this.classList.contains('dia-editor')) return new DOMRect(0, 0, 420, 116)
-        return new DOMRect()
-      })
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      openAnnotation,
-      closeEditor: vi.fn(() => true),
-      saveEditor: vi.fn(),
-      updateEditorText: vi.fn(),
-      confirmLongSelection: vi.fn(),
-      deleteDraft: vi.fn(),
-      t,
-    } as unknown as InputAnnotationProps
-    const renderTree = () => (
-      <>
-        <style>{styles}</style>
-        <button
-          type="button"
-          className="dia-marker"
-          data-annotation-id={annotation.annotationId}
-          data-annotation-ids={`${annotation.annotationId} ${second.annotationId}`}
-          aria-label="Body marker 1"
-        >
-          1
-        </button>
-        <TestAnnotationDock {...props} />
-      </>
-    )
-    const rendered = render(renderTree())
-
-    const preview = await screen.findByRole('dialog', { name: /#1:/u })
-    await waitFor(() => expect(preview).toHaveStyle({ top: '148px', left: '476px' }))
-    expect(preview).toHaveAttribute('data-floating-placement', 'bottom')
-    expect(within(preview).getByRole('button', { name: 'Annotation 1' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
-    const otherTab = within(preview).getByRole('button', { name: 'Annotation 2' })
-    expect(otherTab).toHaveAttribute('aria-pressed', 'false')
-    fireEvent.click(otherTab)
-    expect(openAnnotation).toHaveBeenCalledWith(second.annotationId, 'marker')
-    expect(document.querySelector('.dia-inline-panel')).toBeNull()
-    fireEvent.click(within(preview).getByRole('button', { name: 'Edit' }))
-    expect(openAnnotation).toHaveBeenCalledWith(annotation.annotationId, 'marker-edit')
-
-    view = {
-      ...view,
-      editor: { kind: 'edit', annotationId: annotation.annotationId, text: annotation.annotation },
-    }
-    rendered.rerender(renderTree())
-    const editor = screen.getByRole('dialog', { name: 'Edit comment' })
-    expect(editor).toHaveStyle({ top: '148px', left: '476px' })
-    expect(editor).toHaveAttribute('data-floating-placement', 'bottom')
-    expect(editor).not.toHaveClass('dia-editor--inline')
-    expect(editor.closest('.dia-inline-panel')).toBeNull()
-    rectSpy.mockRestore()
-  })
 })
 
 function assistantPropsFor(
@@ -2284,6 +1361,83 @@ describe('reply chips', () => {
     expect(navigate).toHaveBeenCalledWith(payload.annotations[0]!.annotationId)
     expect(openAnnotation).not.toHaveBeenCalled()
   })
+
+  it.each(['durable history', 'sent outbox'])(
+    'keeps both reply headings interactive after resending from %s',
+    (source) => {
+      chipGeometry()
+      const payload = fixturePayload()
+      const annotation = {
+        ...payload.annotations[0]!,
+        status: 'sent' as const,
+        updatedAt: payload.createdAt,
+        submissionId: payload.submissionId,
+      }
+      const resentSubmissionId = 'sub-resent' as typeof payload.submissionId
+      const resentPayload = { ...payload, submissionId: resentSubmissionId }
+      const view: AnnotationView = {
+        ...baseView(),
+        annotations: [annotation],
+        ...(source === 'durable history'
+          ? {
+              replyAssociations: [
+                { submissionId: payload.submissionId, annotationId: annotation.annotationId },
+                { submissionId: resentSubmissionId, annotationId: annotation.annotationId },
+              ],
+            }
+          : {
+              outbox: [
+                {
+                  payload: resentPayload,
+                  targetSessionId: payload.sessionId,
+                  messageId: payload.annotations[0]!.messageId,
+                  status: 'sent' as const,
+                  attempts: 1,
+                },
+              ],
+            }),
+      }
+      const reply = (submissionId: typeof payload.submissionId, wording: string) =>
+        `<!-- dsh-annotation-reply:{"submissionId":"${submissionId}","annotationId":"${annotation.annotationId}","ordinal":1} -->\n注解 1：${wording}`
+      const navigate = vi.fn(async (_annotationId: unknown) => true)
+      render(
+        <>
+          <AnnotatedAssistantNode
+            {...assistantPropsFor(
+              view,
+              'closed',
+              [{ kind: 'text', text: reply(payload.submissionId, '首次回复。') }],
+              vi.fn(),
+              navigate,
+            )}
+          />
+          <AnnotatedAssistantNode
+            {...assistantPropsFor(
+              view,
+              'closed',
+              [{ kind: 'text', text: reply(resentSubmissionId, '再次回复。') }],
+              vi.fn(),
+              navigate,
+            )}
+          />
+        </>,
+      )
+
+      const chips = screen.getAllByRole('button', { name: /Annotation 1:/u })
+      expect(chips).toHaveLength(2)
+      for (const chip of chips) {
+        fireEvent.focus(chip)
+        const preview = screen.getByRole('tooltip', { name: 'Annotation 1' })
+        expect(within(preview).getByText('selected source')).toBeInTheDocument()
+        expect(within(preview).getByText('Explain this claim.')).toBeInTheDocument()
+        fireEvent.blur(chip)
+        fireEvent.click(chip)
+      }
+      expect(navigate).toHaveBeenCalledTimes(2)
+      expect(navigate).toHaveBeenNthCalledWith(1, annotation.annotationId)
+      expect(navigate).toHaveBeenNthCalledWith(2, annotation.annotationId)
+    },
+  )
 
   it('restores and activates four marker headings after display whitespace normalization', () => {
     chipGeometry()
@@ -2581,376 +1735,5 @@ describe('reply chips', () => {
       <AnnotatedAssistantNode {...assistantPropsFor(view, 'closed', [{ kind: 'text', text: rawText }])} />,
     )
     expect(screen.getByRole('button', { name: /Annotation 1:/u })).toBeInTheDocument()
-  })
-})
-
-describe('annotation editor input methods', () => {
-  function editorView(): AnnotationView {
-    const payload = fixturePayload()
-    return {
-      ...baseView(),
-      editor: {
-        kind: 'new',
-        capture: {
-          messageId: payload.annotations[0]!.messageId,
-          messageSeq: payload.annotations[0]!.messageSeq,
-          responseVersion: payload.annotations[0]!.responseVersion,
-          quote: payload.annotations[0]!.quote,
-          rect: { top: 40, left: 80, right: 180, bottom: 64 },
-        },
-        text: '输入内容',
-        longSelectionConfirmed: true,
-      },
-    }
-  }
-
-  it('never saves during composition, swallows the post-composition Enter, and saves on a plain Enter', async () => {
-    const payload = fixturePayload()
-    const saveEditor = vi.fn()
-    const closeEditor = vi.fn(() => true)
-    const view = editorView()
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      closeEditor,
-      saveEditor,
-      updateEditorText: vi.fn(),
-      confirmLongSelection: vi.fn(),
-      t,
-    } as unknown as InputAnnotationProps
-    render(<TestAnnotationDock {...props} />)
-
-    const input = screen.getByLabelText('Your annotation')
-    fireEvent.compositionStart(input)
-    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
-    expect(saveEditor).not.toHaveBeenCalled()
-
-    // Escape during composition must not close the editor.
-    fireEvent.keyDown(document, { key: 'Escape', keyCode: 229 })
-    expect(closeEditor).not.toHaveBeenCalled()
-
-    fireEvent.compositionEnd(input)
-    // The Enter produced by the same composition must not save.
-    fireEvent.keyDown(input, { key: 'Enter' })
-    expect(saveEditor).not.toHaveBeenCalled()
-
-    // After the next event loop the latch clears; a plain Enter saves.
-    await new Promise<void>((resolve) => setTimeout(resolve, 0))
-    fireEvent.keyDown(input, { key: 'Enter' })
-    expect(saveEditor).toHaveBeenCalledOnce()
-
-    // Shift+Enter stays a newline and never saves.
-    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
-    expect(saveEditor).toHaveBeenCalledOnce()
-  })
-
-  it('returns focus and the caret to the official composer after saving a new annotation', async () => {
-    const payload = fixturePayload()
-    const saveEditor = vi.fn(() => payload.annotations[0]!.annotationId)
-    const ensureComposerAttachment = vi.fn(() => true)
-    let view: AnnotationView = editorView()
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      closeEditor: vi.fn(() => true),
-      saveEditor,
-      updateEditorText: vi.fn(),
-      confirmLongSelection: vi.fn(),
-      autoAttachEnabled: () => true,
-      ensureComposerAttachment,
-      t,
-    } as unknown as InputAnnotationProps
-    const tree = () => (
-      <div data-composer-seat>
-        <div data-composer-card>
-          <div
-            data-composer-input
-            contentEditable
-            suppressContentEditableWarning
-            role="textbox"
-            aria-label="Official composer"
-          >
-            draft text
-          </div>
-        </div>
-        <TestAnnotationDock {...props} />
-      </div>
-    )
-    const { rerender } = render(tree())
-
-    const composer = screen.getByLabelText<HTMLElement>('Official composer')
-    composer.focus()
-    document.getSelection()!.setBaseAndExtent(composer.firstChild!, 3, composer.firstChild!, 3)
-    fireEvent(document, new Event('selectionchange'))
-    screen.getByLabelText('Your annotation').focus()
-    fireEvent.click(screen.getByRole('button', { name: 'Save comment' }))
-    expect(saveEditor).toHaveBeenCalledOnce()
-    expect(ensureComposerAttachment).toHaveBeenCalledOnce()
-
-    view = baseView()
-    rerender(tree())
-    await waitFor(() => expect(document.activeElement).toBe(composer))
-    expect(composer.textContent).toBe('draft text')
-    expect(document.getSelection()?.anchorOffset).toBe(3)
-    expect(document.getSelection()?.focusOffset).toBe(3)
-  })
-
-  it('does not force focus after editing an existing annotation', async () => {
-    const payload = fixturePayload()
-    const saveEditor = vi.fn(() => payload.annotations[0]!.annotationId)
-    const view: AnnotationView = {
-      ...baseView(),
-      editor: { kind: 'edit', annotationId: payload.annotations[0]!.annotationId, text: 'Edited' },
-    }
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      closeEditor: vi.fn(() => true),
-      saveEditor,
-      updateEditorText: vi.fn(),
-      confirmLongSelection: vi.fn(),
-      t,
-    } as unknown as InputAnnotationProps
-    const tree = (
-      <div data-composer-seat>
-        <div data-composer-card>
-          <div
-            data-composer-input
-            contentEditable
-            suppressContentEditableWarning
-            role="textbox"
-            aria-label="Official composer"
-          >
-            draft text
-          </div>
-        </div>
-        <TestAnnotationDock {...props} />
-      </div>
-    )
-    render(tree)
-
-    const composer = screen.getByLabelText<HTMLElement>('Official composer')
-    fireEvent.click(screen.getByRole('button', { name: 'Save comment' }))
-    await new Promise<void>((resolve) => setTimeout(resolve, 0))
-    expect(document.activeElement).not.toBe(composer)
-    expect(composer.textContent).toBe('draft text')
-  })
-})
-
-describe('highlight-only annotations and compact summary', () => {
-  function editorView(rect = { top: 40, left: 80, right: 180, bottom: 64 }): AnnotationView {
-    const payload = fixturePayload()
-    return {
-      ...baseView(),
-      editor: {
-        kind: 'new' as const,
-        capture: {
-          messageId: payload.annotations[0]!.messageId,
-          messageSeq: payload.annotations[0]!.messageSeq,
-          responseVersion: payload.annotations[0]!.responseVersion,
-          quote: payload.annotations[0]!.quote,
-          rect,
-        },
-        text: '',
-        longSelectionConfirmed: true,
-      },
-    }
-  }
-
-  it('keeps the save action enabled for empty content and shows the empty hint', () => {
-    const payload = fixturePayload()
-    const saveEditor = vi.fn(() => payload.annotations[0]!.annotationId)
-    const view = editorView()
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      closeEditor: vi.fn(() => true),
-      saveEditor,
-      updateEditorText: vi.fn(),
-      confirmLongSelection: vi.fn(),
-      t,
-    } as unknown as InputAnnotationProps
-    render(<TestAnnotationDock {...props} />)
-
-    expect(screen.getByRole('button', { name: 'Save comment' })).not.toBeDisabled()
-    expect(
-      screen.getByText('Annotation content may be empty; empty means highlight only.'),
-    ).toBeInTheDocument()
-
-    fireEvent.keyDown(screen.getByLabelText('Your annotation'), { key: 'Enter' })
-    expect(saveEditor).toHaveBeenCalledOnce()
-  })
-
-  it('shows 仅标记原文 in the list instead of a blank line', () => {
-    const payload = fixturePayload()
-    const annotation = {
-      ...payload.annotations[0]!,
-      annotation: '',
-      kind: 'highlight-only' as const,
-      status: 'draft' as const,
-      updatedAt: payload.createdAt,
-    }
-    const view: AnnotationView = { ...baseView(), annotations: [annotation], panelOpen: true }
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      setPanelOpen: vi.fn(),
-      openAnnotation: vi.fn(),
-      deleteDraft: vi.fn(),
-      navigate: vi.fn(async () => true),
-      t,
-    } as unknown as InputAnnotationProps
-    render(<TestAnnotationDock {...props} />)
-
-    expect(screen.getByText('Highlight only')).toBeInTheDocument()
-  })
-
-  it.each([true, false])('shows an attached overview with compact summary %s', (compactSummary) => {
-    const payload = fixturePayload()
-    const annotation = {
-      ...payload.annotations[0]!,
-      annotation: '',
-      kind: 'highlight-only' as const,
-      status: 'draft' as const,
-      updatedAt: payload.createdAt,
-    }
-    const view: AnnotationView = { ...baseView(), annotations: [annotation] }
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      input: {
-        ...idleInput,
-        draft: COMPOSER_ATTACHMENT_TOKEN,
-        draftRev: 2,
-        phase: 'claimed',
-        claim: { token: COMPOSER_ATTACHMENT_TOKEN },
-      },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      setPanelOpen: vi.fn(),
-      openAnnotation: vi.fn(),
-      deleteDraft: vi.fn(),
-      navigate: vi.fn(async () => true),
-      t,
-    } as unknown as InputAnnotationProps
-    render(
-      <>
-        <style>{styles}</style>
-        <TestAnnotationDock {...props} useCompactSummary={(selector) => selector(compactSummary)} />
-      </>,
-    )
-
-    const chip = screen.getByRole('button', { name: 'Annotations ×1' })
-    expect(chip).toHaveTextContent('Annotations ×1')
-    vi.spyOn(chip, 'getBoundingClientRect').mockReturnValue({
-      top: 300,
-      left: 120,
-      right: 260,
-      bottom: 336,
-      width: 140,
-      height: 36,
-      x: 120,
-      y: 300,
-      toJSON: () => undefined,
-    })
-
-    fireEvent.focus(chip)
-    const overview = screen.getByRole('tooltip', { name: 'Attached annotations overview' })
-    if (compactSummary) {
-      expect(overview.style.top).toBe('')
-      expect(overview.style.left).toBe('')
-      expect(window.getComputedStyle(overview)).toMatchObject({
-        position: 'absolute',
-        right: '0px',
-        maxWidth: '100%',
-      })
-    } else expect(overview).toHaveStyle({ top: '294px', left: '120px' })
-    expect(screen.getByText('selected source')).toBeInTheDocument()
-    expect(screen.getByText('Highlight only')).toBeInTheDocument()
-    fireEvent.blur(chip)
-    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
-  })
-
-  it('keeps the full list reachable from the compact chip', () => {
-    const payload = fixturePayload()
-    const annotation = {
-      ...payload.annotations[0]!,
-      status: 'draft' as const,
-      updatedAt: payload.createdAt,
-    }
-    const view: AnnotationView = { ...baseView(), annotations: [annotation] }
-    const setPanelOpen = vi.fn()
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      input: {
-        ...idleInput,
-        draft: COMPOSER_ATTACHMENT_TOKEN,
-        draftRev: 2,
-        phase: 'claimed',
-        claim: { token: COMPOSER_ATTACHMENT_TOKEN },
-      },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      setPanelOpen,
-      openAnnotation: vi.fn(),
-      deleteDraft: vi.fn(),
-      navigate: vi.fn(async () => true),
-      t,
-    } as unknown as InputAnnotationProps
-    render(<TestAnnotationDock {...props} />)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Annotations ×1' }))
-    expect(setPanelOpen).toHaveBeenCalledWith(true)
-  })
-
-  it.each([true, false])('omits local-data tools with compact summary %s', (compactSummary) => {
-    const payload = fixturePayload()
-    const annotation = {
-      ...payload.annotations[0]!,
-      status: 'draft' as const,
-      updatedAt: payload.createdAt,
-    }
-    const view: AnnotationView = { ...baseView(), annotations: [annotation], panelOpen: true }
-    const props = {
-      sessionId: payload.sessionId,
-      session: { pending: [], running: false },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(view),
-      useWorkspaces: (selector: (state: { archivedSessionIds: readonly string[] }) => unknown) =>
-        selector({ archivedSessionIds: [] }),
-      setPanelOpen: vi.fn(),
-      openAnnotation: vi.fn(),
-      deleteDraft: vi.fn(),
-      navigate: vi.fn(async () => true),
-      t,
-    } as unknown as InputAnnotationProps
-    const { container } = render(
-      <TestAnnotationDock {...props} useCompactSummary={(selector) => selector(compactSummary)} />,
-    )
-
-    expect(container.querySelector('.dia-local-data, .dia-local-status')).toBeNull()
-    expect(screen.queryByText(/Local data|local\.usage/u)).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Export local data|local\.export/u })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Clear drafts|local\.clear/u })).not.toBeInTheDocument()
-    expect(screen.getByText('Ready to attach')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
   })
 })

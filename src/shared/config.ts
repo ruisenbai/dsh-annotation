@@ -9,9 +9,6 @@ export const DEFAULT_CONFIG: AnnotationConfig = Object.freeze({
   maxAnnotationsPerSubmission: 100,
   warnSelectionChars: 12_000,
   locateHistoryPages: 20,
-  maxDiffFileBytes: 128 * 1024,
-  maxDiffLines: 5000,
-  diffTimeoutMs: 30_000,
 })
 
 const COMMAND_NAME = /^[a-z][a-z0-9_-]*$/u
@@ -43,12 +40,6 @@ export function resolveConfig(value: Partial<AnnotationConfig> | undefined): Ann
       value?.warnSelectionChars ?? DEFAULT_CONFIG.warnSelectionChars,
       'warnSelectionChars',
     ),
-    maxDiffFileBytes: positiveSafeInteger(
-      value?.maxDiffFileBytes ?? DEFAULT_CONFIG.maxDiffFileBytes,
-      'maxDiffFileBytes',
-    ),
-    maxDiffLines: positiveSafeInteger(value?.maxDiffLines ?? DEFAULT_CONFIG.maxDiffLines, 'maxDiffLines'),
-    diffTimeoutMs: positiveSafeInteger(value?.diffTimeoutMs ?? DEFAULT_CONFIG.diffTimeoutMs, 'diffTimeoutMs'),
     locateHistoryPages: positiveSafeInteger(
       value?.locateHistoryPages ?? DEFAULT_CONFIG.locateHistoryPages,
       'locateHistoryPages',

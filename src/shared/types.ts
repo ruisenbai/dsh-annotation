@@ -281,7 +281,4 @@ export interface AnnotationConfig {
   readonly maxAnnotationsPerSubmission: number
   readonly warnSelectionChars: number
   readonly locateHistoryPages: number
-  readonly maxDiffFileBytes: number
-  readonly maxDiffLines: number
-  readonly diffTimeoutMs: number
 }

@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
-import { AnnotatedAssistantNode } from '../../src/client/components/AnnotatedAssistantNode.tsx'
-import { AnnotationDock } from '../../src/client/components/AnnotationDock.tsx'
+import { TestAnnotatedAssistantNode as AnnotatedAssistantNode } from '../assistant-host-fixture.tsx'
+import {
+  AnnotationComposerChip,
+  AnnotationExperience,
+  AnnotationRecordToggle,
+} from '../../src/client/components/AnnotationExperience.tsx'
 import { AnnotatedUserNode } from '../../src/client/components/AnnotatedUserNode.tsx'
 import type { AnnotationEndpoint, AnnotationView } from '../../src/client/controller.ts'
 import {
@@ -113,7 +117,11 @@ const fixtureTokens = `
   --dsw-alias-scrollbar-bg-l2: #c8d0d6;
   --dsw-alias-scrollbar-hover-l2: #aeb9c1;
   --dsw-specific-tip: var(--dsw-alias-bg-layer-2);
-  --dsw-specific-menu: var(--dsw-alias-bg-layer-3);
+  --dsw-specific-menu: rgba(248, 249, 250, 0.58);
+  --dsw-specific-selector: rgb(249, 250, 251);
+  --dsw-alias-interactive-bg-hover-solid: rgb(241, 243, 245);
+  --dsw-menu-backdrop-filter: blur(40px) saturate(150%);
+  --dsw-elevation-panel: 0 0 0 0.5px var(--dsw-alias-border-l1), 0 3px 8px 0 rgba(0, 0, 0, 0.03), 0 0 16px 0 rgba(0, 0, 0, 0.02);
   --dsw-specific-bubble: var(--dsw-alias-bg-layer-2);
   --dsw-shadow-lv3: 0 10px 34px rgba(23, 33, 43, 0.2);
 }
@@ -136,6 +144,9 @@ const fixtureTokens = `
     --dsw-alias-state-business-tertiary: #26345f;
     --dsw-alias-scrollbar-bg-l2: #596570;
     --dsw-alias-scrollbar-hover-l2: #707c86;
+    --dsw-specific-menu: rgba(48, 49, 54, 0.5);
+    --dsw-specific-selector: rgb(53, 54, 56);
+    --dsw-alias-interactive-bg-hover-solid: rgb(53, 54, 56);
   }
 }
 html, body, #root { min-height: 100%; }
@@ -144,7 +155,8 @@ body { margin: 0; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-l
 .browser-scroller { height: 360px; overflow-y: auto; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; padding: 0 14px; }
 .browser-spacer { height: 390px; }
 .browser-controls { display: flex; gap: 8px; margin: 12px 0; }
-.browser-composer { display: flex; gap: 8px; margin-top: 8px; padding: 10px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 14px; background: var(--dsw-alias-bg-layer-1); }
+.browser-composer { position: relative; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; padding: 10px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 14px; background: var(--dsw-alias-bg-layer-1); }
+.browser-composer-toolbar { display: flex; width: 100%; justify-content: flex-end; align-items: center; gap: 4px; }
 .browser-composer [data-composer-input] { min-height: 56px; flex: 1; border: 0; background: transparent; color: inherit; font: inherit; outline: none; white-space: pre-wrap; }
 .browser-composer p { margin: 0; }
 .browser-fixture--reading { width: 100%; }
@@ -160,7 +172,7 @@ body { margin: 0; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-l
 .browser-fixture--blocked .browser-reading-source .dia-assistant { width: 100%; }
 .browser-reading-source pre { margin: 0; padding: 12px 0; font: inherit; white-space: pre-wrap; }
 .browser-fixture--interaction { width: min(960px, 100%); }
-.browser-fixture--interaction .browser-scroller { height: 320px; }
+.browser-fixture--interaction .browser-scroller { height: 440px; }
 .browser-fixture--interaction .browser-controls { flex-wrap: wrap; }
 .browser-interaction-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .browser-interaction-head h1 { min-width: min(100%, 260px); flex: 1; margin: 0; }
@@ -339,6 +351,7 @@ function Fixture({ mode }: { mode: 'legacy' | 'reading' | 'blocked' }) {
     undoDelete: controller.undoDelete.bind(controller),
     dismissDeleteUndo: controller.dismissDeleteUndo.bind(controller),
     setPanelOpen: controller.setPanelOpen.bind(controller),
+    setRecordExpanded: controller.setRecordExpanded.bind(controller),
     autoAttachEnabled: () => true,
     ensureComposerAttachment: () => {
       setAttached(true)
@@ -465,8 +478,15 @@ function Fixture({ mode }: { mode: 'legacy' | 'reading' | 'blocked' }) {
         <div className="browser-spacer" />
       </div>
       <div data-composer-seat>
-        <AnnotationDock {...(dockProps as unknown as InputAnnotationProps)} />
+        <AnnotationExperience {...(dockProps as unknown as InputAnnotationProps)} />
         <div className="browser-composer" data-composer-card>
+          <AnnotationComposerChip {...(dockProps as unknown as InputAnnotationProps)} />
+          <div className="browser-composer-toolbar">
+            <AnnotationRecordToggle {...(dockProps as unknown as InputAnnotationProps)} />
+            <button type="button" aria-label="Fixture model selector">
+              Model
+            </button>
+          </div>
           <BrowserComposer
             text={attached ? COMPOSER_ATTACHMENT_TOKEN + composerText : composerText}
             onText={(text) =>
@@ -657,9 +677,17 @@ function InteractionSession({
     controller.updateEditorText(note)
     return controller.saveEditor()
   }
+  const seedOneEarly = () => {
+    clearDraftAnnotations()
+    saveDirect('Alpha', 'Early selected note')
+    controller.setPanelOpen(false)
+  }
   const seedThree = () => {
     clearDraftAnnotations()
-    saveDirect('Alpha', 'First saved note')
+    saveDirect(
+      'Alpha',
+      'First saved note\nSecond line\nThird line\nFourth line\nFifth line\nSixth line\nSeventh line\nEighth line\nNinth line',
+    )
     saveDirect('phrase', 'Middle retained note')
     saveDirect('omega', 'Third saved note')
     controller.setPanelOpen(false)
@@ -786,6 +814,7 @@ function InteractionSession({
     undoDelete: controller.undoDelete.bind(controller),
     dismissDeleteUndo: controller.dismissDeleteUndo.bind(controller),
     setPanelOpen: controller.setPanelOpen.bind(controller),
+    setRecordExpanded: controller.setRecordExpanded.bind(controller),
     autoAttachEnabled: () => controller.getSnapshot().selectionMode === 'all',
     ensureComposerAttachment,
     toggleComposerAttachment,
@@ -898,7 +927,7 @@ function InteractionSession({
         <div className="browser-spacer" />
       </div>
       <div data-composer-seat>
-        <AnnotationDock {...(dockProps as unknown as InputAnnotationProps)} />
+        <AnnotationExperience {...(dockProps as unknown as InputAnnotationProps)} />
         <div className="browser-attachments" data-testid="fixture-attachments">
           {attachments.map((attachment) => (
             <span key={`${attachment.type}:${attachment.name}`} className="browser-attachment">
@@ -907,6 +936,13 @@ function InteractionSession({
           ))}
         </div>
         <div className="browser-composer" data-composer-card>
+          <AnnotationComposerChip {...(dockProps as unknown as InputAnnotationProps)} />
+          <div className="browser-composer-toolbar">
+            <AnnotationRecordToggle {...(dockProps as unknown as InputAnnotationProps)} />
+            <button type="button" aria-label="Fixture model selector">
+              Model
+            </button>
+          </div>
           <BrowserComposer
             text={claimActive ? COMPOSER_ATTACHMENT_TOKEN + composerText : composerText}
             disabled={submitting}
@@ -930,6 +966,16 @@ function InteractionSession({
         </div>
       </div>
       <div className="browser-controls" aria-label="Interaction test controls">
+        <button
+          type="button"
+          data-testid="begin-quick-editor"
+          onClick={() => controller.beginSelection(captureFor('Alpha'))}
+        >
+          Begin quick annotation
+        </button>
+        <button type="button" data-testid="seed-one-early" onClick={seedOneEarly}>
+          Seed one early marker
+        </button>
         <button type="button" data-testid="seed-three" onClick={seedThree}>
           Seed three saved annotations
         </button>

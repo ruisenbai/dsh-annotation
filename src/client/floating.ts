@@ -49,7 +49,7 @@ function clamp(value: number, minimum: number, maximum: number): number {
 }
 
 /**
- * Prefer existing reply gutters, then space below or above the selection, then a compact bottom panel.
+ * Reply previews prefer side gutters; editors prefer the space below the final selected character.
  * @param geometry - Live anchor/body edges, visible scrollport, current composer, and measured unconstrained overlay size.
  * @returns Coordinates and scrollable size limits in viewport CSS pixels; missing or clipped anchors use a panel.
  */
@@ -59,17 +59,19 @@ export function computeAnnotationFloating(geometry: {
   readonly boundary: FloatingRect
   readonly composer: FloatingRect | null
   readonly size: { readonly width: number; readonly height: number }
+  readonly preferBelow?: boolean
 }): AnnotationFloatingPosition {
-  const { anchor, body, boundary, composer, size } = geometry
+  const { anchor, body, boundary, composer, size, preferBelow = false } = geometry
   const bounds = availableBounds(boundary, composer)
   const maxWidth = bounds.right - bounds.left
   const maxHeight = bounds.bottom - bounds.top
   const width = Math.min(size.width, maxWidth)
-  const left = clamp(anchor?.left ?? bounds.left, bounds.left, bounds.right - width)
-  const anchored = anchor !== null && intersects(anchor, bounds) && boundary.right - boundary.left > 760
+  const placementGap = preferBelow ? 10 : gap
+  const left = clamp((anchor?.left ?? bounds.left) - (preferBelow ? 8 : 0), bounds.left, bounds.right - width)
+  const anchored = anchor !== null && intersects(anchor, bounds)
 
   if (anchored) {
-    if (body !== null && size.height <= maxHeight) {
+    if (!preferBelow && body !== null && size.height <= maxHeight) {
       const top = clamp(anchor.top, bounds.top, bounds.bottom - size.height)
       const rightSide = Math.max(body.right, anchor.right) + gap
       if (rightSide + width <= bounds.right) {
@@ -80,14 +82,41 @@ export function computeAnnotationFloating(geometry: {
         return { placement: 'left', left: leftSide, top, maxWidth, maxHeight }
       }
     }
-    if (anchor.bottom + gap + size.height <= bounds.bottom) {
-      return { placement: 'bottom', left, top: anchor.bottom + gap, maxWidth, maxHeight }
+    if (anchor.bottom + placementGap + size.height <= bounds.bottom) {
+      return {
+        placement: 'bottom',
+        left,
+        top: anchor.bottom + placementGap,
+        maxWidth,
+        maxHeight: preferBelow ? bounds.bottom - anchor.bottom - placementGap : maxHeight,
+      }
     }
-    if (anchor.top - gap - size.height >= bounds.top) {
-      return { placement: 'top', left, top: anchor.top - gap - size.height, maxWidth, maxHeight }
+    if (anchor.top - placementGap - size.height >= bounds.top) {
+      return {
+        placement: 'top',
+        left,
+        top: anchor.top - placementGap - size.height,
+        maxWidth,
+        maxHeight: preferBelow ? anchor.top - placementGap - bounds.top : maxHeight,
+      }
     }
   }
 
+  if (anchor !== null && intersects(anchor, bounds)) {
+    const above = Math.max(0, anchor.top - placementGap - bounds.top)
+    const below = Math.max(0, bounds.bottom - anchor.bottom - placementGap)
+    const placeBelow = below >= above
+    const room = placeBelow ? below : above
+    return {
+      placement: 'panel',
+      left: bounds.left + (maxWidth - width) / 2,
+      top: placeBelow
+        ? anchor.bottom + placementGap
+        : anchor.top - placementGap - Math.min(size.height, room),
+      maxWidth,
+      maxHeight: room,
+    }
+  }
   const panelHeight = maxHeight / 2
   return {
     placement: 'panel',
@@ -201,7 +230,7 @@ export function markerElement(annotationId: AnnotationId, root: ParentNode = doc
  * Rebuild a selection's current position instead of reusing its saved viewport coordinates after scrolling.
  * @param capture - The message and text quote retained by an unfinished editor.
  * @param root - Subtree containing mounted assistant replies; defaults to the current document.
- * @returns A measured range in the displayed reply, or null when its text or mounted reply is unavailable.
+ * @returns The final visible non-whitespace character in the displayed quote, or null when its reply is unavailable.
  */
 export function selectionAnchor(
   capture: SelectionCapture,
@@ -216,7 +245,32 @@ export function selectionAnchor(
   if (body == null) return null
   const range = rangeFromSelector(body, capture.quote)
   if (range === null) return null
-  return { rect: range.getBoundingClientRect(), contextElement: range.startContainer.parentElement ?? body }
+  const nodes: Text[] = []
+  const walker = body.ownerDocument.createTreeWalker(body, NodeFilter.SHOW_TEXT)
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    if (node instanceof Text && range.intersectsNode(node)) nodes.push(node)
+  }
+  let finalRect: DOMRect | null = null
+  for (let index = nodes.length - 1; index >= 0 && finalRect === null; index -= 1) {
+    const node = nodes[index]!
+    const start = node === range.startContainer ? range.startOffset : 0
+    const end = node === range.endContainer ? range.endOffset : node.length
+    for (let offset = end - 1; offset >= start; offset -= 1) {
+      if (/\s/u.test(node.data[offset] ?? '')) continue
+      const character = body.ownerDocument.createRange()
+      character.setStart(node, offset)
+      character.setEnd(node, offset + 1)
+      const rect = character.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) {
+        finalRect = rect
+        break
+      }
+    }
+  }
+  return {
+    rect: finalRect ?? range.getBoundingClientRect(),
+    contextElement: range.startContainer.parentElement ?? body,
+  }
 }
 
 function currentComposer(context: HTMLElement | null, doc: Document): HTMLElement | null {
@@ -235,6 +289,8 @@ export interface AnnotationFloatingOptions {
   /** Resolved on each measurement so replaced markers and mounted focus views do not leave stale coordinates. */
   readonly anchor: () => AnnotationFloatingAnchor | null
   readonly enabled: boolean
+  /** Editors sit below the last selected character before considering other available space. */
+  readonly preferBelow?: boolean
   /** The current Dock can provide its exact composer; previews otherwise use the anchor's nearest composer region. */
   readonly composer?: () => HTMLElement | null
 }
@@ -260,15 +316,15 @@ export function useAnnotationFloating(options: AnnotationFloatingOptions): {
   readonly style: CSSProperties
   readonly placement: AnnotationFloatingPosition['placement']
 } {
-  const { enabled, floatingRef, anchor, composer } = options
-  const latest = useRef({ anchor, composer })
+  const { enabled, floatingRef, anchor, composer, preferBelow = false } = options
+  const latest = useRef({ anchor, composer, preferBelow })
   const request = useRef<(() => void) | null>(null)
   const [position, setPosition] = useState<AnnotationFloatingPosition | null>(null)
 
   useLayoutEffect(() => {
-    latest.current = { anchor, composer }
+    latest.current = { anchor, composer, preferBelow }
     request.current?.()
-  }, [anchor, composer])
+  }, [anchor, composer, preferBelow])
 
   useLayoutEffect(() => {
     if (!enabled) return undefined
@@ -353,6 +409,7 @@ export function useAnnotationFloating(options: AnnotationFloatingOptions): {
         boundary,
         composer: composerRect,
         size,
+        preferBelow: latest.current.preferBelow,
       })
       // DOMRects already include CSS zoom; fixed styles use the portal's unzoomed CSS coordinates.
       const next = {

@@ -94,16 +94,14 @@ describe('explicit annotation send sets and editor recovery', () => {
     const { controller, storage } = harness()
     controller.setSelectionMode(true)
     const ids = [save(controller, 0), save(controller, 20), save(controller, 40)]
-    expect(selectedAnnotations(controller.getSnapshot())).toEqual([])
-    controller.toggleSelected(ids[0]!)
-    controller.toggleSelected(ids[2]!)
-    controller.setProcessingMode('rewrite')
+    expect(selectedAnnotations(controller.getSnapshot()).map((item) => item.annotationId)).toEqual(ids)
+    controller.toggleSelected(ids[1]!)
     const entry = controller.createOutbox('queue', controller.sessionId)
     expect(entry.payload.annotations.map((item) => [item.annotationId, item.ordinal])).toEqual([
       [ids[0], 1],
       [ids[2], 2],
     ])
-    expect(entry.payload.processingMode).toBe('rewrite')
+    expect(entry.payload.processingMode).toBe('answer')
     expect(
       controller
         .getSnapshot()
@@ -127,8 +125,6 @@ describe('explicit annotation send sets and editor recovery', () => {
     })
     controller.setSelectionMode(true)
     const ids = [save(controller, 0), save(controller, 20), save(controller, 40)]
-    expect(() => controller.createOutbox('queue', controller.sessionId)).toThrow('no draft annotations')
-    for (const id of ids) controller.toggleSelected(id)
     expect(() => controller.createOutbox('queue', controller.sessionId)).toThrow()
     expect(controller.getSnapshot().outbox).toEqual([])
     controller.toggleSelected(ids[1]!)
@@ -138,9 +134,9 @@ describe('explicit annotation send sets and editor recovery', () => {
   it('keeps retry annotations, mode, requirement, ordinals and attachment metadata immutable', () => {
     const { controller, memory } = harness()
     controller.setSelectionMode(true)
-    const first = save(controller, 0)
+    save(controller, 0)
     const second = save(controller, 20)
-    controller.toggleSelected(first)
+    controller.toggleSelected(second)
     controller.setProcessingMode('rewrite')
     const kinds: Array<'image' | 'file'> = ['image', 'file']
     const mediaTypes = ['image/png', '']
@@ -190,20 +186,13 @@ describe('explicit annotation send sets and editor recovery', () => {
     controller.setSelectionMode(true)
     const first = save(controller, 0)
     const second = save(controller, 20)
-    controller.toggleSelected(second)
+    controller.toggleSelected(first)
     const restored = harness(memory).controller
     expect(selectedAnnotations(restored.getSnapshot()).map((item) => item.annotationId)).toEqual([second])
     restored.deleteDraft(second)
     expect(restored.getSnapshot().selectedAnnotationIds).toEqual([])
     restored.undoDelete()
     expect(restored.getSnapshot().selectedAnnotationIds).toEqual([second])
-    restored.deleteDraft(second)
-    restored.setSelectionMode(false)
-    restored.setSelectionMode(true)
-    restored.undoDelete()
-    expect(restored.getSnapshot().annotations.map((item) => item.annotationId)).toEqual([first, second])
-    expect(restored.getSnapshot().selectedAnnotationIds).toEqual([])
-    expect(restored.getSnapshot().notice?.text).toBe('selection-mode-changed')
   })
 
   it('keeps multiple suspended edits, blank changes and new highlight drafts without sending old content', () => {
@@ -255,48 +244,34 @@ describe('explicit annotation send sets and editor recovery', () => {
     expect(selectedAnnotations(restored.getSnapshot())).toEqual([])
   })
 
-  it('offers all overlapping targets and keeps new annotations separate from explicit supplementation', () => {
+  it('adds overlapping ranges as independent annotations', () => {
     const { controller } = harness()
-    controller.beginSelection(capture(0, 10))
-    controller.updateEditorText('First opinion')
-    const first = controller.saveEditor()
-    controller.beginSelection(capture(5, 10))
-    expect(controller.getSnapshot().overlap?.annotationIds).toEqual([first])
-    controller.chooseOverlap()
+    const first = save(controller, 0, 'First opinion')
+    controller.beginSelection(capture(2, 5))
+    expect(controller.getSnapshot().overlap).toBeNull()
+    expect(controller.getSnapshot().editor).toMatchObject({ kind: 'new' })
     controller.updateEditorText('Second opinion')
     const second = controller.saveEditor()
-    controller.beginSelection(capture(7, 4))
-    expect(controller.getSnapshot().overlap?.annotationIds).toEqual([first, second])
-    controller.chooseOverlap(second)
-    expect(controller.getSnapshot().editor).toMatchObject({
-      kind: 'edit',
-      annotationId: second,
-      supplement: true,
-      text: '',
-      expandedCapture: { quote: { start: 7, end: 11 } },
-    })
-    controller.updateEditorText('Additional opinion')
-    controller.saveEditor()
-    expect(controller.getSnapshot().annotations.find((item) => item.annotationId === first)).toMatchObject({
-      annotation: 'First opinion',
-      quote: { start: 0, end: 10 },
-    })
-    expect(controller.getSnapshot().annotations.find((item) => item.annotationId === second)).toMatchObject({
-      annotation: 'Second opinion\n\nAdditional opinion',
-      quote: { start: 7, end: 11 },
-    })
+    expect(second).not.toBe(first)
+    expect(controller.getSnapshot().annotations).toMatchObject([
+      { annotationId: first, annotation: 'First opinion' },
+      { annotationId: second, annotation: 'Second opinion' },
+    ])
   })
 
-  it('restores an existing unfinished target instead of overwriting it with supplementation', () => {
+  it('preserves a suspended edit when a new overlapping selection starts', () => {
     const { controller } = harness()
     const original = save(controller, 0)
     controller.openAnnotation(original)
     controller.updateEditorText('Unfinished replacement')
     controller.suspendEditor()
     controller.beginSelection(capture(1, 3))
-    controller.chooseOverlap(original)
-    expect(controller.getSnapshot().editor).toMatchObject({ kind: 'edit', text: 'Unfinished replacement' })
-    expect(controller.getSnapshot().notice?.text).toBe('resume-before-supplement')
+    expect(controller.getSnapshot().editor).toMatchObject({ kind: 'new' })
+    expect(controller.getSnapshot().editorDrafts[0]).toMatchObject({
+      kind: 'edit',
+      annotationId: original,
+      text: 'Unfinished replacement',
+    })
   })
 
   it.each(['unsaved', 'saved', 'deleted'] as const)(
@@ -367,24 +342,20 @@ describe('explicit annotation send sets and editor recovery', () => {
     },
   )
 
-  it('clears a stale overlap action before another annotation is edited and preserves keyboard switching', () => {
+  it('keeps an unfinished edit when switching to a new annotation', () => {
     const { controller, storage } = harness()
     const first = save(controller, 0)
-    const second = save(controller, 20)
-    controller.beginSelection(capture(1, 3))
-    expect(controller.getSnapshot().overlap?.annotationIds).toEqual([first])
-    controller.openAnnotation(second)
+    controller.openAnnotation(first)
     controller.updateEditorText('Unfinished keyboard edit')
-    expect(controller.getSnapshot().overlap).toBeNull()
-    controller.chooseOverlap()
-    expect(controller.getSnapshot().editor?.text).toBe('Unfinished keyboard edit')
     controller.beginSelection(capture(1, 3))
-    controller.chooseOverlap()
+    expect(controller.getSnapshot().overlap).toBeNull()
+    expect(controller.getSnapshot().editor).toMatchObject({ kind: 'new' })
     expect(controller.getSnapshot().editorDrafts[0]).toMatchObject({
       kind: 'edit',
-      annotationId: second,
+      annotationId: first,
       text: 'Unfinished keyboard edit',
     })
+    controller.flush()
     expect(storage.load().editorDrafts?.[0]?.text).toBe('Unfinished keyboard edit')
   })
 
@@ -416,7 +387,6 @@ describe('explicit annotation send sets and editor recovery', () => {
       const { controller, storage } = harness()
       controller.setSelectionMode(true)
       const id = save(controller, 0, 'Originally submitted opinion')
-      controller.toggleSelected(id)
       const entry = controller.createOutbox('queue', controller.sessionId)
       controller.markSending(entry.payload.submissionId)
       controller.markFailed(entry.payload.submissionId, 'ambiguous failure')
@@ -452,7 +422,6 @@ describe('explicit annotation send sets and editor recovery', () => {
     const { controller, storage, memory } = harness()
     controller.setSelectionMode(true)
     const id = save(controller, 0, 'Original opinion')
-    controller.toggleSelected(id)
     const entry = controller.createOutbox('queue', controller.sessionId)
     controller.markFailed(entry.payload.submissionId, 'ambiguous failure')
     controller.discardOutbox(entry.payload.submissionId)
@@ -461,7 +430,6 @@ describe('explicit annotation send sets and editor recovery', () => {
       structure: { kind: 'code', language: 'ts', startLine: 2, endLine: 3 },
       blockIndex: 4,
     })
-    controller.chooseOverlap(id)
     controller.updateEditorText('Later source range')
     controller.saveEditor()
 
@@ -474,11 +442,10 @@ describe('explicit annotation send sets and editor recovery', () => {
     expect(history).not.toHaveProperty('blockIndex')
     const pending = controller.getSnapshot().annotations.find((item) => item.status === 'draft')!
     expect(pending).toMatchObject({
-      supplementalTo: id,
       quote: capture(1, 3).quote,
       structure: { kind: 'code', language: 'ts', startLine: 2, endLine: 3 },
     })
-    expect(controller.getSnapshot().selectedAnnotationIds).toEqual([])
+    expect(controller.getSnapshot().selectedAnnotationIds).toEqual([pending.annotationId])
     expect(storage.load().annotations.find((item) => item.annotationId === id)).not.toHaveProperty(
       'structure',
     )
@@ -509,37 +476,27 @@ describe('explicit annotation send sets and editor recovery', () => {
     },
   )
 
-  it('requires confirmation for a long supplemental reference and does not change sent history', () => {
+  it('requires confirmation for a long independent annotation and preserves sent history', () => {
     const { controller, memory } = harness(new MemoryStorage(), 'long', {
       ...DEFAULT_CONFIG,
       warnSelectionChars: 10,
     })
     const original = save(controller, 0, 'Original opinion')
     controller.beginSelection(capture(0, 20))
-    controller.chooseOverlap(original)
-    controller.updateEditorText('Range supplement')
+    controller.updateEditorText('Second opinion')
     expect(() => controller.saveEditor()).toThrow('long selection is not confirmed')
     controller.confirmLongSelection()
-    controller.saveEditor()
+    const second = controller.saveEditor()
+    expect(second).not.toBe(original)
     const entry = controller.createOutbox('queue', controller.sessionId)
     sent(controller, entry.payload)
     const originalJSON = JSON.stringify(entry.payload)
-    controller.beginSelection(capture(1, 3))
-    controller.chooseOverlap(original)
-    controller.updateEditorText('Follow-up to immutable history')
-    controller.suspendEditor()
     const restored = harness(memory, 'long').controller
-    const buffer = restored.getSnapshot().editorDrafts[0]!
-    restored.resumeEditor(editorBufferKey(buffer))
-    const supplement = restored.saveEditor()
-    restored.setProcessingMode('modify')
-    const next = restored.createOutbox('queue', restored.sessionId)
-    expect(next.payload.annotations).toHaveLength(1)
-    expect(next.payload.annotations[0]).toMatchObject({ annotationId: supplement, supplementalTo: original })
-    expect(next.payload.processingMode).toBe('modify')
+    restored.toggleSelected(original)
+    const resent = restored.createOutbox('queue', restored.sessionId)
+    expect(resent.payload.annotations).toHaveLength(1)
+    expect(resent.payload.annotations[0]?.annotationId).toBe(original)
     expect(JSON.stringify(restored.getSnapshot().outbox[0]?.payload)).toBe(originalJSON)
-    expect(
-      restored.getSnapshot().annotations.find((item) => item.annotationId === original)?.annotation,
-    ).toBe('Original opinion\n\nRange supplement')
+    expect(restored.getSnapshot().annotations).toHaveLength(2)
   })
 })

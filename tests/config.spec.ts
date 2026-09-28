@@ -48,25 +48,16 @@ describe('configuration', () => {
       resolveConfig({
         commandName: 'review_submit',
         locateHistoryPages: 3,
-        maxDiffFileBytes: 2048,
-        maxDiffLines: 30,
-        diffTimeoutMs: 5000,
       }),
     ).toMatchObject({
       commandName: 'review_submit',
       locateHistoryPages: 3,
-      maxDiffFileBytes: 2048,
-      maxDiffLines: 30,
-      diffTimeoutMs: 5000,
     })
   })
 
   it.each([
     [{ commandName: 'Bad Name' }, 'commandName'],
     [{ maxPayloadBytes: 0 }, 'maxPayloadBytes'],
-    [{ maxDiffFileBytes: 0 }, 'maxDiffFileBytes'],
-    [{ maxDiffLines: 1.5 }, 'maxDiffLines'],
-    [{ diffTimeoutMs: Number.POSITIVE_INFINITY }, 'diffTimeoutMs'],
     [{ maxAnnotationsPerSubmission: 1.5 }, 'maxAnnotationsPerSubmission'],
   ])('rejects invalid config %#', (value, message) => {
     expect(() => resolveConfig(value)).toThrow(message)
@@ -89,7 +80,6 @@ describe('configuration', () => {
       expect(() => Config({ [field]: 'true' })).toThrow()
     }
     expect(Config.dict?.commandName?.meta.volatile).not.toBe(true)
-    expect(Config.dict?.maxDiffFileBytes?.meta.volatile).not.toBe(true)
     expect(resolved.archivedPreferencesImported.get()).toBe(false)
     expect(Config.dict).not.toHaveProperty('localTools')
   })

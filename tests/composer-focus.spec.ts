@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { composerInput, createComposerFocus } from '../src/client/composer-focus.ts'
-import { COMPOSER_ATTACHMENT_TOKEN } from '../src/client/composer-attachment.ts'
+import { COMPOSER_ATTACHMENT_TOKEN, COMPOSER_TEXT_SEAT } from '../src/client/composer-attachment.ts'
 
 const cleanups: Array<() => void> = []
 afterEach(() => {
@@ -57,6 +57,19 @@ describe('official composer focus', () => {
     root.textContent = COMPOSER_ATTACHMENT_TOKEN + 'draft text'
     focus.restore(attaching)
     expect(document.getSelection()?.focusOffset).toBe(4)
+    const detaching = focus.capture()!
+    root.textContent = 'draft text'
+    focus.restore(detaching)
+    expect(document.getSelection()?.focusOffset).toBe(3)
+  })
+
+  it('excludes the invisible text seat from restored visible caret offsets', () => {
+    const { root, focus, select } = fixture()
+    select(3)
+    const request = focus.capture()!
+    root.textContent = `${COMPOSER_ATTACHMENT_TOKEN}${COMPOSER_TEXT_SEAT}draft text`
+    focus.restore(request)
+    expect(document.getSelection()?.focusOffset).toBe(5)
     const detaching = focus.capture()!
     root.textContent = 'draft text'
     focus.restore(detaching)

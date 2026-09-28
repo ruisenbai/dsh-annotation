@@ -1,5 +1,3 @@
-import type { AnnotationDiffHost } from './diff.ts'
-import type { SubmittedAnnotation } from '../shared/types.ts'
 import { Buffer } from 'node:buffer'
 import { TextDecoder } from 'node:util'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -107,7 +105,6 @@ export function submitAnnotationPayload(
   agent: Agent,
   payload: AnnotationSubmissionPayload,
   attachments: readonly (ImageBlock | FileBlock)[] = [],
-  validateDiff?: (annotation: SubmittedAnnotation) => void,
 ): { readonly duplicate: boolean; readonly messageId: string } {
   if (String(agent.id) !== payload.sessionId) {
     throw new Error(`annotation payload targets session ${payload.sessionId}, not ${String(agent.id)}`)
@@ -118,11 +115,8 @@ export function submitAnnotationPayload(
   ) {
     throw new Error(ATTACHMENT_IDENTITY_MISMATCH)
   }
-  for (const item of payload.annotations) {
-    if (item.source?.kind !== 'diff') continue
-    if (validateDiff === undefined) throw new Error('Diff source verification is unavailable')
-    validateDiff(item)
-  }
+  if (payload.annotations.some((item) => item.source?.kind === 'diff'))
+    throw new Error('Diff annotations are read-only')
   const messageId = submissionMessageId(payload.submissionId)
   if (hasMessage(agent, messageId)) return Object.freeze({ duplicate: true, messageId })
   const message = createAnnotationMessage(payload, attachments)
@@ -132,10 +126,7 @@ export function submitAnnotationPayload(
 }
 
 /** Build the internal command definition used by the browser half. */
-export function createAnnotationCommand(
-  config: AnnotationConfig,
-  diffHost: () => AnnotationDiffHost | undefined = () => undefined,
-): CommandDefinition {
+export function createAnnotationCommand(config: AnnotationConfig): CommandDefinition {
   return Object.freeze({
     name: config.commandName,
     description: 'Submit an idempotent batch of annotations for an earlier assistant reply',
@@ -151,29 +142,8 @@ export function createAnnotationCommand(
           throw new Error('Attachment identities exceed the submission-size limit.')
         return Object.freeze({ kind: 'success', text })
       }
-      const rawInput = invocation.rawInput.trim()
-      if (rawInput.startsWith('diff ')) {
-        const host = diffHost()
-        if (host === undefined)
-          throw new Error('Diff requires the Host filesystem, subprocess and persistent storage services')
-        const encoded = rawInput.slice(5).trim()
-        if (!/^[A-Za-z0-9_-]+$/u.test(encoded)) throw new Error('Invalid Diff request encoding')
-        const bytes = Buffer.from(encoded, 'base64url')
-        if (bytes.byteLength > config.maxPayloadBytes) throw new Error('Diff request exceeds the size limit')
-        const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
-        return host.request(invocation.agent, value, invocation.signal).then((result) => {
-          const text = JSON.stringify(result)
-          if (Buffer.byteLength(text) > config.maxPayloadBytes)
-            throw new Error('Diff response exceeds the size limit')
-          return { kind: 'success' as const, text }
-        })
-      }
       const payload = decodePayload(invocation.rawInput, config)
-      const result = submitAnnotationPayload(invocation.agent, payload, invocation.attachments, (item) => {
-        const host = diffHost()
-        if (host === undefined) throw new Error('Diff source verification is unavailable')
-        host.validate(item, invocation.agent)
-      })
+      const result = submitAnnotationPayload(invocation.agent, payload, invocation.attachments)
       return Object.freeze({
         kind: 'success',
         text: result.duplicate ? 'Annotation batch was already accepted.' : 'Annotation batch accepted.',
@@ -183,11 +153,8 @@ export function createAnnotationCommand(
 }
 
 /** Create the shared handler behind the new command and every invisible pre-rename alias. */
-export function createLegacyAnnotationAliases(
-  config: AnnotationConfig,
-  diffHost: () => AnnotationDiffHost | undefined = () => undefined,
-): readonly CommandDefinition[] {
-  const primary = createAnnotationCommand(config, diffHost)
+export function createLegacyAnnotationAliases(config: AnnotationConfig): readonly CommandDefinition[] {
+  const primary = createAnnotationCommand(config)
   return Object.freeze(
     LEGACY_COMMAND_NAMES.map((name) =>
       Object.freeze({

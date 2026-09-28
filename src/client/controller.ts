@@ -1,5 +1,4 @@
 import { sourceFields, sourceKey } from '../shared/annotation-source.ts'
-import type { DiffSnapshot } from '../shared/diff-source.ts'
 import { createAnnotationId, createSubmissionId, submissionMessageId } from '../shared/ids.ts'
 import { parseModelAcknowledgements } from '../shared/model-ack.ts'
 import {
@@ -24,6 +23,7 @@ import type {
   AnnotationSubmissionPayload,
   DeliveryMode,
   MessageIdentity,
+  ModelAcknowledgement,
   OutboxEntry,
   OutboxAttachments,
   PersistedEditorDraft,
@@ -36,7 +36,6 @@ import type {
 } from '../shared/types.ts'
 import { AnnotationStorage } from './storage.ts'
 import type { SelectionCapture } from './selection.ts'
-import { rangesOverlap } from './selection.ts'
 
 export type EditorState = PersistedEditorDraft
 export type AnnotationPresentation = 'summary' | 'marker' | 'marker-edit'
@@ -51,8 +50,12 @@ export class SubmissionChangedError extends Error {
 
 export interface AnnotationView {
   readonly annotations: readonly AnnotationDraft[]
-  readonly diffPanel?: { readonly snapshot?: DiffSnapshot; readonly annotationId?: AnnotationId } | null
   readonly outbox: readonly OutboxEntry[]
+  /** Loaded durable submissions that may refer to the same annotation across multiple sends. */
+  readonly replyAssociations?: readonly {
+    readonly submissionId: SubmissionId
+    readonly annotationId: AnnotationId
+  }[]
   readonly overallRequirementDraft: string
   readonly editor: EditorState | null
   readonly editorDrafts: readonly EditorState[]
@@ -67,6 +70,7 @@ export interface AnnotationView {
   readonly editorSaveStatus: 'idle' | 'saving' | 'saved' | 'error'
   readonly deletedDraft: AnnotationDraft | null
   readonly panelOpen: boolean
+  readonly recordExpanded: boolean
   readonly notice: { readonly level: 'info' | 'error'; readonly text: string } | null
   readonly activeAnnotationId: AnnotationId | null
   /** Monotonic identity for the latest transient source-navigation effect. */
@@ -100,6 +104,51 @@ export interface AnnotationEndpoint {
 
 const STATUS_RANK: Record<AnnotationStatus, number> = { draft: 0, queued: 1, sent: 2, processed: 3 }
 const EDITOR_AUTOSAVE_MS = 400
+const EMPTY_ACKNOWLEDGEMENTS: readonly ModelAcknowledgement[] = Object.freeze([])
+const EMPTY_HISTORY_NODE: ParsedHistoryNode = Object.freeze({
+  submission: null,
+  acknowledgements: EMPTY_ACKNOWLEDGEMENTS,
+  assistantId: null,
+})
+
+interface ParsedHistoryNode {
+  readonly submission: AnnotationSubmissionPayload | null
+  readonly acknowledgements: readonly ModelAcknowledgement[]
+  readonly assistantId: MessageIdentity | null
+}
+
+interface ParsedHistory {
+  readonly submissions: ReadonlyMap<SubmissionId, AnnotationSubmissionPayload>
+  readonly acknowledgements: ReadonlyMap<SubmissionId, ReadonlySet<AnnotationId>>
+  readonly replyAssociations: NonNullable<AnnotationView['replyAssociations']>
+  readonly latestAssistantMessageId: MessageIdentity | null
+}
+
+function sameItems<T>(previous: readonly T[], next: readonly T[]): boolean {
+  return previous.length === next.length && previous.every((item, index) => item === next[index])
+}
+
+function retainedItems<T>(previous: readonly T[], next: readonly T[]): readonly T[] {
+  return sameItems(previous, next) ? previous : Object.freeze(next)
+}
+
+function sameView(left: AnnotationView, right: AnnotationView): boolean {
+  return (Object.keys(left) as (keyof AnnotationView)[]).every((key) => left[key] === right[key])
+}
+
+function samePersistedView(left: AnnotationView, right: AnnotationView): boolean {
+  return (
+    left.annotations === right.annotations &&
+    left.outbox === right.outbox &&
+    left.overallRequirementDraft === right.overallRequirementDraft &&
+    left.editor === right.editor &&
+    left.editorDrafts === right.editorDrafts &&
+    left.selectionMode === right.selectionMode &&
+    left.selectedAnnotationIds === right.selectedAnnotationIds &&
+    left.processingMode === right.processingMode &&
+    left.retrySubmissionId === right.retrySubmissionId
+  )
+}
 
 function sortAnnotations(values: readonly AnnotationDraft[]): AnnotationDraft[] {
   return [...values].sort(
@@ -112,7 +161,7 @@ function sortAnnotations(values: readonly AnnotationDraft[]): AnnotationDraft[] 
 
 function withOrdinals(values: readonly AnnotationDraft[]): AnnotationDraft[] {
   return sortAnnotations(values).map((value, index) =>
-    value.status !== 'draft' || value.ordinal === index + 1
+    value.source?.kind === 'diff' || value.status !== 'draft' || value.ordinal === index + 1
       ? value
       : Object.freeze({ ...value, ordinal: index + 1 }),
   )
@@ -181,6 +230,19 @@ function unfinishedEdit(editor: EditorState, annotations: readonly AnnotationDra
   )
 }
 
+/** A retired Diff editor remains in storage but cannot produce another annotation. */
+export function isReadOnlyEditor(editor: EditorState, annotations: readonly AnnotationDraft[]): boolean {
+  if (editor.kind === 'new')
+    return (
+      editor.capture.source?.kind === 'diff' ||
+      annotations.some((item) => item.annotationId === editor.supplementalTo && item.source?.kind === 'diff')
+    )
+  return (
+    editor.expandedCapture?.source?.kind === 'diff' ||
+    annotations.some((item) => item.annotationId === editor.annotationId && item.source?.kind === 'diff')
+  )
+}
+
 /**
  * Exclude unfinished edits from saved drafts; recovery buffers are never sendable.
  * @param view Current or captured Session state.
@@ -192,19 +254,25 @@ export function eligibleAnnotations(view: AnnotationView): readonly AnnotationDr
       .filter((editor) => editor.kind === 'edit' && unfinishedEdit(editor, view.annotations))
       .map((editor) => (editor.kind === 'edit' ? editor.annotationId : null)),
   )
-  return view.annotations.filter((item) => item.status === 'draft' && !blocked.has(item.annotationId))
+  return view.annotations.filter(
+    (item) => item.status === 'draft' && item.source?.kind !== 'diff' && !blocked.has(item.annotationId),
+  )
 }
 
 /**
  * Resolve a new batch without deciding whether the official composer is attached.
  * @param view Current or submit-time Session state.
- * @returns All eligible drafts in aggregate mode, or the explicit selected-ID intersection.
+ * @returns Explicitly attached drafts and sent annotations that can be sent again.
  */
 export function selectedAnnotations(view: AnnotationView): readonly AnnotationDraft[] {
-  const eligible = eligibleAnnotations(view)
-  if (view.selectionMode === 'all') return eligible
+  const eligible = new Set(eligibleAnnotations(view).map((item) => item.annotationId))
   const selected = new Set(view.selectedAnnotationIds)
-  return eligible.filter((item) => selected.has(item.annotationId))
+  return view.annotations.filter(
+    (item) =>
+      selected.has(item.annotationId) &&
+      item.source?.kind !== 'diff' &&
+      (eligible.has(item.annotationId) || item.status === 'sent' || item.status === 'processed'),
+  )
 }
 
 /**
@@ -216,7 +284,8 @@ export function retryEntry(view: AnnotationView): OutboxEntry | undefined {
   return view.outbox.find(
     (item) =>
       item.payload.submissionId === view.retrySubmissionId &&
-      (item.status === 'failed' || item.status === 'ready'),
+      (item.status === 'failed' || item.status === 'ready') &&
+      item.payload.annotations.every((annotation) => annotation.source?.kind !== 'diff'),
   )
 }
 
@@ -282,14 +351,19 @@ function finalAssistantId(node: unknown): MessageIdentity | null {
 /** Observable, persistent state owner shared by every slot entry in one Session. */
 export class AnnotationController {
   private view: AnnotationView
+  private parsedNodes = new WeakMap<object, ParsedHistoryNode>()
+  private history: ParsedHistory | null = null
   private readonly listeners = new Set<() => void>()
   private readonly endpoints = new Map<MessageIdentity, AnnotationEndpoint>()
+  private readonly unsubscribeStorage: () => void
   private pendingNavigation: {
     messageId: MessageIdentity
     annotationId: AnnotationId
     navigationEpoch: number
   } | null = null
   private persistTimer: ReturnType<typeof setTimeout> | null = null
+  private persistedOnce = false
+  private pendingLocalEdit = false
   private disposed = false
   private deletedSelection = false
   private deletedEditors: readonly EditorState[] = []
@@ -302,7 +376,15 @@ export class AnnotationController {
     private readonly now: () => number = Date.now,
   ) {
     const persisted = storage.load()
-    const editor = persisted.editorDraft ?? null
+    const retainedEditor = persisted.editorDraft ?? null
+    const editor =
+      retainedEditor !== null && isReadOnlyEditor(retainedEditor, persisted.annotations)
+        ? null
+        : retainedEditor
+    const editorDrafts =
+      retainedEditor !== null && editor === null
+        ? [...(persisted.editorDrafts ?? []), retainedEditor]
+        : (persisted.editorDrafts ?? [])
     const activeAnnotationId =
       editor === null ? null : editor.kind === 'edit' ? editor.annotationId : (editor.supplementalTo ?? null)
     this.view = Object.freeze({
@@ -320,19 +402,37 @@ export class AnnotationController {
       outbox: persisted.outbox,
       overallRequirementDraft: persisted.overallRequirementDraft,
       editor,
-      editorDrafts: persisted.editorDrafts ?? Object.freeze([]),
-      selectionMode: persisted.selectionMode ?? 'all',
-      selectedAnnotationIds: persisted.selectedAnnotationIds ?? Object.freeze([]),
+      editorDrafts: Object.freeze(editorDrafts),
+      selectionMode: 'individual',
+      selectedAnnotationIds: Object.freeze(
+        persisted.selectionMode === 'individual'
+          ? (persisted.selectedAnnotationIds ?? []).filter((id) =>
+              persisted.annotations.some((item) => item.annotationId === id && item.source?.kind !== 'diff'),
+            )
+          : persisted.annotations
+              .filter((item) => item.status === 'draft' && item.source?.kind !== 'diff')
+              .map((item) => item.annotationId),
+      ),
       processingMode: persisted.processingMode ?? DEFAULT_PROCESSING_MODE,
       retrySubmissionId:
         persisted.retrySubmissionId === undefined
-          ? (persisted.outbox.find((item) => item.status === 'failed' || item.status === 'ready')?.payload
-              .submissionId ?? null)
-          : persisted.retrySubmissionId,
+          ? (persisted.outbox.find(
+              (item) =>
+                (item.status === 'failed' || item.status === 'ready') &&
+                item.payload.annotations.every((annotation) => annotation.source?.kind !== 'diff'),
+            )?.payload.submissionId ?? null)
+          : persisted.outbox.some(
+                (item) =>
+                  item.payload.submissionId === persisted.retrySubmissionId &&
+                  item.payload.annotations.some((annotation) => annotation.source?.kind === 'diff'),
+              )
+            ? null
+            : persisted.retrySubmissionId,
       overlap: null,
       editorSaveStatus: editor === null ? 'idle' : 'saved',
       deletedDraft: null,
       panelOpen: false,
+      recordExpanded: true,
       notice: storage.lastError() === null ? null : { level: 'error' as const, text: 'storage' },
       activeAnnotationId,
       navigationEpoch: 0,
@@ -340,6 +440,7 @@ export class AnnotationController {
       latestAssistantMessageId: null,
       storageAvailable: storage.lastError() === null,
     })
+    this.unsubscribeStorage = storage.subscribe(() => this.synchronizeStorage())
   }
 
   getSnapshot = (): AnnotationView => this.view
@@ -360,11 +461,69 @@ export class AnnotationController {
       this.storage.save(cloneState(this.view))
     }
     this.disposed = true
+    this.unsubscribeStorage()
+    this.storage.dispose()
+    this.parsedNodes = new WeakMap()
+    this.history = null
     this.listeners.clear()
     this.endpoints.clear()
   }
 
+  /** Refresh durable records after another page or a completed merge without replacing unsaved keystrokes. */
+  synchronizeStorage(): void {
+    if (this.disposed) return
+    const persisted = this.storage.load(true)
+    if (this.storage.loadStatus() === 'failed') {
+      this.publish({ ...this.view }, false)
+      return
+    }
+    const keepEditor = this.view.editorSaveStatus === 'saving'
+    const editor = keepEditor ? this.view.editor : (persisted.editorDraft ?? null)
+    const editorDrafts = [...(persisted.editorDrafts ?? [])]
+    if (
+      keepEditor &&
+      persisted.editorDraft !== undefined &&
+      (editor === null || editorBufferKey(editor) !== editorBufferKey(persisted.editorDraft))
+    )
+      editorDrafts.push(persisted.editorDraft)
+    this.publish(
+      {
+        ...this.view,
+        annotations: persisted.annotations,
+        outbox: persisted.outbox,
+        overallRequirementDraft: persisted.overallRequirementDraft,
+        editor,
+        editorDrafts: Object.freeze(editorDrafts),
+        editorSaveStatus: keepEditor ? this.view.editorSaveStatus : editor === null ? 'idle' : 'saved',
+        selectedAnnotationIds: Object.freeze(
+          this.view.selectedAnnotationIds.filter((id) =>
+            persisted.annotations.some((item) => item.annotationId === id),
+          ),
+        ),
+        processingMode: persisted.processingMode ?? this.view.processingMode,
+        retrySubmissionId:
+          persisted.retrySubmissionId === undefined
+            ? this.view.retrySubmissionId
+            : persisted.retrySubmissionId,
+        activeAnnotationId:
+          this.view.activeAnnotationId !== null &&
+          persisted.annotations.some((item) => item.annotationId === this.view.activeAnnotationId)
+            ? this.view.activeAnnotationId
+            : null,
+        markerAnnotationId:
+          this.view.markerAnnotationId !== null &&
+          persisted.annotations.some((item) => item.annotationId === this.view.markerAnnotationId)
+            ? this.view.markerAnnotationId
+            : null,
+        storageAvailable: true,
+        notice: this.view.notice?.text === 'storage' ? null : this.view.notice,
+      },
+      false,
+    )
+  }
+
   beginSelection(capture: SelectionCapture): void {
+    if (capture.source?.kind === 'diff') throw new Error('Diff annotations are read-only')
     const {
       source: _source,
       messageId: _message,
@@ -374,21 +533,6 @@ export class AnnotationController {
     } = capture
     capture = Object.freeze({ ...selection, ...sourceFields(capture) })
     this.suspendEditor()
-    const overlaps = this.view.annotations.filter(
-      (item) => sourceKey(item) === sourceKey(capture) && rangesOverlap(item.quote, capture.quote),
-    )
-    if (overlaps.length > 0) {
-      this.publish({
-        ...this.view,
-        overlap: Object.freeze({
-          capture,
-          annotationIds: Object.freeze(overlaps.map((item) => item.annotationId)),
-        }),
-        panelOpen: true,
-        markerAnnotationId: null,
-      })
-      return
-    }
     this.startNewEditor(capture)
   }
 
@@ -441,6 +585,13 @@ export class AnnotationController {
   }
 
   private startNewEditor(capture: SelectionCapture, supplementalTo?: AnnotationId): void {
+    if (
+      capture.source?.kind === 'diff' ||
+      this.view.annotations.some(
+        (item) => item.annotationId === supplementalTo && item.source?.kind === 'diff',
+      )
+    )
+      throw new Error('Diff annotations are read-only')
     this.publish({
       ...this.view,
       overlap: null,
@@ -473,8 +624,15 @@ export class AnnotationController {
   }
 
   toggleSelected(annotationId: AnnotationId): void {
-    if (this.view.selectionMode !== 'individual') return
-    if (!eligibleAnnotations(this.view).some((item) => item.annotationId === annotationId)) return
+    const item = this.view.annotations.find((candidate) => candidate.annotationId === annotationId)
+    if (
+      item === undefined ||
+      item.source?.kind === 'diff' ||
+      (item.status !== 'sent' &&
+        item.status !== 'processed' &&
+        !eligibleAnnotations(this.view).some((candidate) => candidate.annotationId === annotationId))
+    )
+      return
     const selected = this.view.selectedAnnotationIds.includes(annotationId)
     this.publish({
       ...this.view,
@@ -496,7 +654,8 @@ export class AnnotationController {
       !this.view.outbox.some(
         (entry) =>
           entry.payload.submissionId === submissionId &&
-          (entry.status === 'ready' || entry.status === 'failed'),
+          (entry.status === 'ready' || entry.status === 'failed') &&
+          entry.payload.annotations.every((annotation) => annotation.source?.kind !== 'diff'),
       )
     )
       return
@@ -509,11 +668,10 @@ export class AnnotationController {
 
   openAnnotation(annotationId: AnnotationId, presentation: AnnotationPresentation = 'summary'): void {
     const item = this.view.annotations.find((candidate) => candidate.annotationId === annotationId)
-    if (item === undefined) return
+    if (item === undefined || item.source?.kind === 'diff') return
     const closing = this.view.markerAnnotationId === annotationId && this.view.editor === null
     this.suspendEditor()
     this.dismissOverlap()
-    if (item.source?.kind === 'diff') this.openDiffPanel(item.source.snapshot, annotationId)
     if (presentation === 'marker') {
       this.publish({
         ...this.view,
@@ -546,17 +704,9 @@ export class AnnotationController {
       return
     }
     if (item.status === 'sent' || item.status === 'processed') {
-      const capture = captureAnnotation(item)
       this.publish({
         ...this.view,
-        editor: Object.freeze({
-          kind: 'new',
-          draftId: createAnnotationId(),
-          capture,
-          text: '',
-          longSelectionConfirmed: true,
-          supplementalTo: annotationId,
-        }),
+        editor: null,
         editorSaveStatus: 'idle',
         activeAnnotationId: annotationId,
         markerAnnotationId,
@@ -582,6 +732,7 @@ export class AnnotationController {
       },
       false,
     )
+    this.pendingLocalEdit = true
     this.schedulePersist()
   }
 
@@ -597,6 +748,7 @@ export class AnnotationController {
   saveEditor(): AnnotationId {
     const editor = this.view.editor
     if (editor === null) throw new Error('no annotation editor is open')
+    if (isReadOnlyEditor(editor, this.view.annotations)) throw new Error('Diff annotations are read-only')
     const original =
       editor.kind === 'edit'
         ? this.view.annotations.find((item) => item.annotationId === editor.annotationId)
@@ -676,7 +828,11 @@ export class AnnotationController {
         (buffer) => editorBufferKey(buffer) !== editorBufferKey(editor),
       ),
       editorSaveStatus: 'idle',
-      activeAnnotationId: savedId,
+      activeAnnotationId: null,
+      selectedAnnotationIds:
+        editor.kind === 'new'
+          ? Object.freeze([...this.view.selectedAnnotationIds, savedId])
+          : this.view.selectedAnnotationIds,
     })
     return savedId
   }
@@ -703,15 +859,7 @@ export class AnnotationController {
     const editor = this.view.editorDrafts.find((buffer) => editorBufferKey(buffer) === key)
     if (editor === undefined) return
     this.suspendEditor()
-    const source =
-      editor.kind === 'new'
-        ? editor.capture.source
-        : (
-            editor.expandedCapture ??
-            this.view.annotations.find((item) => item.annotationId === editor.annotationId)
-          )?.source
-    if (source?.kind === 'diff')
-      this.openDiffPanel(source.snapshot, editor.kind === 'edit' ? editor.annotationId : undefined)
+    if (isReadOnlyEditor(editor, this.view.annotations)) return
     this.publish({
       ...this.view,
       editor,
@@ -724,6 +872,8 @@ export class AnnotationController {
   }
 
   discardEditorDraft(key: string): void {
+    const retained = this.view.editorDrafts.find((buffer) => editorBufferKey(buffer) === key)
+    if (retained !== undefined && isReadOnlyEditor(retained, this.view.annotations)) return
     if (this.view.editor !== null && editorBufferKey(this.view.editor) === key) {
       this.closeEditor(true)
       return
@@ -762,7 +912,7 @@ export class AnnotationController {
 
   deleteDraft(annotationId: AnnotationId): void {
     const target = this.view.annotations.find((item) => item.annotationId === annotationId)
-    if (target === undefined) return
+    if (target === undefined || target.source?.kind === 'diff') return
     if (target.status !== 'draft') throw new Error('only draft annotations can be deleted')
     const relatedEditor = (editor: EditorState) =>
       editor.kind === 'edit' && editor.annotationId === annotationId
@@ -795,10 +945,9 @@ export class AnnotationController {
       ...this.view,
       annotations: withOrdinals([...this.view.annotations, deleted]),
       editorDrafts: Object.freeze([...this.view.editorDrafts, ...this.deletedEditors]),
-      selectedAnnotationIds:
-        this.deletedSelection && this.view.selectionMode === 'individual'
-          ? Object.freeze([...this.view.selectedAnnotationIds, deleted.annotationId])
-          : this.view.selectedAnnotationIds,
+      selectedAnnotationIds: this.deletedSelection
+        ? Object.freeze([...this.view.selectedAnnotationIds, deleted.annotationId])
+        : this.view.selectedAnnotationIds,
       deletedDraft: null,
       activeAnnotationId: deleted.annotationId,
     })
@@ -814,10 +963,16 @@ export class AnnotationController {
       {
         ...this.view,
         panelOpen,
+        recordExpanded: panelOpen ? true : this.view.recordExpanded,
         markerAnnotationId: panelOpen ? null : this.view.markerAnnotationId,
       },
       false,
     )
+  }
+
+  setRecordExpanded(recordExpanded: boolean): void {
+    if (!this.view.panelOpen) return
+    this.publish({ ...this.view, recordExpanded }, false)
   }
 
   setOverallRequirementDraft(overallRequirementDraft: string): void {
@@ -841,6 +996,15 @@ export class AnnotationController {
     snapshot: AnnotationView = this.view,
     attachmentIdentities?: readonly SubmittedAttachmentIdentity[],
   ): OutboxEntry {
+    if (
+      snapshot.retrySubmissionId !== null &&
+      snapshot.outbox.some(
+        (entry) =>
+          entry.payload.submissionId === snapshot.retrySubmissionId &&
+          entry.payload.annotations.some((annotation) => annotation.source?.kind === 'diff'),
+      )
+    )
+      throw new Error('Diff annotations are read-only')
     const retry = retryEntry(snapshot)
     if (retry !== undefined) {
       const current = this.view.outbox.find(
@@ -850,8 +1014,8 @@ export class AnnotationController {
       return current
     }
     const drafts = sortAnnotations(selectedAnnotations(snapshot))
-    if (drafts.length === 0) throw new Error('no draft annotations to submit')
-    const currentEligible = new Map(eligibleAnnotations(this.view).map((item) => [item.annotationId, item]))
+    if (drafts.length === 0) throw new Error('no annotations to submit')
+    const currentEligible = new Map(selectedAnnotations(this.view).map((item) => [item.annotationId, item]))
     for (const draft of drafts) {
       const current = currentEligible.get(draft.annotationId)
       if (current === undefined || !sameAnnotationContent(current, draft)) {
@@ -880,7 +1044,7 @@ export class AnnotationController {
       sessionId: targetSessionId,
       delivery,
       protocolLocale,
-      processingMode: snapshot.processingMode,
+      processingMode: 'answer',
       createdAt: this.now(),
       ...(overall.length === 0 ? {} : { overallRequirement: overall }),
       annotations: Object.freeze(annotations),
@@ -910,7 +1074,7 @@ export class AnnotationController {
     })
     const selected = new Map(payload.annotations.map((item) => [item.annotationId, item.ordinal]))
     const nextAnnotations = this.view.annotations.map((item) =>
-      selected.has(item.annotationId)
+      selected.has(item.annotationId) && item.status === 'draft'
         ? Object.freeze({
             ...item,
             ordinal: selected.get(item.annotationId)!,
@@ -926,6 +1090,7 @@ export class AnnotationController {
       annotations: nextAnnotations,
       outbox: [...this.view.outbox, entry],
       retrySubmissionId: submissionId,
+      selectedAnnotationIds: Object.freeze(this.view.selectedAnnotationIds.filter((id) => !selected.has(id))),
       editor: closesEditor ? null : this.view.editor,
       overallRequirementDraft: '',
     })
@@ -954,6 +1119,14 @@ export class AnnotationController {
   }
 
   markSending(submissionId: SubmissionId): void {
+    if (
+      this.view.outbox.some(
+        (entry) =>
+          entry.payload.submissionId === submissionId &&
+          entry.payload.annotations.some((annotation) => annotation.source?.kind === 'diff'),
+      )
+    )
+      throw new Error('Diff annotations are read-only')
     this.patchOutbox(submissionId, (item) => {
       if (item.status !== 'ready' && item.status !== 'failed') return item
       const { lastError: _lastError, ...rest } = item
@@ -984,6 +1157,14 @@ export class AnnotationController {
   }
 
   markWithdrawn(submissionId: SubmissionId): void {
+    if (
+      this.view.outbox.some(
+        (entry) =>
+          entry.payload.submissionId === submissionId &&
+          entry.payload.annotations.some((annotation) => annotation.source?.kind === 'diff'),
+      )
+    )
+      return
     const time = this.now()
     this.publish({
       ...this.view,
@@ -1003,7 +1184,12 @@ export class AnnotationController {
   /** Drop a never-queued retry record and return its annotations to the editable draft list. */
   discardOutbox(submissionId: SubmissionId): void {
     const entry = this.view.outbox.find((item) => item.payload.submissionId === submissionId)
-    if (entry === undefined || (entry.status !== 'ready' && entry.status !== 'failed')) return
+    if (
+      entry === undefined ||
+      (entry.status !== 'ready' && entry.status !== 'failed') ||
+      entry.payload.annotations.some((annotation) => annotation.source?.kind === 'diff')
+    )
+      return
     const time = this.now()
     this.publish({
       ...this.view,
@@ -1020,23 +1206,76 @@ export class AnnotationController {
     })
   }
 
-  reconcile(snapshot: AnnotationReconciliationSnapshot): void {
+  private parseHistoryNode(node: unknown): ParsedHistoryNode {
+    if (typeof node !== 'object' || node === null) return EMPTY_HISTORY_NODE
+    const cached = this.parsedNodes.get(node)
+    if (cached !== undefined) return cached
+    const kind = (node as Record<string, unknown>).kind
+    let submission: AnnotationSubmissionPayload | null = null
+    let acknowledgements = EMPTY_ACKNOWLEDGEMENTS
+    let assistantId: MessageIdentity | null = null
+    if (kind === 'user' || kind === 'steering') {
+      const source = sourceFromInputNode(node)
+      if (typeof source === 'object' && source !== null) {
+        const data = source as Record<string, unknown>
+        if (
+          data.annotationSubmission !== undefined ||
+          data.inlineComments !== undefined ||
+          data.inlineAnnotations !== undefined
+        )
+          submission = parseAnnotationSource(source)
+      }
+    } else if (kind === 'assistant-step') {
+      assistantId = finalAssistantId(node)
+      const text = textFromAssistantNode(node)
+      if (text.includes('<!--')) acknowledgements = parseModelAcknowledgements(text)
+    }
+    const parsed = { submission, acknowledgements, assistantId }
+    this.parsedNodes.set(node, parsed)
+    return parsed
+  }
+
+  private readHistory(snapshot: AnnotationReconciliationSnapshot): ParsedHistory {
     const submissions = new Map<SubmissionId, AnnotationSubmissionPayload>()
     const acknowledgements = new Map<SubmissionId, Set<AnnotationId>>()
     let latestAssistantMessageId: MessageIdentity | null = null
     for (const node of snapshot.chat.nodes.values()) {
-      const source = sourceFromInputNode(node)
-      const payload = parseAnnotationSource(source)
+      const { submission: payload, assistantId, acknowledgements: parsed } = this.parseHistoryNode(node)
       if (payload !== null) submissions.set(payload.submissionId, payload)
-      const assistantId = finalAssistantId(node)
       if (assistantId !== null) latestAssistantMessageId = assistantId
-      const text = textFromAssistantNode(node)
-      for (const acknowledgement of parseModelAcknowledgements(text)) {
+      for (const acknowledgement of parsed) {
         const ids = acknowledgements.get(acknowledgement.submissionId) ?? new Set<AnnotationId>()
         for (const id of acknowledgement.processed) ids.add(id)
         acknowledgements.set(acknowledgement.submissionId, ids)
       }
     }
+    const previous = this.history
+    const previousSubmissions = previous === null ? [] : [...previous.submissions]
+    const sameSubmissions =
+      previous !== null &&
+      previous.submissions.size === submissions.size &&
+      [...submissions].every(
+        ([id, payload], index) =>
+          previousSubmissions[index]?.[0] === id && previousSubmissions[index]?.[1] === payload,
+      )
+    const replyAssociations = sameSubmissions
+      ? previous.replyAssociations
+      : Object.freeze(
+          [...submissions.values()].flatMap((payload) =>
+            payload.annotations
+              .filter((item) => item.source?.kind !== 'diff')
+              .map((item) =>
+                Object.freeze({ submissionId: payload.submissionId, annotationId: item.annotationId }),
+              ),
+          ),
+        )
+    return { submissions, acknowledgements, replyAssociations, latestAssistantMessageId }
+  }
+
+  /** Refresh chat-derived protocol state only when the Chat snapshot changes. */
+  reconcile(snapshot: AnnotationReconciliationSnapshot, refreshChat = true): void {
+    if (refreshChat || this.history === null) this.history = this.readHistory(snapshot)
+    const { submissions, acknowledgements, replyAssociations, latestAssistantMessageId } = this.history
     const queued =
       snapshot.queue === undefined ? undefined : new Set(snapshot.queue.map((item) => String(item.messageId)))
     let annotations = [...this.view.annotations]
@@ -1074,6 +1313,14 @@ export class AnnotationController {
           }
           restoredDrafts.set(item.annotationId, { previous, replacementId })
         }
+        if (
+          previous !== undefined &&
+          previous.status !== 'draft' &&
+          previous.submissionId === payload.submissionId &&
+          previous.ordinal === item.ordinal &&
+          sameAnnotationContent(previous, item)
+        )
+          continue
         const restored = Object.freeze({
           ...item,
           ...(previous?.blockIndex !== undefined && sameAnnotationContent(previous, item)
@@ -1109,9 +1356,10 @@ export class AnnotationController {
       })
     }
     const editor = restoreEditor(this.view.editor)
-    const editorDrafts = this.view.editorDrafts
-      .map(restoreEditor)
-      .filter((entry): entry is EditorState => entry !== null)
+    const editorDrafts = retainedItems(
+      this.view.editorDrafts,
+      this.view.editorDrafts.map(restoreEditor).filter((entry): entry is EditorState => entry !== null),
+    )
     annotations = annotations.map((item) => {
       if (item.submissionId === undefined) return item
       const sent = submissions.has(item.submissionId)
@@ -1134,10 +1382,12 @@ export class AnnotationController {
     })
     const outbox = this.view.outbox.map((item) => {
       if (submissions.has(item.payload.submissionId)) {
+        if (item.status === 'sent' && item.lastError === undefined) return item
         const { lastError: _lastError, ...rest } = item
         return Object.freeze({ ...rest, status: 'sent' as const })
       }
       if (queued?.has(String(item.messageId)) && item.status !== 'sent' && item.status !== 'withdrawn') {
+        if (item.status === 'queued' && item.lastError === undefined) return item
         const { lastError: _lastError, ...rest } = item
         return Object.freeze({ ...rest, status: 'queued' as const })
       }
@@ -1146,12 +1396,18 @@ export class AnnotationController {
       }
       return item
     })
+    const annotationItems = retainedItems(this.view.annotations, annotations)
+    const orderedAnnotations =
+      annotationItems === this.view.annotations
+        ? this.view.annotations
+        : retainedItems(this.view.annotations, withOrdinals(annotationItems))
     this.publish({
       ...this.view,
-      annotations: withOrdinals(annotations),
-      outbox,
+      annotations: orderedAnnotations,
+      outbox: retainedItems(this.view.outbox, outbox),
+      replyAssociations,
       editor,
-      editorDrafts: Object.freeze(editorDrafts),
+      editorDrafts,
       editorSaveStatus: editor === null ? 'idle' : this.view.editorSaveStatus,
       activeAnnotationId:
         this.view.activeAnnotationId === null
@@ -1162,6 +1418,12 @@ export class AnnotationController {
           ? null
           : this.view.markerAnnotationId,
       notice: preservedChanges ? { level: 'info', text: 'local-edits-preserved' } : this.view.notice,
+      panelOpen:
+        annotations.length > 0 &&
+        annotations.every((item) => item.status === 'sent' || item.status === 'processed') &&
+        this.view.selectedAnnotationIds.length === 0
+          ? false
+          : this.view.panelOpen,
       latestAssistantMessageId,
     })
   }
@@ -1235,69 +1497,10 @@ export class AnnotationController {
     return true
   }
 
-  /** Open the plugin-owned Diff panel without changing any submitted source. */
-  openDiffPanel(snapshot?: DiffSnapshot, annotationId?: AnnotationId): void {
-    this.publish(
-      {
-        ...this.view,
-        diffPanel: {
-          ...(snapshot === undefined ? {} : { snapshot }),
-          ...(annotationId === undefined ? {} : { annotationId }),
-        },
-      },
-      false,
-    )
-  }
-
-  closeDiffPanel(): void {
-    this.suspendEditor()
-    this.publish({ ...this.view, diffPanel: null }, false)
-  }
-
-  /** A Shift action may extend only the active new Diff editor on the same frozen side. */
-  beginDiffSelection(capture: SelectionCapture, extend = false, supplementalTo?: AnnotationId): void {
-    const editor = this.view.editor
-    if (capture.source?.kind !== 'diff') throw new Error('Diff selection requires a real file source')
-    if (extend && (editor?.kind !== 'new' || sourceKey(editor.capture) !== sourceKey(capture))) {
-      throw new Error('Diff ranges must stay on the same file, version and side')
-    }
-    if (extend && editor?.kind === 'new') {
-      this.publish({
-        ...this.view,
-        editor: {
-          ...editor,
-          capture,
-          longSelectionConfirmed: capture.quote.exact.length <= this.config.warnSelectionChars,
-        },
-      })
-      return
-    }
-    if (supplementalTo !== undefined) {
-      this.suspendEditor()
-      this.startNewEditor(capture, supplementalTo)
-    } else this.beginSelection(capture)
-  }
-
   async navigate(annotationId: AnnotationId): Promise<boolean> {
     const annotation = this.view.annotations.find((item) => item.annotationId === annotationId)
     if (annotation === undefined) return false
-    if (annotation.source?.kind === 'diff') {
-      this.suspendEditor()
-      this.pendingNavigation = null
-      this.publish(
-        {
-          ...this.view,
-          navigationEpoch: this.view.navigationEpoch + 1,
-          activeAnnotationId: annotationId,
-          markerAnnotationId: null,
-          overlap: null,
-          panelOpen: false,
-        },
-        false,
-      )
-      this.openDiffPanel(annotation.source.snapshot, annotationId)
-      return true
-    }
+    if (annotation.source?.kind === 'diff') return false
     const navigationEpoch = this.view.navigationEpoch + 1
     this.pendingNavigation = null
     this.publish(
@@ -1306,7 +1509,6 @@ export class AnnotationController {
         activeAnnotationId: null,
         navigationEpoch,
         markerAnnotationId: null,
-        panelOpen: false,
       },
       false,
     )
@@ -1380,11 +1582,17 @@ export class AnnotationController {
 
   private publish(next: AnnotationView, persist = true): void {
     if (this.disposed) return
+    const previous = this.view
+    const pendingEditorSave = this.persistTimer !== null
     if (persist && this.persistTimer !== null) {
       clearTimeout(this.persistTimer)
       this.persistTimer = null
     }
-    const eligibleIds = new Set(eligibleAnnotations(next).map((item) => item.annotationId))
+    const eligibleIds = new Set(
+      next.annotations
+        .filter((item) => item.status === 'draft' || item.status === 'sent' || item.status === 'processed')
+        .map((item) => item.annotationId),
+    )
     const selectedIds = [...new Set(next.selectedAnnotationIds.filter((id) => eligibleIds.has(id)))]
     const selectionUnchanged =
       selectedIds.length === next.selectedAnnotationIds.length &&
@@ -1399,8 +1607,19 @@ export class AnnotationController {
       selectedAnnotationIds: selectionUnchanged ? next.selectedAnnotationIds : Object.freeze(selectedIds),
       retrySubmissionId: retryPresent ? next.retrySubmissionId : null,
     })
-    if (persist) {
+    const shouldPersist =
+      persist &&
+      (!this.persistedOnce ||
+        pendingEditorSave ||
+        this.pendingLocalEdit ||
+        this.storage.lastError() !== null ||
+        !samePersistedView(previous, this.view))
+    if (shouldPersist) {
       const saved = this.storage.save(cloneState(this.view))
+      if (saved) {
+        this.persistedOnce = true
+        this.pendingLocalEdit = false
+      }
       this.view = saved
         ? Object.freeze({
             ...this.view,
@@ -1414,6 +1633,17 @@ export class AnnotationController {
             storageAvailable: false,
             notice: { level: 'error' as const, text: 'storage' },
           })
+    }
+    if (this.storage.lastError() !== null) {
+      this.view = Object.freeze({
+        ...this.view,
+        storageAvailable: false,
+        notice: { level: 'error' as const, text: 'storage' },
+      })
+    }
+    if (sameView(previous, this.view)) {
+      this.view = previous
+      return
     }
     for (const listener of this.listeners) {
       try {

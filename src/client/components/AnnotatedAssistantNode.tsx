@@ -1,5 +1,4 @@
 import {
-  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -7,29 +6,19 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
+  type ReactElement,
 } from 'react'
-import {
-  DisclosureRow,
-  IconThinkOutlineRegular,
-  JsonBlock,
-  MarkdownText,
-  Tooltip,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createPortal } from 'react-dom'
-import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
-import {
-  parseReplyMarkers,
-  stripMachineMarkers,
-  stripMachineMarkersForDisplay,
-} from '../../shared/model-ack.ts'
+import { parseReplyMarkers, stripMachineMarkers } from '../../shared/model-ack.ts'
 import { replyHeadingNeedles } from '../../shared/protocol.ts'
 import type { AnnotationDraft, AnnotationId, MessageIdentity, TextQuoteSelector } from '../../shared/types.ts'
 import type { AssistantAnnotationProps } from '../contract.ts'
 import { FOCUS_CHANGED_EVENT, isDuplicatedByFocusView, isFocusViewHidden } from '../focus-adapter.ts'
 import { markerElement, useAnnotationFloating } from '../floating.ts'
 import { layoutMarkers, sameMarkerLayout, type MarkerLayout, type MarkerRect } from '../marker-layout.ts'
-import { captureSelection, rangeFromSelector, selectableTextNodes, textBlockIndexOf } from '../selection.ts'
+import { buildTextIndex, captureSelection, rangeFromSelector, textBlockIndexOf } from '../selection.ts'
+import type { TextIndex } from '../selection.ts'
 
 function sameAnnotations(left: readonly AnnotationDraft[], right: readonly AnnotationDraft[]): boolean {
   return left.length === right.length && left.every((item, index) => item === right[index])
@@ -40,96 +29,40 @@ function previewText(text: string): string {
   return compact.length > 120 ? `${compact.slice(0, 120)}…` : compact
 }
 
-function firstLine(text: string): string {
-  const newline = text.indexOf('\n')
-  return newline === -1 ? text : text.slice(0, newline)
-}
-
-function latestLine(text: string): string {
-  const visible = text.trimEnd()
-  const newline = visible.lastIndexOf('\n')
-  return newline === -1 ? visible : visible.slice(newline + 1)
-}
-
-function AnnotationReasoningRow({
-  text,
-  running,
-  t,
-}: {
-  text: string
-  running: boolean
-  t: AssistantAnnotationProps['t']
-}) {
-  const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
-  const summaryRef = useRef<HTMLSpanElement>(null)
-  const summary = running ? latestLine(text) : firstLine(text)
-
-  useLayoutEffect(() => {
-    const element = summaryRef.current
-    if (element !== null) element.scrollLeft = running ? element.scrollWidth - element.clientWidth : 0
-  }, [running, summary])
-
-  const toggle = () => {
-    setOpen((value) => !value)
-    rootRef.current?.dispatchEvent(new Event('toggle', { bubbles: true }))
-  }
-
-  return (
-    <div
-      ref={rootRef}
-      className="dia-assistant__reasoning"
-      data-state={running ? 'running' : 'ok'}
-      data-dsh-annotation-ignore="true"
-    >
-      <DisclosureRow
-        rowClassName="dia-assistant__reasoning-row"
-        leadingClassName="dia-assistant__reasoning-leading"
-        titleClassName="dia-assistant__reasoning-title"
-        chevronClassName="dia-assistant__reasoning-chevron"
-        icon={<IconThinkOutlineRegular size={14} />}
-        title={t('assistant.reasoning')}
-        open={open}
-        expandable
-        expandOnRowClick
-        onToggle={toggle}
-        collapsedContent={
-          <>
-            <span className="dia-assistant__reasoning-separator" aria-hidden="true" />
-            <span
-              ref={summaryRef}
-              className="dia-assistant__reasoning-summary"
-              data-follow-end={running || undefined}
-            >
-              {summary}
-            </span>
-          </>
-        }
-      >
-        <div className="dia-assistant__reasoning-body">{text}</div>
-      </DisclosureRow>
-    </div>
-  )
-}
-
 function markerBounds(root: HTMLElement, rootRect: DOMRect, scaleX: number): MarkerRect {
   const viewport = window.visualViewport
   let left = viewport?.offsetLeft ?? 0
   let right = left + (viewport?.width ?? window.innerWidth)
+  let top = viewport?.offsetTop ?? 0
+  let bottom = top + (viewport?.height ?? window.innerHeight)
   for (let element: HTMLElement | null = root; element !== null; element = element.parentElement) {
     const style = window.getComputedStyle(element)
-    if (!/(auto|scroll|hidden|clip|overlay)/.test(style.overflowX || style.overflow)) continue
+    const clipX = /(auto|scroll|hidden|clip|overlay)/.test(style.overflowX || style.overflow)
+    const clipY = /(auto|scroll|hidden|clip|overlay)/.test(style.overflowY || style.overflow)
+    if (!clipX && !clipY) continue
     const rect = element.getBoundingClientRect()
-    const scale = element.offsetWidth > 0 ? rect.width / element.offsetWidth : 1
-    const start = rect.left + element.clientLeft * scale
-    left = Math.max(left, start)
-    right = Math.min(right, element.clientWidth > 0 ? start + element.clientWidth * scale : rect.right)
+    const scaleX = element.offsetWidth > 0 ? rect.width / element.offsetWidth : 1
+    const scaleY = element.offsetHeight > 0 ? rect.height / element.offsetHeight : 1
+    const startX = rect.left + element.clientLeft * scaleX
+    const startY = rect.top + element.clientTop * scaleY
+    if (clipX) {
+      left = Math.max(left, startX)
+      right = Math.min(right, element.clientWidth > 0 ? startX + element.clientWidth * scaleX : rect.right)
+    }
+    if (clipY) {
+      top = Math.max(top, startY)
+      bottom = Math.min(
+        bottom,
+        element.clientHeight > 0 ? startY + element.clientHeight * scaleY : rect.bottom,
+      )
+    }
   }
+  const scaleY = root.offsetHeight > 0 && rootRect.height > 0 ? rootRect.height / root.offsetHeight : 1
   return {
     left: (left - rootRect.left) / scaleX + 4,
     right: (right - rootRect.left) / scaleX - 4,
-    top: 0,
-    bottom: root.offsetHeight > 0 ? root.offsetHeight : rootRect.height,
+    top: (top - rootRect.top) / scaleY + 4,
+    bottom: (bottom - rootRect.top) / scaleY - 4,
   }
 }
 
@@ -147,6 +80,24 @@ function finalVisibleRect(range: Range): DOMRect | null {
   return bounds.width > 0 && bounds.height > 0 ? bounds : null
 }
 
+function finalVisibleCharacterRect(range: Range, textNodes: readonly Text[]): DOMRect | null {
+  for (let index = textNodes.length - 1; index >= 0; index -= 1) {
+    const node = textNodes[index]!
+    if (!range.intersectsNode(node)) continue
+    const start = node === range.startContainer ? range.startOffset : 0
+    const end = node === range.endContainer ? range.endOffset : node.length
+    for (let offset = end - 1; offset >= start; offset -= 1) {
+      if (/\s/u.test(node.data[offset] ?? '')) continue
+      const character = document.createRange()
+      character.setStart(node, offset)
+      character.setEnd(node, offset + 1)
+      const rect = finalVisibleRect(character)
+      if (rect !== null) return rect
+    }
+  }
+  return finalVisibleRect(range)
+}
+
 interface VisualLine {
   readonly top: number
   readonly right: number
@@ -157,39 +108,6 @@ interface VisualLine {
 function sharesVisualLine(rect: VisualLine, line: VisualLine): boolean {
   const overlap = Math.min(rect.bottom, line.bottom) - Math.max(rect.top, line.top)
   return overlap > Math.min(rect.height, line.height) / 2
-}
-
-function completeFinalLine(nodes: readonly Text[], range: Range): VisualLine | null {
-  const selected = finalVisibleRect(range)
-  if (selected === null) return null
-  const line: VisualLine = {
-    top: selected.top,
-    right: selected.right,
-    bottom: selected.bottom,
-    height: selected.height,
-  }
-  const endIndex = nodes.findIndex((node) => node === range.endContainer)
-  if (endIndex < 0) return line
-
-  let right = line.right
-  for (let index = endIndex; index < nodes.length; index += 1) {
-    const node = nodes[index]!
-    const probe = document.createRange()
-    probe.setStart(node, index === endIndex ? range.endOffset : 0)
-    probe.setEnd(node, node.length)
-    let reachedLaterLine = false
-    for (const rect of Array.from(probe.getClientRects())) {
-      if (rect.width <= 0 || rect.height <= 0) continue
-      if (sharesVisualLine(rect, line)) {
-        right = Math.max(right, rect.right)
-      } else if (rect.top >= line.bottom - 0.5) {
-        reachedLaterLine = true
-        break
-      }
-    }
-    if (reachedLaterLine) break
-  }
-  return { ...line, right }
 }
 
 function scrollContainer(element: HTMLElement): HTMLElement | null {
@@ -396,18 +314,14 @@ function sameReplyChips(left: readonly ReplyChipState[], right: readonly ReplyCh
 }
 
 type AnnotatedAssistantNodeProps = AssistantAnnotationProps & {
-  /** 已有渲染器的输出；未传时保留原来的独立渲染能力，便于单独测试。 */
-  readonly children?: ReactNode
+  /** Rendered output from the selected Host assistant renderer. */
+  readonly children: ReactElement
 }
 
 /** 给已有助手消息渲染器套一层注解界面，不接管其正文渲染。 */
 export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   node,
-  useTurnData,
   turnProcess,
-  openFile,
-  renderMessageImages,
-  fileMentions,
   useAnnotations,
   beginSelection,
   openAnnotation,
@@ -421,6 +335,14 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
 }: AnnotatedAssistantNodeProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
+  const textIndexRef = useRef<TextIndex | null>(null)
+  const currentTextIndex = useCallback((body: HTMLElement): TextIndex => {
+    const cached = textIndexRef.current
+    if (cached?.isCurrent(body)) return cached
+    const next = buildTextIndex(body)
+    textIndexRef.current = next
+    return next
+  }, [])
   const [markerLayout, setMarkerLayout] = useState<MarkerLayout>({ groups: [], overflow: [] })
   const [quoteFlash, setQuoteFlash] = useState<QuoteFlashState | null>(null)
   const quoteFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -471,6 +393,18 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   const messageId = data.finalNode?.messageId as unknown as MessageIdentity | undefined
   const messageSeq = data.finalNode?.seq
 
+  useLayoutEffect(() => {
+    textIndexRef.current?.invalidate()
+    textIndexRef.current = null
+  }, [data.blocks, messageId])
+  useEffect(
+    () => () => {
+      textIndexRef.current?.invalidate()
+      textIndexRef.current = null
+    },
+    [],
+  )
+
   // dsh-focus-chat 聚焦切换：重新测量标记与芯片；普通视图的重复节点暂停展示。
   useEffect(() => {
     const onFocusChanged = () => setDomRevision((value) => value + 1)
@@ -486,20 +420,31 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     sameAnnotations,
   )
   const allAnnotations = useAnnotations((view) => view.annotations, sameAnnotations)
-  const knownSubmissions = useMemo(
-    () =>
-      new Map(
-        allAnnotations
-          .filter((item) => item.submissionId !== undefined)
-          .map((item) => [annotationKey(item.submissionId as string, item.annotationId), item] as const),
-      ),
-    [allAnnotations],
-  )
+  const outbox = useAnnotations((view) => view.outbox)
+  const replyAssociations = useAnnotations((view) => view.replyAssociations)
+  const knownSubmissions = useMemo(() => {
+    const byId = new Map(allAnnotations.map((item) => [item.annotationId, item] as const))
+    const known = new Map<string, AnnotationDraft>()
+    const add = (submissionId: string, annotationId: AnnotationId) => {
+      const annotation = byId.get(annotationId)
+      if (annotation !== undefined) known.set(annotationKey(submissionId, annotationId), annotation)
+    }
+    for (const item of allAnnotations) {
+      if (item.submissionId !== undefined) add(item.submissionId, item.annotationId)
+    }
+    for (const association of replyAssociations ?? []) add(association.submissionId, association.annotationId)
+    for (const entry of outbox) {
+      if (entry.status !== 'sent') continue
+      for (const item of entry.payload.annotations) add(entry.payload.submissionId, item.annotationId)
+    }
+    return known
+  }, [allAnnotations, outbox, replyAssociations])
   const replyTargets = useMemo(
     () => buildReplyChipTargets(data.blocks, knownSubmissions),
     [data.blocks, knownSubmissions],
   )
   const activeId = useAnnotations((view) => view.activeAnnotationId)
+  const activeEditor = useAnnotations((view) => view.editor)
   const navigationEpoch = useAnnotations((view) => view.navigationEpoch)
   const cancelQuoteFlashTimer = useCallback(() => {
     quoteFlashId.current += 1
@@ -562,25 +507,6 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         .join('|'),
     [annotations],
   )
-  const tail = useTurnData('turn-tail')
-  const turn = node.location.kind === 'turn' || node.location.kind === 'step' ? node.location.turn : undefined
-  const mentionOwner = useMemo<TurnTailOwnerProps | undefined>(() => {
-    if (turn?.status !== 'closed' || data.finalNode === undefined) return undefined
-    if (tail?.closing?.finalNode.seq !== data.finalNode.seq) return undefined
-    return { turn, seq: data.finalNode.seq, openFile }
-  }, [data.finalNode, openFile, tail, turn])
-  const mentions = useMemo(
-    () => (mentionOwner === undefined ? undefined : fileMentions(mentionOwner)),
-    [fileMentions, mentionOwner],
-  )
-  const markdownLabels = useMemo(
-    () => ({
-      code: { copyLabel: t('code.copy'), copiedLabel: t('code.copied') },
-      footnotes: t('markdown.footnotes'),
-    }),
-    [t],
-  )
-
   const reveal = useCallback((annotationId: AnnotationId, ownerEpoch: number) => {
     setRevealRequest({ annotationId, navigationEpoch: ownerEpoch })
   }, [])
@@ -592,6 +518,8 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     }
     let frame: number | null = null
     const observer = new MutationObserver(() => {
+      textIndexRef.current?.invalidate()
+      textIndexRef.current = null
       if (frame !== null) return
       frame = requestAnimationFrame(() => {
         frame = null
@@ -624,7 +552,8 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     }
     const annotation = annotations.find((item) => item.annotationId === revealRequest.annotationId)
     const measure = (): { line: VisualLine | null; range: Range | null } => {
-      const range = annotation === undefined ? null : rangeFromSelector(body, annotation.quote)
+      const range =
+        annotation === undefined ? null : rangeFromSelector(body, annotation.quote, currentTextIndex(body))
       const rangeBounds = range === null ? null : quoteVisualBounds(range)
       const marker = markerElement(revealRequest.annotationId, root)
       const markerRect = marker?.getBoundingClientRect()
@@ -664,6 +593,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     messageId,
     navigationEpoch,
     revealRequest,
+    currentTextIndex,
     turnProcess?.foldable,
     turnProcess?.open,
     turnProcess?.setOpen,
@@ -692,23 +622,34 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     if (messageId === undefined) return undefined
     const body = bodyRef.current
     if (body === null) return undefined
+    const textIndex = currentTextIndex(body)
     const ranges = annotations.flatMap((annotation) => {
-      const range = rangeFromSelector(body, annotation.quote)
+      const range = rangeFromSelector(body, annotation.quote, textIndex)
       return range === null ? [] : [range]
     })
     updateHighlightRanges(messageId, ranges)
-    const active = annotations.find((item) => item.annotationId === activeId)
-    activateHighlight(messageId, active === undefined ? null : rangeFromSelector(body, active.quote))
     return () => removeHighlights(messageId)
-  }, [
-    activeId,
-    activateHighlight,
-    annotations,
-    domRevision,
-    messageId,
-    removeHighlights,
-    updateHighlightRanges,
-  ])
+  }, [annotations, currentTextIndex, domRevision, messageId, removeHighlights, updateHighlightRanges])
+
+  useEffect(() => {
+    if (messageId === undefined) return
+    const body = bodyRef.current
+    if (body === null) return
+    const textIndex = currentTextIndex(body)
+    const active = annotations.find((item) => item.annotationId === activeId)
+    const editorQuote =
+      activeEditor?.kind === 'new' && activeEditor.capture.messageId === messageId
+        ? activeEditor.capture.quote
+        : undefined
+    activateHighlight(
+      messageId,
+      editorQuote === undefined
+        ? active === undefined
+          ? null
+          : rangeFromSelector(body, active.quote, textIndex)
+        : rangeFromSelector(body, editorQuote, textIndex),
+    )
+  }, [activeId, activeEditor, activateHighlight, annotations, currentTextIndex, domRevision, messageId])
 
   useLayoutEffect(() => {
     const root = rootRef.current
@@ -720,9 +661,9 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       return undefined
     }
 
-    const textNodes = selectableTextNodes(body)
     let frame: number | null = null
     const measure = () => {
+      const textIndex = currentTextIndex(body)
       const rootRect = root.getBoundingClientRect()
       const scaleX = root.offsetWidth > 0 && rootRect.width > 0 ? rootRect.width / root.offsetWidth : 1
       const scaleY = root.offsetHeight > 0 && rootRect.height > 0 ? rootRect.height / root.offsetHeight : 1
@@ -732,33 +673,18 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         top: (rect.top - rootRect.top) / scaleY,
         bottom: (rect.bottom - rootRect.top) / scaleY,
       })
-      const obstacles = textNodes.flatMap((node) => {
-        const range = document.createRange()
-        range.selectNodeContents(node)
-        return typeof range.getClientRects === 'function'
-          ? Array.from(range.getClientRects())
-              .filter((rect) => rect.width > 0 && rect.height > 0)
-              .map(localRect)
-          : []
-      })
-      for (const element of body.querySelectorAll('pre, table, img, svg, button, [role="img"]')) {
-        const rect = element.getBoundingClientRect()
-        if (rect.width > 0 && rect.height > 0) obstacles.push(localRect(rect))
-      }
       const anchors = annotations.map((annotation) => {
-        const range = rangeFromSelector(body, annotation.quote)
-        const line = range === null ? null : completeFinalLine(textNodes, range)
+        const range = rangeFromSelector(body, annotation.quote, textIndex)
+        const final = range === null ? null : finalVisibleCharacterRect(range, textIndex.nodes)
         return {
           annotationId: annotation.annotationId,
           ordinal: annotation.ordinal,
-          line: line === null ? null : localRect({ ...line, left: rootRect.left }),
+          line: final === null ? null : localRect(final),
         }
       })
       const next = layoutMarkers({
         anchors,
         bounds: markerBounds(root, rootRect, scaleX),
-        bodyRight: (body.getBoundingClientRect().right - rootRect.left) / scaleX,
-        obstacles,
         targetSize:
           typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches ? 44 : 24,
       })
@@ -791,7 +717,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       document.removeEventListener('toggle', scheduleMeasure, true)
       document.fonts?.removeEventListener('loadingdone', scheduleMeasure)
     }
-  }, [data.blocks, domRevision, geometryKey])
+  }, [currentTextIndex, data.blocks, domRevision, geometryKey])
 
   /** A single-line heading gets an exact-sized keyboard target; wrapped or unmeasurable headings stay plain text. */
   useLayoutEffect(() => {
@@ -812,21 +738,20 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     }
     let frame: number | null = null
     const measure = () => {
+      const textIndex = currentTextIndex(body)
       const rootRect = root.getBoundingClientRect()
       const scaleX = root.offsetWidth > 0 && rootRect.width > 0 ? rootRect.width / root.offsetWidth : 1
       const scaleY = root.offsetHeight > 0 && rootRect.height > 0 ? rootRect.height / root.offsetHeight : 1
       const next: ReplyChipState[] = []
-      const renderedText = selectableTextNodes(body)
-        .map((text) => text.textContent ?? '')
-        .join('')
+      const renderedText = textIndex.rendered
       for (const target of replyTargets) {
         const start = completeHeadingStarts(renderedText, target.text)[target.occurrence]
         if (start === undefined) continue
-        const range = rangeFromSelector(body, {
-          ...selectorForTarget(target),
-          start,
-          end: start + target.text.length,
-        })
+        const range = rangeFromSelector(
+          body,
+          { ...selectorForTarget(target), start, end: start + target.text.length },
+          textIndex,
+        )
         if (range === null) continue
         const rects =
           typeof range.getClientRects === 'function'
@@ -871,7 +796,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       document.removeEventListener('toggle', scheduleMeasure, true)
       document.fonts?.removeEventListener('loadingdone', scheduleMeasure)
     }
-  }, [data.status, domRevision, messageId, replyTargets])
+  }, [currentTextIndex, data.status, domRevision, messageId, replyTargets])
 
   useEffect(() => {
     const body = bodyRef.current
@@ -956,24 +881,15 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     if (messageId !== undefined && body !== null) {
       activateHighlight(
         messageId,
-        annotation === undefined ? null : rangeFromSelector(body, annotation.quote),
+        annotation === undefined ? null : rangeFromSelector(body, annotation.quote, currentTextIndex(body)),
       )
     }
   }
 
-  const copySelectionText = useCallback(async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      setSelectionBar(null)
-    } catch {
-      // Clipboard write denied or unavailable: keep the bar open so Ctrl+C remains usable.
-    }
-  }, [])
-
   return (
     <section
       ref={rootRef}
-      className={`dia-assistant${children === undefined ? '' : ' dia-assistant--decorator'}`}
+      className="dia-assistant dia-assistant--decorator"
       tabIndex={-1}
       data-dsh-annotation-message-id={messageId}
     >
@@ -1007,58 +923,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
           void navigate(chip.annotation.annotationId)
         }}
       >
-        {children ??
-          data.blocks.map((block, index) => {
-            if (block.kind === 'text')
-              return (
-                <MarkdownText
-                  key={`text:${index}`}
-                  text={stripMachineMarkersForDisplay(block.text, data.status === 'running')}
-                  streaming={data.status === 'running'}
-                  labels={markdownLabels}
-                  fileMentions={mentions}
-                />
-              )
-            if (block.kind === 'reasoning')
-              return (
-                <AnnotationReasoningRow
-                  key={`reasoning:${index}`}
-                  text={stripMachineMarkersForDisplay(block.text, data.status === 'running')}
-                  running={data.status === 'running' && index === data.blocks.length - 1}
-                  t={t}
-                />
-              )
-            if (block.kind === 'image') {
-              const previous = data.blocks[index - 1]
-              if (previous !== undefined && previous.kind === 'image') return null
-              const group: Array<{ attachment: typeof block.attachment }> = []
-              for (let cursor = index; cursor < data.blocks.length; cursor += 1) {
-                const current = data.blocks[cursor]
-                if (current?.kind !== 'image') break
-                group.push({ attachment: current.attachment })
-              }
-              return (
-                <Fragment key={`image:${block.attachment.attachmentId}:${index}`}>
-                  {renderMessageImages({ images: group, align: 'start' })}
-                </Fragment>
-              )
-            }
-            if (block.kind === 'other')
-              return (
-                <JsonBlock
-                  key={`other:${index}`}
-                  label={t('assistant.other')}
-                  payload={block.block}
-                  truncatedLabel={(total) => t('json.truncated', { total })}
-                />
-              )
-            return null
-          })}
-        {children === undefined && data.status === 'interrupted' && (
-          <span className="dia-assistant__stopped" data-dsh-annotation-ignore="true">
-            {t('assistant.interrupted')}
-          </span>
-        )}
+        {children}
       </div>
       {quoteFlash?.rects.map((rect, index) => (
         <span
@@ -1111,7 +976,12 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
                   onPointerLeave={() => previewAnnotation(activeId)}
                   onFocus={() => previewAnnotation(annotation.annotationId)}
                   onBlur={() => previewAnnotation(activeId)}
-                  onClick={() => openAnnotation(annotation.annotationId, 'marker')}
+                  onClick={() =>
+                    openAnnotation(
+                      annotation.annotationId,
+                      annotation.status === 'draft' ? 'marker-edit' : 'marker',
+                    )
+                  }
                 >
                   <span>
                     {grouped ? t('marker.groupCount', { count: members.length }) : annotation.ordinal}
@@ -1194,15 +1064,6 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
             }}
           >
             {t('selection.annotate')}
-          </button>
-          <button
-            type="button"
-            className="dia-selection-bar__action"
-            onClick={() => {
-              void copySelectionText(selectionBar.capture.quote.exact)
-            }}
-          >
-            {t('selection.copy')}
           </button>
         </div>
       )}

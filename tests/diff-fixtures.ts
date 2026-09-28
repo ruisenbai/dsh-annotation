@@ -11,6 +11,8 @@ import {
 } from '../src/shared/diff-source.ts'
 import type { AnnotationSelectionCapture, SubmittedAnnotation } from '../src/shared/types.ts'
 import { fixturePayload } from './fixtures.ts'
+import { parseSubmissionPayload } from '../src/shared/protocol.ts'
+import { sourceFields } from '../src/shared/annotation-source.ts'
 
 export const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
 const oid = (value: string) =>
@@ -65,4 +67,17 @@ export function diffAnnotation(source = diffSource()): SubmittedAnnotation {
     ...fields
   } = fixturePayload().annotations[0]!
   return { ...fields, source, quote: diffQuote(source), annotation: 'Check this file line.' }
+}
+
+/** One already-submitted mixed batch for backward-compatibility checks only. */
+export function legacyDiffPayload() {
+  const payload = fixturePayload()
+  return parseSubmissionPayload({
+    ...payload,
+    protocolVersion: 3,
+    annotations: [
+      { ...payload.annotations[0]!, ...sourceFields(payload.annotations[0]!) },
+      { ...diffAnnotation(), annotationId: 'legacy-diff', ordinal: 2 },
+    ],
+  })
 }

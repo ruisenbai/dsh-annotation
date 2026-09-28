@@ -1,11 +1,9 @@
-import type { DiffPanelActions } from './components/DiffAnnotationPanel.tsx'
 import type { PropsLocale, PropsRuntime, InjectFace, HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AnnotationEndpoint, AnnotationPresentation, AnnotationView } from './controller.ts'
 import type { SelectionCapture } from './selection.ts'
 import type { AnnotationId, MessageIdentity, ProcessingMode, SubmissionId } from '../shared/types.ts'
 
 export interface AnnotationInjected {
-  readonly diff?: DiffPanelActions
   readonly hooks: {
     readonly annotations: HostObservable<AnnotationView>
     /** 汇总条紧凑布局开关，Host 接受设置后响应式更新。 */
@@ -31,6 +29,7 @@ export interface AnnotationInjected {
   readonly undoDelete: () => void
   readonly dismissDeleteUndo: () => void
   readonly setPanelOpen: (open: boolean) => void
+  readonly setRecordExpanded: (expanded: boolean) => void
   /** 当前是否需要在新增注解后自动附着。 */
   readonly autoAttachEnabled: () => boolean
   /** 只负责附加；已经附加时不会反向取消。 */

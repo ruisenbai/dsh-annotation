@@ -30,12 +30,6 @@ export interface MarkerLayout {
   readonly overflow: readonly AnnotationId[]
 }
 
-function overlaps(left: MarkerRect, right: MarkerRect): boolean {
-  return (
-    left.left < right.right && left.right > right.left && left.top < right.bottom && left.bottom > right.top
-  )
-}
-
 function sameLine(left: MarkerRect, right: MarkerRect): boolean {
   return (
     Math.min(left.bottom, right.bottom) - Math.max(left.top, right.top) >
@@ -45,20 +39,23 @@ function sameLine(left: MarkerRect, right: MarkerRect): boolean {
 
 /**
  * Place one marker per visual line without changing the source layout.
- * @param input - Measured endpoints, clipping limits, source obstacles, and the minimum hit target.
+ * @param input - Measured endpoints, clipping limits, and the minimum hit target.
  * @returns Safe marker groups and ids that must be opened from the annotation summary.
  */
 export function layoutMarkers(input: {
   readonly anchors: readonly MarkerAnchor[]
   readonly bounds: MarkerRect
-  readonly bodyRight: number
-  readonly obstacles: readonly MarkerRect[]
   readonly targetSize: number
 }): MarkerLayout {
   const overflow: AnnotationId[] = []
   const measured: Array<MarkerAnchor & { readonly line: MarkerRect }> = []
   for (const anchor of input.anchors) {
-    if (anchor.line === null) overflow.push(anchor.annotationId)
+    if (
+      anchor.line === null ||
+      anchor.line.bottom <= input.bounds.top ||
+      anchor.line.top >= input.bounds.bottom
+    )
+      overflow.push(anchor.annotationId)
     else measured.push({ ...anchor, line: anchor.line })
   }
   measured.sort((left, right) => left.line.top - right.line.top || left.ordinal - right.ordinal)
@@ -78,28 +75,28 @@ export function layoutMarkers(input: {
       anchors.length > 1 ? String(anchors.length).length + 1 : String(anchors[0]!.ordinal).length
     const width = Math.max(input.targetSize, labelLength * 7 + 8)
     const height = input.targetSize
-    const center =
-      anchors.reduce((sum, anchor) => sum + (anchor.line.top + anchor.line.bottom) / 2, 0) / anchors.length
-    const top = center - height / 2
-    const lineRight = Math.max(...anchors.map((anchor) => anchor.line.right))
-    const candidates = [lineRight + 5, Math.max(lineRight, input.bodyRight) + 5]
-    const left = candidates.find((candidate) => {
-      const rect = { left: candidate, right: candidate + width, top, bottom: top + height }
-      return (
-        rect.left >= input.bounds.left &&
-        rect.right <= input.bounds.right &&
-        rect.top >= input.bounds.top &&
-        rect.bottom <= input.bounds.bottom &&
-        !input.obstacles.some((obstacle) => overlaps(rect, obstacle)) &&
-        !occupied.some((obstacle) => overlaps(rect, obstacle))
+    const lineTop = Math.min(...anchors.map((anchor) => anchor.line.top))
+    const top = Math.max(input.bounds.top, Math.min(lineTop - height + 2, input.bounds.bottom - height))
+    const left = Math.max(...anchors.map((anchor) => anchor.line.right)) + 2
+    const rect = { left, right: left + width, top, bottom: top + height }
+    if (
+      rect.left < input.bounds.left ||
+      rect.right > input.bounds.right ||
+      rect.top < input.bounds.top ||
+      rect.bottom > input.bounds.bottom ||
+      occupied.some(
+        (other) =>
+          rect.left < other.right &&
+          rect.right > other.left &&
+          rect.top < other.bottom &&
+          rect.bottom > other.top,
       )
-    })
-    if (left === undefined) {
+    ) {
       overflow.push(...annotationIds)
       continue
     }
     groups.push({ annotationIds, top, left, width, height })
-    occupied.push({ top, bottom: top + height, left, right: left + width })
+    occupied.push(rect)
   }
   return { groups, overflow }
 }

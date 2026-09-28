@@ -7,7 +7,7 @@ import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import { createSessionFormatCatalogWithChildren } from '@deepseek-ai/dsh-session-format-catalog'
-import { exerciseDiffAnnotations } from './profile-diff-annotations.mjs'
+import { exerciseLegacyDiffHistory } from './profile-legacy-diff.mjs'
 import { exerciseTranscriptVisibility } from './profile-transcript-visibility.mjs'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
@@ -331,7 +331,7 @@ try {
   await page.goto(initial.url, { waitUntil: 'domcontentloaded' })
   await page.locator('style[data-dsh-annotation="true"]').waitFor({ state: 'attached' })
   console.log('PASS built Client plugin activates in the real Web GUI')
-  if (process.argv.includes('--diff-only')) {
+  if (process.argv.includes('--legacy-diff-only')) {
     await request('submit')
     await mkdir(artifacts, { recursive: true })
   } else {
@@ -436,7 +436,7 @@ try {
       .getByText('Selected source needs clarification.', { exact: false })
       .waitFor()
     const submissionCard = page.locator('.dia-user-submission')
-    await submissionCard.locator('.dia-timeline > summary').click()
+    await submissionCard.locator('.dia-timeline__trigger').click()
     const conversation = `# Assistant\n${await page.locator('.dia-assistant__body').first().ariaSnapshot()}\n\n# Annotation submission\n${await submissionCard.ariaSnapshot()}\n`
     await mkdir(artifacts, { recursive: true })
     await writeFile(join(artifacts, 'conversation.actual.txt'), conversation)
@@ -471,7 +471,7 @@ try {
     const note = 'Clarify this recorded statement.'
     const editor = page.getByRole('textbox', { name: '你的注解', exact: true })
     await editor.fill(note)
-    await page.getByRole('button', { name: '保存注解', exact: true }).click()
+    await page.getByRole('button', { name: '保存', exact: true }).click()
     await editor.waitFor({ state: 'hidden' })
     await page.locator('.dia-dock-shell[data-compact-summary="true"]').waitFor()
     const compact = await summaryGeometry(page)
@@ -675,12 +675,13 @@ try {
     await page.screenshot({ path: join(artifacts, 'attachment-identity-profile.png'), fullPage: true })
     console.log('PASS the real Web conversation displays the identity-verified image submission')
   }
-  await exerciseDiffAnnotations(page, {
+  await exerciseLegacyDiffHistory(page, {
     request,
+    readRecordedReplay,
+    assertRecordedSession,
+    openReadingSession,
     workspace,
     artifacts,
-    openAnnotationSettings,
-    selectReadingSource,
   })
   assert.deepEqual(pageErrors, [])
 } catch (error) {

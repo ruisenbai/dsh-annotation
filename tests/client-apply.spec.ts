@@ -43,11 +43,14 @@ import type {
   SubmitOutcome,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { apply, inject } from '../src/client/index.tsx'
-import { COMPOSER_ATTACHMENT_TOKEN } from '../src/client/composer-attachment.ts'
-import { AnnotationController, type AnnotationReconciliationSnapshot } from '../src/client/controller.ts'
+import { COMPOSER_ATTACHMENT_TOKEN, COMPOSER_TEXT_SEAT } from '../src/client/composer-attachment.ts'
+import {
+  AnnotationController,
+  selectedAnnotations,
+  type AnnotationReconciliationSnapshot,
+} from '../src/client/controller.ts'
 import type { AnnotationInjected } from '../src/client/contract.ts'
 import type { AnnotationSettingsInjected } from '../src/client/feature-toggle.ts'
-import type { TranscriptVisibilityInjected } from '../src/client/transcript-renderer.tsx'
 import { AnnotationStorage } from '../src/client/storage.ts'
 import { DEFAULT_CONFIG } from '../src/shared/config.ts'
 import {
@@ -57,6 +60,7 @@ import {
   type AnnotationSettings,
 } from '../src/shared/settings.ts'
 import type { MessageIdentity, SessionIdentity } from '../src/shared/types.ts'
+import { fixturePayload } from './fixtures.ts'
 
 function emptySnapshot(): AnnotationReconciliationSnapshot {
   return {
@@ -93,11 +97,6 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
   type HostSettings = Partial<AnnotationSettings>
   let referenceSerializer = async (_source: string, ref: string): Promise<string> =>
     `<reference>${ref}</reference>`
-  type TranscriptRootSources = {
-    hooks: TranscriptVisibilityInjected['hooks']
-    props: Pick<TranscriptVisibilityInjected, 'annotationTranscriptT'>
-  }
-  const rootSources: TranscriptRootSources[] = []
   const settingsFields = new Set([
     'enabled',
     'autoAttach',
@@ -362,13 +361,6 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       get: () => settingsScope,
     },
     slots: {
-      provideRoot(sources: TranscriptRootSources) {
-        rootSources.push(sources)
-        return () => {
-          const index = rootSources.indexOf(sources)
-          if (index >= 0) rootSources.splice(index, 1)
-        }
-      },
       register(options: Record<string, unknown>, component: unknown) {
         const registration = {
           options,
@@ -452,12 +444,6 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       return setting.options.inject() as AnnotationSettingsInjected
     },
     settingsUser: () => settingsUser,
-    rootSourceCount: () => rootSources.length,
-    transcriptFace(): TranscriptVisibilityInjected {
-      const source = rootSources.at(-1)
-      if (source === undefined) throw new Error('transcript root sources were not registered')
-      return { hooks: source.hooks, ...source.props }
-    },
     addHostEntry(
       options: Record<string, unknown>,
       component: unknown,
@@ -509,13 +495,19 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
     },
     setComposerText(text: string, notify = true) {
       if (notify) {
-        input.setDraft(`${COMPOSER_ATTACHMENT_TOKEN}${text}`)
+        const prefix = inputState.draft.startsWith(`${COMPOSER_ATTACHMENT_TOKEN}${COMPOSER_TEXT_SEAT}`)
+          ? `${COMPOSER_ATTACHMENT_TOKEN}${COMPOSER_TEXT_SEAT}`
+          : COMPOSER_ATTACHMENT_TOKEN
+        input.setDraft(`${prefix}${text}`)
         return
       }
       // A captured submit callback can observe text before the input observers run.
+      const prefix = inputState.draft.startsWith(`${COMPOSER_ATTACHMENT_TOKEN}${COMPOSER_TEXT_SEAT}`)
+        ? `${COMPOSER_ATTACHMENT_TOKEN}${COMPOSER_TEXT_SEAT}`
+        : COMPOSER_ATTACHMENT_TOKEN
       inputState = {
         ...inputState,
-        draft: `${COMPOSER_ATTACHMENT_TOKEN}${text}`,
+        draft: `${prefix}${text}`,
         draftRev: inputState.draftRev + 1,
       }
     },
@@ -523,7 +515,10 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       text: string,
       references: readonly { display: string; source: string; ref: string }[],
     ) {
-      const draft = `${COMPOSER_ATTACHMENT_TOKEN}${text}`
+      const prefix = inputState.draft.startsWith(`${COMPOSER_ATTACHMENT_TOKEN}${COMPOSER_TEXT_SEAT}`)
+        ? `${COMPOSER_ATTACHMENT_TOKEN}${COMPOSER_TEXT_SEAT}`
+        : COMPOSER_ATTACHMENT_TOKEN
+      const draft = `${prefix}${text}`
       const occurrences = references.map((reference, index) => {
         const offset = draft.indexOf(reference.display)
         if (offset < 0) throw new Error(`reference display is absent from draft: ${reference.display}`)
@@ -664,7 +659,53 @@ function seedCrossSessionOutbox() {
 
 beforeEach(() => localStorage.clear())
 
+function persistedAnnotationValues(sessionId = 'session-test'): string {
+  const prefix = `dsh-annotation:v1:${sessionId}`
+  return Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+    .filter((key): key is string => key !== null && (key === prefix || key.startsWith(`${prefix}:journal:`)))
+    .map((key) => localStorage.getItem(key) ?? '')
+    .join('\n')
+}
+
 describe('Client plugin composer attachment lifecycle', () => {
+  it("reloads another page's journal event and removes its listener on unload", async () => {
+    const add = vi.spyOn(window, 'addEventListener')
+    const remove = vi.spyOn(window, 'removeEventListener')
+    const fixture = fixtureContext(vi.fn())
+    let external: AnnotationStorage | undefined
+    let disposed = false
+    try {
+      apply(fixture.ctx)
+      const face = fixture.face()
+      external = new AnnotationStorage(localStorage, 'session-test' as SessionIdentity)
+      const base = external.load()
+      const payload = fixturePayload()
+      const annotation = {
+        ...payload.annotations[0]!,
+        status: 'draft' as const,
+        updatedAt: payload.createdAt,
+      }
+      expect(external.save({ ...base, annotations: [annotation] })).toBe(true)
+      const journalKey = Array.from({ length: localStorage.length }, (_, index) =>
+        localStorage.key(index),
+      ).find((key) => key?.startsWith('dsh-annotation:v1:session-test:journal:'))
+      if (journalKey === undefined) throw new Error('external page did not save a journal')
+      window.dispatchEvent(new StorageEvent('storage', { key: journalKey, storageArea: localStorage }))
+      expect(face.hooks.annotations.getSnapshot().annotations[0]?.annotation).toBe(annotation.annotation)
+
+      const listener = add.mock.calls.find(([type]) => type === 'storage')?.[1]
+      expect(listener).toBeDefined()
+      await fixture.dispose()
+      disposed = true
+      expect(remove).toHaveBeenCalledWith('storage', listener)
+    } finally {
+      if (!disposed) await fixture.dispose()
+      external?.dispose()
+      add.mockRestore()
+      remove.mockRestore()
+    }
+  })
+
   it('registers one dedicated annotation section in main Settings', async () => {
     const fixture = fixtureContext(vi.fn())
     apply(fixture.ctx)
@@ -715,112 +756,6 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.dispose()
   })
 
-  it('installs root transcript sources and decorates only supported Chat entries while enabled', async ({
-    onTestFinished,
-  }) => {
-    const fixture = fixtureContext(vi.fn(), false)
-    const HostChat = () => null
-    const HostTrajectory = () => null
-    const HostTool = () => null
-    const HostUnknownExtension = () => null
-    const viewInject = vi.fn(() => ({ hostView: true }))
-    const toolInject = vi.fn(() => ({ hostTool: true }))
-    const chat = fixture.addHostEntry({ name: 'conversation.view', id: 'chat' }, HostChat, viewInject)
-    const trajectory = fixture.addHostEntry({ name: 'conversation.view', id: 'trajectory' }, HostTrajectory)
-    const tool = fixture.addHostEntry(
-      { name: 'conversation.chat.node', key: 'tool-call' },
-      HostTool,
-      toolInject,
-    )
-    const extension = fixture.addHostEntry(
-      { name: 'conversation.chat.node', key: 'future-extension' },
-      HostUnknownExtension,
-    )
-    onTestFinished(async () => {
-      await fixture.dispose()
-      expect(fixture.rootSourceCount()).toBe(0)
-      expect(chat.component).toBe(HostChat)
-      expect(tool.component).toBe(HostTool)
-    })
-    apply(fixture.ctx)
-    expect(fixture.rootSourceCount()).toBe(0)
-    expect(chat.component).toBe(HostChat)
-    expect(tool.component).toBe(HostTool)
-
-    await fixture.setPluginEnabled(true)
-    const first = fixture.transcriptFace()
-    expect(fixture.rootSourceCount()).toBe(1)
-    expect(first.hooks.annotationTranscriptVisibility.getSnapshot()).toEqual(DEFAULT_TRANSCRIPT_VISIBILITY)
-    expect(first.hooks.annotationExpandedPresentation.getSnapshot()).toMatchObject({
-      mode: 'expanded',
-      foldCompletedTurns: false,
-    })
-    expect(first.annotationTranscriptT('transcript.summary')).toBe('transcript.summary')
-    expect(chat.component).not.toBe(HostChat)
-    expect(chat.inject).toBe(viewInject)
-    expect(trajectory.component).toBe(HostTrajectory)
-    expect(tool.component).not.toBe(HostTool)
-    expect(tool.inject).toBe(toolInject)
-    expect(extension.component).toBe(HostUnknownExtension)
-    expect(viewInject).not.toHaveBeenCalled()
-    expect(toolInject).not.toHaveBeenCalled()
-
-    const LateContext = () => null
-    const late = fixture.addHostEntry({ name: 'conversation.chat.node', key: 'context' }, LateContext)
-    expect(late.component).not.toBe(LateContext)
-    await fixture.setPluginEnabled(false)
-    expect(fixture.rootSourceCount()).toBe(0)
-    expect(chat.component).toBe(HostChat)
-    expect(tool.component).toBe(HostTool)
-    expect(late.component).toBe(LateContext)
-    expect(fixture.hasRegistrationKey('conversation.chat.node', 'user')).toBe(false)
-
-    await fixture.setPluginEnabled(true)
-    expect(fixture.rootSourceCount()).toBe(1)
-    expect(fixture.transcriptFace().hooks).toBe(first.hooks)
-    expect(chat.component).not.toBe(HostChat)
-    expect(tool.component).not.toBe(HostTool)
-    expect(late.component).not.toBe(LateContext)
-  })
-
-  it('publishes saved transcript filters through stable root sources without changing annotation drafts', async ({
-    onTestFinished,
-  }) => {
-    const command = vi.fn()
-    const fixture = fixtureContext(command)
-    onTestFinished(() => fixture.dispose())
-    apply(fixture.ctx)
-    const source = fixture.transcriptFace().hooks.annotationTranscriptVisibility
-    const face = fixture.face()
-    const settings = fixture.settingsFace()
-    saveAnnotation(face)
-    expect(face.ensureComposerAttachment()).toBe(true)
-    fixture.setComposerText('Keep the attached draft.')
-    const annotations = face.hooks.annotations.getSnapshot()
-    const input = fixture.inputSnapshot()
-
-    settings.setTranscriptVisibility('hideTools', true)
-    expect(source.getSnapshot().hideTools).toBe(false)
-    expect(settings.hooks.settingsCard.getSnapshot()).toMatchObject({
-      transcriptVisibility: { hideTools: true, hideReasoning: false },
-      dirty: true,
-    })
-    settings.discard()
-    expect(source.getSnapshot()).toEqual(DEFAULT_TRANSCRIPT_VISIBILITY)
-    settings.setTranscriptVisibility('hideTools', true)
-    settings.save()
-    await vi.waitFor(() => {
-      expect(settings.hooks.settingsCard.getSnapshot()).toMatchObject({ saving: false, dirty: false })
-    })
-    expect(source.getSnapshot()).toEqual({ ...DEFAULT_TRANSCRIPT_VISIBILITY, hideTools: true })
-    expect(fixture.transcriptFace().hooks.annotationTranscriptVisibility).toBe(source)
-    expect(fixture.settingsUser()).toEqual({ hideTools: true })
-    expect(fixture.rootSourceCount()).toBe(1)
-    expect(face.hooks.annotations.getSnapshot()).toEqual(annotations)
-    expect(fixture.inputSnapshot()).toEqual(input)
-    expect(command).not.toHaveBeenCalled()
-  })
-
   it('disables conversation integrations without discarding drafts and restores them when enabled', async () => {
     const fixture = fixtureContext(vi.fn())
     apply(fixture.ctx)
@@ -828,7 +763,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(fixture.hasRegistrationKey('conversation.chat.node', 'assistant-step')).toBe(false)
     expect(fixture.hasRegistrationKey('conversation.chat.node', 'user')).toBe(true)
     saveAnnotation(face)
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     fixture.setComposerText('Keep this visible draft.')
 
     await fixture.setPluginEnabled(false)
@@ -919,7 +854,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     fixture.setComposerText('Keep this draft while sending.')
 
     const pending = fixture.submitComposer()
@@ -979,7 +914,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     const face = fixture.face()
     saveAnnotation(face)
 
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     fixture.setComposerText('Rewrite the proposal.')
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'error', text: 'offline' })
     const failed = face.hooks.annotations.getSnapshot().outbox[0]!
@@ -1006,7 +941,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     const face = fixture.face()
     saveAnnotation(face)
 
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     fixture.setComposerReferences('Compare @current-session with @docs/guide.md.', [
       { display: '@current-session', source: 'session', ref: 'session-current' },
       { display: '@docs/guide.md', source: 'file', ref: 'file-guide' },
@@ -1026,8 +961,8 @@ describe('Client plugin composer attachment lifecycle', () => {
     const face = fixture.face()
     saveAnnotation(face)
 
-    expect(face.toggleComposerAttachment()).toBe(true)
-    expect(fixture.inputSnapshot().draft).toBe(COMPOSER_ATTACHMENT_TOKEN)
+    expect(face.ensureComposerAttachment()).toBe(true)
+    expect(fixture.inputSnapshot().draft).toBe(`${COMPOSER_ATTACHMENT_TOKEN}${COMPOSER_TEXT_SEAT}`)
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
     expect(face.hooks.annotations.getSnapshot().outbox[0]?.payload.overallRequirement).toBeUndefined()
     expect(command).toHaveBeenCalledOnce()
@@ -1041,7 +976,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     const face = fixture.face()
     saveAnnotation(face)
 
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
     expect(command.mock.calls[0]?.[0]).toBe('session-test')
     expect(String(command.mock.calls[0]?.[1])).toContain('annotation_submit')
@@ -1059,7 +994,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     const face = fixture.face()
     saveAnnotation(face)
 
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
     expect(command).toHaveBeenCalledOnce()
     expect(String(command.mock.calls[0]?.[0])).toContain('annotation_submit')
@@ -1077,7 +1012,7 @@ describe('Client plugin composer attachment lifecycle', () => {
       const face = fixture.face()
       saveAnnotation(face)
 
-      expect(face.toggleComposerAttachment()).toBe(true)
+      expect(face.ensureComposerAttachment()).toBe(true)
       await expect(fixture.submitComposer([attachment])).resolves.toEqual({
         kind: 'error',
         text: 'attachments are unavailable',
@@ -1093,7 +1028,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face, 0, 'first', 'First note.')
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     saveAnnotation(face, 8, 'second', 'Second note.')
 
     await fixture.submitComposer()
@@ -1133,9 +1068,9 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
 
-    expect(localStorage.getItem('dsh-inline-annotations:v1:session-test')).toBeNull()
-    expect(localStorage.getItem('dsh-annotation:v1:session-test')).not.toBeNull()
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(
+      new AnnotationStorage(localStorage, 'session-test' as SessionIdentity).load().overallRequirementDraft,
+    ).toBe('')
     expect(fixture.inputSnapshot().draft).toBe(
       `${COMPOSER_ATTACHMENT_TOKEN}Rewrite the introduction.\n\nKeep the original structure.`,
     )
@@ -1153,7 +1088,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     expect(fixture.inputSnapshot().claim).toMatchObject({ attachments: true })
     fixture.setComposerText('Rewrite with this screenshot.')
     fixture.setAttachments(['image-1'])
@@ -1186,7 +1121,7 @@ describe('Client plugin composer attachment lifecycle', () => {
       try {
         apply(fixture.ctx)
         saveAnnotation(fixture.face())
-        fixture.face().toggleComposerAttachment()
+        fixture.face().ensureComposerAttachment()
         fixture.setComposerText('Keep this requirement')
         if (failure === 'offline') fixture.prepareAttachments.mockRejectedValueOnce(new Error('offline'))
         else
@@ -1222,7 +1157,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     try {
       apply(fixture.ctx)
       saveAnnotation(fixture.face())
-      fixture.face().toggleComposerAttachment()
+      fixture.face().ensureComposerAttachment()
       await fixture.submitComposer([imageAttachment()])
       const original = fixture.face().hooks.annotations.getSnapshot().outbox[0]!
       const prepared = await fixture.prepareAttachments.mock.results[0]!.value
@@ -1257,7 +1192,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     fixture.setComposerText('Keep everything on failure.')
     const image = imageAttachment()
 
@@ -1274,7 +1209,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     fixture.setComposerText('Use this screenshot and document.')
     const attachments = [imageAttachment(), fileAttachment()]
 
@@ -1289,7 +1224,7 @@ describe('Client plugin composer attachment lifecycle', () => {
       names: ['shot.png'],
     })
     expect(outbox).not.toHaveProperty('images')
-    const persisted = localStorage.getItem('dsh-annotation:v1:session-test')!
+    const persisted = persistedAnnotationValues()
     expect(persisted).not.toContain('aGVsbG8=')
     expect(persisted).not.toContain('receiptId')
     expect(persisted).not.toContain('upload-receipt-1')
@@ -1301,18 +1236,28 @@ describe('Client plugin composer attachment lifecycle', () => {
     const first = fixtureContext(command)
     apply(first.ctx)
     saveAnnotation(first.face())
-    expect(first.face().toggleComposerAttachment()).toBe(true)
+    expect(first.face().ensureComposerAttachment()).toBe(true)
     await expect(first.submitComposer([imageAttachment(), fileAttachment()])).resolves.toEqual({
       kind: 'error',
       text: 'offline',
     })
     const submissionId = first.face().hooks.annotations.getSnapshot().outbox[0]!.payload.submissionId
     await first.dispose()
+    const recoveredStorage = new AnnotationStorage(localStorage, 'session-test' as SessionIdentity)
+    const recovered = recoveredStorage.load()
+    expect(recoveredStorage.lastError()).toBeNull()
+    expect(recovered.outbox[0]?.status).toBe('failed')
+    expect(recovered.retrySubmissionId).toBe(submissionId)
 
     const refreshed = fixtureContext(command)
     apply(refreshed.ctx)
     const face = refreshed.face()
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.hooks.annotations.getSnapshot()).toMatchObject({
+      outbox: [{ status: 'failed' }],
+      retrySubmissionId: submissionId,
+      storageAvailable: true,
+    })
+    expect(face.ensureComposerAttachment()).toBe(true)
     for (const attachments of [[], [imageAttachment()], [fileAttachment(), imageAttachment()]]) {
       await expect(refreshed.submitComposer(attachments)).resolves.toEqual({
         kind: 'error',
@@ -1345,7 +1290,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     await expect(refreshed.submitComposer(replacements)).resolves.toEqual({ kind: 'success' })
     expect(command.mock.calls[1]?.[2]).toEqual(replacements)
     expect(face.hooks.annotations.getSnapshot().outbox[0]!.payload.submissionId).toBe(submissionId)
-    expect(localStorage.getItem('dsh-annotation:v1:session-test')).not.toContain('fresh-upload-receipt')
+    expect(persistedAnnotationValues()).not.toContain('fresh-upload-receipt')
     await refreshed.dispose()
   })
 
@@ -1354,11 +1299,13 @@ describe('Client plugin composer attachment lifecycle', () => {
     const first = fixtureContext(command)
     apply(first.ctx)
     saveAnnotation(first.face())
-    expect(first.face().toggleComposerAttachment()).toBe(true)
+    expect(first.face().ensureComposerAttachment()).toBe(true)
     await first.submitComposer([imageAttachment()])
     await first.dispose()
     const key = 'dsh-annotation:v1:session-test'
-    const stored = JSON.parse(localStorage.getItem(key)!)
+    const storage = new AnnotationStorage(localStorage, 'session-test' as SessionIdentity)
+    const stored = JSON.parse(JSON.stringify(storage.load()))
+    storage.clear()
     stored.outbox[0].images = { count: 1, mediaTypes: ['image/png'], names: ['shot.png'] }
     delete stored.outbox[0].attachments
     delete stored.outbox[0].payload.attachmentIdentities
@@ -1366,7 +1313,7 @@ describe('Client plugin composer attachment lifecycle', () => {
 
     const refreshed = fixtureContext(command)
     apply(refreshed.ctx)
-    expect(refreshed.face().toggleComposerAttachment()).toBe(true)
+    expect(refreshed.face().ensureComposerAttachment()).toBe(true)
     await expect(refreshed.submitComposer([fileAttachment()])).resolves.toEqual({
       kind: 'error',
       text: 'error.attachmentsRequired',
@@ -1384,7 +1331,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'error', text: 'offline' })
     const submissionId = face.hooks.annotations.getSnapshot().outbox[0]!.payload.submissionId
 
@@ -1407,7 +1354,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     fixture.setComposerText('With image.')
 
     await expect(fixture.submitComposer([imageAttachment()])).resolves.toEqual({
@@ -1444,7 +1391,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     await expect(fixture.submitComposer([imageAttachment()])).resolves.toEqual({
       kind: 'error',
       text: 'offline',
@@ -1463,7 +1410,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     fixture.setComposerText('/goal finish the report')
     expect(fixture.inputSnapshot()).toMatchObject({ phase: 'plain', claim: null })
 
@@ -1508,7 +1455,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     // The captured claim still delegates slash commands if observers have not run.
     fixture.setComposerText('/goal finish the report', false)
 
@@ -1529,7 +1476,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     fixture.setComposerText('/goal finish the report', false)
     const image = imageAttachment()
 
@@ -1554,7 +1501,6 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    expect(face.toggleComposerAttachment()).toBe(true)
     expect(fixture.inputSnapshot().phase).toBe('claimed')
 
     // 手动取消附着：claim 与占位符都被移除。
@@ -1568,7 +1514,7 @@ describe('Client plugin composer attachment lifecycle', () => {
 
     // 手动重新附着仍然可用。
     fixture.setPlainComposerText('type something')
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     expect(fixture.inputSnapshot()).toMatchObject({
       draft: `${COMPOSER_ATTACHMENT_TOKEN}type something`,
       phase: 'claimed',
@@ -1581,7 +1527,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     expect(fixture.inputSnapshot().phase).toBe('claimed')
 
     for (const annotation of face.hooks.annotations.getSnapshot().annotations) {
@@ -1600,7 +1546,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     for (const annotation of face.hooks.annotations.getSnapshot().annotations) {
       if (annotation.status === 'draft') face.deleteDraft(annotation.annotationId)
     }
@@ -1616,7 +1562,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
     for (const annotation of face.hooks.annotations.getSnapshot().annotations) {
       if (annotation.status === 'draft') face.deleteDraft(annotation.annotationId)
     }
@@ -1646,7 +1592,7 @@ describe('Client plugin composer attachment lifecycle', () => {
       annotation: '',
       kind: 'highlight-only',
     })
-    expect(face.toggleComposerAttachment()).toBe(true)
+    expect(face.ensureComposerAttachment()).toBe(true)
 
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
     const outbox = face.hooks.annotations.getSnapshot().outbox[0]!
@@ -1661,7 +1607,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    face.toggleComposerAttachment()
+    face.ensureComposerAttachment()
     await fixture.submitComposer()
     const accepted = face.hooks.annotations.getSnapshot().outbox[0]!
 
@@ -1693,7 +1639,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     const face = fixture.face()
     expect(fixture.session.getSnapshot()).not.toHaveProperty('queue')
     saveAnnotation(face)
-    face.toggleComposerAttachment()
+    face.ensureComposerAttachment()
     expect(fixture.inputSnapshot().claim).toMatchObject({ name: DEFAULT_CONFIG.commandName })
     await fixture.submitComposer()
     const entry = face.hooks.annotations.getSnapshot().outbox[0]!
@@ -1733,7 +1679,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    face.toggleComposerAttachment()
+    face.ensureComposerAttachment()
     await fixture.submitComposer()
     const entry = face.hooks.annotations.getSnapshot().outbox[0]!
     fixture.setInbox(inboxSnapshot([entry.messageId]))
@@ -1754,7 +1700,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
-    face.toggleComposerAttachment()
+    face.ensureComposerAttachment()
     await fixture.submitComposer()
     const accepted = face.hooks.annotations.getSnapshot().outbox[0]!
 
@@ -1837,7 +1783,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     const face = fixture.face()
     saveAnnotation(face, 0, 'first', 'First note.')
     saveAnnotation(face, 8, 'second', 'Second note.')
-    face.toggleComposerAttachment()
+    face.ensureComposerAttachment()
 
     const outcome = await fixture.submitComposer()
     expect(outcome.kind).toBe('error')
@@ -1853,47 +1799,30 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.dispose()
   })
 
-  it('sends only explicitly chosen first and third annotations with ordered attachments and a processing mode', async () => {
+  it('sends the selected first and third annotations with ordered attachments', async () => {
     const command = vi.fn().mockResolvedValue(remoteSuccess())
     const fixture = fixtureContext(command)
     apply(fixture.ctx, { maxAnnotationsPerSubmission: 2 })
     try {
-      const settings = fixture.settingsFace()
-      settings.setIndividualSelection(true)
-      settings.save()
-      await vi.waitFor(() =>
-        expect(settings.hooks.settingsCard.getSnapshot()).toMatchObject({
-          saving: false,
-          dirty: false,
-          individualSelection: true,
-        }),
-      )
       const face = fixture.face()
       saveAnnotation(face, 0, 'first', 'First opinion')
       saveAnnotation(face, 20, 'second', 'Second opinion')
       saveAnnotation(face, 40, 'third', 'Third opinion')
       const ids = face.hooks.annotations.getSnapshot().annotations.map((item) => item.annotationId)
-      fixture.setPlainComposerText('Rewrite the result')
+      face.toggleSelected(ids[1]!)
+      fixture.setComposerText('Rewrite the result')
       fixture.setAttachments(['image-draft', 'file-draft'])
-      expect(face.autoAttachEnabled()).toBe(false)
-      expect(face.ensureComposerAttachment()).toBe(false)
       expect(fixture.inputSnapshot()).toMatchObject({
-        phase: 'plain',
-        claim: null,
-        draft: 'Rewrite the result',
+        phase: 'claimed',
         attachmentIds: ['image-draft', 'file-draft'],
       })
-      face.toggleSelected(ids[0]!)
-      face.toggleSelected(ids[2]!)
-      face.setProcessingMode('rewrite')
-      expect(fixture.inputSnapshot().phase).toBe('claimed')
       const attachments = [imageAttachment(), fileAttachment()]
       expect(await fixture.submitComposer(attachments)).toEqual({ kind: 'success' })
       const [, line, transported] = command.mock.calls[0]!
       const payload = JSON.parse(
         Buffer.from((line as string).split(' ')[1]!, 'base64url').toString('utf8'),
       ) as { processingMode: string; annotations: Array<{ annotationId: string; ordinal: number }> }
-      expect(payload.processingMode).toBe('rewrite')
+      expect(payload.processingMode).toBe('answer')
       expect(payload.annotations.map((item) => [item.annotationId, item.ordinal])).toEqual([
         [ids[0], 1],
         [ids[2], 2],
@@ -1906,38 +1835,6 @@ describe('Client plugin composer attachment lifecycle', () => {
           .map((item) => item.annotationId),
       ).toEqual([ids[1]])
       expect(fixture.inputSnapshot()).toMatchObject({ phase: 'plain', claim: null })
-      expect(face.ensureComposerAttachment()).toBe(false)
-    } finally {
-      await fixture.dispose()
-    }
-  })
-
-  it('releases the composer on each mode change instead of silently selecting every saved annotation', async () => {
-    const fixture = fixtureContext(vi.fn())
-    apply(fixture.ctx)
-    try {
-      const face = fixture.face()
-      saveAnnotation(face, 0)
-      saveAnnotation(face, 20, 'second')
-      face.toggleComposerAttachment()
-      const settings = fixture.settingsFace()
-      settings.setIndividualSelection(true)
-      settings.save()
-      await vi.waitFor(() => {
-        expect(face.hooks.annotations.getSnapshot().selectionMode).toBe('individual')
-        expect(settings.hooks.settingsCard.getSnapshot()).toMatchObject({ saving: false, dirty: false })
-      })
-      expect(fixture.inputSnapshot()).toMatchObject({ phase: 'plain', claim: null })
-      const first = face.hooks.annotations.getSnapshot().annotations[0]!.annotationId
-      face.toggleSelected(first)
-      expect(fixture.inputSnapshot().phase).toBe('claimed')
-      settings.setIndividualSelection(false)
-      settings.save()
-      await vi.waitFor(() => expect(face.hooks.annotations.getSnapshot().selectionMode).toBe('all'))
-      expect(fixture.inputSnapshot()).toMatchObject({ phase: 'plain', claim: null })
-      expect(face.hooks.annotations.getSnapshot().notice?.text).toBe('selection-mode-changed')
-      expect(face.toggleComposerAttachment()).toBe(true)
-      expect(fixture.inputSnapshot().phase).toBe('claimed')
     } finally {
       await fixture.dispose()
     }
@@ -1954,11 +1851,10 @@ describe('Client plugin composer attachment lifecycle', () => {
       const face = fixture.face()
       saveAnnotation(face)
       const id = face.hooks.annotations.getSnapshot().annotations[0]!.annotationId
-      face.toggleSelected(id)
       expect(fixture.inputSnapshot().phase).toBe('claimed')
       face.openAnnotation(id)
       face.updateEditorText('Latest unsaved edit')
-      expect(face.hooks.annotations.getSnapshot().selectedAnnotationIds).toEqual([])
+      expect(selectedAnnotations(face.hooks.annotations.getSnapshot())).toEqual([])
       expect(fixture.inputSnapshot()).toMatchObject({ phase: 'plain', claim: null })
       window.dispatchEvent(new Event('pagehide'))
       const restored = new AnnotationStorage(localStorage, 'session-test' as SessionIdentity).load()
@@ -1968,7 +1864,7 @@ describe('Client plugin composer attachment lifecycle', () => {
         text: 'Latest unsaved edit',
       })
       expect(restored.annotations[0]?.annotation).toBe('Revise this.')
-      expect(restored.selectedAnnotationIds).toEqual([])
+      expect(restored.selectedAnnotationIds).toEqual([id])
     } finally {
       await fixture.dispose()
     }
@@ -1985,8 +1881,6 @@ describe('Client plugin composer attachment lifecycle', () => {
       await vi.waitFor(() => expect(settings.hooks.settingsCard.getSnapshot().saving).toBe(false))
       const face = fixture.face()
       saveAnnotation(face)
-      const first = face.hooks.annotations.getSnapshot().annotations[0]!.annotationId
-      face.toggleSelected(first)
       face.setProcessingMode('rewrite')
       const attachments = [imageAttachment(), fileAttachment()]
       expect(await fixture.submitComposer(attachments)).toEqual({ kind: 'error', text: 'offline' })
@@ -2025,7 +1919,7 @@ describe('Client plugin composer attachment lifecycle', () => {
       saveAnnotation(face)
       const id = face.hooks.annotations.getSnapshot().annotations[0]!.annotationId
       face.openAnnotation(id)
-      face.toggleComposerAttachment()
+      face.ensureComposerAttachment()
       fixture.setComposerReferences('Use @notes', [{ display: '@notes', source: 'files', ref: 'notes.md' }])
       pending = fixture.submitComposer([imageAttachment(), fileAttachment()])
       await vi.waitFor(() => expect(gate.serialize).toHaveBeenCalledOnce())
@@ -2066,7 +1960,7 @@ describe('Client plugin composer attachment lifecycle', () => {
       const face = fixture.face()
       saveAnnotation(face)
       const id = face.hooks.annotations.getSnapshot().annotations[0]!.annotationId
-      face.toggleComposerAttachment()
+      face.ensureComposerAttachment()
       fixture.setComposerReferences('Use @notes', [{ display: '@notes', source: 'files', ref: 'notes.md' }])
       fixture.setAttachments(['image-draft', 'file-draft'])
       pending = fixture.submitComposer([imageAttachment(), fileAttachment()])
@@ -2107,7 +2001,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     try {
       const face = fixture.face()
       saveAnnotation(face)
-      face.toggleComposerAttachment()
+      face.ensureComposerAttachment()
       fixture.setComposerReferences('Use @notes', [{ display: '@notes', source: 'files', ref: 'notes.md' }])
       expect(await fixture.submitComposer()).toEqual({ kind: 'error', text: 'offline' })
       const original = face.hooks.annotations.getSnapshot().outbox[0]!
@@ -2143,7 +2037,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     try {
       const face = fixture.face()
       saveAnnotation(face)
-      face.toggleComposerAttachment()
+      face.ensureComposerAttachment()
       await fixture.submitComposer()
       const original = face.hooks.annotations.getSnapshot().outbox[0]!
       fixture.setInbox(inboxSnapshot([String(original.messageId)]), false)
@@ -2157,64 +2051,6 @@ describe('Client plugin composer attachment lifecycle', () => {
       expect(fixture.session.updateQueue).not.toHaveBeenCalled()
     } finally {
       await fixture.dispose()
-    }
-  })
-
-  it('does not expand the batch when individual mode changes during Host attachment preparation', async () => {
-    const command = vi.fn().mockResolvedValue(remoteSuccess())
-    const fixture = fixtureContext(command)
-    let release!: () => void
-    const preparing = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    let pending: Promise<SubmitOutcome> | undefined
-    apply(fixture.ctx)
-    try {
-      const settings = fixture.settingsFace()
-      settings.setIndividualSelection(true)
-      settings.save()
-      await vi.waitFor(() =>
-        expect(settings.hooks.settingsCard.getSnapshot()).toMatchObject({
-          saving: false,
-          dirty: false,
-          individualSelection: true,
-        }),
-      )
-      const face = fixture.face()
-      saveAnnotation(face, 0, 'first', 'Chosen opinion')
-      saveAnnotation(face, 20, 'second', 'Do not send this opinion')
-      const [first, second] = face.hooks.annotations.getSnapshot().annotations
-      face.toggleSelected(first!.annotationId)
-      face.setProcessingMode('rewrite')
-      const attachments = [imageAttachment(), fileAttachment()]
-      pending = fixture.submitComposer(attachments, () => preparing)
-      expect(fixture.inputSnapshot().phase).toBe('submitting')
-      settings.setIndividualSelection(false)
-      settings.save()
-      await vi.waitFor(() => {
-        expect(settings.hooks.settingsCard.getSnapshot()).toMatchObject({ saving: false, dirty: false })
-        expect(face.hooks.annotations.getSnapshot().selectionMode).toBe('all')
-      })
-      expect(command).not.toHaveBeenCalled()
-      release()
-      expect(await pending).toEqual({ kind: 'success' })
-      const entry = face.hooks.annotations.getSnapshot().outbox[0]!
-      expect(entry.payload.annotations.map((item) => item.annotationId)).toEqual([first!.annotationId])
-      expect(entry.payload.processingMode).toBe('rewrite')
-      expect(
-        face.hooks.annotations
-          .getSnapshot()
-          .annotations.find((item) => item.annotationId === second!.annotationId)?.status,
-      ).toBe('draft')
-      expect(command.mock.calls[0]?.[2]).toEqual(attachments)
-      expect(fixture.inputSnapshot()).toMatchObject({ phase: 'plain', claim: null })
-    } finally {
-      release()
-      try {
-        await pending
-      } finally {
-        await fixture.dispose()
-      }
     }
   })
 

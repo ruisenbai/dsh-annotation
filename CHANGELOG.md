@@ -6,10 +6,6 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ### Added
 
-- Add the plugin-owned **Annotate code Diff** panel for real worktree (index → captured file) and staged (HEAD → index) comparisons, with keyboard-accessible old/new gutter actions, continuous same-side ranges, frozen context folds, sticky markers and the existing editor/selected-send workflow.
-- Retain complete immutable file sides, Git blob/commit identities, working-content hashes, rename paths, context and Host-attested coordinates. Historical navigation opens the original snapshot; only an explicit unique-match rebind creates a linked supplement, preserving its earliest source.
-- Validate paths and coordinates through public Host filesystem/subprocess services, persist the signing identity in a private storage domain, reject unsupported text sources, and cover real Git races, mixed submissions, storage restart and browser-to-model replay.
-
 - Add default aggregate sending plus a Host-backed, default-off individual-selection mode. Individual mode ignores default-on `autoAttach`, requires explicit eligible annotations, and clears unsent selections and the active retry with a notice when the mode changes without altering outbox records.
 - Add multiple recoverable editor buffers keyed by draft or annotation identity. Outside clicks and Escape suspend unfinished work without blocking the original action; unfinished edits stay out of submissions, and explicit buffer discard never deletes a saved annotation.
 - Add explicit overlap resolution. A new-target choice preserves existing buffers; a clean draft target appends text and displays quote-range changes; a target with unfinished editing resumes its old buffer without merging; and a queued, sent, or processed target creates a new annotation linked by `supplementalTo`.
@@ -18,16 +14,25 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ### Changed
 
-- Target DSH `0.1.7-alpha.1` with plugin version `0.10.0`, official source tag `dsh-v0.1.7-alpha.1` at `c36a83ff6bb95e3f82cf79f9be7c724270a8aa61`, Cordis `^4.0.3` and Schemastery `^3.18.3`.
+- Align the composer annotation count with the Host add-file button's 8 px inset and restyle it as a rounded neutral selector; show its detach icon only on hover or keyboard focus while keeping the count and preview accessible.
+- Show submitted comment counts above user messages. A single comment previews its quote and note on hover and locates its source on double-click; multiple comments expand into a task-style list with per-row map pins. Remove sent-message diagnostic details, shorten the record heading, and apply a fine frosted grain to translucent plugin surfaces while matching the Host task panel material.
+- Match the annotation record's background, blur, and shadow to the official task panel without an extra texture layer.
+- Use the approved compact annotation popup for new, draft, and sent notes: the source-end anchor favors the space below the final selected character, the field grows from one to seven visual lines without manual resizing, and longer notes scroll inside the field while actions remain visible.
+- Target DSH `0.1.7-rc.1` with plugin version `0.10.0`, official source tag `dsh-v0.1.7-rc.1` at `46a7f68b0922371ce7144b668b90e377d8e799f4`, Cordis `^4.0.4` and Schemastery `^3.18.4`.
 - Use volatile Config fields and shared `configForms`, weight-named official icons with explicit sizes, and a Chat-only ungrouped display policy while transcript filters are active. Saved Host presentation preferences and other view targets remain untouched.
-- Recover supported annotation preferences from retained Host settings archives with current-user-override precedence, atomic revision checks and a completion marker. Retain the original archive and preserve annotation protocols, outbox and Diff signatures.
+- Recover supported annotation preferences from retained Host settings archives with current-user-override precedence, atomic revision checks and a completion marker. Retain the original archive and preserve annotation protocols and outbox.
 - Restore frozen Session v3 test recordings with the official v4 migration catalog and compare adjacent v4 fixtures, preserving predecessor files and native tool-result semantics.
 
 - Freeze the selected annotation set and contiguous ordinals, processing mode, overall requirement, protocol locale, target Session, and ordered attachment metadata in every outbox payload. Retry reuses that payload instead of current UI choices.
-- Write protocol v3 with explicit message/Diff sources and `storageVersion: 3`; migrate browser v1/v2 state under the existing key and keep frozen v2 payloads at v2, retaining the existing v1-to-v2 normalization. `processingMode`, `supplementalTo`, `attachmentIdentities`, multiple editor buffers, selection state, and retry selection are additive fields with compatible defaults. Missing legacy processing mode reads as `answer`, while explicit invalid values reject. Missing legacy attachment identities stay absent and retain the count/kind-only guard.
+- Write protocol v3 with explicit message sources and retain historical Diff reads; write `storageVersion: 3`; migrate browser v1/v2 state under the existing key and keep frozen v2 payloads at v2, retaining the existing v1-to-v2 normalization. `processingMode`, `supplementalTo`, `attachmentIdentities`, multiple editor buffers, selection state, and retry selection are additive fields with compatible defaults. Missing legacy processing mode reads as `answer`, while explicit invalid values reject. Missing legacy attachment identities stay absent and retain the count/kind-only guard.
+
+### Removed
+
+- Remove Code Diff annotation controls, Git reading and attestation services, preview command, and new Diff submissions. Historical Diff records, editor buffers, and failed batches stay readable but are read-only.
 
 ### Fixed
 
+- Keep the original and resent assistant reply headings interactive when one sent annotation is attached to another message, including after Session restoration; the annotation record and source bubble remain single instances.
 - Abort asynchronous preparation when a captured annotation is deleted, changed, or made ineligible before outbox creation, preventing a stale payload from replacing current draft state while leaving later next-batch choices independent.
 - Preserve queued and sent authority across late retry, transport, and discard paths; direct discard applies only before queue authority is established. Durable confirmation after an ambiguous discard restores the frozen original and ordinal while retaining later saved or unfinished changes under new linked, unselected identities.
 - Preserve an earlier editor buffer when overlap resolution chooses New annotation, and restore historical annotation ordinals from durable payloads rather than current browser ordering.

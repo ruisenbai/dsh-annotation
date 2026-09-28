@@ -21,7 +21,7 @@ export const DEFAULT_ANNOTATION_COMPACT_SUMMARY = true
 /** Browser key read only to migrate the pre-0.1.3 enabled preference. */
 export const LEGACY_ANNOTATION_ENABLED_STORAGE_KEY = 'dsh.inline-comments.enabled'
 
-/** Display-only filters; hidden transcript details retain their full stored text. */
+/** Historical transcript preferences retained only to read earlier profile documents. */
 export interface TranscriptVisibilitySettings {
   /** Hide assistant reasoning text. */
   readonly hideReasoning: boolean
@@ -61,10 +61,10 @@ export interface TranscriptVisibilitySettings {
   readonly hideOther: boolean
 }
 
-/** Fields accepted by the transcript-visibility controls. */
+/** Historical transcript preference names. */
 export type TranscriptVisibilityKey = keyof TranscriptVisibilitySettings
 
-/** Transcript details remain visible until their individual filters are saved. */
+/** Historical transcript fields default to false and have no active UI effect. */
 export const DEFAULT_TRANSCRIPT_VISIBILITY: TranscriptVisibilitySettings = {
   hideReasoning: false,
   hideTools: false,
@@ -86,7 +86,7 @@ export const DEFAULT_TRANSCRIPT_VISIBILITY: TranscriptVisibilitySettings = {
   hideOther: false,
 }
 
-/** Named tool filters shown after the all-tools master switch. */
+/** Historical tool-filter fields retained for profile migration. */
 export const TRANSCRIPT_TOOL_VISIBILITY_KEYS = [
   'hideToolRead',
   'hideToolGlob',
@@ -97,7 +97,7 @@ export const TRANSCRIPT_TOOL_VISIBILITY_KEYS = [
   'hideToolOther',
 ] as const satisfies readonly TranscriptVisibilityKey[]
 
-/** Main-Settings order for the transcript-visibility fields. */
+/** Historical field order retained for profile migration. */
 export const TRANSCRIPT_VISIBILITY_KEYS: readonly TranscriptVisibilityKey[] = [
   'hideReasoning',
   'hideTools',

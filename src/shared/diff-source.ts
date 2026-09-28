@@ -1,4 +1,4 @@
-/** Immutable, Host-attested Git comparisons and one-based file coordinates. */
+/** Historical Git comparison data retained for reading earlier annotation records. */
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { z } from 'zod'
@@ -46,7 +46,7 @@ const working = z.object({
 })
 /** Captured text or an absent side; binary data has no line coordinates. */
 export const diffSideSchema = z.discriminatedUnion('kind', [absent, blob, working])
-/** Wire and storage validation for an explicit Git comparison and its full contents. */
+/** Historical wire and storage validation for a complete Git comparison. */
 export const diffSnapshotSchema = z
   .object({
     version: z.literal(1),
@@ -77,7 +77,7 @@ export const diffSnapshotSchema = z
       ctx.addIssue({ code: 'custom', message: 'Diff paths and comparison sides disagree' })
     }
   })
-/** Complete immutable comparison retained with drafts and durable submissions. */
+/** Complete comparison retained in old drafts and durable submissions. */
 export type DiffSnapshot = z.infer<typeof diffSnapshotSchema>
 /** Old and new counters are independent and one-based. */
 export type DiffSide = 'old' | 'new'
@@ -98,18 +98,6 @@ const originSchema = z.object({
 export const diffSourceSchema = originSchema.extend({ reboundFrom: originSchema.optional() })
 /** A frozen file-side range and its attested source. */
 export type DiffSource = z.infer<typeof diffSourceSchema>
-/** Literal paths from one Git change listing; renames retain both names. */
-export interface DiffFileEntry {
-  readonly path: string
-  readonly oldPath: string | null
-  readonly newPath: string | null
-  readonly status: string
-}
-/** Unsupported content is explicit and never represented by fabricated text rows. */
-export type DiffReadResult =
-  | { readonly kind: 'text'; readonly snapshot: DiffSnapshot }
-  | { readonly kind: 'unsupported'; readonly reason: string }
-
 /** Split real file lines without inventing a final line after a terminator.
  * @param content - Complete captured UTF-8 file text.
  * @returns Lines without LF terminators; CR characters remain part of the captured text.
@@ -166,7 +154,7 @@ export function diffContext(source: Pick<DiffSource, 'snapshot' | 'side' | 'star
 
 /** Validate persisted coordinates and their quoted code without accessing live files.
  * @param value - Untrusted wire or storage data.
- * @returns A deeply frozen source; malformed coordinates or context throw. Host admission separately checks the signature and hashes.
+ * @returns A deeply frozen source; malformed coordinates or context throw.
  */
 export function parseDiffSource(value: unknown): DiffSource {
   const parsed = diffSourceSchema.parse(value)
@@ -184,40 +172,6 @@ export function parseDiffSource(value: unknown): DiffSource {
   }
   freeze(parsed)
   return parsed
-}
-
-/** Match complete lines and their context; never break a tie by proximity.
- * @param source - The frozen original range.
- * @param snapshot - A captured candidate version of the same file comparison.
- * @returns Every matching one-based start line; only a unique match may be offered for explicit rebinding.
- */
-export function relocationCandidates(source: DiffSource, snapshot: DiffSnapshot): readonly number[] {
-  if (
-    snapshot.repositoryId !== source.snapshot.repositoryId ||
-    snapshot.workspaceId !== source.snapshot.workspaceId ||
-    snapshot.range !== source.snapshot.range
-  )
-    return []
-  const originalPath = source.snapshot[source.side === 'old' ? 'oldPath' : 'newPath']
-  if (originalPath !== snapshot.oldPath && originalPath !== snapshot.newPath) return []
-  const content = snapshot[source.side].content
-  if (content === null) return []
-  const oldLines = fileLines(source.snapshot[source.side].content ?? '')
-  const lines = fileLines(content)
-  const count = source.endLine - source.startLine + 1
-  const quote = oldLines.slice(source.startLine - 1, source.endLine)
-  const before = oldLines.slice(Math.max(0, source.startLine - 4), source.startLine - 1)
-  const after = oldLines.slice(source.endLine, source.endLine + 3)
-  const matches: number[] = []
-  for (let at = 0; at + count <= lines.length; at++) {
-    if (
-      quote.every((line, offset) => lines[at + offset] === line) &&
-      before.every((line, offset) => lines[at - before.length + offset] === line) &&
-      after.every((line, offset) => lines[at + count + offset] === line)
-    )
-      matches.push(at + 1)
-  }
-  return matches
 }
 
 /** Human-facing position; immutable identifiers belong in diagnostic details.
