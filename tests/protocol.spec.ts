@@ -4,6 +4,7 @@ import {
   formatSubmissionMessage,
   parseAnnotationSource,
   parseInlineCommentSource,
+  parseProcessingMode,
   parseSubmissionPayload,
   parseSubmittedAnnotation,
   ProtocolError,
@@ -25,6 +26,7 @@ describe('annotation wire protocol', () => {
     ['wrong version', { protocolVersion: 3 }],
     ['empty annotations', { annotations: [] }],
     ['wrong delivery', { delivery: 'now' }],
+    ['wrong processing mode', { processingMode: 'summarize' }],
     ['wrong source', { source: 'dsh-other' }],
     ['missing source', { source: undefined }],
   ])('rejects %s', (_label, patch) => {
@@ -37,9 +39,48 @@ describe('annotation wire protocol', () => {
       protocolVersion: 2,
       source: 'dsh-annotation',
       submissionId: 'sub-legacy',
+      processingMode: 'answer',
       annotations: [{ annotationId: 'ann-legacy-1', annotation: 'Legacy comment.', ordinal: 1 }],
     })
     expect(parsed.annotations[0]).not.toHaveProperty('comment')
+  })
+
+  it('defaults a v2 payload without processingMode to answer and accepts every current mode', () => {
+    const legacyV2 = { ...fixturePayload() } as Record<string, unknown>
+    delete legacyV2.processingMode
+    expect(parseSubmissionPayload(legacyV2).processingMode).toBe('answer')
+    expect(parseProcessingMode(undefined)).toBe('answer')
+
+    for (const mode of ['answer', 'rewrite', 'modify'] as const) {
+      expect(parseProcessingMode(mode)).toBe(mode)
+      expect(parseSubmissionPayload(fixturePayload({ processingMode: mode })).processingMode).toBe(mode)
+    }
+    expect(() => parseProcessingMode(null)).toThrow(ProtocolError)
+  })
+
+  it('restores bounded supplemental links without requiring the historical target in this batch', () => {
+    const payload = fixturePayload()
+    const item = payload.annotations[0]!
+    const parsed = parseSubmissionPayload({
+      ...payload,
+      annotations: [{ ...item, supplementalTo: 'ann-from-history' }],
+    })
+    expect(parsed.annotations[0]?.supplementalTo).toBe('ann-from-history')
+  })
+
+  it.each([
+    ['blank', '   '],
+    ['too long', 'x'.repeat(257)],
+    ['self-referencing', 'ann-test-1'],
+  ])('rejects a %s supplemental annotation id', (_label, supplementalTo) => {
+    const payload = fixturePayload()
+    const item = payload.annotations[0]!
+    expect(() =>
+      parseSubmissionPayload({
+        ...payload,
+        annotations: [{ ...item, supplementalTo }],
+      }),
+    ).toThrow(ProtocolError)
   })
 
   it('rejects duplicate ids and non-contiguous ordinals', () => {
@@ -99,7 +140,7 @@ describe('annotation wire protocol', () => {
     expect(text).toContain('Explain this claim.')
     expect(text).toContain('ann-test-1')
     expect(text).toContain('注解 1')
-    expect(text).toContain('请按顺序逐条回应每一条注解')
+    expect(text).toContain('请按顺序逐条回答每一条注解')
     expect(text).toContain(
       '<!-- dsh-annotation-reply:{"submissionId":"sub-test","annotationId":"ann-test-1","ordinal":1} -->',
     )
@@ -119,9 +160,9 @@ describe('annotation wire protocol', () => {
   it('uses the English protocol template when the payload locale is en', () => {
     const text = formatSubmissionMessage(fixturePayload({ protocolLocale: 'en' }))
     expect(text).toContain('[DSH annotation submission]')
-    expect(text).toContain('Respond to every annotation in order.')
-    expect(text).toContain('Start each section with "Annotation N:".')
-    expect(text).toContain('"Highlight only" means reviewing and responding to the selected text')
+    expect(text).toContain('Answer every annotation in order:')
+    expect(text).toContain('Start each section with "Annotation N:"')
+    expect(text).toContain('"Highlight only" means there is no additional annotation text')
     expect(text).not.toContain('注解')
   })
 
@@ -134,7 +175,7 @@ describe('annotation wire protocol', () => {
     }
     const text = formatSubmissionMessage({ ...payload, annotations: [highlight] })
     expect(text).toContain('(Highlight only)')
-    expect(text).toContain('never skip an item because its annotation content is empty')
+    expect(text).toContain('still handle the selected text in the current delivery mode and never skip it')
   })
 
   it('infers the annotation kind from content when kind is missing or inconsistent', () => {
@@ -154,11 +195,28 @@ describe('annotation wire protocol', () => {
     expect(parsed.annotations[0]).toMatchObject({ kind: 'note', annotation: 'Legacy comment.' })
   })
 
-  it('reads current and legacy provenance sources and builds summaries', () => {
+  it('reads current and historical provenance sources and builds summaries', () => {
     const payload = fixturePayload()
+    const legacyV2 = { ...payload } as Record<string, unknown>
+    delete legacyV2.processingMode
+    const supplementalPayload = {
+      ...payload,
+      annotations: [{ ...payload.annotations[0]!, supplementalTo: 'ann-from-history' }],
+    }
+
     expect(parseAnnotationSource({ kind: 'user', annotationSubmission: payload })).toEqual(payload)
-    expect(parseAnnotationSource({ kind: 'user', inlineComments: payload })).toEqual(payload)
-    expect(parseAnnotationSource({ kind: 'user', inlineAnnotations: payload })).toEqual(payload)
+    expect(
+      parseAnnotationSource({ kind: 'user', annotationSubmission: supplementalPayload })?.annotations[0]
+        ?.supplementalTo,
+    ).toBe('ann-from-history')
+    expect(parseAnnotationSource({ kind: 'user', inlineComments: legacyV2 })).toMatchObject({
+      submissionId: payload.submissionId,
+      processingMode: 'answer',
+    })
+    expect(parseAnnotationSource({ kind: 'user', inlineAnnotations: fixtureV1Payload() })).toMatchObject({
+      submissionId: 'sub-legacy',
+      processingMode: 'answer',
+    })
     expect(parseAnnotationSource({ kind: 'user' })).toBeNull()
     expect(parseAnnotationSource({ kind: 'plugin', annotationSubmission: payload })).toBeNull()
     expect(parseInlineCommentSource({ kind: 'user', annotationSubmission: payload })).toEqual(payload)

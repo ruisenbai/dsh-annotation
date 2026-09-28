@@ -21,27 +21,37 @@ function registry(): { highlights: HighlightRegistry; Highlight: HighlightConstr
 /** One plugin-wide CSS Custom Highlight owner; mounted message components contribute ranges. */
 export class HighlightManager {
   private readonly ranges = new Map<string, readonly Range[]>()
-  private active: { messageId: string; range: Range } | null = null
+  private readonly active = new Map<string, Range>()
 
   update(messageId: string, ranges: readonly Range[]): void {
+    const previous = this.ranges.get(messageId)
+    if (
+      previous !== undefined &&
+      previous.length === ranges.length &&
+      previous.every((range, index) => range === ranges[index])
+    )
+      return
     this.ranges.set(messageId, ranges)
-    this.publish()
+    this.publishBase()
   }
 
   remove(messageId: string): void {
-    this.ranges.delete(messageId)
-    if (this.active?.messageId === messageId) this.active = null
-    this.publish()
+    const removedBase = this.ranges.delete(messageId)
+    const removedActive = this.active.delete(messageId)
+    if (removedBase) this.publishBase()
+    if (removedActive) this.publishActive()
   }
 
   activate(messageId: string, range: Range | null): void {
-    this.active = range === null ? null : { messageId, range }
-    this.publish()
+    if ((this.active.get(messageId) ?? null) === range) return
+    if (range === null) this.active.delete(messageId)
+    else this.active.set(messageId, range)
+    this.publishActive()
   }
 
   dispose(): void {
     this.ranges.clear()
-    this.active = null
+    this.active.clear()
     const target = registry()
     target?.highlights.delete(BASE_NAME)
     target?.highlights.delete(ACTIVE_NAME)
@@ -51,13 +61,18 @@ export class HighlightManager {
     return registry() !== null
   }
 
-  private publish(): void {
+  private publishBase(): void {
     const target = registry()
     if (target === null) return
     const all = [...this.ranges.values()].flat()
     if (all.length === 0) target.highlights.delete(BASE_NAME)
     else target.highlights.set(BASE_NAME, new target.Highlight(...all))
-    if (this.active === null) target.highlights.delete(ACTIVE_NAME)
-    else target.highlights.set(ACTIVE_NAME, new target.Highlight(this.active.range))
+  }
+
+  private publishActive(): void {
+    const target = registry()
+    if (target === null) return
+    if (this.active.size === 0) target.highlights.delete(ACTIVE_NAME)
+    else target.highlights.set(ACTIVE_NAME, new target.Highlight(...this.active.values()))
   }
 }

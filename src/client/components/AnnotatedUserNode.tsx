@@ -1,95 +1,117 @@
-import { Fragment, useMemo } from 'react'
+import { AnnotationSourceLabel } from './AnnotationSourceLabel.tsx'
+import { Fragment, useId, useState } from 'react'
 import {
   FileTypeIcon,
   fileSizeText,
-  IconCheckOutline14,
-  IconChevronDownOutline14,
-  IconChevronRightOutline14,
-  IconListPenOutline16,
-  IconQueueOutline14,
+  IconChevronDownOutlineRegular,
+  IconListPenOutlineRegular,
   projectUserText,
+  Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { parseAnnotationSource } from '../../shared/protocol.ts'
-import type { AnnotationId, AnnotationStatus } from '../../shared/types.ts'
+import type { AnnotationId } from '../../shared/types.ts'
 import type { UserAnnotationProps } from '../contract.ts'
 import { MapPin } from '../icons.ts'
 
-function TimelineStatusIcon({ status }: { status: AnnotationStatus }) {
-  if (status === 'queued') return <IconQueueOutline14 size={14} />
-  if (status === 'processed' || status === 'sent') return <IconCheckOutline14 size={14} />
-  return <IconListPenOutline16 size={14} />
-}
-
 function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
   payload,
-  useAnnotations,
   navigate,
   t,
-}: Pick<UserAnnotationProps<Key>, 'useAnnotations' | 'navigate' | 't'> & {
+}: Pick<UserAnnotationProps<Key>, 'navigate' | 't'> & {
   payload: NonNullable<ReturnType<typeof parseAnnotationSource>>
 }) {
-  const view = useAnnotations((state) => state)
-  const byId = useMemo(
-    () => new Map(view.annotations.map((item) => [item.annotationId, item])),
-    [view.annotations],
+  const [expanded, setExpanded] = useState(false)
+  const listId = useId()
+  const single = payload.annotations.length === 1
+  const only = payload.annotations[0]
+  const canLocateSingle = single && only?.source?.kind !== 'diff'
+  const label = single ? t('timeline.single') : t('timeline.summary', { count: payload.annotations.length })
+  const content = (
+    <>
+      <IconListPenOutlineRegular size={16} aria-hidden="true" />
+      <span>{label}</span>
+      {!single && (
+        <span className="dia-timeline__chevron" aria-hidden="true">
+          <IconChevronDownOutlineRegular size={14} />
+        </span>
+      )}
+    </>
   )
-  const previousVersion =
-    view.latestAssistantMessageId !== null &&
-    payload.annotations.some((item) => item.messageId !== view.latestAssistantMessageId)
+  const trigger =
+    single && !canLocateSingle ? (
+      <span className="dia-timeline__trigger" tabIndex={0}>
+        {content}
+      </span>
+    ) : (
+      <button
+        type="button"
+        className="dia-timeline__trigger"
+        {...(single
+          ? {
+              onDoubleClick: () => void navigate(only!.annotationId as AnnotationId),
+              onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return
+                event.preventDefault()
+                void navigate(only!.annotationId as AnnotationId)
+              },
+              'aria-label': t('timeline.singleLocate'),
+            }
+          : {
+              'aria-controls': listId,
+              'aria-expanded': expanded,
+              onClick: () => setExpanded((value) => !value),
+            })}
+      >
+        {content}
+      </button>
+    )
   return (
-    <details className="dia-timeline">
-      <summary>
-        <span className="dia-timeline__summary-icon" aria-hidden="true">
-          <IconListPenOutline16 size={16} />
-        </span>
-        <span className="dia-timeline__summary-copy">
-          <strong>{t('timeline.summary', { count: payload.annotations.length })}</strong>
-          <small>{previousVersion ? t('timeline.previousVersion') : payload.submissionId}</small>
-        </span>
-        <span className="dia-timeline__disclosure" aria-hidden="true">
-          <span data-collapsed="true">
-            <IconChevronRightOutline14 size={14} />
-          </span>
-          <span data-expanded="true">
-            <IconChevronDownOutline14 size={14} />
-          </span>
-        </span>
-      </summary>
-      <div className="dia-timeline__body">
-        <div className="dia-timeline__list">
-          {payload.annotations.map((item) => {
-            const local = byId.get(item.annotationId)
-            const status = local?.status ?? 'sent'
-            return (
-              <article key={item.annotationId} className="dia-timeline-item" data-status={status}>
-                <header className="dia-timeline-item__head">
-                  <span className="dia-timeline-item__index" aria-hidden="true">
-                    {item.ordinal}
-                  </span>
-                  <span className="dia-status" data-status={status}>
-                    <TimelineStatusIcon status={status} />
-                    {t(`status.${status}`)}
-                  </span>
-                  <code>{item.annotationId}</code>
-                </header>
+    <div className="dia-timeline" data-expanded={expanded} data-single={single} aria-label={label}>
+      {single && only !== undefined ? (
+        <Tooltip
+          label={
+            only.annotation === ''
+              ? t('timeline.previewSource', { quote: only.quote.exact })
+              : t('timeline.preview', { quote: only.quote.exact, annotation: only.annotation })
+          }
+          side="top"
+          align="end"
+          delayMs={250}
+          portal
+          maxWidth={340}
+        >
+          {trigger}
+        </Tooltip>
+      ) : (
+        trigger
+      )}
+      {!single && expanded && (
+        <ol id={listId} className="dia-timeline__list">
+          {payload.annotations.map((item) => (
+            <li key={item.annotationId} className="dia-timeline-item">
+              <span className="dia-timeline-item__index" aria-hidden="true">
+                {item.ordinal}
+              </span>
+              <div className="dia-timeline-item__content">
+                <AnnotationSourceLabel item={item} t={t} />
                 <q>{item.quote.exact}</q>
-                <p data-highlight-only={item.kind === 'highlight-only' ? 'true' : undefined}>
-                  {item.annotation === '' ? t('highlightOnly') : item.annotation}
-                </p>
+                {item.annotation !== '' && <p>{item.annotation}</p>}
+              </div>
+              {item.source?.kind !== 'diff' && (
                 <button
                   type="button"
-                  className="dia-text-button dia-timeline-item__locate"
+                  className="dia-record-action dia-timeline-item__locate"
+                  aria-label={t('list.locate')}
                   onClick={() => void navigate(item.annotationId as AnnotationId)}
                 >
-                  <MapPin aria-hidden="true" size={12} strokeWidth={1.8} />
-                  {t('list.locate')}
+                  <MapPin aria-hidden="true" size={16} strokeWidth={1.8} />
                 </button>
-              </article>
-            )
-          })}
-        </div>
-      </div>
-    </details>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
   )
 }
 
@@ -99,14 +121,9 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
   renderMessageImages,
   openFile,
   openSkill,
-  useAnnotations,
   navigate,
   t,
-  annotationHistoryHidden = false,
-}: UserAnnotationProps<Key> & {
-  /** Omit submitted annotation details while retaining the human message and attachments. */
-  readonly annotationHistoryHidden?: boolean
-}) {
+}: UserAnnotationProps<Key>) {
   const payload = parseAnnotationSource(node.data.source)
   const referenceLabels = node.data.referenceLabels ?? []
   const skillNames = node.data.skillNames ?? []
@@ -139,18 +156,11 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
     const requirement = payload.overallRequirement?.trim() ?? ''
     return (
       <div className="dia-user-submission">
+        <AnnotationSubmissionRow payload={payload} navigate={navigate} t={t} />
         {requirement !== '' && (
           <article className="dia-user">
             {projectUserText(requirement, referenceLabels, skillNames, 'skill', { openFile, openSkill })}
           </article>
-        )}
-        {!annotationHistoryHidden && (
-          <AnnotationSubmissionRow
-            payload={payload}
-            useAnnotations={useAnnotations}
-            navigate={navigate}
-            t={t}
-          />
         )}
         {attachmentRow}
       </div>

@@ -1,10 +1,10 @@
-/** User-owned settings registered by the Host plugin. */
+/** Annotation preferences exposed by the Host plugin configuration form. */
 
 /** Host settings namespace paired with the annotation section in main Settings. */
 export const ANNOTATION_SETTINGS_NAMESPACE = 'dsh-annotation'
 
-/** Pre-rename namespaces whose user sections migrate into the new namespace once. */
-export const LEGACY_ANNOTATION_SETTINGS_NAMESPACES = ['inline-comments'] as const
+/** Durable marker preventing an archived preference from returning after Reset. */
+export const ARCHIVED_PREFERENCES_IMPORTED_FIELD = 'archivedPreferencesImported'
 
 /** Fresh installations expose the feature until the user disables it. */
 export const DEFAULT_ANNOTATION_ENABLED = true
@@ -12,13 +12,16 @@ export const DEFAULT_ANNOTATION_ENABLED = true
 /** 新增注解后，默认把它附着到官方输入框。 */
 export const DEFAULT_ANNOTATION_AUTO_ATTACH = true
 
+/** 发送时默认使用已附着的全部注解，而不是逐条选择。 */
+export const DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION = false
+
 /** 注解汇总条默认靠右显示，宽度随内容自适应。 */
 export const DEFAULT_ANNOTATION_COMPACT_SUMMARY = true
 
 /** Browser key read only to migrate the pre-0.1.3 enabled preference. */
 export const LEGACY_ANNOTATION_ENABLED_STORAGE_KEY = 'dsh.inline-comments.enabled'
 
-/** Display-only filters; hidden transcript details retain their full stored text. */
+/** Historical transcript preferences retained only to read earlier profile documents. */
 export interface TranscriptVisibilitySettings {
   /** Hide assistant reasoning text. */
   readonly hideReasoning: boolean
@@ -58,10 +61,10 @@ export interface TranscriptVisibilitySettings {
   readonly hideOther: boolean
 }
 
-/** Fields accepted by the transcript-visibility controls. */
+/** Historical transcript preference names. */
 export type TranscriptVisibilityKey = keyof TranscriptVisibilitySettings
 
-/** Transcript details remain visible until their individual filters are saved. */
+/** Historical transcript fields default to false and have no active UI effect. */
 export const DEFAULT_TRANSCRIPT_VISIBILITY: TranscriptVisibilitySettings = {
   hideReasoning: false,
   hideTools: false,
@@ -83,7 +86,7 @@ export const DEFAULT_TRANSCRIPT_VISIBILITY: TranscriptVisibilitySettings = {
   hideOther: false,
 }
 
-/** Named tool filters shown after the all-tools master switch. */
+/** Historical tool-filter fields retained for profile migration. */
 export const TRANSCRIPT_TOOL_VISIBILITY_KEYS = [
   'hideToolRead',
   'hideToolGlob',
@@ -94,7 +97,7 @@ export const TRANSCRIPT_TOOL_VISIBILITY_KEYS = [
   'hideToolOther',
 ] as const satisfies readonly TranscriptVisibilityKey[]
 
-/** Main-Settings order for the transcript-visibility fields. */
+/** Historical field order retained for profile migration. */
 export const TRANSCRIPT_VISIBILITY_KEYS: readonly TranscriptVisibilityKey[] = [
   'hideReasoning',
   'hideTools',
@@ -116,6 +119,8 @@ export interface AnnotationSettings extends TranscriptVisibilitySettings {
   readonly enabled: boolean
   /** Whether saving a new annotation arms the official composer automatically. */
   readonly autoAttach: boolean
+  /** Whether each send uses the annotations selected for that send. */
+  readonly individualSelection: boolean
   /** 是否使用靠右、宽度自适应且隐藏最左图标的汇总条；关闭时显示完整长条。 */
   readonly compactSummary: boolean
 }

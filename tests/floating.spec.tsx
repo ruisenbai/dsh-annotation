@@ -64,6 +64,14 @@ describe('annotation floating geometry', () => {
     })
   })
 
+  it('puts an editor below the final character even when the reply has a side gutter', () => {
+    expect(computeAnnotationFloating({ ...geometry(), preferBelow: true })).toMatchObject({
+      placement: 'bottom',
+      left: 812,
+      top: 332,
+    })
+  })
+
   it('uses the left gutter when the right gutter is too narrow', () => {
     const input = geometry()
     input.body = rect(430, 80, 950, 1000)
@@ -141,9 +149,9 @@ describe('annotation floating geometry', () => {
     expect(computeAnnotationFloating(input)).toEqual({
       placement: 'panel',
       left: 540,
-      top: 450,
+      top: 330,
       maxWidth: 1416,
-      maxHeight: 438,
+      maxHeight: 558,
     })
   })
 
@@ -260,10 +268,10 @@ describe('live annotation anchors', () => {
     hidden.root.hidden = true
     const visible = scene()
     visible.root.dataset.focusFlow = ''
-    let selected = rect(430, 340, 150, 44)
+    let finalCharacter = rect(530, 362, 10, 22)
     replaceProperty(Range.prototype, 'getBoundingClientRect', function (this: Range) {
       expect(this.startContainer.parentElement).toBe(visible.body)
-      return selected
+      return this.startOffset === 7 && this.endOffset === 8 ? finalCharacter : rect(430, 340, 150, 44)
     })
     const capture = {
       messageId,
@@ -272,9 +280,9 @@ describe('live annotation anchors', () => {
       quote: { exact: 'quoted', prefix: 'A ', suffix: ' sentence.', start: 2, end: 8 },
       rect: { top: 0, bottom: 1, left: 0, right: 1 },
     }
-    expect(selectionAnchor(capture)).toMatchObject({ rect: selected, contextElement: visible.body })
-    selected = rect(430, 210, 150, 44)
-    expect(selectionAnchor(capture)).toMatchObject({ rect: selected })
+    expect(selectionAnchor(capture)).toMatchObject({ rect: finalCharacter, contextElement: visible.body })
+    finalCharacter = rect(430, 210, 10, 22)
+    expect(selectionAnchor(capture)).toMatchObject({ rect: finalCharacter })
     visible.body.textContent = 'The quote has disappeared.'
     expect(selectionAnchor(capture)).toBeNull()
     visible.root.remove()
@@ -461,7 +469,7 @@ describe('annotation floating lifecycle', () => {
     events.flush()
     const panel = screen.getByTestId('floating')
     expect(panel).toHaveAttribute('data-placement', 'panel')
-    expect(panel).toHaveStyle({ top: '397px', maxHeight: '305px' })
+    expect(panel).toHaveStyle({ top: '92px', maxHeight: '300px' })
     current.bounds.panelHeight = 240
     act(() => {
       events.observers[0]!.notify()

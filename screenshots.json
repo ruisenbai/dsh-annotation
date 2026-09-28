@@ -1,7 +1,9 @@
 [
-  "docs/assets/inline-comments-overview.png",
-  "docs/assets/inline-comments-selection.png",
-  "docs/assets/inline-comments-editor.png",
-  "docs/assets/inline-comments-drafts.png",
-  "docs/assets/inline-comments-settings.png"
+  "docs/assets/annotation-selection.png",
+  "docs/assets/annotation-editor.png",
+  "docs/assets/annotation-bubble.png",
+  "docs/assets/annotation-record.png",
+  "docs/assets/annotation-sent.png",
+  "docs/assets/annotation-reattach.png",
+  "docs/assets/annotation-settings.png"
 ]

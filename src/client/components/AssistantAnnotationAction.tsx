@@ -1,4 +1,4 @@
-import { IconListPenOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconListPenOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MessageIdentity } from '../../shared/types.ts'
 import type { AssistantActionAnnotationProps } from '../contract.ts'
 
@@ -12,7 +12,7 @@ export function AssistantAnnotationAction({ messageId, annotateMessage, t }: Ass
         aria-label={t('action.annotate')}
         onClick={() => annotateMessage(messageId as unknown as MessageIdentity)}
       >
-        <IconListPenOutline16 size={16} />
+        <IconListPenOutlineRegular size={16} />
       </button>
     </Tooltip>
   )

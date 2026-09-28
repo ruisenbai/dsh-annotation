@@ -1,22 +1,27 @@
-import { PROTOCOL_SOURCE, PROTOCOL_VERSION } from '../src/shared/types.ts'
+import { PROTOCOL_SOURCE } from '../src/shared/types.ts'
 import type {
   AnnotationSubmissionPayload,
   MessageIdentity,
   SessionIdentity,
   SubmissionId,
+  SubmittedAnnotation,
 } from '../src/shared/types.ts'
 
-export function fixturePayload(
-  overrides: Partial<AnnotationSubmissionPayload> = {},
-): AnnotationSubmissionPayload {
+type MessagePayload = Omit<AnnotationSubmissionPayload, 'annotations'> & {
+  readonly annotations: readonly Extract<SubmittedAnnotation, { readonly messageId: MessageIdentity }>[]
+}
+
+/** Legacy message-only v2 records remain valid without explicit source tags. */
+export function fixturePayload(overrides: Partial<MessagePayload> = {}): MessagePayload {
   const messageId = 'assistant-message-1' as MessageIdentity
   return {
-    protocolVersion: PROTOCOL_VERSION,
+    protocolVersion: 2,
     source: PROTOCOL_SOURCE,
     submissionId: 'sub-test' as SubmissionId,
     sessionId: 'session-test' as SessionIdentity,
     delivery: 'queue',
     protocolLocale: 'zh',
+    processingMode: 'answer',
     createdAt: 1_700_000_000_000,
     overallRequirement: 'Rewrite the proposal coherently.',
     annotations: [
@@ -36,7 +41,7 @@ export function fixturePayload(
   }
 }
 
-/** A pre-rename v1 payload: `comment` fields, no `source`, no kind or protocolLocale. */
+/** A pre-rename v1 payload: `comment` fields, no `source`, kind, protocolLocale, or processingMode. */
 export function fixtureV1Payload(): unknown {
   const messageId = 'assistant-message-1'
   return {

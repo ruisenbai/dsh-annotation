@@ -1,5 +1,5 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
-import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 
 vi.mock('@deepseek-ai/dsh-client-store', () => ({
   createSnapshotStore<T>(initial: T) {
@@ -25,13 +25,14 @@ vi.mock('@deepseek-ai/dsh-client-store', () => ({
 
 import { AnnotationSettingsController } from '../src/client/feature-toggle.ts'
 import {
+  DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
   DEFAULT_TRANSCRIPT_VISIBILITY,
   LEGACY_ANNOTATION_ENABLED_STORAGE_KEY,
   TRANSCRIPT_VISIBILITY_KEYS,
   type AnnotationSettings,
 } from '../src/shared/settings.ts'
 
-function settingsScope(
+function settingsForm(
   initial?: boolean,
   writable = true,
   initialAutoAttach?: boolean,
@@ -49,13 +50,14 @@ function settingsScope(
   let writeMode: 'accept' | 'retain' | 'throw' = 'accept'
   let deferred = false
   let releaseWrite: (() => void) | undefined
-  const snapshot = (): SettingsScopeSnapshot<AnnotationSettings> => ({
+  const snapshot = (): ConfigFormSnapshot<AnnotationSettings> => ({
     status: 'ready',
     value: {
       ...DEFAULT_TRANSCRIPT_VISIBILITY,
       ...user,
       enabled: user.enabled ?? true,
       autoAttach: user.autoAttach ?? true,
+      individualSelection: user.individualSelection ?? DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
       compactSummary: user.compactSummary ?? true,
     },
     base: undefined,
@@ -74,7 +76,7 @@ function settingsScope(
     revision += 1
     for (const listener of listeners) listener()
   }
-  const scope: SettingsScope<AnnotationSettings> = {
+  const scope: ConfigForm<AnnotationSettings> = {
     getSnapshot: snapshot,
     subscribe(listener) {
       listeners.add(listener)
@@ -90,6 +92,7 @@ function settingsScope(
         if (
           (field === 'enabled' ||
             field === 'autoAttach' ||
+            field === 'individualSelection' ||
             field === 'compactSummary' ||
             TRANSCRIPT_VISIBILITY_KEYS.some((key) => key === field)) &&
           typeof value === 'boolean'
@@ -98,6 +101,7 @@ function settingsScope(
         }
       }
       publish()
+      return writeMode === 'accept' && writable
     },
     async unset(field) {
       await waitForRelease()
@@ -107,6 +111,7 @@ function settingsScope(
         writable &&
         (field === 'enabled' ||
           field === 'autoAttach' ||
+          field === 'individualSelection' ||
           field === 'compactSummary' ||
           TRANSCRIPT_VISIBILITY_KEYS.some((key) => key === field))
       ) {
@@ -115,6 +120,7 @@ function settingsScope(
         user = next
       }
       publish()
+      return writeMode === 'accept' && writable
     },
   }
   return {
@@ -163,7 +169,7 @@ async function settle(): Promise<void> {
 
 describe('Host-backed feature setting', () => {
   it('stages changes without moving the feature and applies them after save', async () => {
-    const fixture = settingsScope(false)
+    const fixture = settingsForm(false)
     const controller = new AnnotationSettingsController(fixture.scope)
     const face = controller.inject()
 
@@ -199,7 +205,7 @@ describe('Host-backed feature setting', () => {
   })
 
   it('defaults auto-attach on and applies its staged switch only after save', async () => {
-    const fixture = settingsScope()
+    const fixture = settingsForm()
     const controller = new AnnotationSettingsController(fixture.scope)
     const face = controller.inject()
 
@@ -233,7 +239,7 @@ describe('Host-backed feature setting', () => {
   })
 
   it('keeps a rejected draft for correction and allows discard', async () => {
-    const fixture = settingsScope()
+    const fixture = settingsForm()
     fixture.rejectWrites()
     const controller = new AnnotationSettingsController(fixture.scope)
     const face = controller.inject()
@@ -251,7 +257,7 @@ describe('Host-backed feature setting', () => {
   })
 
   it('settles a rejected settings promise as a failed editable draft', async () => {
-    const fixture = settingsScope()
+    const fixture = settingsForm()
     fixture.throwWrites()
     const controller = new AnnotationSettingsController(fixture.scope)
     const face = controller.inject()
@@ -271,7 +277,7 @@ describe('Host-backed feature setting', () => {
   })
 
   it('preserves and migrates the legacy browser preference before enabling integrations', async () => {
-    const fixture = settingsScope()
+    const fixture = settingsForm()
     fixture.deferWrites()
     const storage = legacyStorage(false)
     const controller = new AnnotationSettingsController(fixture.scope, storage)
@@ -290,7 +296,7 @@ describe('Host-backed feature setting', () => {
   })
 
   it('keeps the legacy preference when the Host does not retain its migration', async () => {
-    const fixture = settingsScope()
+    const fixture = settingsForm()
     fixture.rejectWrites()
     const storage = legacyStorage(false)
     const controller = new AnnotationSettingsController(fixture.scope, storage)
@@ -303,7 +309,7 @@ describe('Host-backed feature setting', () => {
   })
 
   it('waits for an in-flight migration without publishing after disposal', async () => {
-    const fixture = settingsScope()
+    const fixture = settingsForm()
     fixture.deferWrites()
     const storage = legacyStorage(false)
     const controller = new AnnotationSettingsController(fixture.scope, storage)
@@ -321,7 +327,7 @@ describe('Host-backed feature setting', () => {
   })
 
   it('lets an existing Host value supersede and remove a stale browser preference', async () => {
-    const fixture = settingsScope(true)
+    const fixture = settingsForm(true)
     const storage = legacyStorage(false)
     const controller = new AnnotationSettingsController(fixture.scope, storage)
 
@@ -331,7 +337,7 @@ describe('Host-backed feature setting', () => {
   })
 
   it('stops publication before awaiting an in-flight save during disposal', async () => {
-    const fixture = settingsScope()
+    const fixture = settingsForm()
     fixture.deferWrites()
     const controller = new AnnotationSettingsController(fixture.scope)
     const face = controller.inject()
@@ -352,7 +358,7 @@ describe('Host-backed feature setting', () => {
   })
 
   it('uses the safe enabled default while the namespace is unavailable', async () => {
-    const fixture = settingsScope()
+    const fixture = settingsForm()
     const unavailable = {
       ...fixture.scope,
       getSnapshot: () => ({
@@ -377,7 +383,7 @@ describe('Host-backed feature setting', () => {
   })
 
   it('stages compact summary until save and reset', async ({ onTestFinished }) => {
-    const fixture = settingsScope()
+    const fixture = settingsForm()
     const controller = new AnnotationSettingsController(fixture.scope)
     onTestFinished(() => controller.dispose())
     const face = controller.inject()
@@ -439,7 +445,7 @@ describe('Host-backed feature setting', () => {
   it.each(['retain', 'throw'] as const)(
     'keeps rejected compact summary edits for correction when the Host response is %s',
     async (mode) => {
-      const fixture = settingsScope()
+      const fixture = settingsForm()
       if (mode === 'retain') fixture.rejectWrites()
       else fixture.throwWrites()
       const controller = new AnnotationSettingsController(fixture.scope)
@@ -468,7 +474,7 @@ describe('Host-backed feature setting', () => {
   )
 
   it.each([true, false])('loads a disabled compact summary with writable=%s', (writable) => {
-    const fixture = settingsScope(undefined, writable, undefined, false)
+    const fixture = settingsForm(undefined, writable, undefined, false)
     const controller = new AnnotationSettingsController(fixture.scope)
     onTestFinished(() => controller.dispose())
 
@@ -482,7 +488,7 @@ describe('Host-backed feature setting', () => {
   })
 
   it('settles compact summary saves after disposal without publishing', async ({ onTestFinished }) => {
-    const fixture = settingsScope()
+    const fixture = settingsForm()
     fixture.deferWrites()
     const controller = new AnnotationSettingsController(fixture.scope)
     onTestFinished(async () => {
@@ -509,7 +515,7 @@ describe('Host-backed feature setting', () => {
   })
 
   it('retains an obsolete localTools user key while saving and resetting supported settings', async () => {
-    const fixture = settingsScope(false, true, false, false, { localTools: false })
+    const fixture = settingsForm(false, true, false, false, { localTools: false })
     const controller = new AnnotationSettingsController(fixture.scope)
     onTestFinished(() => controller.dispose())
     const face = controller.inject()
@@ -558,7 +564,7 @@ describe('Host-backed feature setting', () => {
 
 describe('Host-backed transcript visibility settings', () => {
   it('retains saved snapshot identity across unrelated settings changes', async () => {
-    const fixture = settingsScope()
+    const fixture = settingsForm()
     const controller = new AnnotationSettingsController(fixture.scope)
     onTestFinished(() => controller.dispose())
     const face = controller.inject()
@@ -596,7 +602,7 @@ describe('Host-backed transcript visibility settings', () => {
 
   it.each(TRANSCRIPT_VISIBILITY_KEYS)('stages saves discards and resets %s independently', async (field) => {
     const retained = { enabled: false, autoAttach: false, compactSummary: false, localTools: false }
-    const fixture = settingsScope(undefined, true, undefined, undefined, retained)
+    const fixture = settingsForm(undefined, true, undefined, undefined, retained)
     const controller = new AnnotationSettingsController(fixture.scope)
     onTestFinished(() => controller.dispose())
     const face = controller.inject()
@@ -659,7 +665,7 @@ describe('Host-backed transcript visibility settings', () => {
   })
 
   it('removes an explicit false override without changing the saved snapshot reference', async () => {
-    const fixture = settingsScope(undefined, true, undefined, undefined, { hideErrors: false })
+    const fixture = settingsForm(undefined, true, undefined, undefined, { hideErrors: false })
     const controller = new AnnotationSettingsController(fixture.scope)
     onTestFinished(() => controller.dispose())
     const face = controller.inject()
@@ -685,7 +691,7 @@ describe('Host-backed transcript visibility settings', () => {
   })
 
   it.each(['retain', 'throw'] as const)('retains drafts after a %s response', async (mode) => {
-    const fixture = settingsScope(undefined, true, undefined, undefined, { hideErrors: true })
+    const fixture = settingsForm(undefined, true, undefined, undefined, { hideErrors: true })
     if (mode === 'retain') fixture.rejectWrites()
     else fixture.throwWrites()
     const controller = new AnnotationSettingsController(fixture.scope)
@@ -732,11 +738,11 @@ describe('Host-backed transcript visibility settings', () => {
   })
 
   it('keeps only the rejected field staged when a save partially succeeds', async () => {
-    const fixture = settingsScope(undefined, true, undefined, undefined, { localTools: false })
-    const scope: SettingsScope<AnnotationSettings> = {
+    const fixture = settingsForm(undefined, true, undefined, undefined, { localTools: false })
+    const scope: ConfigForm<AnnotationSettings> = {
       ...fixture.scope,
       async set(field, value) {
-        if (field !== 'hideTools') await fixture.scope.set(field, value)
+        return field !== 'hideTools' && (await fixture.scope.set(field, value))
       },
     }
     const controller = new AnnotationSettingsController(scope)
@@ -766,7 +772,7 @@ describe('Host-backed transcript visibility settings', () => {
   it('loads read-only Host filters and keeps an unaccepted edit staged', async () => {
     const allHidden = { ...DEFAULT_TRANSCRIPT_VISIBILITY }
     for (const field of TRANSCRIPT_VISIBILITY_KEYS) allHidden[field] = true
-    const fixture = settingsScope(undefined, false, undefined, undefined, allHidden)
+    const fixture = settingsForm(undefined, false, undefined, undefined, allHidden)
     const controller = new AnnotationSettingsController(fixture.scope)
     onTestFinished(() => controller.dispose())
     const face = controller.inject()
@@ -792,7 +798,7 @@ describe('Host-backed transcript visibility settings', () => {
   })
 
   it('retains a different field staged while an earlier save is in flight', async () => {
-    const fixture = settingsScope()
+    const fixture = settingsForm()
     fixture.deferWrites()
     const controller = new AnnotationSettingsController(fixture.scope)
     onTestFinished(async () => {
@@ -828,7 +834,7 @@ describe('Host-backed transcript visibility settings', () => {
   })
 
   it('settles captured visibility writes after disposal without publishing', async () => {
-    const fixture = settingsScope()
+    const fixture = settingsForm()
     fixture.deferWrites()
     const controller = new AnnotationSettingsController(fixture.scope)
     onTestFinished(async () => {

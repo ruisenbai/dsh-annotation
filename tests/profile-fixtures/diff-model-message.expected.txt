@@ -1,0 +1,67 @@
+[DSH 注解提交]
+Submission ID: <submission>
+Reply annotations: 3
+Processing mode: answer
+
+总体要求：
+Review only the selected annotations.
+总体要求用于指定目标、范围与约束；处理方式用于指定交付形式。如果二者直接冲突，请明确指出冲突并请求澄清，不要静默忽略其中一项。
+
+交付方式：逐条回答
+请按顺序逐条回答每一条注解：
+- 每段必须以「注解 N：」开头，N 为该注解的编号。
+- 不要合并不同注解；每个注解单独一段。
+- 每段回答前先输出该注解的隐藏关联标记（HTML 注释，用户不可见）。
+- 「仅标记原文」表示没有额外注解文字；仍须按当前交付方式处理对应原文，不能跳过。
+
+<!-- dsh-annotation-reply:{"submissionId":"<submission>","annotationId":"<annotation-1>","ordinal":1} -->
+注解 1 (<annotation-1>)
+Reply message: <assistant-message>
+Reply event seq: <assistant-seq>
+被选中的原文：
+Keep this sentence for a message annotation.
+用户的注解：
+请说明这句文字。
+
+<!-- dsh-annotation-reply:{"submissionId":"<submission>","annotationId":"<annotation-2>","ordinal":2} -->
+注解 2 (<annotation-2>)
+Source: Git diff; review.ts · old · 2 (1-based file lines)
+Repository: "<repository>"
+File: "review.ts"
+Old path: "review.ts"; new path: "review.ts"
+Comparison: index -> working tree (unstaged)
+Old version: blob 80750839150b9557b81f4da25a8239e219f071cd; new version: working-tree sha256:644f94a559cb465aa785b098411d5f2ac4ab7d273ec86e758194a7b79cc205ce
+HEAD at capture: <head>; snapshot: <snapshot>
+Side: old; file lines: 2-2
+Context before: "export function total(value: number) {"
+Context after: "  return result;\n}\n"
+These coordinates refer to the captured versions, not the current file at the same line numbers.
+被选中的原文：
+  const result = value + 2;
+用户的注解：
+请检查删除的旧实现。
+
+<!-- dsh-annotation-reply:{"submissionId":"<submission>","annotationId":"<annotation-3>","ordinal":3} -->
+注解 3 (<annotation-3>)
+Source: Git diff; review.ts · new · 2–3 (1-based file lines)
+Repository: "<repository>"
+File: "review.ts"
+Old path: "review.ts"; new path: "review.ts"
+Comparison: index -> working tree (unstaged)
+Old version: blob 80750839150b9557b81f4da25a8239e219f071cd; new version: working-tree sha256:644f94a559cb465aa785b098411d5f2ac4ab7d273ec86e758194a7b79cc205ce
+HEAD at capture: <head>; snapshot: <snapshot>
+Side: new; file lines: 2-3
+Context before: "export function total(value: number) {"
+Context after: "  return result;\n}\n"
+These coordinates refer to the captured versions, not the current file at the same line numbers.
+被选中的原文：
+  const result = value + 3;
+  const reason = "check boundary";
+用户的注解：
+请检查新增的两行代码。
+
+处理确认：
+只把你在本次回复中按当前处理模式实际处理完成的注解 ID 写进 processed；不要自动写入本批次的全部 ID。
+在回复结尾附加一个隐藏 HTML 注释：
+<!-- dsh-annotation:{"submissionId":"<submission>","processed":["annotation-id"]} -->
+没有实际处理完成的注解 ID 不要放进 processed。

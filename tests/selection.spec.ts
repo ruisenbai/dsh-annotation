@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
 import { cleanup, render } from '@testing-library/react'
 import { MarkdownDelegateProvider, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 
 afterEach(cleanup)
 import {
+  buildTextIndex,
   captureSelection,
   rangeFromSelector,
   rangesOverlap,
@@ -87,6 +88,41 @@ describe('DOM selection capture', () => {
     }
     expect(rangeFromSelector(root, selector)?.toString()).toBe('world')
     expect(rangeFromSelector(root, { ...selector, exact: 'missing' })).toBeNull()
+  })
+
+  it('shares one text traversal across selectors and rebuilds after invalidation', () => {
+    const root = document.querySelector('#root') as HTMLElement
+    root.replaceChildren()
+    for (let index = 0; index < 1000; index += 1) {
+      const span = document.createElement('span')
+      span.textContent = 'x'
+      root.append(span)
+    }
+    const walkers = vi.spyOn(document, 'createTreeWalker')
+    const index = buildTextIndex(root)
+    for (let offset = 0; offset < 50; offset += 1) {
+      const start = offset * 19
+      expect(
+        rangeFromSelector(
+          root,
+          { exact: 'x', prefix: '', suffix: '', start, end: start + 1 },
+          index,
+        )?.toString(),
+      ).toBe('x')
+    }
+    expect(walkers).toHaveBeenCalledTimes(1)
+
+    root.replaceChildren(document.createTextNode('replacement'))
+    index.invalidate()
+    expect(
+      rangeFromSelector(
+        root,
+        { exact: 'replacement', prefix: '', suffix: '', start: 0, end: 11 },
+        index,
+      )?.toString(),
+    ).toBe('replacement')
+    expect(walkers).toHaveBeenCalledTimes(2)
+    walkers.mockRestore()
   })
 
   it('captures and restores local Markdown link labels without including operation buttons', () => {

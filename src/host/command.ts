@@ -7,16 +7,19 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 import {
   formatSubmissionMessage,
   parseSubmissionPayload,
+  sameAttachmentIdentities,
   validateSubmissionLimits,
 } from '../shared/protocol.ts'
 import { LEGACY_COMMAND_NAMES } from '../shared/config.ts'
 import { submissionMessageId } from '../shared/ids.ts'
+import { ATTACHMENT_PREPARE_INPUT, ATTACHMENT_IDENTITY_MISMATCH } from '../shared/types.ts'
 import type {
   AnnotationConfig,
   AnnotationMessageSource,
   AnnotationSubmissionPayload,
   InlineCommentMessageSource,
   LegacyInlineAnnotationMessageSource,
+  SubmittedAttachmentIdentity,
 } from '../shared/types.ts'
 
 /** Make the plugin's durable user provenance visible to DSH's merge-extensible source union. */
@@ -60,6 +63,27 @@ function hasMessage(agent: Agent, messageId: string): boolean {
     .some((event) => event.type === 'user/message' && event.data.id === messageId)
 }
 
+function identitiesOf(
+  attachments: readonly (ImageBlock | FileBlock)[],
+): readonly SubmittedAttachmentIdentity[] {
+  return Object.freeze(
+    attachments.map((block): SubmittedAttachmentIdentity => {
+      const { attachmentId, bytes, name } = block.attachment
+      return Object.freeze(
+        block.type === 'file'
+          ? { type: 'file', attachmentId, bytes, name: block.attachment.name }
+          : {
+              type: 'image',
+              attachmentId,
+              bytes,
+              mediaType: block.attachment.mediaType,
+              ...(name === undefined ? {} : { name }),
+            },
+      )
+    }),
+  )
+}
+
 function createAnnotationMessage(
   payload: AnnotationSubmissionPayload,
   attachments: readonly (ImageBlock | FileBlock)[],
@@ -85,6 +109,14 @@ export function submitAnnotationPayload(
   if (String(agent.id) !== payload.sessionId) {
     throw new Error(`annotation payload targets session ${payload.sessionId}, not ${String(agent.id)}`)
   }
+  if (
+    payload.attachmentIdentities !== undefined &&
+    !sameAttachmentIdentities(payload.attachmentIdentities, identitiesOf(attachments))
+  ) {
+    throw new Error(ATTACHMENT_IDENTITY_MISMATCH)
+  }
+  if (payload.annotations.some((item) => item.source?.kind === 'diff'))
+    throw new Error('Diff annotations are read-only')
   const messageId = submissionMessageId(payload.submissionId)
   if (hasMessage(agent, messageId)) return Object.freeze({ duplicate: true, messageId })
   const message = createAnnotationMessage(payload, attachments)
@@ -100,9 +132,15 @@ export function createAnnotationCommand(config: AnnotationConfig): CommandDefini
     description: 'Submit an idempotent batch of annotations for an earlier assistant reply',
     input: { hint: '<internal-base64url-payload>', attachments: true },
     recordInput: false,
-    handler(invocation: CommandInvocation): CommandResult {
+    handler(invocation: CommandInvocation): CommandResult | Promise<CommandResult> {
       if (invocation.signal.aborted) {
         throw invocation.signal.reason ?? new Error('annotation submission was aborted')
+      }
+      if (invocation.rawInput.trim() === ATTACHMENT_PREPARE_INPUT) {
+        const text = JSON.stringify(identitiesOf(invocation.attachments))
+        if (Buffer.byteLength(text) > config.maxPayloadBytes)
+          throw new Error('Attachment identities exceed the submission-size limit.')
+        return Object.freeze({ kind: 'success', text })
       }
       const payload = decodePayload(invocation.rawInput, config)
       const result = submitAnnotationPayload(invocation.agent, payload, invocation.attachments)

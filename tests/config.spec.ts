@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import type Schema from '@deepseek-ai/schemastery'
 import {
+  DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
   DEFAULT_TRANSCRIPT_VISIBILITY,
   TRANSCRIPT_VISIBILITY_KEYS,
   type AnnotationSettings,
 } from '../src/shared/settings.ts'
-import { apply } from '../src/index.ts'
+import { apply, Config } from '../src/index.ts'
 import { DEFAULT_CONFIG, LEGACY_COMMAND_NAMES, resolveConfig } from '../src/shared/config.ts'
 
 describe('configuration', () => {
@@ -44,7 +44,12 @@ describe('configuration', () => {
   })
 
   it('accepts deployment overrides', () => {
-    expect(resolveConfig({ commandName: 'review_submit', locateHistoryPages: 3 })).toMatchObject({
+    expect(
+      resolveConfig({
+        commandName: 'review_submit',
+        locateHistoryPages: 3,
+      }),
+    ).toMatchObject({
       commandName: 'review_submit',
       locateHistoryPages: 3,
     })
@@ -58,122 +63,65 @@ describe('configuration', () => {
     expect(() => resolveConfig(value)).toThrow(message)
   })
 
-  it('registers the user-owned settings namespace when the Host provides settings', () => {
-    const registerSettings = vi.fn()
-    const registerCommand = vi.fn(() => () => undefined)
-    const ctx = {
-      commands: { register: registerCommand },
-      effect(install: () => unknown) {
-        install()
-      },
-      inject(_services: string[], install: (settingsCtx: unknown) => void) {
-        install({
-          settings: {
-            register: registerSettings,
-            describe: () => [],
-            update: vi.fn().mockResolvedValue(undefined),
-            replace: vi.fn().mockResolvedValue(undefined),
-          },
-        })
-      },
-    } as unknown as Context
-
-    apply(ctx, DEFAULT_CONFIG)
-
-    expect(registerCommand).toHaveBeenCalledTimes(3)
-    expect(
-      (registerCommand.mock.calls as unknown[][]).map(
-        (call) => (call[0] as { name?: string } | undefined)?.name,
-      ),
-    ).toEqual(['annotation_submit', 'inline_comments_submit', 'inline_annotations_submit'])
-    expect(registerSettings).toHaveBeenCalledTimes(2)
-    expect((registerSettings.mock.calls[0] as unknown[])[0]).toBe('dsh-annotation')
-    expect((registerSettings.mock.calls[1] as unknown[])[0]).toBe('inline-comments')
-    const schema = (registerSettings.mock.calls[0] as unknown[])[1] as Schema<unknown, AnnotationSettings>
+  it('exposes only preferences as volatile form fields', () => {
     const defaults: AnnotationSettings = {
       enabled: true,
       autoAttach: true,
+      individualSelection: DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
       compactSummary: true,
       ...DEFAULT_TRANSCRIPT_VISIBILITY,
     }
-    expect(schema({})).toEqual(defaults)
-    for (const field of TRANSCRIPT_VISIBILITY_KEYS) {
-      expect(schema({ [field]: true })).toEqual({ ...defaults, [field]: true })
-      expect(schema({ [field]: false })).toEqual(defaults)
-      expect(() => schema({ [field]: 'true' })).toThrow()
+    const resolved = Config({})
+    for (const field of Object.keys(defaults) as (keyof AnnotationSettings)[]) {
+      expect(Config.dict?.[field]?.meta.volatile).toBe(true)
+      expect(resolved[field].get()).toBe(defaults[field])
+      expect(Config({ [field]: true })[field].get()).toBe(true)
+      expect(Config({ [field]: false })[field].get()).toBe(false)
+      expect(() => Config({ [field]: 'true' })).toThrow()
     }
-    expect(schema({ compactSummary: false }).compactSummary).toBe(false)
-    expect(() => schema({ compactSummary: 'false' })).toThrow()
-    expect(schema.dict).not.toHaveProperty('localTools')
-    const legacyUser = { enabled: false, autoAttach: false, compactSummary: false, localTools: false }
-    expect(schema(legacyUser)).toMatchObject({ enabled: false, autoAttach: false, compactSummary: false })
-    expect(legacyUser).toEqual({
-      enabled: false,
-      autoAttach: false,
-      compactSummary: false,
-      localTools: false,
-    })
+    expect(Config.dict?.commandName?.meta.volatile).not.toBe(true)
+    expect(resolved.archivedPreferencesImported.get()).toBe(false)
+    expect(Config.dict).not.toHaveProperty('localTools')
   })
 
-  it('migrates a legacy settings namespace once and clears the legacy section', async () => {
-    const registerSettings = vi.fn()
-    const descriptors = [
-      { ns: 'dsh-annotation', user: undefined },
-      { ns: 'inline-comments', user: { enabled: false, autoAttach: true } },
-    ]
-    const update = vi.fn().mockResolvedValue(undefined)
-    const replace = vi.fn().mockResolvedValue(undefined)
+  it('keeps the custom settings page scoped to the plugin fiber', () => {
+    const disposePresentation = vi.fn()
+    const configure = vi.fn(() => disposePresentation)
+    const register = vi.fn(() => () => undefined)
+    const effects: Array<() => void> = []
+    const fiber = {}
     const ctx = {
-      commands: { register: vi.fn(() => () => undefined) },
+      fiber,
+      commands: { register },
+      effect(install: () => () => void) {
+        effects.push(install())
+      },
+      inject(services: string[], install: (child: unknown) => void) {
+        if (services.length !== 1 || services[0] !== 'settings') return
+        install({ settings: { configure }, effect: ctx.effect })
+      },
+    } as unknown as Context
+    apply(ctx, DEFAULT_CONFIG)
+    expect(configure).toHaveBeenCalledWith({ auto: false }, fiber)
+    expect(register.mock.calls.map((call) => (call as unknown as [{ name: string }])[0].name)).toEqual([
+      'annotation_submit',
+      'inline_comments_submit',
+      'inline_annotations_submit',
+    ])
+    for (const dispose of effects.reverse()) dispose()
+    expect(disposePresentation).toHaveBeenCalledOnce()
+  })
+
+  it('keeps command registration available without optional settings services', () => {
+    const register = vi.fn(() => () => undefined)
+    const ctx = {
+      commands: { register },
       effect(install: () => unknown) {
         install()
       },
-      inject(_services: string[], install: (settingsCtx: unknown) => void) {
-        install({
-          settings: {
-            register: registerSettings,
-            describe: () => descriptors,
-            update,
-            replace,
-          },
-        })
-      },
+      inject: vi.fn(),
     } as unknown as Context
-
     apply(ctx, DEFAULT_CONFIG)
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(update).toHaveBeenCalledWith('dsh-annotation', { enabled: false, autoAttach: true })
-    expect(replace).toHaveBeenCalledWith('inline-comments', {})
-  })
-
-  it('leaves legacy settings untouched when migration has nothing to copy', async () => {
-    const registerSettings = vi.fn()
-    const update = vi.fn().mockResolvedValue(undefined)
-    const replace = vi.fn().mockResolvedValue(undefined)
-    const ctx = {
-      commands: { register: vi.fn(() => () => undefined) },
-      effect(install: () => unknown) {
-        install()
-      },
-      inject(_services: string[], install: (settingsCtx: unknown) => void) {
-        install({
-          settings: {
-            register: registerSettings,
-            describe: () => [{ ns: 'inline-comments', user: undefined }],
-            update,
-            replace,
-          },
-        })
-      },
-    } as unknown as Context
-
-    apply(ctx, DEFAULT_CONFIG)
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(update).not.toHaveBeenCalled()
-    expect(replace).not.toHaveBeenCalled()
+    expect(register).toHaveBeenCalledTimes(3)
   })
 })

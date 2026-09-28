@@ -62,6 +62,51 @@ export function selectableTextNodes(root: HTMLElement): Text[] {
   return nodes
 }
 
+/** Text and offsets for one mounted reply body; its owner invalidates it after DOM text changes. */
+export class TextIndex {
+  private valid = true
+
+  constructor(
+    readonly root: HTMLElement,
+    readonly nodes: readonly Text[],
+    readonly rendered: string,
+    readonly ends: readonly number[],
+  ) {}
+
+  invalidate(): void {
+    this.valid = false
+  }
+
+  isCurrent(root: HTMLElement): boolean {
+    return this.valid && this.root === root && root.isConnected
+  }
+}
+
+/** Build the text offset index once for all selectors in a reply measurement. */
+export function buildTextIndex(root: HTMLElement): TextIndex {
+  const nodes = selectableTextNodes(root)
+  const parts: string[] = []
+  const ends: number[] = []
+  let end = 0
+  for (const node of nodes) {
+    parts.push(node.data)
+    end += node.data.length
+    ends.push(end)
+  }
+  return new TextIndex(root, nodes, parts.join(''), ends)
+}
+
+function firstEnd(ends: readonly number[], offset: number, strict: boolean): number {
+  let lower = 0
+  let upper = ends.length
+  while (lower < upper) {
+    const middle = (lower + upper) >>> 1
+    if (strict ? ends[middle]! <= offset : ends[middle]! < offset) lower = middle + 1
+    else upper = middle
+  }
+  return lower
+}
+
 function boundaryOffset(nodes: readonly Text[], container: Node, offset: number): number | null {
   let total = 0
   for (const node of nodes) {
@@ -215,35 +260,35 @@ function resolveSelectorOffsets(
   return best === undefined ? null : { start: best.start, end: best.start + selector.exact.length }
 }
 
-/** Rebuild a Range when the same finalized reply is mounted again. */
-export function rangeFromSelector(root: HTMLElement, selector: TextQuoteSelector): Range | null {
-  const nodes = selectableTextNodes(root)
-  const rendered = nodes.map((node) => node.data).join('')
-  const offsets = resolveSelectorOffsets(rendered, selector)
+/** Rebuild a Range from the current reply text, optionally reusing its indexed text nodes. */
+export function rangeFromSelector(
+  root: HTMLElement,
+  selector: TextQuoteSelector,
+  textIndex?: TextIndex,
+): Range | null {
+  if (textIndex !== undefined && !root.isConnected) return null
+  const index = textIndex?.isCurrent(root) ? textIndex : buildTextIndex(root)
+  const offsets = resolveSelectorOffsets(index.rendered, selector)
   if (offsets === null) return null
-  let cursor = 0
-  let startNode: Text | undefined
-  let endNode: Text | undefined
-  let startOffset = 0
-  let endOffset = 0
-  for (const node of nodes) {
-    const next = cursor + node.data.length
-    if (startNode === undefined && offsets.start >= cursor && offsets.start < next) {
-      startNode = node
-      startOffset = offsets.start - cursor
-    }
-    if (offsets.end >= cursor && offsets.end <= next) {
-      endNode = node
-      endOffset = offsets.end - cursor
-      break
-    }
-    cursor = next
-  }
+  const startIndex = firstEnd(index.ends, offsets.start, true)
+  const endIndex = firstEnd(index.ends, offsets.end, false)
+  const startNode = index.nodes[startIndex]
+  const endNode = index.nodes[endIndex]
   if (startNode === undefined || endNode === undefined) return null
+  if (!root.contains(startNode) || !root.contains(endNode))
+    return textIndex === undefined ? null : rangeFromSelector(root, selector)
+  const startOffset = offsets.start - (index.ends[startIndex - 1] ?? 0)
+  const endOffset = offsets.end - (index.ends[endIndex - 1] ?? 0)
+  if (startOffset > startNode.length || endOffset > endNode.length)
+    return textIndex === undefined ? null : rangeFromSelector(root, selector)
   const range = document.createRange()
   range.setStart(startNode, startOffset)
   range.setEnd(endNode, endOffset)
-  return range
+  return range.toString() === selector.exact
+    ? range
+    : textIndex === undefined
+      ? null
+      : rangeFromSelector(root, selector)
 }
 
 export function textOffsetAtPoint(root: HTMLElement, x: number, y: number): number | null {

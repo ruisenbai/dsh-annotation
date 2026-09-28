@@ -1,11 +1,12 @@
 /** Host-backed feature setting and staged main-Settings state. */
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   DEFAULT_ANNOTATION_AUTO_ATTACH,
   DEFAULT_ANNOTATION_COMPACT_SUMMARY,
   DEFAULT_ANNOTATION_ENABLED,
+  DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
   DEFAULT_TRANSCRIPT_VISIBILITY,
   LEGACY_ANNOTATION_ENABLED_STORAGE_KEY,
   TRANSCRIPT_VISIBILITY_KEYS,
@@ -28,6 +29,10 @@ export interface AnnotationSettingsCardState {
   readonly autoAttach: boolean
   /** Whether saving leaves a user-layer auto-attach value. */
   readonly autoAttachOverridden: boolean
+  /** Individual-selection value shown by the staged switch. */
+  readonly individualSelection: boolean
+  /** Whether saving leaves a user-layer individual-selection value. */
+  readonly individualSelectionOverridden: boolean
   /** Compact-summary value shown by the staged switch. */
   readonly compactSummary: boolean
   /** Whether saving leaves a user-layer compact-summary value. */
@@ -58,6 +63,10 @@ export interface AnnotationSettingsInjected {
   readonly setAutoAttach: (enabled: boolean) => void
   /** Stage removal of the user auto-attach override. */
   readonly resetAutoAttach: () => void
+  /** Stage whether each send uses individually selected annotations without writing it. */
+  readonly setIndividualSelection: (enabled: boolean) => void
+  /** Stage removal of the user individual-selection override. */
+  readonly resetIndividualSelection: () => void
   /** Stage the right-aligned, content-sized summary layout without writing it. */
   readonly setCompactSummary: (enabled: boolean) => void
   /** Stage removal of the user compact-summary override. */
@@ -105,12 +114,14 @@ function readLegacyEnabled(storage: LegacyEnabledStorage | undefined): boolean |
 export class AnnotationSettingsController {
   private readonly featureEnabled = createSnapshotStore(DEFAULT_ANNOTATION_ENABLED)
   private readonly autoAttachEnabled = createSnapshotStore(DEFAULT_ANNOTATION_AUTO_ATTACH)
+  private readonly individualSelectionEnabled = createSnapshotStore<boolean | null>(null)
   private readonly compactSummaryEnabled = createSnapshotStore(DEFAULT_ANNOTATION_COMPACT_SUMMARY)
   private readonly transcriptVisibilitySettings = createSnapshotStore<TranscriptVisibilitySettings>(
     DEFAULT_TRANSCRIPT_VISIBILITY,
   )
   private stagedEnabled: StagedBoolean | undefined
   private stagedAutoAttach: StagedBoolean | undefined
+  private stagedIndividualSelection: StagedBoolean | undefined
   private stagedCompactSummary: StagedBoolean | undefined
   private stagedTranscriptVisibility: Partial<Record<TranscriptVisibilityKey, StagedBoolean>> = {}
   private saving = false
@@ -123,11 +134,11 @@ export class AnnotationSettingsController {
   private disposed = false
 
   /**
-   * @param scope - browser settings scope bound to the Host plugin namespace.
+   * @param scope - shared configuration form bound to the Host plugin entry.
    * @param legacyStorage - browser storage read only to preserve the pre-0.1.3 enabled preference.
    */
   constructor(
-    private readonly scope: SettingsScope<AnnotationSettings>,
+    private readonly scope: ConfigForm<AnnotationSettings>,
     private readonly legacyStorage?: LegacyEnabledStorage,
   ) {
     this.legacyEnabled = readLegacyEnabled(legacyStorage)
@@ -146,6 +157,11 @@ export class AnnotationSettingsController {
   /** @returns whether a newly saved annotation should arm the official composer. */
   autoAttach(): SnapshotStore<boolean> {
     return this.autoAttachEnabled
+  }
+
+  /** @returns the accepted per-send selection mode, or null before Host settings are ready. */
+  individualSelection(): SnapshotStore<boolean | null> {
+    return this.individualSelectionEnabled
   }
 
   /** @returns whether the summary is right-aligned and sized to its content. */
@@ -190,6 +206,22 @@ export class AnnotationSettingsController {
           this.storedAutoAttach() === undefined
             ? undefined
             : { kind: 'clear', value: DEFAULT_ANNOTATION_AUTO_ATTACH }
+        this.failed = false
+        this.publishCard()
+      },
+      setIndividualSelection: (enabled) => {
+        if (this.disposed) return
+        this.stagedIndividualSelection =
+          enabled === this.effectiveIndividualSelection() ? undefined : { kind: 'set', value: enabled }
+        this.failed = false
+        this.publishCard()
+      },
+      resetIndividualSelection: () => {
+        if (this.disposed) return
+        this.stagedIndividualSelection =
+          this.storedIndividualSelection() === undefined
+            ? undefined
+            : { kind: 'clear', value: DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION }
         this.failed = false
         this.publishCard()
       },
@@ -240,6 +272,7 @@ export class AnnotationSettingsController {
           this.disposed ||
           (this.stagedEnabled === undefined &&
             this.stagedAutoAttach === undefined &&
+            this.stagedIndividualSelection === undefined &&
             this.stagedCompactSummary === undefined &&
             Object.keys(this.stagedTranscriptVisibility).length === 0 &&
             !this.failed)
@@ -248,6 +281,7 @@ export class AnnotationSettingsController {
         }
         this.stagedEnabled = undefined
         this.stagedAutoAttach = undefined
+        this.stagedIndividualSelection = undefined
         this.stagedCompactSummary = undefined
         this.stagedTranscriptVisibility = {}
         this.failed = false
@@ -286,6 +320,14 @@ export class AnnotationSettingsController {
       : DEFAULT_ANNOTATION_AUTO_ATTACH
   }
 
+  private effectiveIndividualSelection(): boolean | null {
+    const snapshot = this.scope.getSnapshot()
+    if (snapshot.status !== 'ready') return null
+    return typeof snapshot.value?.individualSelection === 'boolean'
+      ? snapshot.value.individualSelection
+      : DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION
+  }
+
   private effectiveCompactSummary(): boolean {
     const snapshot = this.scope.getSnapshot()
     return snapshot.status === 'ready' && snapshot.value !== undefined
@@ -322,6 +364,10 @@ export class AnnotationSettingsController {
     return userBoolean(this.scope.getSnapshot().user, 'autoAttach')
   }
 
+  private storedIndividualSelection(): boolean | undefined {
+    return userBoolean(this.scope.getSnapshot().user, 'individualSelection')
+  }
+
   private project(): AnnotationSettingsCardState {
     const snapshot = this.scope.getSnapshot()
     const stored = this.storedEnabled()
@@ -344,6 +390,13 @@ export class AnnotationSettingsController {
       autoAttachOverridden:
         this.stagedAutoAttach?.kind === 'set' ||
         (this.stagedAutoAttach === undefined && this.storedAutoAttach() !== undefined),
+      individualSelection:
+        this.stagedIndividualSelection?.value ??
+        this.effectiveIndividualSelection() ??
+        DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
+      individualSelectionOverridden:
+        this.stagedIndividualSelection?.kind === 'set' ||
+        (this.stagedIndividualSelection === undefined && this.storedIndividualSelection() !== undefined),
       compactSummary: this.stagedCompactSummary?.value ?? this.effectiveCompactSummary(),
       compactSummaryOverridden:
         this.stagedCompactSummary?.kind === 'set' ||
@@ -353,6 +406,7 @@ export class AnnotationSettingsController {
       dirty:
         this.stagedEnabled !== undefined ||
         this.stagedAutoAttach !== undefined ||
+        this.stagedIndividualSelection !== undefined ||
         this.stagedCompactSummary !== undefined ||
         Object.keys(this.stagedTranscriptVisibility).length > 0,
       saving: this.saving,
@@ -365,6 +419,10 @@ export class AnnotationSettingsController {
     this.syncLegacyPreference()
     this.featureEnabled.set(this.effectiveEnabled())
     this.autoAttachEnabled.set(this.effectiveAutoAttach())
+    const individualSelection = this.effectiveIndividualSelection()
+    if (individualSelection !== this.individualSelectionEnabled.getSnapshot()) {
+      this.individualSelectionEnabled.set(individualSelection)
+    }
     this.compactSummaryEnabled.set(this.effectiveCompactSummary())
     const transcriptVisibility = this.effectiveTranscriptVisibility()
     if (transcriptVisibility !== this.transcriptVisibilitySettings.getSnapshot()) {
@@ -429,11 +487,13 @@ export class AnnotationSettingsController {
   private async save(): Promise<void> {
     const stagedEnabled = this.stagedEnabled
     const stagedAutoAttach = this.stagedAutoAttach
+    const stagedIndividualSelection = this.stagedIndividualSelection
     const stagedCompactSummary = this.stagedCompactSummary
     const stagedTranscriptVisibility = { ...this.stagedTranscriptVisibility }
     if (
       (stagedEnabled === undefined &&
         stagedAutoAttach === undefined &&
+        stagedIndividualSelection === undefined &&
         stagedCompactSummary === undefined &&
         Object.keys(stagedTranscriptVisibility).length === 0) ||
       this.saving
@@ -451,6 +511,12 @@ export class AnnotationSettingsController {
       stagedAutoAttach === undefined
         ? true
         : await this.persistBoolean('autoAttach', stagedAutoAttach, () => this.storedAutoAttach())
+    const individualSelectionLanded =
+      stagedIndividualSelection === undefined
+        ? true
+        : await this.persistBoolean('individualSelection', stagedIndividualSelection, () =>
+            this.storedIndividualSelection(),
+          )
     const compactSummaryLanded =
       stagedCompactSummary === undefined
         ? true
@@ -466,6 +532,9 @@ export class AnnotationSettingsController {
     if (this.disposed) return
     if (enabledLanded && this.stagedEnabled === stagedEnabled) this.stagedEnabled = undefined
     if (autoAttachLanded && this.stagedAutoAttach === stagedAutoAttach) this.stagedAutoAttach = undefined
+    if (individualSelectionLanded && this.stagedIndividualSelection === stagedIndividualSelection) {
+      this.stagedIndividualSelection = undefined
+    }
     if (compactSummaryLanded && this.stagedCompactSummary === stagedCompactSummary) {
       this.stagedCompactSummary = undefined
     }
@@ -481,6 +550,7 @@ export class AnnotationSettingsController {
     this.failed =
       !enabledLanded ||
       !autoAttachLanded ||
+      !individualSelectionLanded ||
       !compactSummaryLanded ||
       Object.values(transcriptVisibilityLanded).some((landed) => !landed)
     this.publish()

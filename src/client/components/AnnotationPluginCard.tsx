@@ -3,7 +3,6 @@
 import { Switch, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import { TRANSCRIPT_VISIBILITY_KEYS } from '../../shared/settings.ts'
 import type { AnnotationSettingsInjected } from '../feature-toggle.ts'
 import type { MarketUpdateInjected, MarketUpdateState } from '../market-update.ts'
 
@@ -112,85 +111,6 @@ export function AnnotationPluginCard(props: AnnotationPluginCardProps) {
           </span>
           <p className="dia-plugin-card__hint">{props.t('settings.autoAttachHint')}</p>
         </div>
-        <div className="dia-plugin-card__field">
-          <div className="dia-plugin-card__field-head">
-            <span className="dia-plugin-card__field-label">{props.t('settings.compactSummary')}</span>
-            {state.compactSummaryOverridden ? (
-              <span className="dia-plugin-card__field-actions">
-                <Tag tone="neutral">{props.t('settings.overridden')}</Tag>
-                <button
-                  type="button"
-                  className="dia-plugin-card__reset"
-                  disabled={!state.writable || state.saving}
-                  onClick={props.resetCompactSummary}
-                >
-                  {props.t('settings.reset')}
-                </button>
-              </span>
-            ) : null}
-          </div>
-          <span className="dia-plugin-card__switch-row">
-            <span className="dia-plugin-card__switch-state">
-              {props.t(state.compactSummary ? 'settings.on' : 'settings.off')}
-            </span>
-            <Switch
-              checked={state.compactSummary}
-              className="dia-plugin-card__switch"
-              label={props.t('settings.compactSummary')}
-              disabled={!state.writable || state.saving}
-              onChange={props.setCompactSummary}
-            />
-          </span>
-          <p className="dia-plugin-card__hint">{props.t('settings.compactSummaryHint')}</p>
-        </div>
-        <section
-          className="dia-plugin-card__visibility"
-          aria-label={props.t('settings.transcriptVisibility')}
-        >
-          <h3 className="dia-plugin-card__field-label">{props.t('settings.transcriptVisibility')}</h3>
-          <p className="dia-plugin-card__hint">{props.t('settings.transcriptVisibilityHint')}</p>
-          <p className="dia-plugin-card__hint">{props.t('settings.transcriptVisibilitySafetyHint')}</p>
-          <div className="dia-plugin-card__visibility-grid" data-transcript-visibility-grid>
-            {TRANSCRIPT_VISIBILITY_KEYS.map((field) => (
-              <div
-                key={field}
-                className="dia-plugin-card__field dia-plugin-card__field--visibility"
-                role="group"
-                aria-label={props.t(`settings.${field}`)}
-              >
-                <div className="dia-plugin-card__field-head">
-                  <span className="dia-plugin-card__field-label">{props.t(`settings.${field}`)}</span>
-                  <span className="dia-plugin-card__switch-row">
-                    <span className="dia-plugin-card__switch-state">
-                      {props.t(state.transcriptVisibility[field] ? 'settings.on' : 'settings.off')}
-                    </span>
-                    <Switch
-                      checked={state.transcriptVisibility[field]}
-                      className="dia-plugin-card__switch"
-                      label={props.t(`settings.${field}`)}
-                      disabled={!state.writable || state.saving}
-                      onChange={(enabled) => props.setTranscriptVisibility(field, enabled)}
-                    />
-                  </span>
-                </div>
-                <p className="dia-plugin-card__hint">{props.t(`settings.${field}Hint`)}</p>
-                {state.transcriptVisibilityOverridden[field] ? (
-                  <span className="dia-plugin-card__field-actions dia-plugin-card__field-actions--visibility">
-                    <Tag tone="neutral">{props.t('settings.overridden')}</Tag>
-                    <button
-                      type="button"
-                      className="dia-plugin-card__reset"
-                      disabled={!state.writable || state.saving}
-                      onClick={() => props.resetTranscriptVisibility(field)}
-                    >
-                      {props.t('settings.reset')}
-                    </button>
-                  </span>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </section>
         <div className="dia-plugin-card__field">
           <div className="dia-plugin-card__field-head">
             <span className="dia-plugin-card__field-label">{props.t('settings.updateTitle')}</span>

@@ -1,0 +1,16 @@
+- dialog "编辑注解":
+  - textbox "你的注解":
+    - /placeholder: 添加可选评论…
+    - text: Keep this unfinished revision.
+  - text: 编辑草稿已暂存
+  - button "删除"
+  - button "取消"
+  - button "保存"
+- region "未发送注解":
+  - text: 未发送注解 1
+  - list:
+    - listitem "#1 · 未发送 · A compact summary keeps the conversation easy to read. · Clarify this recorded statement.":
+      - text: Clarify this recorded statement.
+      - button "定位原文"
+      - button "编辑"
+      - button "删除"

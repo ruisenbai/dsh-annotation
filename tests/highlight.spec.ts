@@ -53,4 +53,31 @@ describe('CSS highlight manager', () => {
       manager.dispose()
     }).not.toThrow()
   })
+
+  it('keeps the base highlight while only the active range changes', () => {
+    const values = new Map<string, unknown>()
+    let baseWrites = 0
+    const highlights = {
+      set(name: string, value: unknown) {
+        if (name === 'dsh-annotation') baseWrites += 1
+        values.set(name, value)
+      },
+      delete(name: string) {
+        values.delete(name)
+      },
+    }
+    class FakeHighlight {
+      constructor(..._ranges: Range[]) {}
+    }
+    Object.defineProperty(globalThis, 'CSS', { configurable: true, value: { highlights } })
+    Object.defineProperty(globalThis, 'Highlight', { configurable: true, value: FakeHighlight })
+    const manager = new HighlightManager()
+    const range = document.createRange()
+    manager.update('message', [range])
+    const base = values.get('dsh-annotation')
+    for (let index = 0; index < 20; index += 1) manager.activate('message', document.createRange())
+    expect(values.get('dsh-annotation')).toBe(base)
+    expect(baseWrites).toBe(1)
+    manager.dispose()
+  })
 })

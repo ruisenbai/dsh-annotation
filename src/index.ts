@@ -1,18 +1,19 @@
 /** Host half: validates config and registers the idempotent annotation command. */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-commands'
-import type { SettingsProvider } from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-settings'
+import { installSettingsMigration } from './host/settings-migration.ts'
 import { createAnnotationCommand, createLegacyAnnotationAliases } from './host/command.ts'
 import { DEFAULT_CONFIG, resolveConfig } from './shared/config.ts'
 import {
-  ANNOTATION_SETTINGS_NAMESPACE,
+  ARCHIVED_PREFERENCES_IMPORTED_FIELD,
   DEFAULT_ANNOTATION_AUTO_ATTACH,
   DEFAULT_ANNOTATION_COMPACT_SUMMARY,
+  DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
   DEFAULT_ANNOTATION_ENABLED,
   DEFAULT_TRANSCRIPT_VISIBILITY,
-  LEGACY_ANNOTATION_SETTINGS_NAMESPACES,
   type AnnotationSettings,
 } from './shared/settings.ts'
 import type { AnnotationConfig } from './shared/types.ts'
@@ -20,43 +21,48 @@ import type { AnnotationConfig } from './shared/types.ts'
 export const name = 'dsh-annotation'
 export const inject = ['commands']
 
-export interface Config extends AnnotationConfig {}
+/** Command limits and live preferences exposed by the Host configuration form. */
+export type Config = AnnotationConfig & {
+  [Key in keyof AnnotationSettings]: Volatile<AnnotationSettings[Key]>
+} & { archivedPreferencesImported: Volatile<boolean> }
 
-export const Config: Schema<Config> = Schema.object({
+export const Config = Schema.object({
   commandName: Schema.string().default(DEFAULT_CONFIG.commandName),
   maxPayloadBytes: Schema.number().default(DEFAULT_CONFIG.maxPayloadBytes),
   maxAnnotationsPerSubmission: Schema.number().default(DEFAULT_CONFIG.maxAnnotationsPerSubmission),
   warnSelectionChars: Schema.number().default(DEFAULT_CONFIG.warnSelectionChars),
   locateHistoryPages: Schema.number().default(DEFAULT_CONFIG.locateHistoryPages),
-})
-
-const SettingsSchema: Schema<AnnotationSettings> = Schema.object({
-  enabled: Schema.boolean().default(DEFAULT_ANNOTATION_ENABLED),
-  autoAttach: Schema.boolean().default(DEFAULT_ANNOTATION_AUTO_ATTACH),
-  compactSummary: Schema.boolean().default(DEFAULT_ANNOTATION_COMPACT_SUMMARY),
-  hideReasoning: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideReasoning),
-  hideTools: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideTools),
-  hideToolRead: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolRead),
-  hideToolGlob: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolGlob),
-  hideToolGrep: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolGrep),
-  hideToolBash: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolBash),
-  hideToolEdit: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolEdit),
-  hideToolWrite: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolWrite),
-  hideToolOther: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolOther),
-  hideContext: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideContext),
-  hideCommandResults: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideCommandResults),
-  hideCompaction: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideCompaction),
-  hideRetries: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideRetries),
-  hideErrors: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideErrors),
-  hideAttachments: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideAttachments),
-  hideAnnotationHistory: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideAnnotationHistory),
-  hideTurnDetails: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideTurnDetails),
-  hideOther: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideOther),
+  [ARCHIVED_PREFERENCES_IMPORTED_FIELD]: Schema.boolean().default(false).volatile(),
+  enabled: Schema.boolean().default(DEFAULT_ANNOTATION_ENABLED).volatile(),
+  autoAttach: Schema.boolean().default(DEFAULT_ANNOTATION_AUTO_ATTACH).volatile(),
+  individualSelection: Schema.boolean().default(DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION).volatile(),
+  compactSummary: Schema.boolean().default(DEFAULT_ANNOTATION_COMPACT_SUMMARY).volatile(),
+  hideReasoning: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideReasoning).volatile(),
+  hideTools: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideTools).volatile(),
+  hideToolRead: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolRead).volatile(),
+  hideToolGlob: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolGlob).volatile(),
+  hideToolGrep: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolGrep).volatile(),
+  hideToolBash: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolBash).volatile(),
+  hideToolEdit: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolEdit).volatile(),
+  hideToolWrite: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolWrite).volatile(),
+  hideToolOther: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideToolOther).volatile(),
+  hideContext: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideContext).volatile(),
+  hideCommandResults: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideCommandResults).volatile(),
+  hideCompaction: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideCompaction).volatile(),
+  hideRetries: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideRetries).volatile(),
+  hideErrors: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideErrors).volatile(),
+  hideAttachments: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideAttachments).volatile(),
+  hideAnnotationHistory: Schema.boolean()
+    .default(DEFAULT_TRANSCRIPT_VISIBILITY.hideAnnotationHistory)
+    .volatile(),
+  hideTurnDetails: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideTurnDetails).volatile(),
+  hideOther: Schema.boolean().default(DEFAULT_TRANSCRIPT_VISIBILITY.hideOther).volatile(),
 })
 
 /** Register the Host command bridge and optional user-settings section. */
-export function apply(ctx: Context, input: Config): void {
+export function apply(ctx: Context, input: AnnotationConfig): void {
   const config = resolveConfig(input)
+  installSettingsMigration(ctx)
   ctx.effect(
     () => ctx.commands.register(createAnnotationCommand(config)),
     'dsh-annotation: internal submission command',
@@ -64,43 +70,9 @@ export function apply(ctx: Context, input: Config): void {
   for (const alias of createLegacyAnnotationAliases(config)) {
     ctx.effect(() => ctx.commands.register(alias), `dsh-annotation: legacy alias /${alias.name}`)
   }
-  ctx.inject(['settings'], (settingsCtx) => {
-    const settings = settingsCtx.settings as SettingsProvider
-    settings.register(ANNOTATION_SETTINGS_NAMESPACE, SettingsSchema)
-    // Legacy namespaces stay registered only to read and clear their stored
-    // user sections; no plugin card is keyed to them, so they render nothing.
-    for (const legacy of LEGACY_ANNOTATION_SETTINGS_NAMESPACES) {
-      settings.register(legacy, SettingsSchema)
-    }
-    migrateLegacySettings(settings)
+  ctx.inject(['settings'], (child) => {
+    child.effect(() => child.settings.configure({ auto: false }, ctx.fiber), 'dsh-annotation: settings page')
   })
-}
-
-/**
- * Copy pre-rename user settings into the new namespace once, then clear the
- * legacy section. Old data is never deleted before the new write succeeds; the
- * write is fire-and-forget because it must not block plugin load.
- */
-function migrateLegacySettings(settings: SettingsProvider): void {
-  void Promise.resolve().then(async () => {
-    for (const legacy of LEGACY_ANNOTATION_SETTINGS_NAMESPACES) {
-      const user = userSection(settings, legacy)
-      if (user === null || Object.keys(user).length === 0) continue
-      try {
-        await settings.update(ANNOTATION_SETTINGS_NAMESPACE, user)
-        await settings.replace(legacy, {})
-      } catch {
-        // Legacy values remain stored for a later load to retry.
-      }
-    }
-  })
-}
-
-function userSection(settings: SettingsProvider, ns: string): Record<string, unknown> | null {
-  const descriptor = settings.describe().find((item) => item.ns === ns)
-  const user = descriptor?.user
-  if (typeof user !== 'object' || user === null || Array.isArray(user)) return null
-  return user as Record<string, unknown>
 }
 
 export type {

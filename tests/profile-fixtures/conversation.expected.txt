@@ -5,14 +5,5 @@
   - text: . Selected source needs clarification.
 
 # Annotation submission
+- button "1 条注释，双击定位原文": 1 条注释
 - article: Clarify the local document.
-- group:
-  - strong: 基于上一条回复添加了 1 条注解
-  - text: 来自固定的上一回复版本
-  - article:
-    - img
-    - text: 已发送
-    - code: profile-note
-    - text: Selected source
-    - paragraph: Explain this claim.
-    - button "定位原文"

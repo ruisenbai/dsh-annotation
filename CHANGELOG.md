@@ -4,6 +4,34 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-28
+
+Target host: DeepSeek Harness `0.1.7-rc.2`, official source tag `dsh-v0.1.7-rc.2` at commit `477b4f420553e8a52c2fbccc464d7561b239c443`.
+
+### Added
+
+- Add source-end numbered bubbles, a compact annotation editor, and an annotation record beside the official composer. New notes attach to the next message by default; sent notes can be attached again without duplicating their IDs or source bubbles.
+- Show annotation counts above sent user messages. Single annotations support hover preview and double-click source location; multiple annotations expand into a list with per-row navigation.
+- Add browser-local recovery for unfinished edits, corrupt or unsupported storage, and concurrent tabs. Separate journal entries and Web Locks prevent stale tabs from silently overwriting drafts or reviving deletions; conflicting edits retain both versions.
+- Add current Chinese Web screenshots for selection, editing, source bubbles, records, sending, reattachment, and settings.
+
+### Changed
+
+- Match the official task panel's material and layout for the annotation record; retain annotation-only settings for enablement, automatic attachment, and optional dsh-market updates.
+- Send annotations, optional composer text, and attachment identities as one frozen submission. Retries reuse the payload; existing Session and browser storage records remain readable under protocol v3 and storage v3 migrations.
+- Reconcile Chat history and Inbox changes separately. Reuse unchanged protocol parses, DOM text indexes, and annotation references; skip unchanged storage writes and subscriber notifications.
+- Adapt the manifest, lockfile, client integration, CI source checkout, and real-profile verification to the exact `0.1.7-rc.2` Host family.
+
+### Fixed
+
+- Preserve original and resent reply-heading interactions after Session restoration. Explicit record-row attachment works when automatic attachment is disabled.
+- Keep the source bubble clipped with its reply, the quick editor below the selected text, and its actions visible as the note grows to the seven-line scrolling limit.
+- Preserve queued and sent authority across late failures and retries; reject stale asynchronous preparation when its source annotation changes before submission.
+
+### Removed
+
+- Remove Code Diff annotation creation and editing, transcript visibility controls, duplicate assistant-body rendering, and other non-annotation UI. Historical Diff messages and frozen retries remain readable without rewriting their data.
+
 ## [0.9.0] - 2026-09-20
 
 Target host: DeepSeek Harness `0.1.6-alpha.2`, source tag `dsh-v0.1.6-alpha.2` at commit `ddefc45fbc7f8e46dd73185e68295696d1297887`.
@@ -224,7 +252,9 @@ Target host: DeepSeek Harness `0.1.6-alpha.2`, source tag `dsh-v0.1.6-alpha.2` a
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.9.0...v1.0.0
+[0.9.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.2...v0.6.0

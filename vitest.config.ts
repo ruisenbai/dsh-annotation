@@ -6,6 +6,9 @@ const execArgv = process.allowedNodeEnvironmentFlags.has('--webstorage') ? ['--n
 export default defineConfig({
   test: {
     execArgv,
+    // Real Git cases use the managed Host subprocess provider for every read.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     server: {
       deps: {
         inline: [/@deepseek-ai\/dsh-client-ui-primitives/, /katex/],
@@ -18,9 +21,9 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json-summary', 'html'],
       include: [
-        'src/shared/{codec,config,ids,model-ack,protocol}.ts',
+        'src/shared/{annotation-source,codec,config,diff-source,ids,model-ack,protocol}.ts',
         'src/host/**/*.ts',
-        'src/client/{controller,highlight,market-update,selection,storage}.ts',
+        'src/client/{controller,diff-rows,highlight,market-update,selection,storage}.ts',
       ],
       thresholds: {
         lines: 78,

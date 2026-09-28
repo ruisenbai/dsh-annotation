@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { AnnotationStorage, emptyPersistedState } from '../src/client/storage.ts'
 import type { MessageIdentity, SessionIdentity } from '../src/shared/types.ts'
 import { fixturePayload, fixtureV1Payload } from './fixtures.ts'
@@ -42,11 +42,29 @@ describe('draft storage', () => {
       overallRequirementDraft: 'whole task',
     }
     expect(storage.save(state)).toBe(true)
-    expect(storage.load()).toEqual(state)
+    const writes = vi.spyOn(memory, 'setItem')
+    expect(storage.save({ ...state })).toBe(true)
+    expect(writes).not.toHaveBeenCalled()
+    writes.mockRestore()
+    expect(storage.load()).toEqual({ ...state, storageVersion: 3 })
+    expect(storage.loadStatus()).toBe('loaded')
     expect(storage.lastError()).toBeNull()
     expect(storage.usageBytes()).toBeGreaterThan(0)
     storage.clear()
     expect(storage.usageBytes()).toBe(0)
+  })
+
+  it('distinguishes an absent value from an unreadable value', () => {
+    const memory = new MemoryStorage()
+    const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+    expect(storage.load()).toEqual(emptyPersistedState())
+    expect(storage.loadStatus()).toBe('missing')
+    expect(storage.lastError()).toBeNull()
+
+    memory.values.set(storage.key, '{bad')
+    expect(storage.load()).toEqual(emptyPersistedState())
+    expect(storage.loadStatus()).toBe('failed')
+    expect(storage.lastError()).not.toBeNull()
   })
 
   it('reads legacy image-only outbox metadata without base64 bytes', () => {
@@ -194,7 +212,7 @@ describe('draft storage', () => {
     expect(memory.values.has('dsh-inline-annotations:v1:session-1')).toBe(true)
   })
 
-  it('restores an unfinished compact editor from version-two storage', () => {
+  it('mints and preserves a draft id when restoring a legacy unfinished editor', () => {
     const memory = new MemoryStorage()
     const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
     const source = fixturePayload().annotations[0]!
@@ -212,10 +230,17 @@ describe('draft storage', () => {
     }
     const state = { ...emptyPersistedState(), editorDraft }
     expect(storage.save(state)).toBe(true)
-    expect(storage.load().editorDraft).toEqual(editorDraft)
+
+    const restored = storage.load().editorDraft
+    expect(restored).toMatchObject(editorDraft)
+    if (restored?.kind !== 'new' || restored.draftId === undefined) {
+      throw new Error('restored new editor must have a draft id')
+    }
+    const draftId = restored.draftId
+    expect(storage.load().editorDraft).toMatchObject({ ...editorDraft, draftId })
   })
 
-  it('drops a corrupt optional editor without losing valid recovery records', () => {
+  it('exposes valid records while preserving the raw value of a corrupt unfinished editor', () => {
     const memory = new MemoryStorage()
     const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
     const source = fixturePayload().annotations[0]!
@@ -230,11 +255,58 @@ describe('draft storage', () => {
       }),
     )
 
+    const raw = memory.values.get(storage.key)
     const restored = storage.load()
     expect(restored.annotations).toHaveLength(1)
     expect(restored.overallRequirementDraft).toBe('Keep this request')
     expect(restored.editorDraft).toBeUndefined()
-    expect(storage.lastError()).toBeNull()
+    expect(storage.loadStatus()).toBe('failed')
+    expect(storage.lastError()).toContain('editorDraft')
+    expect(storage.save(restored)).toBe(false)
+    expect(memory.values.get(storage.key)).toBe(raw)
+  })
+
+  it('keeps a valid frozen retry batch when a neighboring batch is damaged', () => {
+    const memory = new MemoryStorage()
+    const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+    const payload = fixturePayload({ sessionId: 'session-1' as SessionIdentity })
+    const valid = {
+      payload,
+      targetSessionId: payload.sessionId,
+      messageId: 'dsh-inline-annotations:sub-test',
+      status: 'failed',
+      attempts: 1,
+    }
+    const raw = JSON.stringify({
+      ...emptyPersistedState(),
+      outbox: [{ ...valid, messageId: 'wrong-message' }, valid],
+    })
+    memory.values.set(storage.key, raw)
+
+    const restored = storage.load()
+    expect(restored.outbox).toHaveLength(1)
+    expect(restored.outbox[0]?.payload).toEqual(payload)
+    expect(storage.lastError()).toContain('outbox message id')
+    expect(storage.save(restored)).toBe(false)
+    expect(memory.values.get(storage.key)).toBe(raw)
+  })
+
+  it('keeps damaged legacy data in its original namespace', () => {
+    const memory = new MemoryStorage()
+    const legacyKey = 'dsh-inline-annotations:v1:session-1'
+    const raw = JSON.stringify({
+      ...emptyPersistedState(),
+      storageVersion: 2,
+      annotations: [{ status: 'invalid' }],
+    })
+    memory.values.set(legacyKey, raw)
+    const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+
+    expect(storage.load().annotations).toEqual([])
+    expect(storage.loadStatus()).toBe('failed')
+    expect(storage.save(emptyPersistedState())).toBe(false)
+    expect(memory.values.get(legacyKey)).toBe(raw)
+    expect(memory.values.has(storage.key)).toBe(false)
   })
 
   it.each(['sending', 'accepted'] as const)(
@@ -268,7 +340,7 @@ describe('draft storage', () => {
         }),
       )
       const restored = storage.load()
-      expect(restored.storageVersion).toBe(2)
+      expect(restored.storageVersion).toBe(3)
       expect(restored.outbox[0]).toMatchObject({
         status: 'failed',
         attempts: 1,

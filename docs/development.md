@@ -5,19 +5,23 @@
 - Node.js `^22.19.0` or `>=24`;
 - Corepack;
 - pnpm `11.7.0`;
-- a DeepSeek Harness `0.1.6-alpha.2` checkout or installation for Web verification.
+- a DeepSeek Harness `0.1.7-rc.2` checkout or installation for Web verification.
 
 ## Install and verify
 
-Use one exact DSH `0.1.6-alpha.2` family, including the complete `@deepseek-ai/dsh` development environment. [source-baseline.json](../source-baseline.json) pins the official source commit; [Dependency source](compatibility.md#dependency-source) records the tag and commit. The npm family is available and the checked-in lockfile targets it. Verify its peer closure before running behavior checks:
+Use one exact DSH `0.1.7-rc.2` family, including the complete `@deepseek-ai/dsh` development environment. [source-baseline.json](../source-baseline.json) pins the official source commit; [Dependency source](compatibility.md#dependency-source) records the tag and commit. The npm family is available and the checked-in lockfile targets it. Verify its peer closure before running behavior checks:
 
 ```bash
 pnpm install --frozen-lockfile --strict-peer-dependencies
 ```
 
+## Historical Diff verification
+
+`pnpm run test:profile --legacy-diff-only` checks the built plugin in an isolated DSH Web profile. It replays a frozen mixed-source Session and confirms that old Diff records remain readable without restoring creation, navigation, editing, attachment, or retry controls. `tests/legacy-diff.spec.ts`, `tests/diff-protocol.spec.ts`, and `tests/diff-source.spec.ts` cover the same retained data in unit tests.
+
 ## Official source verification
 
-The release also supports an independent verification against the pinned official source tree. Use this path to confirm artifact provenance or when registry artifacts are unavailable. Never commit its `file:` overrides or generated lockfile.
+The release also supports an independent verification against the pinned official source tree. Use this path to confirm artifact origin or when registry artifacts are unavailable. Never commit its `file:` overrides or generated lockfile.
 
 Start in the plugin repository. Set `ANNOTATION_HOST` to a clean official checkout at the pinned commit, then build and pack its runtime families into a temporary directory:
 
@@ -56,61 +60,31 @@ pnpm test:profile
 pnpm test:coverage
 ```
 
-`tsc` emits declarations and intermediate JavaScript to `lib/types`. `tsdown` produces ESM Host entries and wraps the browser CJS artifact in `window.__ModuleLoader__.load(...)`. `client-platform.json` pins the exact modules supplied by the DSH `0.1.6-alpha.2` browser loader; ordinary third-party Client libraries are bundled instead of becoming loader requests. DSH requires the factory bundle at `lib/client.js` even though generic Node tooling classifies `.js` under `type: module`; `publint` therefore gates errors while the DSH-specific verifier owns this intentional format. `scripts/verify-bundle.mjs` asserts the required artifacts, module-loader registration, declared module closure, matching peer/development ranges, DSH manifest, and Cordis patch.
+`tsc` emits declarations and intermediate JavaScript to `lib/types`. `tsdown` produces ESM Host entries and wraps the browser CJS artifact in `window.__ModuleLoader__.load(...)`. `client-platform.json` pins the exact modules supplied by the DSH `0.1.7-rc.2` browser loader; ordinary third-party Client libraries are bundled instead of becoming loader requests. DSH requires the factory bundle at `lib/client.js` even though generic Node tooling classifies `.js` under `type: module`; `publint` therefore gates errors while the DSH-specific verifier owns this intentional format. `scripts/verify-bundle.mjs` asserts the required artifacts, module-loader registration, declared module closure, matching peer/development ranges, DSH manifest, and Cordis patch.
 
 ## Test layout
 
-`pnpm test:browser` runs the browser fixture. `pnpm test:profile` runs [the real-profile smoke](../scripts/profile-smoke.mjs) and requires the built plugin artifacts from `pnpm verify` or `pnpm build`. It links those artifacts into an isolated official Web profile and pins the in-page directory picker. It checks bundle discovery, Client activation, and configuration persistence through a browser reload. A deterministic LLM adapter then runs the standard Agent preset: the Host annotation command must persist the same message passed to the model, and a duplicate submission must not start another model request. Owner-local expected files pin the model text and the real conversation's accessible output, including Markdown file links and restored annotation history. The test does not install the release tarball or drive selection through the real GUI Composer; the manual matrix below covers that full interaction. Record each command's result separately.
+`pnpm test` runs the unit and component suites. `tests/controller.spec.ts`, `tests/selection-drafts.spec.ts`, and `tests/legacy-diff.spec.ts` cover independent annotations, selected batches, recovery, same-ID resend, and immutable retry payloads. `tests/annotation-interactions.spec.tsx` covers the annotation record, composer chip, paperclip, empty notes, outside-click save, and sent-note card. `tests/client-apply.spec.ts` covers official composer claims, slash commands, attachments, Host queue authority, and failure recovery.
 
-- `protocol.spec.ts`: v2 wire parsing, v1 compatibility conversion, complete limits, provenance sources, reply markers, and model text;
-- `host-command.spec.ts`: delivery, cross-Session rejection, ordered image/file blocks, legacy aliases, and idempotency;
-- `controller.spec.ts`: editing, retries, states, overlap, supplementation, recovery, discard, attachment metadata, and navigation;
-- `model-ack.spec.ts`: acknowledgement and reply markers, legacy prefixes, and marker stripping;
-- `storage.spec.ts`: the `dsh-annotation:v1:` namespace, legacy migration, v1 payload conversion, attachment metadata, legacy image metadata, and fail-closed recovery;
-- `selection.spec.ts` and `highlight.spec.ts`: DOM selectors, relocation, coordinates, and browser highlight fallback;
-- `components.spec.tsx`: user-visible timeline, compact editor, input-method handling, composer focus restore, reply chips, grouped list, marker geometry, source centering, and the plugin-configuration card;
-- `market-update.spec.ts`: public dsh-market capability discovery, version checks, update progress, force eligibility, rollback, refresh, restart, endpoint rejection, and quiescent disposal;
-- `feature-toggle.spec.ts`: staged Host writes for enablement and automatic attachment, legacy preference migration, failure recovery, and quiescent disposal;
-- `scripts/browser-test.mjs` with `tests/browser/fixture.tsx`: real Chromium coverage for autosave, default automatic attachment, official Enter submission, action-button geometry and hover, outside-click decisions, mobile overflow, dark mode, zoom, reasoning disclosure, and source centering;
-- `client-apply.spec.ts`: Host-backed plugin setting registration, automatic and manual composer attachment, slash-command release and the Enter race, text+annotation+image/file submission, missing or mismatched attachment refusal, assistant decorator composition and restoration, user-renderer disable/restore, composer detachment, reference serialization, local limits, transport failure, and immutable retry;
-- `submission-flow.spec.ts`: browser payload through Host admission and durable status reconstruction.
+`pnpm test:browser` runs the real Chromium fixture at wide light and narrow dark viewport sizes. The fixture checks the source-end bubble position; compact new, draft, and sent popups with visual-line growth, a seven-line scrolling cap, and visible actions; record placement; an opaque surface; composer chip preview and fold toggle; static pending dots; source navigation that keeps the record open; row actions; automatic closing after send; and reattaching a sent record without duplication. Screenshots are written under ignored `artifacts/browser/`.
 
-Run one suite during development:
+`pnpm test:profile` uses the built plugin with a real Web profile and deterministic model adapter. It checks the two current settings controls, archive recovery, command admission, historical Session replay, selection and record navigation, composer submission and same-ID resend, attachment identity, and read-only Diff history. The browser fixture covers detailed popup geometry. The temporary profile binds an automatically allocated loopback port and closes its browser and Host process after the check; it does not replace a running user profile.
 
 ```bash
-pnpm exec vitest run tests/controller.spec.ts
+pnpm exec vitest run tests/controller.spec.ts tests/annotation-interactions.spec.tsx
+pnpm test:browser
 ```
 
 ## Web smoke test
 
-Complete [Packaging](#packaging) first, then install that tarball into a disposable profile on the declared DSH host. DSH serves the package's built `lib/client.js`:
+After [Packaging](#packaging), install the local tarball into a disposable Web profile on the declared DSH release:
 
 ```bash
-dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-0.9.0.tgz
+dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.0.0.tgz
 dsh web --profile annotation-dev
 ```
 
-Use the existing DSH Web URL for the selected profile. A replacement Vite server does not receive DSH's boot payload.
-
-Minimum manual matrix:
-
-1. select text with pointer and keyboard, then use the action bar's copy, Ctrl+C while the bar is open, and dismissal by outside click or Escape;
-2. add annotations to prose, fenced code, a table, and Markdown file-link labels; select a link alone and across adjacent text, then remount the message and confirm restored ranges include the labels but not hidden icons or action buttons;
-3. create overlapping selections and trigger both empty and dirty outside-click editor behavior;
-4. refresh with unfinished editor text and saved drafts, confirm both recover without clearing existing data, then test individual draft deletion and Undo; confirm the list has no local-storage usage, export/download, or bulk-clear footer;
-5. keep automatic attachment enabled, save a new annotation, confirm focus and the caret return to the official Lexical composer without replacing text or file-reference chips, confirm the command name does not appear as visible text, add optional official composer text, images, and files, and submit with Enter while idle, running, and waiting for an interaction;
-6. exercise the input-method editor: Enter during composition, the post-composition Enter, plain Enter, Shift+Enter, and Escape during composition;
-7. while attached, type `/goal` and confirm the command runs with the annotations preserved and re-attached afterwards;
-8. confirm an Inbox-only `next-turn` update exposes withdrawal without a Session or Chat update; confirm an undefined projection preserves the last known placement, a synchronized empty projection removes withdrawal, and `next-step` items do not expose it; withdraw a queued batch and discard a failed pending record;
-9. retry after simulating a transport disconnect, including a mixed image/file batch after a refresh and a retry with missing or reordered attachment kinds;
-10. inspect folded timeline and both navigation directions; activate file and skill references in ordinary user/steering rows and annotation submission requirements, and inspect file-type icons on attachments;
-11. verify an explicit acknowledgement moves only named ids to processed, and that per-annotation reply chips appear over each "注解 N" heading with quote and annotation on hover;
-12. confirm an archived Session cannot arm the official composer;
-13. enable `dsh-smooth-stream` at the same time and confirm both streaming and annotations work without a duplicate `assistant-step` load error;
-14. open **Settings → Annotations**, confirm the dedicated section has a responsive grid containing all 18 transcript switches and no duplicate bundle or built-in-plugin form, independently hide `grep`, `bash`, and an unknown tool, then save the disabled automatic-attachment switch, confirm newly saved annotations remain detached while composer focus still returns, and attach them manually with the paperclip;
-15. save the disabled plugin switch and confirm the existing assistant renderer remains, its annotation layer disappears, user renderers return, an armed claim preserves visible text, and drafts return after saving the enabled switch;
-16. with dsh-market `1.45.0` or later installed, check for an update from the annotation card, observe progress, confirm force appears only after a release-age or unchanged-version failure, and exercise any advertised refresh, rollback, and restart actions; repeat without the public API and confirm the card only directs users to Plugin Market;
-17. unload the plugin and confirm its styles, user/steering Slot entries, assistant decoration, update polling, and controls disappear.
+In the Web page, select a source range and save an empty note and a filled note. Confirm that both attach to the next composer message while the record stays closed. Hover the count chip to inspect its quote and note preview; click it to expand and then collapse the record. Use a row paperclip to remove and restore one attachment, then send. Confirm the record closes after all notes are sent, the source bubble scrolls out with its text, and reopening the record allows the same sent note to be attached and sent again without a new annotation ID. Check Enter, Shift+Enter, outside-click save, the one-line check alignment, automatic wrapping and seven-line mouse-wheel scrolling in all three popups, narrow viewport placement, and text/attachment submission. The target Host release and browser both need to be recorded with the result.
 
 ## Packaging
 
@@ -126,11 +100,11 @@ pnpm --config.ignoreScripts=true pack --pack-destination artifacts
 Inspect the resulting tarball rather than invoking pack again:
 
 ```bash
-tar -tzf artifacts/dsh-annotation-0.9.0.tgz
-tar -xOf artifacts/dsh-annotation-0.9.0.tgz package/package.json
+tar -tzf artifacts/dsh-annotation-1.0.0.tgz
+tar -xOf artifacts/dsh-annotation-1.0.0.tgz package/package.json
 ```
 
-The package must contain `lib/index.js`, `lib/invariant.js`, `lib/client.js`, declarations under `lib/types`, `cordis.patch.yml`, `source-baseline.json`, README files and images under `docs/assets`, the changelog, and the license. Compare its `package.json` with the source repository's manifest before release.
+The package must contain `lib/index.js`, `lib/invariant.js`, `lib/client.js`, declarations under `lib/types`, `cordis.patch.yml`, `source-baseline.json`, README files and images under `docs/assets`, the changelog, and the license. Compare its version, Host requirement, dependency declarations and exports with the source manifest; pnpm removes package-manager metadata and development lifecycle hooks when packing.
 
 ## Release checklist
 
