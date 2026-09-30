@@ -44,25 +44,25 @@
 
 ## 安装与兼容
 
-发行包只在 [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.0.0) 发布，不发布到 npm。以下命令将固定版本 `1.0.0` 安装到 DSH Web 的 `web` profile；目标宿主必须是 `0.1.7-rc.2`。
+发行包只在 [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.0) 发布，不发布到 npm。以下命令将固定版本 `1.1.0` 安装到 DSH Web 的 `web` profile；目标宿主必须是 `>= 0.2.0-rc.1`。
 
 ### 手动安装
 
 ```bash
 dsh --version
-dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.0.0/dsh-annotation.tgz
+dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.0/dsh-annotation.tgz
 dsh plugin --profile web why dsh-annotation
 ```
 
-第一条命令应输出 `0.1.7-rc.2`，最后一条应显示 `dsh-annotation@1.0.0`。使用自定义 profile 时，将两处 `web` 换成实际名称。安装后重启该 profile 的 Web 宿主，在 **设置 → 注解** 中确认插件可用。构建与本地验证步骤见[开发说明](docs/development.md#install-and-verify)；精确依赖和已执行的验证见[兼容性说明](docs/compatibility.md)。
+第一条命令应显示不低于 `0.2.0-rc.1` 的 DSH 版本，最后一条应显示 `dsh-annotation@1.1.0`。使用自定义 profile 时，将两处 `web` 换成实际名称。安装后重启该 profile 的 Web 宿主，在 **设置 → 注解** 中确认插件可用。构建与本地验证步骤见[开发说明](docs/development.md#install-and-verify)；精确依赖和已执行的验证见[兼容性说明](docs/compatibility.md)。
 
 ### 交给 AI agent 安装
 
 将下面的提示词交给能够操作本机终端的 AI agent：
 
 ```text
-请在本机为我的 DeepSeek Harness Web profile 安装 dsh-annotation 1.0.0。先确认目标 profile 名称；如果没有自定义名称，就使用 web。运行 dsh --version，只有结果严格等于 0.1.7-rc.2 才继续；版本不匹配时停止并报告，不修改宿主依赖。
-使用 dsh plugin --profile <实际 profile 名称> add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.0.0/dsh-annotation.tgz 安装，然后运行 dsh plugin --profile <实际 profile 名称> why dsh-annotation，确认显示 dsh-annotation@1.0.0。
+请在本机为我的 DeepSeek Harness Web profile 安装 dsh-annotation 1.1.0。先确认目标 profile 名称；如果没有自定义名称，就使用 web。运行 dsh --version，只有结果不低于 0.2.0-rc.1 才继续；版本过低时停止并报告，不修改宿主依赖。
+使用 dsh plugin --profile <实际 profile 名称> add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.0/dsh-annotation.tgz 安装，然后运行 dsh plugin --profile <实际 profile 名称> why dsh-annotation，确认显示 dsh-annotation@1.1.0。
 不要修改 DSH 或插件源码，也不要清理会话和浏览器数据。如果 Web 宿主正在运行，提醒我重启该 profile。最后报告实际执行的命令、版本、安装结果和任何警告。
 ```
 
