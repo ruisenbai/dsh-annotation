@@ -2,19 +2,19 @@
 
 ## Host requirement
 
-This working tree targets the `0.2.0-rc.1` Host. The published `1.0.0` archive predates this adaptation; a new archive must be built from this tree before installation on this Host.
+This working tree uses `0.2.0-rc.1` as its verification baseline and supports Host `>=0.2.0-rc.1`. The published `1.0.0` archive predates this adaptation; a new archive must be built from this tree before installation on this Host.
 
 | Component                | Supported baseline                                                                  |
 | ------------------------ | ----------------------------------------------------------------------------------- |
-| DeepSeek Harness host    | `0.2.0-rc.1` exactly                                                                |
-| `engines.dsh`            | `0.2.0-rc.1`                                                                        |
+| DeepSeek Harness host    | `>=0.2.0-rc.1`                                                                      |
+| `engines.dsh`            | `>=0.2.0-rc.1`                                                                      |
 | Development declarations | `0.2.0-rc.1`                                                                        |
 | Cordis                   | `^4.0.4`                                                                            |
 | Node.js                  | `^22.19.0` or `>=24`                                                                |
 | React                    | `^18.2.0`                                                                           |
 | Browser                  | Current Chromium-based DSH Web target; other modern browsers retain marker fallback |
 
-The checkout manifest declares `engines.dsh: "0.2.0-rc.1"`, and its `@deepseek-ai/dsh-*` peers, development dependencies, lockfile, and CI checkout use that release. The strict-peer development environment includes `@deepseek-ai/dsh-llm-deepseek`, required by the official provider packages. Host source and frozen Session recordings are unchanged. New annotation submissions use protocol v5 and browser storage uses v6; protocol v1–v4 and storage v1–v5 remain readable compatibility generations.
+The checkout manifest declares `engines.dsh: ">=0.2.0-rc.1"`, and its `@deepseek-ai/dsh-*` peers, development dependencies, lockfile, and CI checkout use that release. The strict-peer development environment includes `@deepseek-ai/dsh-llm-deepseek`, required by the official provider packages. Host source and frozen Session recordings are unchanged. New annotation submissions use protocol v5 and browser storage uses v6; protocol v1–v4 and storage v1–v5 remain readable compatibility generations.
 
 ## Dependency source
 

@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 Select text in an assistant reply in DeepSeek Harness Web, write an annotation, and send it with the next message; official file previews and official turn-Diff views can also be annotated. Records belong to the current Session. Sent annotations can be attached again without creating duplicate records or source bubbles.
 
-**Host requirement: DeepSeek Harness `0.2.0-rc.1` exactly.** The plugin sends text, images, files, and annotations through the official composer and does not modify Host source.
+**Host requirement: DeepSeek Harness `>= 0.2.0-rc.1`.** The plugin sends text, images, files, and annotations through the official composer and does not modify Host source.
 
 ## Workflow
 
@@ -70,7 +70,7 @@ The first command must print `0.2.0-rc.1`; the last must show `dsh-annotation@1.
 Give this prompt to an AI agent that can operate your local terminal:
 
 ```text
-Build this dsh-annotation checkout for DeepSeek Harness Web 0.2.0-rc.1. Run dsh --version and stop if it differs. Run the plugin's frozen install, verify, and local pack commands, then install that local archive into a disposable annotation-dev profile. Confirm dsh plugin --profile annotation-dev why dsh-annotation shows dsh-annotation@1.1.0. Do not use the older published archive or change Host dependencies. Report the commands, version, installation result, and warnings.
+Build this dsh-annotation checkout for DeepSeek Harness Web >= 0.2.0-rc.1. Run dsh --version and stop if it is older than 0.2.0-rc.1. Run the plugin's frozen install, verify, and local pack commands, then install that local archive into a disposable annotation-dev profile. Confirm dsh plugin --profile annotation-dev why dsh-annotation shows dsh-annotation@1.1.0. Do not use the older published archive or change Host dependencies. Report the commands, version, installation result, and warnings.
 ```
 
 A new Session without annotations shows no record or empty-state copy. The plugin provides annotation features only; it does not hide reasoning, tool calls, or other conversation content. Record rows show the opinion and status; source type, creation entry, and saved context appear in their details. The `全部/正文/Diff/文件` filter appears when two or more source types exist. Historical Git Diff annotations and snapshots remain read-only. New official turn-Diff annotations use the Diff sidebar; the hover preview has no annotation entry. Earlier hover-origin records remain readable, and Locate opens the sidebar with their saved annotationId. Whole-file file/Diff records require a written opinion and retain their source identity. File previews cover official text, Markdown, code, HTML, image, PDF, Office, Excel, CSV, and TSV renderers; non-text records retain the official preview revision identity rather than inferring bytes from disk.

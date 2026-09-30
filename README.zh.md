@@ -4,7 +4,7 @@
 
 在 DeepSeek Harness Web 的助手回复中选中原文，写下注解，并随下一条消息一起发送；也可以在官方文件预览和官方 turn-Diff 中批注。注解记录属于当前会话；已发送的注解可以重新附加，不会生成重复记录或气泡。
 
-**适用宿主：DeepSeek Harness `0.2.0-rc.1`。** 插件通过官方输入框发送文字、图片、文件和注解，不修改宿主源码。
+**适用宿主：DeepSeek Harness `>= 0.2.0-rc.1`。** 插件通过官方输入框发送文字、图片、文件和注解，不修改宿主源码。
 
 ## 使用流程
 
@@ -63,14 +63,14 @@ dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.1.0.tgz
 dsh plugin --profile annotation-dev why dsh-annotation
 ```
 
-第一条命令应输出 `0.2.0-rc.1`，最后一条应显示本地构建包的 `dsh-annotation@1.1.0`。安装后重启临时 profile 的 Web 宿主，在 **设置 → 注解** 中确认插件可用。构建步骤见[开发说明](docs/development.md#install-and-verify)；已执行的验证见[兼容性说明](docs/compatibility.md)。
+第一条命令应显示不低于 `0.2.0-rc.1` 的 DSH 版本，最后一条应显示本地构建包的 `dsh-annotation@1.1.0`。安装后重启临时 profile 的 Web 宿主，在 **设置 → 注解** 中确认插件可用。构建步骤见[开发说明](docs/development.md#install-and-verify)；已执行的验证见[兼容性说明](docs/compatibility.md)。
 
 ### 交给 AI agent 安装
 
 将下面的提示词交给能够操作本机终端的 AI agent：
 
 ```text
-Build this dsh-annotation checkout for DeepSeek Harness Web 0.2.0-rc.1. Run dsh --version and stop if it differs. Run the plugin's frozen install, verify, and local pack commands, then install that local archive into a disposable annotation-dev profile. Confirm dsh plugin --profile annotation-dev why dsh-annotation shows dsh-annotation@1.1.0. Do not use the older published archive or change Host dependencies. Report the commands, version, installation result, and warnings.
+Build this dsh-annotation checkout for DeepSeek Harness Web >= 0.2.0-rc.1. Run dsh --version and stop if it is older than 0.2.0-rc.1. Run the plugin's frozen install, verify, and local pack commands, then install that local archive into a disposable annotation-dev profile. Confirm dsh plugin --profile annotation-dev why dsh-annotation shows dsh-annotation@1.1.0. Do not use the older published archive or change Host dependencies. Report the commands, version, installation result, and warnings.
 ```
 
 新对话没有注解时，不显示记录框或空状态文案。插件仅提供注解相关功能，不隐藏思考、工具调用或其他会话内容。记录行显示意见和状态，来源类型、创建入口及已保存的上下文在详情中显示。存在至少两种来源时才显示 `全部/正文/Diff/文件` 筛选。历史 Git Diff 批注及快照仍然只读；新的官方 turn-Diff 批注仅从 Diff 侧栏创建，悬浮预览没有添加注解入口。已有悬浮来源记录仍可读取，定位会用原 annotationId 打开侧栏。文件与 Diff 的整文件批注必须填写意见，记录保留来源身份。文件预览支持文本、Markdown、代码、HTML、图片、PDF、Office、Excel、CSV 和 TSV 等官方渲染内容；非文本内容保存官方预览版本身份，不从磁盘推断文件内容。
