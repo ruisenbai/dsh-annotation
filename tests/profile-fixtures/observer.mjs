@@ -1,5 +1,12 @@
 /** Test-only IPC observer and deterministic provider loaded by the official profile's Loader. */
-import { LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import {
+  LlmAdapter,
+  createAssistantMessage,
+  createToolResultMessage,
+  createUserMessage,
+} from '@deepseek-ai/dsh-llm'
 
 export const inject = [
   'pluginManager',
@@ -12,10 +19,12 @@ export const inject = [
   'commands',
   'workspaceRegistry',
   'sessionPersistence',
+  'workspaceChanges',
 ]
 
 class FixtureAdapter extends LlmAdapter {
   requests = []
+  onOfficialTurn
   providerInfo(provider) {
     return { id: provider, name: 'Offline profile fixture' }
   }
@@ -28,6 +37,8 @@ class FixtureAdapter extends LlmAdapter {
   async *stream(options) {
     this.requests.push(options.messages)
     const lastUser = options.messages.findLast((message) => message.role === 'user')
+    const officialTurn = this.onOfficialTurn !== undefined
+    if (officialTurn) await this.onOfficialTurn?.()
     const releaseBatch =
       lastUser?.source?.annotationSubmission?.sessionId === 'annotation-release-showcase'
         ? lastUser.source.annotationSubmission
@@ -36,6 +47,7 @@ class FixtureAdapter extends LlmAdapter {
       this.requests.length === 1
         ? 'Review the [local notes](./notes.md). Selected source needs clarification.'
         : 'Annotation received and revision completed.'
+    if (officialTurn) text = 'Review the changed [notes.md](./notes.md) and [example.ts](./example.ts).'
     const batch = options.messages.findLast((message) =>
       message.source?.annotationSubmission?.annotations.some((item) => item.source?.kind === 'diff'),
     )?.source.annotationSubmission
@@ -84,7 +96,11 @@ class FixtureAdapter extends LlmAdapter {
 export function apply(ctx) {
   if (process.send === undefined) throw new Error('Profile observer requires child IPC')
   const adapter = new FixtureAdapter()
+  let officialHandle
   ctx.effect(() => ctx.llm.registerAdapter(['annotation-fixture'], adapter))
+  ctx.effect(() => async () => {
+    await officialHandle?.dispose()
+  })
   const receive = (message) => {
     if (message?.type !== 'annotation-smoke') return
     void inspect(message.action, message.payload).then(
@@ -144,7 +160,7 @@ export function apply(ctx) {
       })
     }
     if (action === 'prepare') {
-      await ctx.settings.update('ui-settings-general', { welcomeNoticeVersion: '2026-08-13.1' })
+      await ctx.settings.update('ui-settings-general', { welcomeNoticeVersion: '2026-09-28.1' })
       return true
     }
     if (action === 'inspect') {
@@ -159,6 +175,118 @@ export function apply(ctx) {
       }
     }
     if (action === 'model-requests') return adapter.requests
+    if (action === 'retry-official-submission') {
+      if (officialHandle === undefined) throw new Error('Official source Session is unavailable')
+      const payload = officialHandle.agent.session
+        .snapshotEvents()
+        .findLast((event) => event.type === 'user/message' && event.data.source?.annotationSubmission)?.data
+        .source.annotationSubmission
+      if (payload === undefined) throw new Error('Official source submission is missing')
+      const before = adapter.requests.length
+      const result = await ctx.commands.execute(
+        officialHandle.agent,
+        `/annotation_submit ${Buffer.from(JSON.stringify(payload)).toString('base64url')}`,
+        [],
+        new AbortController().signal,
+      )
+      await officialHandle.agent.whenIdle()
+      return { result, before, after: adapter.requests.length }
+    }
+    if (action === 'official-source-session') {
+      if (officialHandle !== undefined) throw new Error('Official source Session already exists')
+      const handle = await ctx.agents.create({
+        sessionId: 'annotation-official-source',
+        meta: { cwd: process.cwd(), agentPreset: 'standard' },
+        agentOptions: { provider: 'annotation-fixture', model: 'fixture' },
+        setup: (scope) => ctx.agentPresets.mount(scope, 'standard').then(() => undefined),
+      })
+      officialHandle = handle
+      adapter.onOfficialTurn = async () => {
+        const session = handle.agent.session
+        const turn = session.snapshotEvents().findLast((event) => event.type === 'turn/start')?.data.turn
+        if (turn === undefined) throw new Error('Official source turn has not started')
+        const callId = 'official-source-write'
+        const name = 'write'
+        const args = {
+          file_path: join(process.cwd(), 'notes.md'),
+          content: '# Local review notes\nA changed line.\n',
+        }
+        await ctx.waterfall('tools/pre-execute', { agent: { session }, name, arguments: args }, () =>
+          Promise.resolve(undefined),
+        )
+        await writeFile(args.file_path, args.content)
+        const serialized = JSON.stringify(args)
+        session.append(
+          'assistant/message',
+          {
+            stream: [],
+            turn,
+            step: 1,
+            message: createAssistantMessage({
+              content: [{ type: 'tool-call', id: callId, name, arguments: serialized }],
+              source: { provider: 'annotation-fixture', model: 'fixture' },
+            }),
+          },
+          { surfaceOp: 'append' },
+        )
+        const call = session.append('tool/call', {
+          turn,
+          step: 1,
+          callId,
+          name,
+          arguments: serialized,
+        })
+        session.append(
+          'tool/result',
+          {
+            turn,
+            step: 1,
+            message: createToolResultMessage({
+              callId,
+              content: [{ type: 'text', text: 'ok' }],
+              isError: false,
+            }),
+          },
+          { surfaceOp: 'append', sourceEventSeqs: [call.seq] },
+        )
+      }
+      try {
+        handle.agent.followup(
+          createUserMessage({
+            content: [{ type: 'text', text: 'Official source review' }],
+            source: { kind: 'user' },
+          }),
+        )
+        await handle.agent.whenIdle()
+        await ctx.waterfall('tools/pre-execute', { agent: { session: handle.agent.session } }, () =>
+          Promise.resolve(undefined),
+        )
+        const events = handle.agent.session.snapshotEvents()
+        const announcement = events.findLast((event) => event.type === 'workspace/changes')
+        if (announcement === undefined)
+          throw new Error(
+            `No official workspace/changes event: ${JSON.stringify(events.map(({ type, data }) => ({ type, data: type === 'turn/end' ? data : undefined })))}`,
+          )
+        const summary = ctx.workspaceChanges.summary(handle.agent.id, announcement.seq)
+        if (summary === undefined) throw new Error('No official workspace/changes summary')
+        const diff = await ctx.workspaceChanges.diff(
+          handle.agent.id,
+          announcement.seq,
+          0,
+          new AbortController().signal,
+        )
+        return {
+          sessionId: handle.agent.id,
+          seq: announcement.seq,
+          turn: announcement.data.turn,
+          summary,
+          diff,
+          events,
+        }
+      } finally {
+        adapter.onOfficialTurn = undefined
+      }
+    }
     if (action === 'diff-session') {
       const handle = await ctx.agents.create({
         sessionId: 'annotation-diff-browser',

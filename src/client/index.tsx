@@ -3,8 +3,9 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { InboxState } from '@deepseek-ai/dsh-agent/types'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type {} from '@deepseek-ai/dsh-api-workspace-files/remote'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client'
+import type { ChatSnapshot, AssistantChatData } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
@@ -17,6 +18,8 @@ import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
+import type {} from '@deepseek-ai/dsh-client-ui-deliverables/client'
 import { resolveConfig, LEGACY_COMMAND_NAMES } from '../shared/config.ts'
 import { encodeSubmissionCommand } from '../shared/codec.ts'
 import { parseAttachmentIdentities, sameAttachmentIdentities } from '../shared/protocol.ts'
@@ -55,6 +58,9 @@ import { MarketUpdateController } from './market-update.ts'
 import { createFocusChatAdapter } from './focus-adapter.ts'
 import { HighlightManager } from './highlight.ts'
 import { AnnotationStorage } from './storage.ts'
+import { AnnotationTrashController } from './annotation-trash.ts'
+import { SourceSnapshotStore } from './source-snapshots.ts'
+import { captureSourceContent, observeSourceSnapshots } from './snapshot-capture.ts'
 import type { StorageCoordination, StorageLike } from './storage.ts'
 import { styles } from './styles.ts'
 import { en, zh } from './locales.ts'
@@ -68,6 +74,20 @@ import {
 import { AssistantAnnotationAction } from './components/AssistantAnnotationAction.tsx'
 import { HiddenCommandRow } from './components/HiddenCommandRow.tsx'
 import { AnnotationPluginCard } from './components/AnnotationPluginCard.tsx'
+import { installDocumentIntegration } from './document-integration.tsx'
+import {
+  FileWholeAnnotationAction,
+  OfficeWholeAnnotationAction,
+} from './components/FileWholeAnnotationAction.tsx'
+import type { FileAnnotationSource, OfficialDiffAnnotationSource } from '../shared/annotation-source.ts'
+import { compactFileSource, compactOfficialDiffSource } from './official-adapters.ts'
+import { createDiffReviewAction, installDiffIntegration } from './diff-integration.tsx'
+
+declare module '@deepseek-ai/dsh-client-ui-sidebar-right/client' {
+  interface SidebarRightResourceParamsMap {
+    'changes-review': { readonly index?: number }
+  }
+}
 
 /** Project only withdrawable turn entries, preserving an unavailable Inbox as unknown. */
 function annotationQueue(inbox: InboxState | undefined): AnnotationReconciliationSnapshot['queue'] {
@@ -75,6 +95,15 @@ function annotationQueue(inbox: InboxState | undefined): AnnotationReconciliatio
 }
 
 const NS = 'dshAnnotation'
+const DOCUMENT_RENDERER_IDS = [
+  '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/text',
+  '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/markdown',
+  '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/code',
+  '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/html',
+  '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/image',
+  '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/pdf',
+  '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/excel',
+] as const
 const EMPTY_CHAT_NODES: AnnotationReconciliationSnapshot['chat']['nodes'] = {
   values: () => [],
 }
@@ -86,6 +115,8 @@ export const inject = [
   'conversation',
   'inputTriggers',
   'configForms',
+  'sidebarRight',
+  'remote.workspaceFiles',
 ]
 
 function UserNode(props: UserAnnotationProps<'user'>) {
@@ -194,6 +225,8 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     browserStorage,
   )
   const featureEnabled = settingsController.feature()
+  const officialFileEnabled = settingsController.officialFileAnnotations()
+  const officialDiffEnabled = settingsController.officialDiffAnnotations()
   const autoAttachEnabled = settingsController.autoAttach()
   const compactSummaryEnabled = settingsController.compactSummary()
   const marketUpdateController = new MarketUpdateController()
@@ -233,6 +266,31 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       submissionSnapshot: { readonly view: AnnotationView; readonly protocolLocale: ProtocolLocale } | null
     }
   >()
+  const sourceSnapshots = new SourceSnapshotStore()
+  const annotationTrash = new AnnotationTrashController(
+    browserStorage,
+    storageCoordination,
+    config,
+    sourceSnapshots,
+    (sessionId) =>
+      [...controllers.values()].find((entry) => entry.controller.sessionId === sessionId)?.controller,
+  )
+  const readFileSnapshot: import('./components/FileWholeAnnotationAction.tsx').ReadFileSnapshot = (
+    sessionId,
+    path,
+    signal,
+    range,
+  ) =>
+    ctx
+      .get('remote.workspaceFiles')
+      .readBytes(String(sessionId) as SessionId, path, range === undefined ? {} : { range }, signal)
+  ctx.effect(() => {
+    annotationTrash.refresh()
+    return () => {
+      annotationTrash.dispose()
+      sourceSnapshots.dispose()
+    }
+  }, 'dsh-annotation: local source archive')
   const mirrorGroups = new Map<AnnotationController, Map<SubmissionId, ReadonlySet<AnnotationController>>>()
   const linkMirrors = (
     submissionId: SubmissionId,
@@ -311,7 +369,56 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       binding.session,
       config,
     )
+    controller.setSourceNavigator(async (annotationId) => {
+      const item = controller
+        .getSnapshot()
+        .annotations.find((candidate) => candidate.annotationId === annotationId)
+      const source = item?.source
+      try {
+        if (source?.kind === 'file') {
+          ctx.sidebarRight.openResource(source.resourceAddress, {
+            params: source.startLine === undefined ? undefined : { line: source.endLine ?? source.startLine },
+          })
+          const active = ctx.sidebarRight.active()
+          if (active !== undefined) ctx.sidebarRight.focus(active.id)
+          return true
+        }
+        if (source?.kind !== 'official-diff') return false
+        const address = `dsh-resource://changes-review/session/${encodeURIComponent(String(source.snapshot.sessionId))}/${source.snapshot.seq}/${source.snapshot.turn}`
+        ctx.sidebarRight.openResource(address, { params: { index: source.snapshot.fileIndex } })
+        const active = ctx.sidebarRight.active()
+        if (active !== undefined) ctx.sidebarRight.focus(active.id)
+        return true
+      } catch {
+        return false
+      }
+    })
     const chat = ctx.uiConversation.binding(binding).target('chat')
+    const stopSourceSnapshots = observeSourceSnapshots(
+      controller,
+      sourceSnapshots,
+      (capture, signal) =>
+        captureSourceContent(
+          capture,
+          readFileSnapshot,
+          (messageId) => {
+            for (const node of chat.getSnapshot()?.nodes.values() ?? []) {
+              if (node.kind !== 'assistant-step') continue
+              const data = node.data as AssistantChatData
+              if (String(data.finalNode?.messageId) !== String(messageId)) continue
+              return data.blocks.flatMap((block) => (block.kind === 'text' ? [block.text] : [])).join('\n')
+            }
+            return undefined
+          },
+          signal,
+        ),
+      annotationTrash.refresh,
+      () => controller.setNotice('error', annotationT('trash.error.cleanup')),
+      () => {
+        if (controller.getSnapshot().notice === null)
+          controller.setNotice('error', annotationT('trash.snapshotUnavailable'))
+      },
+    )
     const inboxFace = binding.session.projections.faceOf('inbox')
     let reconciledChat: ChatSnapshot | undefined
     let reconciledInbox: InboxState | undefined
@@ -372,6 +479,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       manualDetached: false,
       submissionSnapshot: null,
       dispose: () => {
+        stopSourceSnapshots()
         unsubscribeInput()
         unsubscribeController()
         unsubscribeInbox()
@@ -831,6 +939,27 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         return controller.saveEditor()
       },
       closeEditor: (force) => (force === true && !canEdit() ? false : controller.closeEditor(force)),
+      detachAnnotations: (ids) =>
+        changeSendIntent(() => {
+          if (!controller.detachAnnotations(ids))
+            controller.setNotice('error', annotationT('trash.error.write'))
+        }),
+      trashAnnotations: (ids) =>
+        changeSendIntent(() => {
+          try {
+            if (!controller.trashAnnotations(ids))
+              controller.setNotice('error', annotationT('trash.error.write'))
+          } catch (error) {
+            controller.setNotice(
+              'error',
+              annotationT(
+                error instanceof Error && error.message === 'annotation-submission-locked'
+                  ? 'trash.error.locked'
+                  : 'trash.error.write',
+              ),
+            )
+          }
+        }),
       deleteDraft: (annotationId) => changeSendIntent(() => controller.deleteDraft(annotationId)),
       undoDelete: () => changeSendIntent(() => controller.undoDelete()),
       dismissDeleteUndo: () => controller.dismissDeleteUndo(),
@@ -865,15 +994,144 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         inject: () => {
           const settings = settingsController.inject()
           const market = marketUpdateController.inject()
-          return { ...settings, ...market, hooks: { ...settings.hooks, ...market.hooks } }
+          const trash = annotationTrash.inject()
+          return {
+            ...settings,
+            ...market,
+            ...trash,
+            hooks: { ...settings.hooks, ...market.hooks, ...trash.hooks },
+          }
         },
       },
       AnnotationPluginCard,
     ),
   )
 
+  const beginFileAnnotation = (source: FileAnnotationSource, rect: DOMRect): void => {
+    const entry = [...controllers.values()].find(
+      (candidate) => String(candidate.controller.sessionId) === String(source.sessionId),
+    )
+    if (entry === undefined) return
+    entry.controller.beginSelection({
+      source: compactFileSource(source),
+      quote: Object.freeze({ exact: '', prefix: '', suffix: '', start: 0, end: 0 }),
+      rect: Object.freeze({ top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right }),
+    })
+  }
+
+  const beginOfficialDiff = (source: OfficialDiffAnnotationSource, rect: DOMRect): void => {
+    const entry = [...controllers.values()].find(
+      (candidate) => String(candidate.controller.sessionId) === String(source.snapshot.sessionId),
+    )
+    if (entry === undefined) return
+    entry.controller.beginSelection({
+      source: compactOfficialDiffSource(source),
+      quote: Object.freeze({ exact: '', prefix: '', suffix: '', start: 0, end: 0 }),
+      rect: Object.freeze({ top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right }),
+    })
+  }
+
   const installConversationIntegrations = (): (() => void) => {
+    const readFilePage: import('./components/FileWholeAnnotationAction.tsx').ReadFilePage = (
+      sessionId,
+      path,
+      offset,
+      limit,
+      signal,
+    ) =>
+      ctx.get('remote.workspaceFiles').read(String(sessionId) as SessionId, path, { offset, limit }, signal)
+    const previewSources = new Map<string, FileAnnotationSource>()
+    const registerPreviewSource = (source: FileAnnotationSource): (() => void) => {
+      previewSources.set(source.resourceAddress, source)
+      return () => {
+        if (previewSources.get(source.resourceAddress) === source)
+          previewSources.delete(source.resourceAddress)
+      }
+    }
     const disposers = [
+      ...(officialDiffEnabled.getSnapshot()
+        ? [
+            ctx.slots.inject('deliverables.review.file.actions', () =>
+              ctx.slots.register(
+                {
+                  name: 'deliverables.review.file.actions',
+                  id: 'dsh-annotation-official-diff-action',
+                  locale: NS,
+                },
+                createDiffReviewAction(beginOfficialDiff),
+              ),
+            ),
+            installDiffIntegration(
+              {
+                get: (sessionId) =>
+                  [...controllers.values()].find(
+                    (candidate) => String(candidate.controller.sessionId) === String(sessionId),
+                  )?.controller,
+              },
+              {
+                t: annotationT,
+                annotate: annotationT('selection.annotate'),
+                title: annotationT('editor.editTitle'),
+                annotation: annotationT('editor.annotationLabel'),
+                save: annotationT('editor.save'),
+                cancel: annotationT('editor.cancel'),
+                edit: annotationT('source.edit'),
+                locate: annotationT('source.locate'),
+                wholeFile: annotationT('source.wholeFile'),
+                failed: annotationT('editor.autosaveFailed'),
+                status: {
+                  draft: annotationT('status.draft'),
+                  queued: annotationT('status.queued'),
+                  sent: annotationT('status.sent'),
+                  processed: annotationT('status.processed'),
+                },
+              },
+              highlights,
+            ),
+          ]
+        : []),
+      ...(officialFileEnabled.getSnapshot()
+        ? [
+            ctx.slots.inject('sidebar.right.tab.document.action', () =>
+              DOCUMENT_RENDERER_IDS.map((key) =>
+                ctx.slots.register(
+                  {
+                    name: 'sidebar.right.tab.document.action',
+                    key,
+                    locale: NS,
+                    registrant: 'dsh-annotation',
+                  },
+                  FileWholeAnnotationAction(
+                    beginFileAnnotation,
+                    readFileSnapshot,
+                    registerPreviewSource,
+                    readFilePage,
+                  ),
+                ),
+              ),
+            ),
+            ctx.slots.inject('sidebar.right.tab.document.actions', () =>
+              ctx.slots.register(
+                {
+                  name: 'sidebar.right.tab.document.actions',
+                  id: 'dsh-annotation-office-whole-file',
+                  locale: NS,
+                },
+                OfficeWholeAnnotationAction(beginFileAnnotation, readFileSnapshot, registerPreviewSource),
+              ),
+            ),
+            installDocumentIntegration(
+              {
+                get: (sessionId) =>
+                  [...controllers.entries()].find(([id]) => String(id) === String(sessionId))?.[1]
+                    ?.controller,
+              },
+              (key) => annotationT(key),
+              (address) => previewSources.get(address),
+              highlights,
+            ),
+          ]
+        : []),
       ctx.slots.inject('conversation.chat.node', () => {
         const restoreAssistantRenderers = decorateAssistantRenderers(ctx, faceFor)
         const removeUser = ctx.slots.register(
@@ -1048,6 +1306,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         if (event.key === prefix || event.key.startsWith(`${prefix}:journal:`))
           entry.controller.synchronizeStorage()
       }
+      if (event.key.startsWith('dsh-annotation:')) annotationTrash.refresh()
     }
     window.addEventListener('storage', synchronize)
     return () => window.removeEventListener('storage', synchronize)
@@ -1065,10 +1324,16 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
 
   ctx.effect(() => {
     let disposeIntegrations: (() => void) | undefined
+    let integrationSignature: string | undefined
     const sync = (): void => {
       if (featureEnabled.getSnapshot()) {
         cancelPendingDetachRetries()
-        disposeIntegrations ??= installConversationIntegrations()
+        const nextSignature = `${officialFileEnabled.getSnapshot() ? 'file' : ''}:${officialDiffEnabled.getSnapshot() ? 'diff' : ''}`
+        if (disposeIntegrations === undefined || integrationSignature !== nextSignature) {
+          disposeIntegrations?.()
+          disposeIntegrations = installConversationIntegrations()
+          integrationSignature = nextSignature
+        }
         for (const sessionId of controllers.keys()) repairComposerAttachment(sessionId)
         return
       }
@@ -1076,13 +1341,18 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       detachAllComposerAttachments()
       const dispose = disposeIntegrations
       disposeIntegrations = undefined
+      integrationSignature = undefined
       dispose?.()
       highlights.dispose()
     }
-    const unsubscribe = featureEnabled.subscribe(sync)
+    const unsubscribeFeature = featureEnabled.subscribe(sync)
+    const unsubscribeOfficialFile = officialFileEnabled.subscribe(sync)
+    const unsubscribeOfficialDiff = officialDiffEnabled.subscribe(sync)
     sync()
     return () => {
-      unsubscribe()
+      unsubscribeOfficialDiff()
+      unsubscribeOfficialFile()
+      unsubscribeFeature()
       cancelPendingDetachRetries()
       disposeIntegrations?.()
     }

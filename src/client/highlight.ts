@@ -21,7 +21,7 @@ function registry(): { highlights: HighlightRegistry; Highlight: HighlightConstr
 /** One plugin-wide CSS Custom Highlight owner; mounted message components contribute ranges. */
 export class HighlightManager {
   private readonly ranges = new Map<string, readonly Range[]>()
-  private readonly active = new Map<string, Range>()
+  private readonly active = new Map<string, readonly Range[]>()
 
   update(messageId: string, ranges: readonly Range[]): void {
     const previous = this.ranges.get(messageId)
@@ -42,10 +42,9 @@ export class HighlightManager {
     if (removedActive) this.publishActive()
   }
 
-  activate(messageId: string, range: Range | null): void {
-    if ((this.active.get(messageId) ?? null) === range) return
+  activate(messageId: string, range: Range | readonly Range[] | null): void {
     if (range === null) this.active.delete(messageId)
-    else this.active.set(messageId, range)
+    else this.active.set(messageId, Array.isArray(range) ? range : [range as Range])
     this.publishActive()
   }
 
@@ -73,6 +72,6 @@ export class HighlightManager {
     const target = registry()
     if (target === null) return
     if (this.active.size === 0) target.highlights.delete(ACTIVE_NAME)
-    else target.highlights.set(ACTIVE_NAME, new target.Highlight(...this.active.values()))
+    else target.highlights.set(ACTIVE_NAME, new target.Highlight(...[...this.active.values()].flat()))
   }
 }

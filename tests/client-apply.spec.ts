@@ -52,6 +52,7 @@ import {
 import type { AnnotationInjected } from '../src/client/contract.ts'
 import type { AnnotationSettingsInjected } from '../src/client/feature-toggle.ts'
 import { AnnotationStorage } from '../src/client/storage.ts'
+import { SourceSnapshotStore } from '../src/client/source-snapshots.ts'
 import { DEFAULT_CONFIG } from '../src/shared/config.ts'
 import {
   DEFAULT_TRANSCRIPT_VISIBILITY,
@@ -657,7 +658,12 @@ function seedCrossSessionOutbox() {
   return entry
 }
 
-beforeEach(() => localStorage.clear())
+beforeEach(() => {
+  localStorage.clear()
+  vi.spyOn(SourceSnapshotStore.prototype, 'capture').mockResolvedValue()
+  vi.spyOn(SourceSnapshotStore.prototype, 'read').mockResolvedValue({ state: 'fragment' })
+  vi.spyOn(SourceSnapshotStore.prototype, 'release').mockResolvedValue()
+})
 
 function persistedAnnotationValues(sessionId = 'session-test'): string {
   const prefix = `dsh-annotation:v1:${sessionId}`

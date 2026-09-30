@@ -8,6 +8,8 @@ import {
   IconListPenOutlineRegular,
   IconPaperclipOutlineRegular,
   IconTrashOutlineRegular,
+  HoverCard,
+  SegmentedControl,
   StateDot,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -15,11 +17,14 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import type { AnnotationDraft } from '../../shared/types.ts'
+import { sourceType } from '../../shared/annotation-source.ts'
 import { composerInput, createComposerFocus } from '../composer-focus.ts'
 import type { AnnotationBoundProps, InputAnnotationProps } from '../contract.ts'
-import { retryEntry, selectedAnnotations, type AnnotationView } from '../controller.ts'
+import { editorBufferKey, retryEntry, selectedAnnotations, type AnnotationView } from '../controller.ts'
 import { markerElement, selectionAnchor, useAnnotationFloating } from '../floating.ts'
 import { MapPin } from '../icons.ts'
+import { displayAnnotationQuote } from './AnnotationSourceLabel.tsx'
+import { AnnotationDetails } from './AnnotationDetails.tsx'
 
 type AnnotationActions = Omit<AnnotationBoundProps, 'useAnnotations' | 'useCompactSummary' | 'saveEditor'>
 type ControlProps = AnnotationBoundProps & PropsLocale<'dshAnnotation'>
@@ -58,10 +63,10 @@ function IconAction({
 }
 
 function recordStatus(item: AnnotationDraft, view: AnnotationView): 'pending' | 'sent' | 'off' {
-  if (item.source?.kind === 'diff')
-    return item.status === 'sent' || item.status === 'processed' ? 'sent' : 'off'
+  if (item.status === 'sent' || item.status === 'processed') return 'sent'
+  if (item.source?.kind === 'diff') return 'off'
   if (view.selectedAnnotationIds.includes(item.annotationId) || item.status === 'queued') return 'pending'
-  return item.status === 'sent' || item.status === 'processed' ? 'sent' : 'off'
+  return 'off'
 }
 
 function recordSummary(view: AnnotationView, t: InputAnnotationProps['t']): string {
@@ -102,7 +107,7 @@ function AttachmentPreview({ items, t }: { items: readonly AnnotationDraft[]; t:
       {items.map((item) => (
         <div className="dia-composer-chip__preview-row" key={item.annotationId}>
           <strong>{t('reply.chip', { ordinal: item.ordinal })}</strong>
-          <q>{item.quote.exact}</q>
+          <q>{displayAnnotationQuote(item, t)}</q>
           <span>{item.annotation}</span>
         </div>
       ))}
@@ -115,12 +120,23 @@ export function AnnotationComposerChip({
   useAnnotations,
   setPanelOpen,
   setRecordExpanded,
-  toggleSelected,
+  detachAnnotations,
+  trashAnnotations,
   t,
 }: ControlProps) {
   const view = useAnnotations((state) => state)
   const [preview, setPreview] = useState(false)
   const items = selectedAnnotations(view)
+  const busy =
+    items.some((item) => item.status === 'queued') ||
+    view.outbox.some(
+      (entry) =>
+        entry.status !== 'sent' &&
+        entry.status !== 'withdrawn' &&
+        entry.payload.annotations.some((item) =>
+          items.some((selected) => selected.annotationId === item.annotationId),
+        ),
+    )
   if (items.length === 0) return null
   return (
     <div
@@ -145,14 +161,37 @@ export function AnnotationComposerChip({
         <IconPaperclipOutlineRegular size={16} />
         <span>{t('record.attachedCount', { count: items.length })}</span>
       </button>
-      <button
-        type="button"
-        className="dia-composer-chip__remove"
-        aria-label={t('record.detachAll')}
-        onClick={() => items.forEach((item) => toggleSelected(item.annotationId))}
-      >
-        <IconCloseOutlineRegular size={14} />
-      </button>
+      <span className="dia-composer-chip__actions">
+        <Tooltip label={t('record.trashAttached')} side="top" delayMs={350}>
+          <button
+            type="button"
+            className="dia-composer-chip__remove"
+            data-danger="true"
+            aria-label={t('record.trashAttached')}
+            disabled={busy}
+            onClick={(event) => {
+              event.stopPropagation()
+              trashAnnotations(items.map((item) => item.annotationId))
+            }}
+          >
+            <IconTrashOutlineRegular size={14} />
+          </button>
+        </Tooltip>
+        <Tooltip label={t('record.detachAll')} side="top" delayMs={350}>
+          <button
+            type="button"
+            className="dia-composer-chip__remove"
+            aria-label={t('record.detachAll')}
+            disabled={busy}
+            onClick={(event) => {
+              event.stopPropagation()
+              detachAnnotations(items.map((item) => item.annotationId))
+            }}
+          >
+            <IconCloseOutlineRegular size={14} />
+          </button>
+        </Tooltip>
+      </span>
       {preview && <AttachmentPreview items={items} t={t} />}
     </div>
   )
@@ -248,6 +287,8 @@ function AnnotationEditor({
   const [shake, setShake] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [composing, setComposing] = useState(false)
+  const composingRef = useRef(false)
+  const compositionTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const floating = useAnnotationFloating({
     floatingRef: ref,
     enabled: editor !== null,
@@ -270,52 +311,111 @@ function AnnotationEditor({
     typeof floating.style.maxHeight === 'number' ? floating.style.maxHeight : undefined,
     editor?.kind === 'new',
   )
-  const save = () => {
-    if (submitting) return
+  const save = (): boolean => {
+    if (submitting) return false
     try {
+      const value = textarea.current?.value
+      if (editor !== null && value !== undefined && value !== editor.text) actions.updateEditorText(value)
       saveEditor()
       setError(null)
+      return true
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(
+        cause instanceof Error && cause.message === 'whole-file-opinion-required'
+          ? t('editor.wholeFileOpinionRequired')
+          : cause instanceof Error
+            ? cause.message
+            : String(cause),
+      )
       textarea.current?.focus()
+      return false
     }
   }
+  const latest = useRef({ editor, actions, save, submitting })
+  latest.current = { editor, actions, save, submitting }
+  const editorKey = editor === null ? null : editorBufferKey(editor)
   useEffect(() => {
-    if (editor === null) return undefined
+    if (editorKey === null) return undefined
     outsideClicks.current = 0
+    setShake(false)
+    setError(null)
+    if (compositionTimer.current !== null) clearTimeout(compositionTimer.current)
+    compositionTimer.current = null
+    composingRef.current = false
+    setComposing(false)
+    let shakeFrame: number | null = null
+    let finishing = false
+    let pairedComposerInput = false
+    const finishImplicitly = () => {
+      const current = latest.current
+      if (finishing || current.editor?.kind !== 'new' || current.submitting || composingRef.current) return
+      const text = textarea.current?.value ?? current.editor.text
+      finishing = true
+      if (text.trim() === '') current.actions.closeEditor(true)
+      else if (!current.save()) finishing = false
+    }
     const onPointer = (event: PointerEvent) => {
+      if (finishing) return
       if (ref.current?.contains(event.target as Node)) return
-      if (editor.kind !== 'new') {
-        actions.suspendEditor()
+      const current = latest.current
+      if (current.editor === null || current.submitting || composingRef.current) return
+      if (current.editor.kind !== 'new') {
+        current.actions.suspendEditor()
         return
       }
       outsideClicks.current += 1
       if (outsideClicks.current >= 3) {
-        save()
+        finishImplicitly()
         return
       }
       setShake(false)
-      requestAnimationFrame(() => setShake(true))
+      if (shakeFrame !== null) cancelAnimationFrame(shakeFrame)
+      shakeFrame = requestAnimationFrame(() => {
+        shakeFrame = null
+        setShake(true)
+      })
     }
     const onInput = (event: Event) => {
-      if (editor.kind !== 'new') return
+      if (event instanceof InputEvent && event.isComposing) return
       const target = event.target
-      if (target instanceof Element && target.closest('[data-composer-input]')) save()
+      if (!(target instanceof Element) || !target.closest('[data-composer-input]')) return
+      if (event.type === 'beforeinput') {
+        pairedComposerInput = true
+        queueMicrotask(() => {
+          pairedComposerInput = false
+        })
+        finishImplicitly()
+      } else if (pairedComposerInput) pairedComposerInput = false
+      else finishImplicitly()
     }
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
+      if (finishing || event.key !== 'Escape' || event.isComposing || composingRef.current) return
+      const current = latest.current
+      if (current.editor === null) return
       event.preventDefault()
-      actions.suspendEditor()
+      if (current.editor.kind === 'new' && (textarea.current?.value ?? current.editor.text).trim() === '')
+        current.actions.closeEditor(true)
+      else {
+        const value = textarea.current?.value
+        if (value !== undefined && value !== current.editor.text) current.actions.updateEditorText(value)
+        current.actions.suspendEditor()
+      }
     }
     document.addEventListener('pointerdown', onPointer, true)
     document.addEventListener('input', onInput, true)
+    document.addEventListener('beforeinput', onInput, true)
     document.addEventListener('keydown', onKey)
     return () => {
+      if (shakeFrame !== null) cancelAnimationFrame(shakeFrame)
+      if (compositionTimer.current !== null) clearTimeout(compositionTimer.current)
+      compositionTimer.current = null
+      composingRef.current = false
       document.removeEventListener('pointerdown', onPointer, true)
       document.removeEventListener('input', onInput, true)
+      document.removeEventListener('beforeinput', onInput, true)
       document.removeEventListener('keydown', onKey)
     }
-  }, [editor, actions.suspendEditor, saveEditor, submitting])
+  }, [editorKey])
   if (editor === null) return null
   const quick = editor.kind === 'new'
   const item =
@@ -341,10 +441,23 @@ function AnnotationEditor({
         aria-label={t('editor.annotationLabel')}
         disabled={submitting}
         onChange={(event) => actions.updateEditorText(event.target.value)}
-        onCompositionStart={() => setComposing(true)}
-        onCompositionEnd={() => setTimeout(() => setComposing(false), 0)}
+        onCompositionStart={() => {
+          if (compositionTimer.current !== null) clearTimeout(compositionTimer.current)
+          compositionTimer.current = null
+          composingRef.current = true
+          setComposing(true)
+        }}
+        onCompositionEnd={() => {
+          if (compositionTimer.current !== null) clearTimeout(compositionTimer.current)
+          compositionTimer.current = setTimeout(() => {
+            compositionTimer.current = null
+            composingRef.current = false
+            setComposing(false)
+          }, 0)
+        }}
         onKeyDown={(event) => {
-          if (event.key !== 'Enter' || composing || event.nativeEvent.isComposing) return
+          if (event.key !== 'Enter' || composing || composingRef.current || event.nativeEvent.isComposing)
+            return
           event.stopPropagation()
           if (event.shiftKey) return
           event.preventDefault()
@@ -367,7 +480,7 @@ function AnnotationEditor({
             label={t('list.delete')}
             danger
             disabled={submitting || item?.status !== 'draft'}
-            onClick={() => item && actions.deleteDraft(item.annotationId)}
+            onClick={() => item && actions.trashAnnotations([item.annotationId])}
           >
             <IconTrashOutlineRegular size={15} />
           </IconAction>
@@ -494,7 +607,7 @@ function RecordRow({
 }) {
   const legacyDiff = item.source?.kind === 'diff'
   const state = recordStatus(item, view)
-  const selected = state === 'pending'
+  const selected = view.selectedAnnotationIds.includes(item.annotationId) || item.status === 'queued'
   const attachLabel = selected
     ? t('record.detach')
     : item.status === 'sent' || item.status === 'processed'
@@ -509,9 +622,24 @@ function RecordRow({
       <span className="dia-record-row__glyph" aria-hidden="true">
         <StateDot state={state === 'sent' ? 'done' : state === 'pending' ? 'warning' : 'idle'} />
       </span>
-      <span className="dia-record-row__text">{item.annotation}</span>
+      <span className="dia-record-row__text">
+        <HoverCard
+          inline
+          disabled={view.editor !== null}
+          anchor={
+            <span
+              tabIndex={0}
+              className="dia-record-row__preview-anchor"
+              aria-label={item.annotation || t('highlightOnly')}
+            >
+              {item.annotation}
+            </span>
+          }
+          content={<AnnotationDetails item={item} t={t} />}
+        />
+      </span>
       <div className="dia-record-row__actions">
-        {legacyDiff ? <span className="dia-record-row__legacy">{t('diff.legacyReadOnly')}</span> : null}
+        {legacyDiff ? <span className="dia-record-row__legacy">{t('source.readOnly')}</span> : null}
         {!legacyDiff && (
           <>
             <IconAction
@@ -534,18 +662,18 @@ function RecordRow({
                 >
                   <IconEditOutlineRegular size={15} />
                 </IconAction>
-                <IconAction
-                  label={t('list.delete')}
-                  danger
-                  disabled={submitting}
-                  onClick={() => actions.deleteDraft(item.annotationId)}
-                >
-                  <IconTrashOutlineRegular size={15} />
-                </IconAction>
               </>
             )}
           </>
         )}
+        <IconAction
+          label={t('list.delete')}
+          danger
+          disabled={submitting || item.status === 'queued'}
+          onClick={() => actions.trashAnnotations([item.annotationId])}
+        >
+          <IconTrashOutlineRegular size={15} />
+        </IconAction>
       </div>
     </div>
   )
@@ -564,8 +692,11 @@ export function AnnotationExperience({
   const view = useAnnotations((state) => state)
   const archived = useWorkspaces((state) => state.archivedSessionIds.includes(sessionId))
   const listId = useId()
+  const [filter, setFilter] = useState<'all' | 'message' | 'diff' | 'file'>('all')
   const anchorRef = useRef<HTMLSpanElement>(null)
   const focus = useRef<ReturnType<typeof createComposerFocus> | null>(null)
+  const dismissDeleteUndo = useRef(actions.dismissDeleteUndo)
+  dismissDeleteUndo.current = actions.dismissDeleteUndo
   useEffect(() => {
     focus.current = createComposerFocus(() => composerInput(anchorRef.current))
     return () => {
@@ -582,6 +713,11 @@ export function AnnotationExperience({
     input.phase,
     view.selectedAnnotationIds,
   ])
+  useEffect(() => {
+    if (view.deletedAnnotationIds.length === 0) return undefined
+    const timer = setTimeout(() => dismissDeleteUndo.current(), 4500)
+    return () => clearTimeout(timer)
+  }, [view.deletedAnnotationIds])
   const saveEditor = () => {
     const isNew = view.editor?.kind === 'new'
     const request = focus.current?.capture()
@@ -590,40 +726,93 @@ export function AnnotationExperience({
     if (isNew && request) requestAnimationFrame(() => focus.current?.restore(request))
   }
   const retry = retryEntry(view)
+  const sourceTypes = new Set(view.annotations.map(sourceType))
+  const effectiveFilter = filter === 'all' || sourceTypes.has(filter) ? filter : 'all'
+  useEffect(() => {
+    if (effectiveFilter !== filter) setFilter('all')
+  }, [effectiveFilter, filter])
+  const filteredAnnotations =
+    effectiveFilter === 'all'
+      ? view.annotations
+      : view.annotations.filter((item) => sourceType(item) === effectiveFilter)
+  const filterOptions = (
+    [
+      ['all', 'records.filterAll'],
+      ['message', 'records.filterBody'],
+      ['diff', 'records.filterDiff'],
+      ['file', 'records.filterFile'],
+    ] as const
+  )
+    .filter(([value]) => value === 'all' || sourceTypes.has(value))
+    .map(([value, key]) => ({ value, label: t(key) }))
+  const showFilters = view.recordExpanded && sourceTypes.size >= 2
   return (
     <>
       <span ref={anchorRef} hidden aria-hidden="true" />
+      {view.deletedAnnotationIds.length > 0 && (
+        <div className="dia-undo" role="status">
+          <span>{t('list.deleted')}</span>
+          <button type="button" onClick={actions.undoDelete}>
+            {t('list.undo')}
+          </button>
+        </div>
+      )}
       {view.annotations.length > 0 && view.panelOpen && (
         <section id="dia-annotation-record" className="dia-record" aria-label={t('record.title')}>
           <div className="dia-record__body">
-            <button
-              type="button"
-              className="dia-record__header"
-              aria-controls={listId}
-              aria-expanded={view.recordExpanded}
-              onClick={() => actions.setRecordExpanded(!view.recordExpanded)}
-            >
-              <span className="dia-record__lead" aria-hidden="true">
-                <IconListPenOutlineRegular />
-              </span>
-              <span className="dia-record__title">{t('record.title')}</span>
+            <div className="dia-record__header">
+              <button
+                type="button"
+                className="dia-record__heading-action"
+                aria-controls={listId}
+                aria-expanded={view.recordExpanded}
+                onClick={() => actions.setRecordExpanded(!view.recordExpanded)}
+              >
+                <span className="dia-record__lead" aria-hidden="true">
+                  <IconListPenOutlineRegular />
+                </span>
+                <span className="dia-record__title">{t('record.title')}</span>
+              </button>
               <span className="dia-record__progress">{recordSummary(view, t)}</span>
-              <span className="dia-record__chevron" aria-hidden="true">
+              {showFilters && (
+                <SegmentedControl
+                  id={`${listId}-filter`}
+                  value={effectiveFilter}
+                  options={filterOptions}
+                  onChange={setFilter}
+                  label={t('details.sourceFilter')}
+                  className="dia-record__filters"
+                />
+              )}
+              <button
+                type="button"
+                className="dia-record__chevron"
+                aria-label={view.recordExpanded ? t('dock.collapse') : t('dock.expand')}
+                aria-controls={listId}
+                aria-expanded={view.recordExpanded}
+                onClick={() => actions.setRecordExpanded(!view.recordExpanded)}
+              >
                 {view.recordExpanded ? <IconChevronDownOutlineRegular /> : <IconChevronUpOutlineRegular />}
-              </span>
-            </button>
+              </button>
+            </div>
             {view.recordExpanded && (
-              <div id={listId} className="dia-record__list" role="list">
-                {view.annotations.map((item) => (
-                  <RecordRow
-                    key={item.annotationId}
-                    item={item}
-                    view={view}
-                    t={t}
-                    actions={actions}
-                    submitting={input.phase === 'submitting'}
-                  />
-                ))}
+              <div
+                id={showFilters ? `${listId}-filter-${effectiveFilter}-panel` : undefined}
+                role={showFilters ? 'tabpanel' : undefined}
+                aria-labelledby={showFilters ? `${listId}-filter-${effectiveFilter}` : undefined}
+              >
+                <div id={listId} className="dia-record__list" role="list">
+                  {filteredAnnotations.map((item) => (
+                    <RecordRow
+                      key={item.annotationId}
+                      item={item}
+                      view={view}
+                      t={t}
+                      actions={actions}
+                      submitting={input.phase === 'submitting'}
+                    />
+                  ))}
+                </div>
               </div>
             )}
             {retry && (

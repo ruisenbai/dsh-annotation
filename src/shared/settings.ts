@@ -18,6 +18,12 @@ export const DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION = false
 /** 注解汇总条默认靠右显示，宽度随内容自适应。 */
 export const DEFAULT_ANNOTATION_COMPACT_SUMMARY = true
 
+/** Official file-preview annotations are enabled on fresh installations. */
+export const DEFAULT_OFFICIAL_FILE_ANNOTATIONS = true
+
+/** Official turn-Diff annotations are enabled on fresh installations. */
+export const DEFAULT_OFFICIAL_DIFF_ANNOTATIONS = true
+
 /** Browser key read only to migrate the pre-0.1.3 enabled preference. */
 export const LEGACY_ANNOTATION_ENABLED_STORAGE_KEY = 'dsh.inline-comments.enabled'
 
@@ -117,6 +123,10 @@ export const TRANSCRIPT_VISIBILITY_KEYS: readonly TranscriptVisibilityKey[] = [
 export interface AnnotationSettings extends TranscriptVisibilitySettings {
   /** Whether the browser installs conversation-facing annotation integrations. */
   readonly enabled: boolean
+  /** Whether file-preview annotation actions and captures are enabled; absent in pre-v4 profiles. */
+  readonly officialFileAnnotations?: boolean
+  /** Whether official turn-Diff annotation actions and captures are enabled; absent in pre-v4 profiles. */
+  readonly officialDiffAnnotations?: boolean
   /** Whether saving a new annotation arms the official composer automatically. */
   readonly autoAttach: boolean
   /** Whether each send uses the annotations selected for that send. */

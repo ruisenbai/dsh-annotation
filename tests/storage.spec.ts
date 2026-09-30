@@ -46,7 +46,7 @@ describe('draft storage', () => {
     expect(storage.save({ ...state })).toBe(true)
     expect(writes).not.toHaveBeenCalled()
     writes.mockRestore()
-    expect(storage.load()).toEqual({ ...state, storageVersion: 3 })
+    expect(storage.load()).toEqual({ ...state, storageVersion: 6 })
     expect(storage.loadStatus()).toBe('loaded')
     expect(storage.lastError()).toBeNull()
     expect(storage.usageBytes()).toBeGreaterThan(0)
@@ -340,7 +340,7 @@ describe('draft storage', () => {
         }),
       )
       const restored = storage.load()
-      expect(restored.storageVersion).toBe(3)
+      expect(restored.storageVersion).toBe(6)
       expect(restored.outbox[0]).toMatchObject({
         status: 'failed',
         attempts: 1,

@@ -24,9 +24,9 @@ export type SubmittedAttachmentIdentity =
       readonly name: string
     }
 
-/** Current submission protocol; new submissions emit v3 with explicit source kinds. */
-export const PROTOCOL_VERSION = 3 as const
-/** Protocol source identity written into v2 and v3 payloads. */
+/** Current submission protocol; v5 stores compact official file and turn-Diff sources. */
+export const PROTOCOL_VERSION = 5 as const
+/** Protocol source identity written into every non-v1 payload. */
 export const PROTOCOL_SOURCE = 'dsh-annotation' as const
 /** Acknowledgement marker prefix emitted into new model prompts. */
 export const MODEL_ACK_PREFIX = 'dsh-annotation:'
@@ -42,6 +42,7 @@ export const LEGACY_REPLY_MARKER_PREFIXES = [
 /** Stable across the product rename so failed persisted retries keep their authoritative queue identity. */
 export const MESSAGE_ID_PREFIX = 'dsh-inline-annotations:'
 
+export type AnnotationDeletionId = string & { readonly __annotationDeletionId: unique symbol }
 export type AnnotationId = string & { readonly __annotationId: unique symbol }
 export type SubmissionId = string & { readonly __submissionId: unique symbol }
 export type SessionIdentity = string & { readonly __sessionIdentity: unique symbol }
@@ -165,7 +166,7 @@ export interface WireAnnotation {
 
 /** Idempotent batch transported through the internal slash command. */
 export interface AnnotationSubmissionPayload {
-  readonly protocolVersion: 2 | 3
+  readonly protocolVersion: 2 | 3 | 4 | 5
   readonly source: typeof PROTOCOL_SOURCE
   readonly submissionId: SubmissionId
   readonly sessionId: SessionIdentity
@@ -246,8 +247,27 @@ export interface OutboxEntry {
   readonly images?: OutboxImages
 }
 
+/** Browser-local deleted annotation; immutable submission payloads remain unchanged. */
+export interface AnnotationTrashEntry {
+  readonly annotation: AnnotationDraft
+  readonly deletedAt: number
+  readonly deletionId: AnnotationDeletionId
+  readonly editorDrafts: readonly PersistedEditorDraft[]
+}
+
+/** Lifecycle revision that prevents history and stale browser pages from restoring deleted records. */
+export interface AnnotationDeletionMark {
+  readonly annotationId: AnnotationId
+  readonly deletionId: AnnotationDeletionId
+  readonly revision: number
+  readonly state: 'trashed' | 'restored' | 'purged'
+  readonly updatedAt: number
+}
+
 export interface PersistedSessionState {
-  readonly storageVersion: 2 | 3
+  readonly storageVersion: 2 | 3 | 4 | 5 | 6
+  readonly trash?: readonly AnnotationTrashEntry[]
+  readonly deletionMarks?: readonly AnnotationDeletionMark[]
   readonly annotations: readonly AnnotationDraft[]
   readonly outbox: readonly OutboxEntry[]
   readonly overallRequirementDraft: string

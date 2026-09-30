@@ -1,4 +1,5 @@
 import { sourceFields, sourceKey } from '../shared/annotation-source.ts'
+import type { AnnotationAnchor } from '../shared/annotation-source.ts'
 import { createAnnotationId, createSubmissionId, submissionMessageId } from '../shared/ids.ts'
 import { parseModelAcknowledgements } from '../shared/model-ack.ts'
 import {
@@ -15,6 +16,9 @@ import {
 import type {
   AnnotationConfig,
   AnnotationDraft,
+  AnnotationTrashEntry,
+  AnnotationDeletionMark,
+  AnnotationDeletionId,
   AnnotationId,
   AnnotationKind,
   AnnotationSelectionMode,
@@ -49,6 +53,8 @@ export class SubmissionChangedError extends Error {
 }
 
 export interface AnnotationView {
+  readonly trash: readonly AnnotationTrashEntry[]
+  readonly deletionMarks: readonly AnnotationDeletionMark[]
   readonly annotations: readonly AnnotationDraft[]
   readonly outbox: readonly OutboxEntry[]
   /** Loaded durable submissions that may refer to the same annotation across multiple sends. */
@@ -69,6 +75,7 @@ export interface AnnotationView {
   } | null
   readonly editorSaveStatus: 'idle' | 'saving' | 'saved' | 'error'
   readonly deletedDraft: AnnotationDraft | null
+  readonly deletedAnnotationIds: readonly AnnotationId[]
   readonly panelOpen: boolean
   readonly recordExpanded: boolean
   readonly notice: { readonly level: 'info' | 'error'; readonly text: string } | null
@@ -100,7 +107,14 @@ export interface AnnotationNavigationSession {
 export interface AnnotationEndpoint {
   reveal(annotationId: AnnotationId, navigationEpoch: number): void
   annotateAll(): void
+  /** Official file/Diff views may reveal an anchor without a message identity. */
+  revealSource?(
+    annotationId: AnnotationId,
+    navigationEpoch: number,
+  ): SourceLocateResult | Promise<SourceLocateResult>
 }
+
+export type SourceLocateResult = 'shown' | 'unmatched' | 'unavailable' | 'cancelled'
 
 const STATUS_RANK: Record<AnnotationStatus, number> = { draft: 0, queued: 1, sent: 2, processed: 3 }
 const EDITOR_AUTOSAVE_MS = 400
@@ -139,6 +153,8 @@ function sameView(left: AnnotationView, right: AnnotationView): boolean {
 function samePersistedView(left: AnnotationView, right: AnnotationView): boolean {
   return (
     left.annotations === right.annotations &&
+    left.trash === right.trash &&
+    left.deletionMarks === right.deletionMarks &&
     left.outbox === right.outbox &&
     left.overallRequirementDraft === right.overallRequirementDraft &&
     left.editor === right.editor &&
@@ -295,7 +311,9 @@ function statusAtLeast(current: AnnotationStatus, candidate: AnnotationStatus): 
 
 function cloneState(view: AnnotationView): PersistedSessionState {
   return Object.freeze({
-    storageVersion: 3,
+    storageVersion: 6,
+    trash: view.trash,
+    deletionMarks: view.deletionMarks,
     annotations: view.annotations,
     outbox: view.outbox,
     overallRequirementDraft: view.overallRequirementDraft,
@@ -355,6 +373,12 @@ export class AnnotationController {
   private history: ParsedHistory | null = null
   private readonly listeners = new Set<() => void>()
   private readonly endpoints = new Map<MessageIdentity, AnnotationEndpoint>()
+  private readonly sourceEndpoints = new Map<string, Set<AnnotationEndpoint>>()
+  private readonly sourceEndpointWaiters = new Map<
+    string,
+    Set<(endpoint: AnnotationEndpoint | undefined) => void>
+  >()
+  private sourceNavigator: ((annotationId: AnnotationId) => Promise<boolean>) | undefined
   private readonly unsubscribeStorage: () => void
   private pendingNavigation: {
     messageId: MessageIdentity
@@ -365,8 +389,6 @@ export class AnnotationController {
   private persistedOnce = false
   private pendingLocalEdit = false
   private disposed = false
-  private deletedSelection = false
-  private deletedEditors: readonly EditorState[] = []
 
   constructor(
     readonly sessionId: SessionIdentity,
@@ -388,6 +410,8 @@ export class AnnotationController {
     const activeAnnotationId =
       editor === null ? null : editor.kind === 'edit' ? editor.annotationId : (editor.supplementalTo ?? null)
     this.view = Object.freeze({
+      trash: persisted.trash ?? Object.freeze([]),
+      deletionMarks: persisted.deletionMarks ?? Object.freeze([]),
       annotations: Object.freeze(
         persisted.annotations.map((item) => {
           if (item.status === 'draft' || item.submissionId === undefined) return item
@@ -431,6 +455,7 @@ export class AnnotationController {
       overlap: null,
       editorSaveStatus: editor === null ? 'idle' : 'saved',
       deletedDraft: null,
+      deletedAnnotationIds: [],
       panelOpen: false,
       recordExpanded: true,
       notice: storage.lastError() === null ? null : { level: 'error' as const, text: 'storage' },
@@ -467,6 +492,11 @@ export class AnnotationController {
     this.history = null
     this.listeners.clear()
     this.endpoints.clear()
+    this.sourceEndpoints.clear()
+    for (const waiters of this.sourceEndpointWaiters.values())
+      for (const resolve of waiters) resolve(undefined)
+    this.sourceEndpointWaiters.clear()
+    this.sourceNavigator = undefined
   }
 
   /** Refresh durable records after another page or a completed merge without replacing unsaved keystrokes. */
@@ -477,7 +507,11 @@ export class AnnotationController {
       this.publish({ ...this.view }, false)
       return
     }
-    const keepEditor = this.view.editorSaveStatus === 'saving'
+    const retainedTarget = this.view.editor?.kind === 'edit' ? this.view.editor.annotationId : undefined
+    const keepEditor =
+      this.view.editorSaveStatus === 'saving' &&
+      (retainedTarget === undefined ||
+        persisted.annotations.some((item) => item.annotationId === retainedTarget))
     const editor = keepEditor ? this.view.editor : (persisted.editorDraft ?? null)
     const editorDrafts = [...(persisted.editorDrafts ?? [])]
     if (
@@ -490,15 +524,22 @@ export class AnnotationController {
       {
         ...this.view,
         annotations: persisted.annotations,
+        trash: persisted.trash ?? Object.freeze([]),
+        deletionMarks: persisted.deletionMarks ?? Object.freeze([]),
         outbox: persisted.outbox,
         overallRequirementDraft: persisted.overallRequirementDraft,
         editor,
         editorDrafts: Object.freeze(editorDrafts),
         editorSaveStatus: keepEditor ? this.view.editorSaveStatus : editor === null ? 'idle' : 'saved',
         selectedAnnotationIds: Object.freeze(
-          this.view.selectedAnnotationIds.filter((id) =>
-            persisted.annotations.some((item) => item.annotationId === id),
-          ),
+          this.view.selectedAnnotationIds.filter((id) => {
+            const previous = this.view.annotations.find((item) => item.annotationId === id)
+            const current = persisted.annotations.find((item) => item.annotationId === id)
+            return (
+              current !== undefined &&
+              !(previous?.status === 'draft' && (current.status === 'sent' || current.status === 'processed'))
+            )
+          }),
         ),
         processingMode: persisted.processingMode ?? this.view.processingMode,
         retrySubmissionId:
@@ -532,6 +573,27 @@ export class AnnotationController {
       ...selection
     } = capture
     capture = Object.freeze({ ...selection, ...sourceFields(capture) })
+    const source = capture.source
+    if (source?.kind === 'file' || source?.kind === 'official-diff') {
+      const existing = this.view.annotations.find(
+        (item) =>
+          item.status === 'draft' &&
+          sourceKey(item) === sourceKey(capture) &&
+          item.quote.start === capture.quote.start &&
+          item.quote.end === capture.quote.end &&
+          item.quote.exact === capture.quote.exact &&
+          (item.source?.kind !== 'official-diff' ||
+            source.kind !== 'official-diff' ||
+            (item.source.startLine === source.startLine &&
+              item.source.endLine === source.endLine &&
+              item.source.startColumn === source.startColumn &&
+              item.source.endColumn === source.endColumn)),
+      )
+      if (existing !== undefined) {
+        this.openAnnotation(existing.annotationId, 'summary')
+        return
+      }
+    }
     this.suspendEditor()
     this.startNewEditor(capture)
   }
@@ -613,7 +675,6 @@ export class AnnotationController {
   setSelectionMode(individual: boolean): void {
     const selectionMode = individual ? 'individual' : 'all'
     if (this.view.selectionMode === selectionMode) return
-    this.deletedSelection = false
     this.publish({
       ...this.view,
       selectionMode,
@@ -767,6 +828,14 @@ export class AnnotationController {
       editor.kind === 'edit' && editor.supplement === true
         ? [original?.annotation ?? '', editor.text.trim()].filter((text) => text !== '').join('\n\n')
         : editor.text.trim()
+    const source =
+      editor.kind === 'new' ? editor.capture.source : (editor.expandedCapture?.source ?? original?.source)
+    if (
+      annotation.length === 0 &&
+      (source?.kind === 'file' || source?.kind === 'official-diff') &&
+      source.wholeFile
+    )
+      throw new Error('whole-file-opinion-required')
     const kind: AnnotationKind = annotation.length === 0 ? 'highlight-only' : 'note'
     const time = this.now()
     let savedId: AnnotationId
@@ -905,57 +974,204 @@ export class AnnotationController {
     return true
   }
 
+  /** Wait for owned journal compaction and report whether persistence completed without an error. */
+  async whenStorageIdle(): Promise<boolean> {
+    await this.storage.whenIdle()
+    return this.storage.lastError() === null && this.storage.loadStatus() !== 'failed'
+  }
+
   /** Synchronously retain the latest keystroke on pagehide and before teardown. */
   flush(): void {
     if (!this.disposed) this.publish({ ...this.view })
   }
 
+  /** Persist a batch in the recycle bin before removing any visible annotation or editor. */
+  trashAnnotations(annotationIds: readonly AnnotationId[]): boolean {
+    this.synchronizeStorage()
+    const ids = new Set(annotationIds)
+    this.assertNotFrozen(ids)
+    const targets = this.view.annotations.filter((item) => ids.has(item.annotationId))
+    if (targets.length === 0) return true
+    const now = this.now()
+    const marks = new Map(this.view.deletionMarks.map((mark) => [mark.annotationId, mark]))
+    const entries = targets.map((annotation): AnnotationTrashEntry => {
+      const deletionId = crypto.randomUUID() as AnnotationDeletionId
+      const previous = marks.get(annotation.annotationId)
+      marks.set(
+        annotation.annotationId,
+        Object.freeze({
+          annotationId: annotation.annotationId,
+          deletionId,
+          revision: (previous?.revision ?? 0) + 1,
+          state: 'trashed',
+          updatedAt: now,
+        }),
+      )
+      return Object.freeze({
+        annotation,
+        deletionId,
+        deletedAt: now,
+        editorDrafts: Object.freeze(
+          [...this.view.editorDrafts, ...(this.view.editor === null ? [] : [this.view.editor])].filter(
+            (editor) => editor.kind === 'edit' && editor.annotationId === annotation.annotationId,
+          ),
+        ),
+      })
+    })
+    const editor =
+      this.view.editor?.kind === 'edit' && ids.has(this.view.editor.annotationId) ? null : this.view.editor
+    return this.commitLifecycle({
+      ...this.view,
+      annotations: Object.freeze(
+        withOrdinals(this.view.annotations.filter((item) => !ids.has(item.annotationId))),
+      ),
+      trash: Object.freeze([
+        ...this.view.trash.filter((item) => !ids.has(item.annotation.annotationId)),
+        ...entries,
+      ]),
+      deletionMarks: Object.freeze([...marks.values()]),
+      selectedAnnotationIds: Object.freeze(this.view.selectedAnnotationIds.filter((id) => !ids.has(id))),
+      editor,
+      editorDrafts: Object.freeze(
+        this.view.editorDrafts.filter((item) => item.kind !== 'edit' || !ids.has(item.annotationId)),
+      ),
+      editorSaveStatus: editor === null ? 'idle' : this.view.editorSaveStatus,
+      activeAnnotationId:
+        this.view.activeAnnotationId !== null && ids.has(this.view.activeAnnotationId)
+          ? null
+          : this.view.activeAnnotationId,
+      markerAnnotationId:
+        this.view.markerAnnotationId !== null && ids.has(this.view.markerAnnotationId)
+          ? null
+          : this.view.markerAnnotationId,
+      deletedDraft: entries.at(-1)?.annotation ?? null,
+      deletedAnnotationIds: Object.freeze(entries.map((entry) => entry.annotation.annotationId)),
+    })
+  }
+
+  /** Restore saved identities without attaching them to the next message. */
+  restoreAnnotations(annotationIds: readonly AnnotationId[]): boolean {
+    this.synchronizeStorage()
+    const ids = new Set(annotationIds)
+    const targets = this.view.trash.filter((entry) => ids.has(entry.annotation.annotationId))
+    if (targets.length === 0) return true
+    const marks = new Map(this.view.deletionMarks.map((mark) => [mark.annotationId, mark]))
+    for (const entry of targets) {
+      const current = marks.get(entry.annotation.annotationId)
+      if (current === undefined || current.state !== 'trashed' || current.deletionId !== entry.deletionId)
+        return false
+      marks.set(
+        current.annotationId,
+        Object.freeze({
+          ...current,
+          revision: current.revision + 1,
+          state: 'restored',
+          updatedAt: this.now(),
+        }),
+      )
+    }
+    const restored = targets.map((entry) => entry.annotation)
+    return this.commitLifecycle({
+      ...this.view,
+      annotations: Object.freeze(withOrdinals([...this.view.annotations, ...restored])),
+      trash: Object.freeze(this.view.trash.filter((entry) => !ids.has(entry.annotation.annotationId))),
+      deletionMarks: Object.freeze([...marks.values()]),
+      editorDrafts: Object.freeze([
+        ...this.view.editorDrafts,
+        ...targets.flatMap((entry) => (entry.annotation.status === 'draft' ? entry.editorDrafts : [])),
+      ]),
+      selectedAnnotationIds: Object.freeze(this.view.selectedAnnotationIds.filter((id) => !ids.has(id))),
+      deletedDraft:
+        this.view.deletedDraft !== null && ids.has(this.view.deletedDraft.annotationId)
+          ? null
+          : this.view.deletedDraft,
+      deletedAnnotationIds: Object.freeze(this.view.deletedAnnotationIds.filter((id) => !ids.has(id))),
+    })
+  }
+
+  /** Remove recycled content while retaining the minimal mark that blocks historical replay. */
+  purgeAnnotations(annotationIds: readonly AnnotationId[]): boolean {
+    this.synchronizeStorage()
+    const ids = new Set(annotationIds)
+    this.assertNotFrozen(ids)
+    const targets = this.view.trash.filter((entry) => ids.has(entry.annotation.annotationId))
+    if (targets.length === 0) return true
+    const marks = new Map(this.view.deletionMarks.map((mark) => [mark.annotationId, mark]))
+    for (const entry of targets) {
+      const current = marks.get(entry.annotation.annotationId)!
+      marks.set(
+        current.annotationId,
+        Object.freeze({ ...current, revision: current.revision + 1, state: 'purged', updatedAt: this.now() }),
+      )
+    }
+    return this.commitLifecycle({
+      ...this.view,
+      trash: Object.freeze(this.view.trash.filter((entry) => !ids.has(entry.annotation.annotationId))),
+      deletionMarks: Object.freeze([...marks.values()]),
+      deletedDraft:
+        this.view.deletedDraft !== null && ids.has(this.view.deletedDraft.annotationId)
+          ? null
+          : this.view.deletedDraft,
+      deletedAnnotationIds: Object.freeze(this.view.deletedAnnotationIds.filter((id) => !ids.has(id))),
+    })
+  }
+
+  /** Cancel only the supplied next-message attachment relationships. */
+  detachAnnotations(annotationIds: readonly AnnotationId[]): boolean {
+    const ids = new Set(annotationIds)
+    return this.commitLifecycle({
+      ...this.view,
+      selectedAnnotationIds: Object.freeze(this.view.selectedAnnotationIds.filter((id) => !ids.has(id))),
+    })
+  }
+
+  /** Draft-only compatibility entry; all deletion data is retained by the recycle bin. */
   deleteDraft(annotationId: AnnotationId): void {
     const target = this.view.annotations.find((item) => item.annotationId === annotationId)
     if (target === undefined || target.source?.kind === 'diff') return
     if (target.status !== 'draft') throw new Error('only draft annotations can be deleted')
-    const relatedEditor = (editor: EditorState) =>
-      editor.kind === 'edit' && editor.annotationId === annotationId
-    const closesEditor = this.view.editor !== null && relatedEditor(this.view.editor)
-    this.deletedSelection = this.view.selectedAnnotationIds.includes(annotationId)
-    this.deletedEditors = [
-      ...this.view.editorDrafts.filter(relatedEditor),
-      ...(closesEditor && this.view.editor !== null ? [this.view.editor] : []),
-    ]
-    this.publish({
-      ...this.view,
-      annotations: withOrdinals(this.view.annotations.filter((item) => item.annotationId !== annotationId)),
-      editor: closesEditor ? null : this.view.editor,
-      editorDrafts: Object.freeze(this.view.editorDrafts.filter((editor) => !relatedEditor(editor))),
-      editorSaveStatus: closesEditor ? 'idle' : this.view.editorSaveStatus,
-      deletedDraft: target,
-      activeAnnotationId: this.view.activeAnnotationId === annotationId ? null : this.view.activeAnnotationId,
-      markerAnnotationId: this.view.markerAnnotationId === annotationId ? null : this.view.markerAnnotationId,
-    })
+    this.trashAnnotations([annotationId])
   }
 
   undoDelete(): void {
-    const deleted = this.view.deletedDraft
-    if (deleted === null) return
-    if (this.view.annotations.some((item) => item.annotationId === deleted.annotationId)) {
-      this.publish({ ...this.view, deletedDraft: null }, false)
-      return
+    if (this.view.deletedAnnotationIds.length > 0) this.restoreAnnotations(this.view.deletedAnnotationIds)
+  }
+
+  private assertNotFrozen(ids: ReadonlySet<AnnotationId>): void {
+    if (
+      this.view.outbox.some(
+        (entry) =>
+          entry.status !== 'sent' &&
+          entry.status !== 'withdrawn' &&
+          entry.payload.annotations.some((annotation) => ids.has(annotation.annotationId)),
+      )
+    )
+      throw new Error('annotation-submission-locked')
+  }
+
+  private commitLifecycle(next: AnnotationView): boolean {
+    if (this.disposed) return false
+    if (!this.storage.save(cloneState(next))) {
+      this.publish(
+        { ...this.view, storageAvailable: false, notice: { level: 'error', text: 'storage' } },
+        false,
+      )
+      return false
     }
-    this.publish({
-      ...this.view,
-      annotations: withOrdinals([...this.view.annotations, deleted]),
-      editorDrafts: Object.freeze([...this.view.editorDrafts, ...this.deletedEditors]),
-      selectedAnnotationIds: this.deletedSelection
-        ? Object.freeze([...this.view.selectedAnnotationIds, deleted.annotationId])
-        : this.view.selectedAnnotationIds,
-      deletedDraft: null,
-      activeAnnotationId: deleted.annotationId,
-    })
+    if (this.persistTimer !== null) clearTimeout(this.persistTimer)
+    this.persistTimer = null
+    this.persistedOnce = true
+    this.pendingLocalEdit = false
+    this.publish(
+      { ...next, storageAvailable: true, notice: next.notice?.text === 'storage' ? null : next.notice },
+      false,
+    )
+    return true
   }
 
   dismissDeleteUndo(): void {
-    if (this.view.deletedDraft === null) return
-    this.publish({ ...this.view, deletedDraft: null }, false)
+    if (this.view.deletedAnnotationIds.length === 0) return
+    this.publish({ ...this.view, deletedDraft: null, deletedAnnotationIds: [] }, false)
   }
 
   setPanelOpen(panelOpen: boolean): void {
@@ -981,6 +1197,42 @@ export class AnnotationController {
 
   setNotice(level: 'info' | 'error', text: string): void {
     this.publish({ ...this.view, notice: { level, text } }, false)
+  }
+
+  /** Retain an official snapshot when its current Host resource can no longer be opened. */
+  markSourceExpired(annotationId: AnnotationId): void {
+    const item = this.view.annotations.find((candidate) => candidate.annotationId === annotationId)
+    if (
+      item === undefined ||
+      item.source === undefined ||
+      (item.source.kind !== 'file' && item.source.kind !== 'official-diff') ||
+      item.source.expired === true
+    )
+      return
+    const updated: AnnotationDraft = Object.freeze({
+      annotationId: item.annotationId,
+      ordinal: item.ordinal,
+      quote: item.quote,
+      annotation: item.annotation,
+      kind: item.kind,
+      createdAt: item.createdAt,
+      source: Object.freeze({ ...item.source, expired: true }),
+      status: item.status,
+      updatedAt: Date.now(),
+      ...(item.structure === undefined ? {} : { structure: item.structure }),
+      ...(item.blockIndex === undefined ? {} : { blockIndex: item.blockIndex }),
+      ...(item.submissionId === undefined ? {} : { submissionId: item.submissionId }),
+      ...(item.supplementalTo === undefined ? {} : { supplementalTo: item.supplementalTo }),
+    })
+    this.publish({
+      ...this.view,
+      annotations: Object.freeze(
+        this.view.annotations.map((candidate) =>
+          candidate.annotationId === annotationId ? updated : candidate,
+        ),
+      ),
+      notice: { level: 'error', text: 'source-expired' },
+    })
   }
 
   clearNotice(): void {
@@ -1098,7 +1350,10 @@ export class AnnotationController {
   }
 
   adoptOutbox(entry: OutboxEntry): void {
-    const existingIds = new Set(this.view.annotations.map((item) => item.annotationId))
+    const existingIds = new Set([
+      ...this.view.annotations.map((item) => item.annotationId),
+      ...this.view.deletionMarks.filter((mark) => mark.state !== 'restored').map((mark) => mark.annotationId),
+    ])
     const annotations = [
       ...this.view.annotations,
       ...entry.payload.annotations
@@ -1279,6 +1534,11 @@ export class AnnotationController {
     const queued =
       snapshot.queue === undefined ? undefined : new Set(snapshot.queue.map((item) => String(item.messageId)))
     let annotations = [...this.view.annotations]
+    const deletedIds = new Set(
+      this.view.deletionMarks.filter((mark) => mark.state !== 'restored').map((mark) => mark.annotationId),
+    )
+    const trash = new Map(this.view.trash.map((entry) => [entry.annotation.annotationId, entry]))
+    const consumedIds = new Set<AnnotationId>()
     const known = new Map(annotations.map((item, index) => [item.annotationId, index]))
     const restoredDrafts = new Map<
       AnnotationId,
@@ -1287,8 +1547,32 @@ export class AnnotationController {
     let preservedChanges = false
     for (const payload of submissions.values()) {
       for (const item of payload.annotations) {
+        if (deletedIds.has(item.annotationId)) {
+          const entry = trash.get(item.annotationId)
+          if (entry !== undefined) {
+            const status =
+              acknowledgements.get(payload.submissionId)?.has(item.annotationId) === true
+                ? 'processed'
+                : 'sent'
+            if (STATUS_RANK[entry.annotation.status] < STATUS_RANK[status])
+              trash.set(
+                item.annotationId,
+                Object.freeze({
+                  ...entry,
+                  annotation: Object.freeze({
+                    ...entry.annotation,
+                    status,
+                    submissionId: payload.submissionId,
+                    updatedAt: this.now(),
+                  }),
+                }),
+              )
+          }
+          continue
+        }
         const index = known.get(item.annotationId)
         const previous = index === undefined ? undefined : annotations[index]
+        if (previous?.status === 'draft' || previous?.status === 'queued') consumedIds.add(item.annotationId)
         if (
           previous !== undefined &&
           previous.status !== 'draft' &&
@@ -1401,9 +1685,15 @@ export class AnnotationController {
       annotationItems === this.view.annotations
         ? this.view.annotations
         : retainedItems(this.view.annotations, withOrdinals(annotationItems))
+    const selectedAnnotationIds = retainedItems(
+      this.view.selectedAnnotationIds,
+      this.view.selectedAnnotationIds.filter((id) => !consumedIds.has(id)),
+    )
     this.publish({
       ...this.view,
       annotations: orderedAnnotations,
+      trash: retainedItems(this.view.trash, [...trash.values()]),
+      selectedAnnotationIds,
       outbox: retainedItems(this.view.outbox, outbox),
       replyAssociations,
       editor,
@@ -1421,7 +1711,7 @@ export class AnnotationController {
       panelOpen:
         annotations.length > 0 &&
         annotations.every((item) => item.status === 'sent' || item.status === 'processed') &&
-        this.view.selectedAnnotationIds.length === 0
+        selectedAnnotationIds.length === 0
           ? false
           : this.view.panelOpen,
       latestAssistantMessageId,
@@ -1497,10 +1787,80 @@ export class AnnotationController {
     return true
   }
 
+  /** Register a mounted official file/Diff view by its immutable source key. */
+  registerSourceEndpoint(source: AnnotationAnchor, endpoint: AnnotationEndpoint): () => void {
+    const key = sourceKey(source)
+    const mounted = this.sourceEndpoints.get(key) ?? new Set<AnnotationEndpoint>()
+    mounted.add(endpoint)
+    this.sourceEndpoints.set(key, mounted)
+    for (const resolve of this.sourceEndpointWaiters.get(key) ?? []) resolve(endpoint)
+    this.sourceEndpointWaiters.delete(key)
+    return () => {
+      mounted.delete(endpoint)
+      if (mounted.size === 0 && this.sourceEndpoints.get(key) === mounted) this.sourceEndpoints.delete(key)
+    }
+  }
+
+  private async awaitSourceEndpoint(
+    key: string,
+    navigationEpoch: number,
+  ): Promise<AnnotationEndpoint | undefined> {
+    const mounted = this.sourceEndpoints.get(key)
+    const existing =
+      mounted === undefined ? undefined : [...mounted].find((endpoint) => endpoint.revealSource !== undefined)
+    if (existing !== undefined) return existing
+    return new Promise((resolve) => {
+      const waiters = this.sourceEndpointWaiters.get(key) ?? new Set()
+      let complete = false
+      const finish = (endpoint: AnnotationEndpoint | undefined): void => {
+        if (complete) return
+        complete = true
+        clearTimeout(limit)
+        unsubscribe()
+        waiters.delete(finish)
+        if (waiters.size === 0) this.sourceEndpointWaiters.delete(key)
+        resolve(this.view.navigationEpoch === navigationEpoch && !this.disposed ? endpoint : undefined)
+      }
+      const unsubscribe = this.subscribe(() => {
+        if (this.view.navigationEpoch !== navigationEpoch) finish(undefined)
+      })
+      // Readiness comes from registration; the limit only ends a failed navigation.
+      const limit = setTimeout(() => finish(undefined), 15_000)
+      waiters.add(finish)
+      this.sourceEndpointWaiters.set(key, waiters)
+    })
+  }
+
+  /** Supply the integration that opens the official sidebar when a source is not mounted. */
+  setSourceNavigator(navigator: ((annotationId: AnnotationId) => Promise<boolean>) | undefined): void {
+    this.sourceNavigator = navigator
+  }
+
+  /** Open an official source and report whether its exact text was located. */
+  async locateSource(annotationId: AnnotationId): Promise<SourceLocateResult> {
+    const annotation = this.view.annotations.find((item) => item.annotationId === annotationId)
+    if (annotation === undefined || annotation.source === undefined || annotation.source.kind === 'diff')
+      return 'unavailable'
+    if (annotation.source.kind === 'message') return 'unavailable'
+    const navigationEpoch = this.view.navigationEpoch + 1
+    this.publish({ ...this.view, activeAnnotationId: null, navigationEpoch, markerAnnotationId: null }, false)
+    const opened = await this.sourceNavigator?.(annotationId)
+    if (this.view.navigationEpoch !== navigationEpoch) return 'cancelled'
+    if (opened !== true) return 'unavailable'
+    const endpoint = await this.awaitSourceEndpoint(sourceKey(annotation), navigationEpoch)
+    if (this.view.navigationEpoch !== navigationEpoch) return 'cancelled'
+    if (endpoint?.revealSource === undefined) return 'unavailable'
+    const result = await endpoint.revealSource(annotationId, navigationEpoch)
+    if (this.view.navigationEpoch !== navigationEpoch) return 'cancelled'
+    if (result === 'shown') this.publish({ ...this.view, activeAnnotationId: annotationId }, false)
+    return result
+  }
+
   async navigate(annotationId: AnnotationId): Promise<boolean> {
     const annotation = this.view.annotations.find((item) => item.annotationId === annotationId)
-    if (annotation === undefined) return false
-    if (annotation.source?.kind === 'diff') return false
+    if (annotation === undefined || annotation.source?.kind === 'diff') return false
+    if (annotation.source !== undefined && annotation.source.kind !== 'message')
+      return (await this.locateSource(annotationId)) === 'shown'
     const navigationEpoch = this.view.navigationEpoch + 1
     this.pendingNavigation = null
     this.publish(

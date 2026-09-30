@@ -1,80 +1,87 @@
-# DSH 注解
+# DSH Annotation
 
-[English](README.en.md)
+English | [中文](README.zh.md)
 
-在 DeepSeek Harness Web 的助手回复中选中原文，写下注解，并随下一条消息一起发送。注解记录属于当前会话；已发送的注解可以重新附加，不会生成重复记录或气泡。
+Select text in an assistant reply in DeepSeek Harness Web, write an annotation, and send it with the next message; official file previews and official turn-Diff views can also be annotated. Records belong to the current Session. Sent annotations can be attached again without creating duplicate records or source bubbles.
 
-**适用宿主：DeepSeek Harness `0.1.7-rc.2`。** 插件通过官方输入框发送文字、图片、文件和注解，不修改宿主源码。
+**Host requirement: DeepSeek Harness `0.2.0-rc.1` exactly.** The plugin sends text, images, files, and annotations through the official composer and does not modify Host source.
 
-## 使用流程
+## Workflow
 
-### 1. 选中原文
+### 1. Select source text
 
-在一条助手回复中选中文字，点击 **添加注解**。重叠选区也可以直接创建独立注解。数字气泡贴在选区末字附近，随正文滚动；平时不为原文添加常驻背景或下划线，悬浮或点击气泡时才高亮。
+Select text in one assistant reply and choose **Add annotation**. Overlapping selections create independent annotations directly. The numbered bubble follows the final selected character and scrolls with the reply. Source text has no persistent background or underline; hovering or clicking its bubble highlights the selection.
 
-![在助手回复中选择原文并添加注解](docs/assets/annotation-selection.png)
+![Select source text in an assistant reply](docs/assets/annotation-selection.png)
 
-### 2. 保存注解
+### 2. Save an annotation
 
-输入条显示在选区下方。按 Enter 或点击对号保存，Shift+Enter 换行；内容可留空，只标记原文。输入区从一行自动增高，最多显示七行，更多内容在内部滚动。点击数字气泡可用同样的界面查看或编辑。
+The editor opens below the selection. Press Enter or the check button to save; Shift+Enter inserts a line break. An explicitly saved empty selection note marks the source only. If a new note is empty after trimming whitespace, the first two outside clicks shake its editor and the third cancels it without creating a record. Starting to type in the composer also cancels a blank new editor. The input grows from one to seven lines, then scrolls internally. Click a numbered bubble to view or edit it in the same compact design.
 
-![在选区旁输入注解](docs/assets/annotation-editor.png)
+![Write an annotation beside the selection](docs/assets/annotation-editor.png)
 
-![通过数字气泡查看和编辑注解](docs/assets/annotation-bubble.png)
+![View or edit an annotation from its numbered bubble](docs/assets/annotation-bubble.png)
 
-### 3. 查看记录并附加
+### 3. Review records and attach them
 
-新注解默认附加到下一条消息，不会自动展开记录框。输入框左上角显示附加数量；悬浮可预览原文和注解，点击可展开或折叠记录。模型选择按钮左侧的注解按钮也可控制记录框。记录中的回形针控制本次附加，地图定位图标跳转原文；空注解内容保持空白。
+A new annotation attaches to the next message by default without opening the record. The composer's upper-left chip shows the attached count; hover to preview quotes and notes, or click to expand or fold the record. The annotation button left of the model selector also controls the record. Each row's paperclip controls attachment for this message, and its map pin locates the source. Empty note text stays blank.
 
-![注解记录和输入框中的附加提示](docs/assets/annotation-record.png)
+![Annotation record and composer attachment chip](docs/assets/annotation-record.png)
 
-### 4. 发送和再次发送
+### 4. Send and resend
 
-通过官方输入框发送后，用户消息正文上方显示注释数量。单条注释可悬浮预览、双击定位；多条注释可点击展开或折叠，并逐条定位原文。记录框在全部注解都已发送时自动隐藏。已发送注解仍可用回形针重新附加，注解 ID 与原文气泡保持不变。
+After the official composer sends a message, an annotation count appears above its body. Hover one annotation to preview it or double-click to locate its source. Click a multi-annotation count to expand or fold the list, then locate each source from its row. The record closes automatically when every annotation has been sent. A sent annotation can be attached again with its paperclip; its ID and source bubble remain unchanged.
 
-![已发送消息上方的注释信息](docs/assets/annotation-sent.png)
+![Annotation information above a sent message](docs/assets/annotation-sent.png)
 
-![将已发送注解重新附加到输入框](docs/assets/annotation-reattach.png)
+![Attach a sent annotation to the composer again](docs/assets/annotation-reattach.png)
 
-### 5. 设置
+### 5. Configure
 
-在 **设置 → 注解** 中启用或停用插件，并设置保存新注解后是否自动附加。关闭自动附加后，仍可在记录中手动点击回形针。设置页还会在 dsh-market 提供公开更新接口时显示插件更新操作。停用插件会移除界面和输入框附着，本地注解数据仍会保留。
+**Settings → Annotations** offers plugin enablement, independent switches for file-preview and official turn-Diff annotations, and automatic attachment after saving. Disabling either official source entry does not delete existing records; with automatic attachment off, a record row's paperclip can attach a note manually. The settings page also offers plugin updates when dsh-market exposes its public update API. Disabling the plugin removes its UI and composer attachment while retaining local annotation data.
 
-![DSH 设置中的注解选项](docs/assets/annotation-settings.png)
+![Annotation options in DSH Settings](docs/assets/annotation-settings.png)
 
-## 安装与兼容
+### 6. Review official files and turn Diffs
 
-发行包只在 [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.0.0) 发布，不发布到 npm。以下命令将固定版本 `1.0.0` 安装到 DSH Web 的 `web` profile；目标宿主必须是 `0.1.7-rc.2`。
+Open an official file preview to annotate the whole file; text, code, and Markdown previews also accept a selected range. HTML, image, PDF, Office, and spreadsheet previews offer the whole-file action. New records retain the file address, resource version, byte count, coordinates, quote context, and a verified fragment digest without copying the complete file. A temporary loading or Locate failure keeps the saved record and its draft available.
 
-### 手动安装
+Open the official Diff sidebar from a turn's changed-file card. Select a Diff range or use **Annotate this source** for the whole file. Use the same floating annotation editor and numbered bubbles as assistant replies. **Locate source** opens the official Diff review, waits for its content, and highlights the saved text with the same annotation ID. Source filters appear when the Session has at least two source types; earlier Git Diff records remain read-only.
+
+## Install and compatibility
+
+This checkout targets DSH `0.2.0-rc.1`. The [published `1.0.0` archive](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.0.0) predates this adaptation; build and verify this checkout before installing it into a disposable Web profile.
+
+### Manual installation
 
 ```bash
 dsh --version
-dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.0.0/dsh-annotation.tgz
-dsh plugin --profile web why dsh-annotation
+pnpm install --frozen-lockfile --strict-peer-dependencies
+pnpm run verify
+pnpm --config.ignoreScripts=true pack --pack-destination artifacts
+dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.0.0.tgz
+dsh plugin --profile annotation-dev why dsh-annotation
 ```
 
-第一条命令应输出 `0.1.7-rc.2`，最后一条应显示 `dsh-annotation@1.0.0`。使用自定义 profile 时，将两处 `web` 换成实际名称。安装后重启该 profile 的 Web 宿主，在 **设置 → 注解** 中确认插件可用。构建与本地验证步骤见[开发说明](docs/development.md#install-and-verify)；精确依赖和已执行的验证见[兼容性说明](docs/compatibility.md)。
+The first command must print `0.2.0-rc.1`; the last must show `dsh-annotation@1.0.0` from the locally built archive. Restart the disposable profile's Web Host after installation, then check **Settings → Annotations**. See the [development guide](docs/development.md#install-and-verify) for local checks and the [compatibility guide](docs/compatibility.md) for executed results.
 
-### 交给 AI agent 安装
+### Install with an AI agent
 
-将下面的提示词交给能够操作本机终端的 AI agent：
+Give this prompt to an AI agent that can operate your local terminal:
 
 ```text
-请在本机为我的 DeepSeek Harness Web profile 安装 dsh-annotation 1.0.0。先确认目标 profile 名称；如果没有自定义名称，就使用 web。运行 dsh --version，只有结果严格等于 0.1.7-rc.2 才继续；版本不匹配时停止并报告，不修改宿主依赖。
-使用 dsh plugin --profile <实际 profile 名称> add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.0.0/dsh-annotation.tgz 安装，然后运行 dsh plugin --profile <实际 profile 名称> why dsh-annotation，确认显示 dsh-annotation@1.0.0。
-不要修改 DSH 或插件源码，也不要清理会话和浏览器数据。如果 Web 宿主正在运行，提醒我重启该 profile。最后报告实际执行的命令、版本、安装结果和任何警告。
+Build this dsh-annotation checkout for DeepSeek Harness Web 0.2.0-rc.1. Run dsh --version and stop if it differs. Run the plugin's frozen install, verify, and local pack commands, then install that local archive into a disposable annotation-dev profile. Confirm dsh plugin --profile annotation-dev why dsh-annotation shows dsh-annotation@1.0.0. Do not use the older published archive or change Host dependencies. Report the commands, version, installation result, and warnings.
 ```
 
-新对话没有注解时，不显示记录框或空状态文案。插件仅提供注解相关功能，不隐藏思考、工具调用或其他会话内容。代码 Diff 批注的新增与编辑功能已移除；旧 Diff 批注及快照仍可在历史消息中只读查看。
+A new Session without annotations shows no record or empty-state copy. The plugin provides annotation features only; it does not hide reasoning, tool calls, or other conversation content. Record rows show the opinion and status; source type, creation entry, and saved context appear in their details. The `全部/正文/Diff/文件` filter appears when two or more source types exist. Historical Git Diff annotations and snapshots remain read-only. New official turn-Diff annotations use the Diff sidebar; the hover preview has no annotation entry. Earlier hover-origin records remain readable, and Locate opens the sidebar with their saved annotationId. Whole-file file/Diff records require a written opinion and retain their source identity. File previews cover official text, Markdown, code, HTML, image, PDF, Office, Excel, CSV, and TSV renderers; non-text records retain the official preview revision identity rather than inferring bytes from disk.
 
-未发送注解、暂存编辑和重试记录保存在当前浏览器。多标签页使用独立待归并记录和浏览器锁保护写入；遇到损坏或未来版本的存储时，保留原数据并提示，不以空状态覆盖。发送时固定本批注解和附件身份，失败重试沿用同一载荷；历史协议和已发送消息不会被迁移时改写。详见[数据模型](docs/data-model.md)与[隐私说明](docs/privacy.md)。
+Unsent annotations, suspended edits, and retries stay in the current browser. Multiple tabs use separate pending records and a browser lock to protect writes. Corrupt or future-version storage is preserved with an error instead of being overwritten by an empty state. Each send freezes its annotations and attachment identities; retries reuse that payload. Migration does not rewrite historical protocols or sent messages. See the [data model](docs/data-model.md) and [privacy guide](docs/privacy.md).
 
-## 限制
+## Limitations
 
-- 未发送草稿不会跨浏览器同步；已发送记录可从会话历史恢复。
-- 选区不能跨助手消息。Markdown、代码和表格内的定位依赖宿主当前正文 DOM。
-- 没有 CSS Custom Highlight API 时，数字气泡和定位原文仍可使用。
-- 模型返回有效的注解确认标记后，记录才会显示为已处理。
+- Unsent drafts do not synchronize across browsers; sent records can be restored from Session history.
+- Selections cannot cross assistant messages. Markdown, code, and table locations depend on the Host's current body DOM.
+- Without the CSS Custom Highlight API, numbered bubbles and source navigation still work.
+- A record becomes processed only after the model returns a valid annotation acknowledgement marker.
 
-[贡献指南](CONTRIBUTING.md) · [更新记录](CHANGELOG.md) · [许可证](LICENSE)
+[Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [License](LICENSE)

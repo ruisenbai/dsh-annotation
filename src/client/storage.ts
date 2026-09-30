@@ -10,6 +10,9 @@ import {
 } from '../shared/protocol.ts'
 import type {
   AnnotationDraft,
+  AnnotationTrashEntry,
+  AnnotationDeletionMark,
+  AnnotationDeletionId,
   AnnotationSelectionCapture,
   AnnotationStatus,
   OutboxEntry,
@@ -69,7 +72,7 @@ function needsEditorIds(value: unknown): boolean {
 
 export function emptyPersistedState(): PersistedSessionState {
   return Object.freeze({
-    storageVersion: 3,
+    storageVersion: 6,
     annotations: Object.freeze([]),
     outbox: Object.freeze([]),
     overallRequirementDraft: '',
@@ -280,6 +283,43 @@ function duplicateIds<T>(ids: readonly T[]): Set<T> {
   return duplicates
 }
 
+function parseDeletionMark(value: unknown): AnnotationDeletionMark {
+  const source = object(value, 'deletion mark')
+  if (source.state !== 'trashed' && source.state !== 'restored' && source.state !== 'purged')
+    throw new Error('invalid annotation deletion state')
+  if (!Number.isSafeInteger(source.revision) || (source.revision as number) < 1)
+    throw new Error('invalid annotation deletion revision')
+  if (!Number.isSafeInteger(source.updatedAt) || (source.updatedAt as number) < 0)
+    throw new Error('invalid annotation deletion time')
+  return Object.freeze({
+    annotationId: persistedId<AnnotationId>(source.annotationId, 'deletion annotationId'),
+    deletionId: persistedId<AnnotationDeletionId>(source.deletionId, 'deletion id'),
+    revision: source.revision as number,
+    state: source.state,
+    updatedAt: source.updatedAt as number,
+  })
+}
+
+function parseTrashEntry(value: unknown, index: number): AnnotationTrashEntry {
+  const source = object(value, 'trash entry')
+  const annotation = parseAnnotation(source.annotation, index)
+  if (!Number.isSafeInteger(source.deletedAt) || (source.deletedAt as number) < annotation.createdAt)
+    throw new Error('invalid annotation deletion time')
+  if (!Array.isArray(source.editorDrafts)) throw new Error('invalid trash editor drafts')
+  const editorDrafts = source.editorDrafts.map((value) => {
+    const editor = parseEditorDraft(value)
+    if (editor === undefined || editor.kind !== 'edit' || editor.annotationId !== annotation.annotationId)
+      throw new Error('invalid trash editor target')
+    return editor
+  })
+  return Object.freeze({
+    annotation,
+    deletedAt: source.deletedAt as number,
+    deletionId: persistedId<AnnotationDeletionId>(source.deletionId, 'trash deletion id'),
+    editorDrafts: Object.freeze(editorDrafts),
+  })
+}
+
 function parseState(
   value: unknown,
   recoverInterrupted = true,
@@ -288,7 +328,8 @@ function parseState(
     throw new Error('state must be an object')
   const source = value as Record<string, unknown>
   const version = source.storageVersion
-  if (version !== 1 && version !== 2 && version !== 3) throw new Error('unsupported storage state')
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6)
+    throw new Error('unsupported storage state')
   const errors: string[] = []
   const rows = (candidate: unknown, field: string): unknown[] => {
     if (Array.isArray(candidate)) return candidate
@@ -306,6 +347,30 @@ function parseState(
     })
     return recovered
   }
+  const deletionMarks = recover(
+    source.deletionMarks === undefined ? [] : rows(source.deletionMarks, 'deletionMarks'),
+    parseDeletionMark,
+  )
+  const marks = new Map(deletionMarks.map((mark) => [mark.annotationId, mark]))
+  if (marks.size !== deletionMarks.length) errors.push('duplicate annotation deletion marks')
+  const trash = recover(
+    source.trash === undefined ? [] : rows(source.trash, 'trash'),
+    parseTrashEntry,
+  ).filter((entry) => {
+    const mark = marks.get(entry.annotation.annotationId)
+    if (mark?.state === 'trashed' && mark.deletionId === entry.deletionId) return true
+    errors.push('trash entry is missing its deletion mark')
+    return false
+  })
+  if (new Set(trash.map((entry) => entry.annotation.annotationId)).size !== trash.length)
+    errors.push('duplicate trash annotation ids')
+  for (const mark of deletionMarks) {
+    if (
+      mark.state === 'trashed' &&
+      !trash.some((entry) => entry.annotation.annotationId === mark.annotationId)
+    )
+      errors.push('trashed annotation is missing its saved content')
+  }
   const annotationRows = recover(rows(source.annotations, 'annotations'), (item, index) => {
     const annotation = parseAnnotation(item, index)
     if (annotation.status !== 'draft' && annotation.submissionId === undefined)
@@ -314,7 +379,11 @@ function parseState(
   })
   const duplicateAnnotationIds = duplicateIds(annotationRows.map((item) => item.annotationId))
   if (duplicateAnnotationIds.size > 0) errors.push('persisted annotation ids must be unique')
-  const annotations = annotationRows.filter((item) => !duplicateAnnotationIds.has(item.annotationId))
+  const annotations = annotationRows.filter(
+    (item) =>
+      !duplicateAnnotationIds.has(item.annotationId) &&
+      (marks.get(item.annotationId) === undefined || marks.get(item.annotationId)?.state === 'restored'),
+  )
   const outboxRows = recover(rows(source.outbox, 'outbox'), (item) => parseOutbox(item, recoverInterrupted))
   const duplicateSubmissionIds = duplicateIds(outboxRows.map((item) => item.payload.submissionId))
   if (duplicateSubmissionIds.size > 0) errors.push('persisted outbox submission ids must be unique')
@@ -421,7 +490,9 @@ function parseState(
         ? retryId
         : null
   const state = Object.freeze({
-    storageVersion: 3,
+    storageVersion: 6,
+    ...(source.trash === undefined ? {} : { trash: Object.freeze(trash) }),
+    ...(source.deletionMarks === undefined ? {} : { deletionMarks: Object.freeze(deletionMarks) }),
     annotations: Object.freeze(annotations),
     outbox: Object.freeze(outbox),
     overallRequirementDraft,
@@ -444,7 +515,11 @@ type StoredEditor = NonNullable<PersistedSessionState['editorDraft']>
 interface StorageJournal {
   readonly id: string
   readonly previousId: string | null
+  readonly dependencies: readonly string[]
   readonly annotations: readonly RecordChange<AnnotationDraft>[]
+  readonly trash: readonly RecordChange<AnnotationTrashEntry>[]
+  readonly deletionMarks: readonly RecordChange<AnnotationDeletionMark>[]
+  readonly observedDeletionMarks: readonly AnnotationDeletionMark[]
   readonly outbox: readonly RecordChange<OutboxEntry>[]
   readonly editors: readonly RecordChange<StoredEditor>[]
   readonly editorTargets: readonly AnnotationDraft[]
@@ -464,6 +539,8 @@ function samePersistedReferences(left: PersistedSessionState, right: PersistedSe
   return (
     left.storageVersion === right.storageVersion &&
     left.annotations === right.annotations &&
+    left.trash === right.trash &&
+    left.deletionMarks === right.deletionMarks &&
     left.outbox === right.outbox &&
     left.overallRequirementDraft === right.overallRequirementDraft &&
     left.editorDraft === right.editorDraft &&
@@ -508,6 +585,7 @@ function makeJournal(
   previousId: string | null,
   before: PersistedSessionState,
   after: PersistedSessionState,
+  dependencies: readonly string[],
 ): StorageJournal {
   const editorTargets = new Map<AnnotationId, AnnotationDraft>()
   for (const editor of editors(after)) {
@@ -520,7 +598,15 @@ function makeJournal(
   return {
     id,
     previousId,
+    dependencies,
     annotations: recordChanges(before.annotations, after.annotations, (item) => item.annotationId),
+    trash: recordChanges(before.trash ?? [], after.trash ?? [], (item) => item.annotation.annotationId),
+    deletionMarks: recordChanges(
+      before.deletionMarks ?? [],
+      after.deletionMarks ?? [],
+      (item) => item.annotationId,
+    ),
+    observedDeletionMarks: before.deletionMarks ?? [],
     outbox: recordChanges(before.outbox, after.outbox, (item) => item.payload.submissionId),
     editors: recordChanges(editors(before), editors(after), editorKey),
     editorTargets: [...editorTargets.values()],
@@ -539,6 +625,8 @@ function makeJournal(
 function journalHasChanges(journal: StorageJournal): boolean {
   return (
     journal.annotations.length > 0 ||
+    journal.trash.length > 0 ||
+    journal.deletionMarks.length > 0 ||
     journal.outbox.length > 0 ||
     journal.editors.length > 0 ||
     journal.activeEditor !== null ||
@@ -552,7 +640,7 @@ function journalHasChanges(journal: StorageJournal): boolean {
 
 function parseJournal(raw: string): StorageJournal {
   const source = object(JSON.parse(raw), 'journal')
-  if (source.version !== 1) throw new Error('unsupported storage journal')
+  if (source.version !== 1 && source.version !== 2) throw new Error('unsupported storage journal')
   const id = persistedId<string>(source.id, 'journal.id')
   const previousId =
     source.previousId === null ? null : persistedId<string>(source.previousId, 'journal.previousId')
@@ -594,7 +682,19 @@ function parseJournal(raw: string): StorageJournal {
   return {
     id,
     previousId,
+    dependencies: (() => {
+      if (source.dependencies === undefined) return []
+      if (!Array.isArray(source.dependencies)) throw new Error('invalid journal dependencies')
+      return source.dependencies.map((value) => persistedId<string>(value, 'journal dependency'))
+    })(),
     annotations: changes(source.annotations, 'journal.annotations', parseAnnotation),
+    trash: changes(source.trash ?? [], 'journal.trash', parseTrashEntry),
+    deletionMarks: changes(source.deletionMarks ?? [], 'journal.deletionMarks', parseDeletionMark),
+    observedDeletionMarks: (() => {
+      if (source.observedDeletionMarks === undefined) return []
+      if (!Array.isArray(source.observedDeletionMarks)) throw new Error('invalid observed deletion marks')
+      return source.observedDeletionMarks.map(parseDeletionMark)
+    })(),
     outbox: changes(source.outbox, 'journal.outbox', (value) => parseOutbox(value, false)),
     editors: changes(source.editors, 'journal.editors', parseStoredEditor),
     editorTargets: source.editorTargets.map((value, index) => parseAnnotation(value, index)),
@@ -626,7 +726,11 @@ function orderedJournals(entries: readonly StorageJournal[]): StorageJournal[] {
   const ordered: StorageJournal[] = []
   while (remaining.size > 0) {
     const ready = [...remaining.values()]
-      .filter((entry) => entry.previousId === null || !remaining.has(entry.previousId))
+      .filter(
+        (entry) =>
+          (entry.previousId === null || !remaining.has(entry.previousId)) &&
+          entry.dependencies.every((dependency) => !remaining.has(dependency)),
+      )
       .sort((left, right) => left.id.localeCompare(right.id))[0]
     if (ready === undefined) throw new Error('cyclic storage journal')
     ordered.push(ready)
@@ -667,7 +771,67 @@ function mergedOverallRequirement(current: string, change: ValueChange<string> |
 function applyJournal(state: PersistedSessionState, journal: StorageJournal): PersistedSessionState {
   const annotations = new Map(state.annotations.map((item) => [item.annotationId, item]))
   const deletedTargets = new Map<AnnotationId, AnnotationDraft>()
+  const marks = new Map((state.deletionMarks ?? []).map((mark) => [mark.annotationId, mark]))
+  const trash = new Map((state.trash ?? []).map((entry) => [entry.annotation.annotationId, entry]))
+  const observed = new Map(journal.observedDeletionMarks.map((mark) => [mark.annotationId, mark]))
+  for (const change of journal.deletionMarks) {
+    const next = change.after
+    if (
+      next === null ||
+      next.annotationId !== change.id ||
+      (change.before !== null && change.before.annotationId !== change.id)
+    )
+      throw new Error('invalid deletion mark journal')
+    const current = marks.get(next.annotationId)
+    const rank = { restored: 0, trashed: 1, purged: 2 }
+    if (
+      current === undefined ||
+      (current.state !== 'purged' &&
+        ((next.state === 'purged' && next.deletionId === current.deletionId) ||
+          next.revision > current.revision ||
+          (next.revision === current.revision &&
+            (rank[next.state] > rank[current.state] ||
+              (rank[next.state] === rank[current.state] && next.deletionId > current.deletionId)))))
+    )
+      marks.set(next.annotationId, next)
+    observed.set(next.annotationId, next)
+  }
+  const isDeleted = (id: AnnotationId) => {
+    const mark = marks.get(id)
+    return mark !== undefined && mark.state !== 'restored'
+  }
+  const staleLifecycle = (id: AnnotationId) => !sameValue(marks.get(id) ?? null, observed.get(id) ?? null)
+  for (const change of journal.trash) {
+    if (
+      (change.after !== null && change.after.annotation.annotationId !== change.id) ||
+      (change.before !== null && change.before.annotation.annotationId !== change.id)
+    )
+      throw new Error('trash journal annotation id mismatch')
+    const id = change.id as AnnotationId
+    const mark = marks.get(id)
+    if (mark?.state !== 'trashed') {
+      trash.delete(id)
+      continue
+    }
+    if (change.after?.deletionId === mark.deletionId) {
+      const previous = trash.get(id)
+      const next = change.after
+      const statuses = { draft: 0, queued: 1, sent: 2, processed: 3 }
+      trash.set(
+        id,
+        previous?.deletionId === next.deletionId &&
+          statuses[previous.annotation.status] > statuses[next.annotation.status]
+          ? previous
+          : next,
+      )
+    }
+  }
+  for (const [id, mark] of marks) {
+    if (mark.state !== 'restored') annotations.delete(id)
+    if (mark.state !== 'trashed') trash.delete(id)
+  }
   for (const [index, change] of journal.annotations.entries()) {
+    if (isDeleted(change.id as AnnotationId) || staleLifecycle(change.id as AnnotationId)) continue
     const conflictId = `ann-conflict-${journal.id}-a${index}`
     if (
       (change.before !== null && change.before.annotationId !== change.id) ||
@@ -750,6 +914,12 @@ function applyJournal(state: PersistedSessionState, journal: StorageJournal): Pe
   const editorMap = new Map<string, StoredEditor>()
   const editorKeys = new Map<string, string>()
   for (const [index, editor] of editors(state).entries()) {
+    const targetId = editor.kind === 'edit' ? editor.annotationId : editor.draftId
+    if (
+      targetId !== undefined &&
+      (isDeleted(targetId) || (editor.kind === 'new' && annotations.has(targetId)))
+    )
+      continue
     if (editor.kind === 'edit' && !annotations.has(editor.annotationId)) {
       const removal = journal.editors.find(
         (change) => change.id === editorKey(editor) && change.after === null,
@@ -766,6 +936,9 @@ function applyJournal(state: PersistedSessionState, journal: StorageJournal): Pe
     } else editorMap.set(editorKey(editor), editor)
   }
   for (const [index, change] of journal.editors.entries()) {
+    const target = change.after ?? change.before
+    const targetId = target?.kind === 'edit' ? target.annotationId : target?.draftId
+    if (targetId !== undefined && (isDeleted(targetId) || staleLifecycle(targetId))) continue
     if (
       (change.before !== null && editorKey(change.before) !== change.id) ||
       (change.after !== null && editorKey(change.after) !== change.id)
@@ -819,7 +992,11 @@ function applyJournal(state: PersistedSessionState, journal: StorageJournal): Pe
   const processingMode = journal.processingMode === null ? state.processingMode : journal.processingMode.after
   const merged = parseState(
     {
-      storageVersion: 3,
+      storageVersion: 6,
+      ...(state.trash === undefined && journal.trash.length === 0 ? {} : { trash: [...trash.values()] }),
+      ...(state.deletionMarks === undefined && journal.deletionMarks.length === 0
+        ? {}
+        : { deletionMarks: [...marks.values()] }),
       annotations: [...annotations.values()],
       outbox: [...outbox.values()],
       overallRequirementDraft,
@@ -850,6 +1027,7 @@ export class AnnotationStorage {
   private baseState: PersistedSessionState | null = null
   private fastSkipAllowed = false
   private previousJournalId: string | null = null
+  private observedJournalIds: readonly string[] = []
   private drainPending: Promise<void> = Promise.resolve()
   private drainScheduled = false
   private readonly abort = new AbortController()
@@ -863,6 +1041,28 @@ export class AnnotationStorage {
   ) {
     this.key = `${PREFIX}${sessionId}`
     this.legacyKeys = Object.freeze(LEGACY_PREFIXES.map((prefix) => `${prefix}${sessionId}`))
+  }
+
+  /** Enumerate current and renamed session stores, including sessions whose writes are still journaled. */
+  static listSessionIds(
+    storage: StorageLike,
+    coordination?: StorageCoordination,
+  ): readonly SessionIdentity[] {
+    const keys =
+      coordination?.keys() ??
+      (storage.key === undefined || storage.length === undefined
+        ? []
+        : Array.from({ length: storage.length }, (_, index) => storage.key!(index)).filter(
+            (key): key is string => key !== null,
+          ))
+    const ids = new Set<SessionIdentity>()
+    for (const key of keys) {
+      const prefix = [PREFIX, ...LEGACY_PREFIXES].find((candidate) => key.startsWith(candidate))
+      if (prefix === undefined) continue
+      const id = key.slice(prefix.length).split(':journal:')[0]
+      if (id !== undefined && id.length > 0) ids.add(id as SessionIdentity)
+    }
+    return Object.freeze([...ids].sort())
   }
 
   load(live = false): PersistedSessionState {
@@ -890,6 +1090,7 @@ export class AnnotationStorage {
       }
       const journalKeys = this.journalKeys()
       if (journalKeys !== null) {
+        this.observedJournalIds = journalKeys.map((key) => key.slice(`${this.key}:journal:`.length))
         if (raw !== null && needsEditorIds(decoded)) {
           if (this.migration?.raw === raw) state = this.migration.state
           else this.migration = { raw, state }
@@ -914,7 +1115,7 @@ export class AnnotationStorage {
           raw !== null &&
           (this.storage.getItem(this.key) === null ||
             needsEditorIds(decoded) ||
-            (decoded as Record<string, unknown>).storageVersion !== 3)
+            (decoded as Record<string, unknown>).storageVersion !== 6)
         if (this.coordination?.runExclusive !== undefined && (journalKeys.length > 0 || migrate))
           this.scheduleDrain()
         return state
@@ -930,7 +1131,7 @@ export class AnnotationStorage {
         this.writeMigrated(
           state,
           raw,
-          needsEditorIds(decoded) || (decoded as Record<string, unknown>).storageVersion !== 3,
+          needsEditorIds(decoded) || (decoded as Record<string, unknown>).storageVersion !== 6,
         )
       } catch (error: unknown) {
         this.error = error instanceof Error ? error.message : String(error)
@@ -966,13 +1167,14 @@ export class AnnotationStorage {
           this.previousJournalId,
           this.baseState ?? emptyPersistedState(),
           state,
+          this.observedJournalIds,
         )
         if (!journalHasChanges(journal)) {
           this.baseState = state
           this.scheduleDrain()
           return true
         }
-        const serialized = JSON.stringify({ version: 1, ...journal })
+        const serialized = JSON.stringify({ version: 2, ...journal })
         this.storage.setItem(`${this.key}:journal:${id}`, serialized)
         this.baseState = state
         this.previousJournalId = id

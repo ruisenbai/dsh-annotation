@@ -1,0 +1,40 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write dsh-annotation/README.md
+/dsh-annotation:
+  en: 9723a09a687b3f62
+  zh: 3042f4c2bdd1bbcc
+/dsh-annotation/workflow:
+  en: 7136000e494604c0
+  zh: fea0f400cbe13fb6
+/dsh-annotation/workflow/1-select-source-text:
+  en: ae59740040246448
+  zh: da998be838410770
+/dsh-annotation/workflow/2-save-an-annotation:
+  en: bf04cd86e9425992
+  zh: 4c2ed435d296b6a3
+/dsh-annotation/workflow/3-review-records-and-attach-them:
+  en: 2fb05656b708a45c
+  zh: f7395571f0aaacbe
+/dsh-annotation/workflow/4-send-and-resend:
+  en: 7f6a9322919d9c17
+  zh: 2b40360ead9133ce
+/dsh-annotation/workflow/5-configure:
+  en: ab20ec3224532023
+  zh: 7728536803b0212b
+/dsh-annotation/workflow/6-review-official-files-and-turn-diffs:
+  en: 703414ebe404f018
+  zh: df54b9b25d3f82ce
+/dsh-annotation/install-and-compatibility:
+  en: d86584baed79ef62
+  zh: 503db92542e4dc8c
+/dsh-annotation/install-and-compatibility/manual-installation:
+  en: 64b5f3c11a657f80
+  zh: bbbe69cf1692ea6e
+/dsh-annotation/install-and-compatibility/install-with-an-ai-agent:
+  en: 426c2aed40d10f61
+  zh: fe2fd000f6c35273
+/dsh-annotation/limitations:
+  en: d8dcef4e6a911dad
+  zh: bc18310e52fbef7c

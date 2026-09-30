@@ -4,12 +4,17 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TestAnnotatedAssistantNode as AnnotatedAssistantNode } from './assistant-host-fixture.tsx'
 import { AnnotatedUserNode } from '../src/client/components/AnnotatedUserNode.tsx'
+import { AnnotationDetails } from '../src/client/components/AnnotationDetails.tsx'
 import {
   AnnotationPluginCard,
   type AnnotationPluginCardProps,
 } from '../src/client/components/AnnotationPluginCard.tsx'
 import type { AnnotationView } from '../src/client/controller.ts'
-import type { AssistantAnnotationProps, UserAnnotationProps } from '../src/client/contract.ts'
+import type {
+  AssistantAnnotationProps,
+  InputAnnotationProps,
+  UserAnnotationProps,
+} from '../src/client/contract.ts'
 import type { AnnotationLocaleKey } from '../src/client/locales.ts'
 import type { MarketUpdateState } from '../src/client/market-update.ts'
 import { DEFAULT_TRANSCRIPT_VISIBILITY } from '../src/shared/settings.ts'
@@ -18,6 +23,7 @@ import { diffAnnotation } from './diff-fixtures.ts'
 import { sourceFields } from '../src/shared/annotation-source.ts'
 import { parseSubmissionPayload } from '../src/shared/protocol.ts'
 import { en } from '../src/client/locales.ts'
+import type { AnnotationDraft, SessionIdentity } from '../src/shared/types.ts'
 
 afterEach(() => {
   cleanup()
@@ -142,6 +148,8 @@ const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
 function baseView(): AnnotationView {
   return {
     annotations: [],
+    trash: [],
+    deletionMarks: [],
     outbox: [],
     overallRequirementDraft: '',
     editor: null,
@@ -153,6 +161,7 @@ function baseView(): AnnotationView {
     overlap: null,
     editorSaveStatus: 'idle',
     deletedDraft: null,
+    deletedAnnotationIds: [],
     panelOpen: false,
     recordExpanded: true,
     notice: null,
@@ -209,6 +218,10 @@ describe('annotation Settings tab', () => {
     return {
       useSettingsCard: <S,>(selector: (value: typeof snapshot) => S) => selector(snapshot),
       useMarketUpdate: <S,>(selector: (value: typeof marketSnapshot) => S) => selector(marketSnapshot),
+      useAnnotationTrash: <S,>(selector: (value: { rows: never[]; error: null }) => S) =>
+        selector({ rows: [], error: null }),
+      useSourceSnapshots: <S,>(selector: (value: number) => S) => selector(0),
+      refreshTrash: vi.fn(),
       setEnabled: vi.fn(),
       resetEnabled: vi.fn(),
       setIndividualSelection: vi.fn(),
@@ -234,7 +247,7 @@ describe('annotation Settings tab', () => {
     const props = cardProps({ dirty: true })
     render(<AnnotationPluginCard {...props} />)
 
-    expect(screen.getAllByRole('switch')).toHaveLength(2)
+    expect(screen.getAllByRole('switch')).toHaveLength(4)
     expect(screen.getByRole('heading', { name: 'DSH Inline Comments' })).toBeInTheDocument()
     expect(screen.queryByRole('listitem')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Enable DSH Inline Comments' }))
@@ -270,7 +283,7 @@ describe('annotation Settings tab', () => {
     render(<AnnotationPluginCard {...props} />)
 
     expect(screen.getByText('This deployment stores settings read-only.')).toHaveAttribute('role', 'status')
-    expect(screen.getAllByRole('switch')).toHaveLength(2)
+    expect(screen.getAllByRole('switch')).toHaveLength(4)
     for (const control of screen.getAllByRole('switch')) expect(control).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Reset to default' })).toBeDisabled()
     expect(screen.getByText('The deployment did not accept this value.')).toBeInTheDocument()
@@ -330,6 +343,81 @@ describe('annotation Settings tab', () => {
 })
 
 describe('inline comment presentation', () => {
+  it('shows rendered Markdown offsets and saved Diff identity and context without inventing file lines', () => {
+    const translate: InputAnnotationProps['t'] = (key, params) =>
+      en[key as keyof typeof en].replace(/\{(\w+)\}/g, (_, name: string) => String(params?.[name] ?? ''))
+    const base = {
+      annotationId: fixturePayload().annotations[0]!.annotationId,
+      ordinal: 1,
+      quote: { exact: '中😀', prefix: '前', suffix: '后', start: 4, end: 7 },
+      annotation: 'Check this source',
+      kind: 'note' as const,
+      createdAt: 1,
+      updatedAt: 1,
+      status: 'draft' as const,
+    }
+    const file: AnnotationDraft = {
+      ...base,
+      source: {
+        kind: 'file',
+        sessionId: 'details-session' as SessionIdentity,
+        resourceAddress: 'dsh-resource://file/details-session/notes.md',
+        path: '/workspace/notes.md',
+        resourceVersion: 'revision-1',
+        format: 'markdown',
+        snapshot: {
+          version: 2,
+          hash: 'saved-digest',
+          bytes: 40,
+          format: 'markdown',
+          coordinateSpace: 'rendered',
+        },
+        wholeFile: false,
+        entry: 'sidebar',
+      },
+    }
+    const { rerender } = render(<AnnotationDetails item={file} t={translate} />)
+    const fileDetails = screen.getByRole('region', { name: 'Annotation details' })
+    expect(within(fileDetails).getByText('4–7')).toBeVisible()
+    expect(within(fileDetails).getByText('Rendered text offsets (UTF-16)')).toBeVisible()
+    expect(within(fileDetails).queryByText('undefined')).toBeNull()
+
+    const diff: AnnotationDraft = {
+      ...base,
+      source: {
+        kind: 'official-diff',
+        snapshot: {
+          version: 2,
+          hash: 'saved-diff-digest',
+          sessionId: 'details-session' as SessionIdentity,
+          seq: 42,
+          turn: 3,
+          fileIndex: 2,
+          path: 'notes.md',
+          display: 'notes.md',
+          kind: 'text',
+          before: true,
+          after: true,
+          coarse: false,
+          hunks: [],
+          contextBefore: 'before change',
+          contextAfter: 'after change',
+        },
+        side: 'new',
+        startLine: 8,
+        endLine: 8,
+        wholeFile: false,
+        entry: 'sidebar',
+      },
+    }
+    rerender(<AnnotationDetails item={diff} t={translate} />)
+    const diffDetails = screen.getByRole('region', { name: 'Annotation details' })
+    expect(within(diffDetails).getByText('File index (zero-based)')).toBeVisible()
+    expect(within(diffDetails).getByText('2')).toBeVisible()
+    expect(within(diffDetails).getByText('before change')).toBeVisible()
+    expect(within(diffDetails).getByText('after change')).toBeVisible()
+  })
+
   it('changes the active quote without rebuilding mounted base highlights', () => {
     const submitted = fixturePayload().annotations[0]!
     const annotation = { ...submitted, status: 'draft' as const, updatedAt: submitted.createdAt }
@@ -1538,24 +1626,32 @@ describe('reply chips', () => {
     },
   )
 
-  it.each(['wrapped', 'unmeasurable'])('leaves a %s reply heading as ordinary text', (geometry) => {
-    chipGeometry()
-    Object.defineProperty(Range.prototype, 'getClientRects', {
-      configurable: true,
-      value: () =>
-        geometry === 'wrapped' ? [new DOMRect(200, 100, 30, 18), new DOMRect(0, 128, 30, 18)] : [],
-    })
-    if (geometry === 'unmeasurable') {
-      Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+  it.each(['wrapped', 'unmeasurable'])(
+    'keeps measurable reply heading fragments interactive: %s',
+    (geometry) => {
+      chipGeometry()
+      Object.defineProperty(Range.prototype, 'getClientRects', {
         configurable: true,
-        value: () => new DOMRect(),
+        value: () =>
+          geometry === 'wrapped' ? [new DOMRect(200, 100, 30, 18), new DOMRect(0, 128, 30, 18)] : [],
       })
-    }
-    const { view, text } = linkedReply('Annotation 1:')
-    render(<AnnotatedAssistantNode {...assistantPropsFor(view, 'closed', [{ kind: 'text', text }])} />)
-    expect(screen.queryByRole('button', { name: /Annotation 1:/u })).not.toBeInTheDocument()
-    expect(screen.getByText('Annotation 1: Original wording.')).toBeInTheDocument()
-  })
+      if (geometry === 'unmeasurable') {
+        Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+          configurable: true,
+          value: () => new DOMRect(),
+        })
+      }
+      const { view, text } = linkedReply('Annotation 1:')
+      render(<AnnotatedAssistantNode {...assistantPropsFor(view, 'closed', [{ kind: 'text', text }])} />)
+      if (geometry === 'unmeasurable') {
+        expect(screen.queryByRole('button', { name: /Annotation 1:/u })).not.toBeInTheDocument()
+      } else {
+        const chip = screen.getByRole('button', { name: /Annotation 1:/u })
+        expect(chip.querySelectorAll('.dia-reply-chip__fragment')).toHaveLength(2)
+      }
+      expect(screen.getByText('Annotation 1: Original wording.')).toBeInTheDocument()
+    },
+  )
 
   it('delays pointer previews, preserves selected heading text, and cancels previews on Escape and unmount', () => {
     vi.useFakeTimers()
@@ -1647,7 +1743,7 @@ describe('reply chips', () => {
     expect(measured).not.toContain('注解 1')
   })
 
-  it('removes the preview when a resized heading no longer fits on one visual line', () => {
+  it('keeps the preview and navigation when a resized heading wraps onto another line', () => {
     vi.useFakeTimers()
     chipGeometry()
     let wrapped = false
@@ -1665,8 +1761,10 @@ describe('reply chips', () => {
     wrapped = true
     fireEvent(window, new Event('resize'))
     act(() => vi.advanceTimersByTime(20))
-    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Annotation 1:/u })).not.toBeInTheDocument()
+    expect(screen.getByRole('tooltip')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Annotation 1:/u }).querySelectorAll('.dia-reply-chip__fragment'),
+    ).toHaveLength(2)
     expect(screen.getByText('Annotation 1: Original wording.')).toBeInTheDocument()
   })
 

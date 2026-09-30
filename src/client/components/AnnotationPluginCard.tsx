@@ -5,11 +5,13 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { AnnotationSettingsInjected } from '../feature-toggle.ts'
 import type { MarketUpdateInjected, MarketUpdateState } from '../market-update.ts'
+import type { AnnotationTrashInjected } from '../annotation-trash.ts'
+import { AnnotationTrashPanel } from './AnnotationTrashPanel.tsx'
 
 /** Full props for the annotation section in main Settings. */
 export type AnnotationPluginCardProps = PropsRuntime<'settings.section'> &
   PropsLocale<'dshAnnotation'> &
-  InjectFace<AnnotationSettingsInjected & MarketUpdateInjected>
+  InjectFace<AnnotationSettingsInjected & MarketUpdateInjected & AnnotationTrashInjected>
 
 function marketStatus(props: AnnotationPluginCardProps, state: MarketUpdateState) {
   if (state.phase === 'idle') return props.t('settings.updateIdle')
@@ -43,6 +45,7 @@ export function AnnotationPluginCard(props: AnnotationPluginCardProps) {
       <div className="dia-plugin-card__body">
         <h2 className="dia-plugin-card__title">{props.t('settings.title')}</h2>
         <p className="dia-plugin-card__intro">{props.t('settings.cardDescription')}</p>
+        <AnnotationTrashPanel {...props} />
         {state.dirty ? <Tag tone="neutral">{props.t('settings.unsaved')}</Tag> : null}
         {!state.writable ? (
           <p className="dia-plugin-card__read-only" role="status">
@@ -79,6 +82,68 @@ export function AnnotationPluginCard(props: AnnotationPluginCardProps) {
             />
           </span>
           <p className="dia-plugin-card__hint">{props.t('settings.description')}</p>
+        </div>
+        <div className="dia-plugin-card__field">
+          <div className="dia-plugin-card__field-head">
+            <span className="dia-plugin-card__field-label">{props.t('settings.officialFile')}</span>
+            {state.officialFileAnnotationsOverridden ? (
+              <span className="dia-plugin-card__field-actions">
+                <Tag tone="neutral">{props.t('settings.overridden')}</Tag>
+                <button
+                  type="button"
+                  className="dia-plugin-card__reset"
+                  disabled={!state.writable || state.saving}
+                  onClick={props.resetOfficialFileAnnotations}
+                >
+                  {props.t('settings.reset')}
+                </button>
+              </span>
+            ) : null}
+          </div>
+          <span className="dia-plugin-card__switch-row">
+            <span className="dia-plugin-card__switch-state">
+              {props.t(state.officialFileAnnotations ? 'settings.on' : 'settings.off')}
+            </span>
+            <Switch
+              checked={state.officialFileAnnotations}
+              className="dia-plugin-card__switch"
+              label={props.t('settings.officialFile')}
+              disabled={!state.writable || state.saving}
+              onChange={props.setOfficialFileAnnotations}
+            />
+          </span>
+          <p className="dia-plugin-card__hint">{props.t('settings.officialHint')}</p>
+        </div>
+        <div className="dia-plugin-card__field">
+          <div className="dia-plugin-card__field-head">
+            <span className="dia-plugin-card__field-label">{props.t('settings.officialDiff')}</span>
+            {state.officialDiffAnnotationsOverridden ? (
+              <span className="dia-plugin-card__field-actions">
+                <Tag tone="neutral">{props.t('settings.overridden')}</Tag>
+                <button
+                  type="button"
+                  className="dia-plugin-card__reset"
+                  disabled={!state.writable || state.saving}
+                  onClick={props.resetOfficialDiffAnnotations}
+                >
+                  {props.t('settings.reset')}
+                </button>
+              </span>
+            ) : null}
+          </div>
+          <span className="dia-plugin-card__switch-row">
+            <span className="dia-plugin-card__switch-state">
+              {props.t(state.officialDiffAnnotations ? 'settings.on' : 'settings.off')}
+            </span>
+            <Switch
+              checked={state.officialDiffAnnotations}
+              className="dia-plugin-card__switch"
+              label={props.t('settings.officialDiff')}
+              disabled={!state.writable || state.saving}
+              onChange={props.setOfficialDiffAnnotations}
+            />
+          </span>
+          <p className="dia-plugin-card__hint">{props.t('settings.officialHint')}</p>
         </div>
         <div className="dia-plugin-card__field">
           <div className="dia-plugin-card__field-head">

@@ -98,6 +98,7 @@ const fixtureTokens = `
   --dsw-alias-button-tool-bar-fill: var(--dsw-alias-bg-layer-2);
   --dsw-alias-button-tool-bar-hover: var(--dsw-alias-interactive-bg-hover);
   --dsw-alias-interactive-bg-hover: #edf2f5;
+  --dsw-alias-interactive-bg-hover-danger: rgba(236, 19, 19, 0.05);
   --dsw-alias-interactive-bg-active: #e3e9ee;
   --dsw-alias-button-info-fill: #4d6bfe;
   --dsw-alias-button-info-hover: #405bd8;
@@ -140,6 +141,8 @@ const fixtureTokens = `
     --dsw-alias-border-l1: #313942;
     --dsw-alias-border-l2: #44505b;
     --dsw-alias-interactive-bg-hover: #2c353e;
+    --dsw-alias-interactive-bg-hover-danger: rgba(242, 90, 90, 0.15);
+    --dsw-alias-state-error-primary: #f25a5a;
     --dsw-alias-state-business-primary: #5b79ff;
     --dsw-alias-state-business-tertiary: #26345f;
     --dsw-alias-scrollbar-bg-l2: #596570;
@@ -340,6 +343,8 @@ function Fixture({ mode }: { mode: 'legacy' | 'reading' | 'blocked' }) {
     resumeEditor: controller.resumeEditor.bind(controller),
     discardEditorDraft: controller.discardEditorDraft.bind(controller),
     toggleSelected: controller.toggleSelected.bind(controller),
+    detachAnnotations: controller.detachAnnotations.bind(controller),
+    trashAnnotations: controller.trashAnnotations.bind(controller),
     setProcessingMode: controller.setProcessingMode.bind(controller),
     selectRetry: controller.selectRetry.bind(controller),
     openAnnotation: controller.openAnnotation.bind(controller),
@@ -803,6 +808,8 @@ function InteractionSession({
     resumeEditor: controller.resumeEditor.bind(controller),
     discardEditorDraft: controller.discardEditorDraft.bind(controller),
     toggleSelected: controller.toggleSelected.bind(controller),
+    detachAnnotations: controller.detachAnnotations.bind(controller),
+    trashAnnotations: controller.trashAnnotations.bind(controller),
     setProcessingMode: controller.setProcessingMode.bind(controller),
     selectRetry,
     openAnnotation: controller.openAnnotation.bind(controller),

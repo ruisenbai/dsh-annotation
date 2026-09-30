@@ -8,7 +8,6 @@ import {
   useState,
   type ReactElement,
 } from 'react'
-import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createPortal } from 'react-dom'
 import { parseReplyMarkers, stripMachineMarkers } from '../../shared/model-ack.ts'
 import { replyHeadingNeedles } from '../../shared/protocol.ts'
@@ -19,6 +18,8 @@ import { markerElement, useAnnotationFloating } from '../floating.ts'
 import { layoutMarkers, sameMarkerLayout, type MarkerLayout, type MarkerRect } from '../marker-layout.ts'
 import { buildTextIndex, captureSelection, rangeFromSelector, textBlockIndexOf } from '../selection.ts'
 import type { TextIndex } from '../selection.ts'
+import { SelectionAction } from './SelectionAction.tsx'
+import { AnnotationMarkerButton } from './AnnotationMarkerButton.tsx'
 
 function sameAnnotations(left: readonly AnnotationDraft[], right: readonly AnnotationDraft[]): boolean {
   return left.length === right.length && left.every((item, index) => item === right[index])
@@ -103,11 +104,6 @@ interface VisualLine {
   readonly right: number
   readonly bottom: number
   readonly height: number
-}
-
-function sharesVisualLine(rect: VisualLine, line: VisualLine): boolean {
-  const overlap = Math.min(rect.bottom, line.bottom) - Math.max(rect.top, line.top)
-  return overlap > Math.min(rect.height, line.height) / 2
 }
 
 function scrollContainer(element: HTMLElement): HTMLElement | null {
@@ -294,6 +290,12 @@ interface ReplyChipState {
   readonly left: number
   readonly width: number
   readonly height: number
+  readonly fragments: readonly {
+    readonly top: number
+    readonly left: number
+    readonly width: number
+    readonly height: number
+  }[]
 }
 
 function sameReplyChips(left: readonly ReplyChipState[], right: readonly ReplyChipState[]): boolean {
@@ -307,7 +309,17 @@ function sameReplyChips(left: readonly ReplyChipState[], right: readonly ReplyCh
         chip.top === other.top &&
         chip.left === other.left &&
         chip.width === other.width &&
-        chip.height === other.height
+        chip.height === other.height &&
+        chip.fragments.length === other.fragments.length &&
+        chip.fragments.every((fragment, fragmentIndex) => {
+          const previous = other.fragments[fragmentIndex]!
+          return (
+            fragment.top === previous.top &&
+            fragment.left === previous.left &&
+            fragment.width === previous.width &&
+            fragment.height === previous.height
+          )
+        })
       )
     })
   )
@@ -758,9 +770,14 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
             ? Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0)
             : []
         const first = rects[0]
-        if (first !== undefined && rects.some((rect) => !sharesVisualLine(rect, first))) continue
         const rect = typeof range.getBoundingClientRect === 'function' ? range.getBoundingClientRect() : first
         if (rect === undefined || rect.width <= 0 || rect.height <= 0) continue
+        const fragments = (rects.length === 0 ? [rect] : rects).map((fragment) => ({
+          top: (fragment.top - rootRect.top) / scaleY,
+          left: (fragment.left - rootRect.left) / scaleX,
+          width: fragment.width / scaleX,
+          height: fragment.height / scaleY,
+        }))
         next.push({
           key: target.key,
           annotation: target.annotation,
@@ -769,6 +786,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
           left: (rect.left - rootRect.left) / scaleX,
           width: rect.width / scaleX,
           height: rect.height / scaleY,
+          fragments,
         })
       }
       setReplyChips((current) => (sameReplyChips(current, next) ? current : next))
@@ -865,12 +883,14 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     const scaleY = root.offsetHeight > 0 ? rect.height / root.offsetHeight : 1
     const left = (x - rect.left) / scaleX
     const top = (y - rect.top) / scaleY
-    return replyChips.find(
-      (chip) =>
-        left >= chip.left &&
-        left <= chip.left + chip.width &&
-        top >= chip.top &&
-        top <= chip.top + chip.height,
+    return replyChips.find((chip) =>
+      chip.fragments.some(
+        (fragment) =>
+          left >= fragment.left &&
+          left <= fragment.left + fragment.width &&
+          top >= fragment.top &&
+          top <= fragment.top + fragment.height,
+      ),
     )
   }
 
@@ -937,59 +957,24 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       ))}
       {!focusDuplicated && markerLayout.groups.length > 0 && (
         <nav className="dia-markers" aria-label={t('list.title')}>
-          {markerLayout.groups.map((group) => {
-            const members = group.annotationIds.flatMap((id) => {
-              const item = annotations.find((annotation) => annotation.annotationId === id)
-              return item === undefined ? [] : [item]
-            })
-            const first = members[0]
-            if (first === undefined) return null
-            const annotation = members.find((item) => item.annotationId === activeId) ?? first
-            const grouped = members.length > 1
-            const label = grouped
-              ? t('marker.groupLabel', {
-                  count: members.length,
-                  ordinals: members.map((item) => item.ordinal).join(', '),
-                })
-              : `#${annotation.ordinal}: ${annotation.annotation === '' ? t('highlightOnly') : annotation.annotation}`
-            return (
-              <Tooltip
-                key={first.annotationId}
-                label={grouped ? label : previewText(annotation.annotation || t('highlightOnly'))}
-                side="top"
-                delayMs={300}
-                maxWidth={280}
-                disabled={detailsOpen}
-              >
-                <button
-                  type="button"
-                  className="dia-marker"
-                  data-annotation-id={first.annotationId}
-                  data-annotation-ids={group.annotationIds.join(' ')}
-                  data-status={annotation.status}
-                  data-active={members.some((item) => item.annotationId === activeId)}
-                  style={{ top: group.top, left: group.left, width: group.width, height: group.height }}
-                  aria-label={label}
-                  aria-haspopup="dialog"
-                  disabled={editorOpen}
-                  onPointerEnter={() => previewAnnotation(annotation.annotationId)}
-                  onPointerLeave={() => previewAnnotation(activeId)}
-                  onFocus={() => previewAnnotation(annotation.annotationId)}
-                  onBlur={() => previewAnnotation(activeId)}
-                  onClick={() =>
-                    openAnnotation(
-                      annotation.annotationId,
-                      annotation.status === 'draft' ? 'marker-edit' : 'marker',
-                    )
-                  }
-                >
-                  <span>
-                    {grouped ? t('marker.groupCount', { count: members.length }) : annotation.ordinal}
-                  </span>
-                </button>
-              </Tooltip>
-            )
-          })}
+          {markerLayout.groups.map((group) => (
+            <AnnotationMarkerButton
+              key={group.annotationIds[0]}
+              group={group}
+              annotations={annotations}
+              t={t}
+              activeId={activeId}
+              detailsOpen={detailsOpen}
+              editorOpen={editorOpen}
+              onPreview={previewAnnotation}
+              onOpen={(annotation) =>
+                openAnnotation(
+                  annotation.annotationId,
+                  annotation.status === 'draft' ? 'marker-edit' : 'marker',
+                )
+              }
+            />
+          ))}
         </nav>
       )}
       {!focusDuplicated && replyChips.length > 0 && (
@@ -1005,6 +990,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
               className="dia-reply-chip"
               style={{ top: chip.top, left: chip.left, width: chip.width, height: chip.height }}
               data-active={replyHover?.key === chip.key}
+              data-wrapped={chip.fragments.length > 1 || undefined}
               disabled={editorOpen}
               aria-label={t('reply.chipLabel', {
                 ordinal: chip.ordinal,
@@ -1021,7 +1007,22 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
                 clearReplyPreview()
                 void navigate(chip.annotation.annotationId)
               }}
-            />
+            >
+              {chip.fragments.length > 1 &&
+                chip.fragments.map((fragment, index) => (
+                  <span
+                    key={index}
+                    className="dia-reply-chip__fragment"
+                    aria-hidden="true"
+                    style={{
+                      top: fragment.top - chip.top,
+                      left: fragment.left - chip.left,
+                      width: fragment.width,
+                      height: fragment.height,
+                    }}
+                  />
+                ))}
+            </button>
           ))}
         </nav>
       )}
@@ -1044,28 +1045,16 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
           document.body,
         )}
       {selectionBar !== null && (
-        <div
-          ref={selectionBarRef}
-          className="dia-selection-bar"
-          role="toolbar"
-          aria-label={t('selection.toolbar')}
-          style={{
-            left: Math.max(12, Math.min(selectionBar.capture.rect.left, window.innerWidth - 212)),
-            top: Math.max(12, Math.min(selectionBar.capture.rect.bottom + 8, window.innerHeight - 44)),
+        <SelectionAction
+          elementRef={selectionBarRef}
+          rect={selectionBar.capture.rect}
+          label={t('selection.annotate')}
+          toolbarLabel={t('selection.toolbar')}
+          onAnnotate={() => {
+            beginSelection(selectionBar.capture)
+            setSelectionBar(null)
           }}
-          onPointerDown={(event) => event.preventDefault()}
-        >
-          <button
-            type="button"
-            className="dia-selection-bar__action"
-            onClick={() => {
-              beginSelection(selectionBar.capture)
-              setSelectionBar(null)
-            }}
-          >
-            {t('selection.annotate')}
-          </button>
-        </div>
+        />
       )}
     </section>
   )

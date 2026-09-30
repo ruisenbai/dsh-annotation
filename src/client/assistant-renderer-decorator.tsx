@@ -8,6 +8,7 @@ import type { StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AnnotationBoundProps, AnnotationInjected, AssistantAnnotationProps } from './contract.ts'
 import { AnnotatedAssistantNode } from './components/AnnotatedAssistantNode.tsx'
 import { stripMachineMarkersForDisplay } from '../shared/model-ack.ts'
+import { emphasizeReplyLabels, knownReplyPairs } from './reply-emphasis.ts'
 
 type BaseAssistantProps = ChatNodeViewProps<'assistant-step'>
 type DecoratedAssistantProps = BaseAssistantProps & AnnotationBoundProps
@@ -40,17 +41,30 @@ function wrapAssistantRenderer(inner: ComponentType<BaseAssistantProps>) {
   const DecoratedAssistantRenderer = memo(function DecoratedAssistantRenderer(
     props: DecoratedAssistantProps,
   ) {
+    const annotations = props.useAnnotations((view) => view.annotations)
+    const outbox = props.useAnnotations((view) => view.outbox)
+    const replyAssociations = props.useAnnotations((view) => view.replyAssociations)
+    const known = useMemo(
+      () =>
+        knownReplyPairs({
+          annotations,
+          outbox,
+          ...(replyAssociations === undefined ? {} : { replyAssociations }),
+        }),
+      [annotations, outbox, replyAssociations],
+    )
     const displayNode = useMemo(() => {
       let changed = false
       const blocks = props.node.data.blocks.map((block) => {
         if (block.kind !== 'text' && block.kind !== 'reasoning') return block
-        const text = stripMachineMarkersForDisplay(block.text, props.node.data.status === 'running')
+        const decorated = block.kind === 'text' ? emphasizeReplyLabels(block.text, known) : block.text
+        const text = stripMachineMarkersForDisplay(decorated, props.node.data.status === 'running')
         if (text === block.text) return block
         changed = true
         return { ...block, text }
       })
       return changed ? { ...props.node, data: { ...props.node.data, blocks } } : props.node
-    }, [props.node])
+    }, [props.node, known])
     const content = createElement(inner, { ...props, node: displayNode } as BaseAssistantProps)
     return createElement(AnnotatedAssistantNode, {
       ...props,

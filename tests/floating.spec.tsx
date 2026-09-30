@@ -6,11 +6,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   computeAnnotationFloating,
   markerElement,
+  registerOfficialAnchor,
   selectionAnchor,
   useAnnotationFloating,
   type AnnotationFloatingAnchor,
 } from '../src/client/floating.ts'
-import type { AnnotationId, MessageIdentity } from '../src/shared/types.ts'
+import type { AnnotationId, MessageIdentity, SessionIdentity } from '../src/shared/types.ts'
+import { fileSource } from '../src/client/official-adapters.ts'
+import { sourceKey } from '../src/shared/annotation-source.ts'
 
 const disposers: Array<() => void> = []
 
@@ -54,6 +57,37 @@ function geometry() {
 }
 
 describe('annotation floating geometry', () => {
+  it('never covers the final selected character when both sides have less than 120 pixels', () => {
+    const anchor = rect(680, 125, 30, 20)
+    const position = computeAnnotationFloating({
+      anchor,
+      body: null,
+      boundary: rect(500, 0, 400, 250),
+      composer: null,
+      size: { width: 250, height: 200 },
+      preferBelow: true,
+    })
+    const bottom = position.top + Math.min(200, position.maxHeight)
+    expect(bottom <= anchor.top || position.top >= anchor.bottom).toBe(true)
+    expect(position.maxHeight).toBeGreaterThan(0)
+  })
+
+  it('keeps an editor outside the complete multiline selection when it cannot fit below', () => {
+    const selected = rect(600, 100, 100, 300)
+    const position = computeAnnotationFloating({
+      anchor: rect(680, 380, 20, 20),
+      selectionRect: selected,
+      body: null,
+      boundary: rect(500, 0, 400, 500),
+      composer: null,
+      size: { width: 250, height: 200 },
+      preferBelow: true,
+    })
+    expect(
+      position.top >= selected.bottom || position.top + Math.min(position.maxHeight, 200) <= selected.top,
+    ).toBe(true)
+  })
+
   it('uses an existing right gutter before the available space below a selection', () => {
     expect(computeAnnotationFloating(geometry())).toEqual({
       placement: 'right',
@@ -67,7 +101,7 @@ describe('annotation floating geometry', () => {
   it('puts an editor below the final character even when the reply has a side gutter', () => {
     expect(computeAnnotationFloating({ ...geometry(), preferBelow: true })).toMatchObject({
       placement: 'bottom',
-      left: 812,
+      left: 852,
       top: 332,
     })
   })
@@ -235,6 +269,34 @@ function scene() {
 }
 
 describe('live annotation anchors', () => {
+  it('anchors a whole file to its visible action instead of a hidden retained preview', () => {
+    const hidden = scene()
+    hidden.root.hidden = true
+    const visible = scene()
+    const source = fileSource(
+      {
+        sessionId: 'anchor-session' as SessionIdentity,
+        resourceAddress: 'dsh-resource://file/session/anchor-session/%2Ffile.txt',
+        path: '/file.txt',
+        resourceVersion: 'v1',
+        format: 'text',
+        hash: 'a'.repeat(64),
+        bytes: 1,
+        text: 'a',
+      },
+      'sidebar',
+      true,
+    )
+    const capture = {
+      source,
+      quote: { exact: '', prefix: '', suffix: '', start: 0, end: 0 },
+      rect: { top: 0, bottom: 0, left: 0, right: 0 },
+    }
+    disposers.push(registerOfficialAnchor(sourceKey(capture), () => hidden.marker))
+    disposers.push(registerOfficialAnchor(sourceKey(capture), () => visible.marker))
+    expect(selectionAnchor(capture)).toBe(visible.marker)
+  })
+
   it('matches a grouped id exactly, skips hidden copies, and prefers a displayed focus marker', () => {
     const regular = scene()
     regular.marker.dataset.annotationIds = `${firstId} ${secondId}`
@@ -361,9 +423,11 @@ function FloatingProbe({
   enabled = true,
   anchor,
   composer,
+  preferBelow = false,
 }: {
   current: ReturnType<typeof scene>
   enabled?: boolean
+  preferBelow?: boolean
   anchor?: () => AnnotationFloatingAnchor | null
   composer?: () => HTMLElement | null
 }) {
@@ -379,6 +443,7 @@ function FloatingProbe({
     floatingRef,
     anchor: anchor ?? current.anchor,
     enabled,
+    preferBelow,
     ...(composer === undefined ? {} : { composer }),
   })
   return (
@@ -389,6 +454,24 @@ function FloatingProbe({
 }
 
 describe('annotation floating lifecycle', () => {
+  it('reserves scrolling space for an editor and restores the original padding after close', () => {
+    layoutEvents()
+    const current = scene()
+    current.scroll.style.paddingBottom = '7px'
+    current.bounds.marker = rect(820, 680, 24, 22)
+    const anchor = () => ({
+      contextElement: current.body,
+      rect: rect(820, 680 - current.scroll.scrollTop, 24, 22),
+    })
+    const mounted = render(<FloatingProbe current={current} preferBelow anchor={anchor} />)
+    expect(Number.parseFloat(current.scroll.style.paddingBottom)).toBeGreaterThan(7)
+    expect(current.scroll.scrollTop).toBeGreaterThan(0)
+    const panel = screen.getByTestId('floating')
+    expect(Number.parseFloat(panel.style.top)).toBeGreaterThanOrEqual(anchor().rect.bottom)
+    mounted.unmount()
+    expect(current.scroll.style.paddingBottom).toBe('7px')
+  })
+
   it('measures the panel and visible scrollport, and resolves the composer from the current region', () => {
     const events = layoutEvents()
     const unrelated = scene()

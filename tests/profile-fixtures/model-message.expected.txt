@@ -18,8 +18,12 @@ Answer every annotation in order:
 Annotation 1 (profile-note)
 Reply message: <assistant-message>
 Reply event seq: <assistant-seq>
+Quote prefix:
+Review the local notes.<space>
 Selected text:
 Selected source
+Quote suffix:
+ needs clarification.
 User annotation:
 Explain this claim.
 

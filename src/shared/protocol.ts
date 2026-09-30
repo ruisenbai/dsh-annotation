@@ -1,5 +1,13 @@
 import { diffQuote, parseDiffSource, diffPosition } from './diff-source.ts'
+import {
+  officialDiffContext,
+  officialDiffPosition,
+  officialDiffQuote,
+  parseFileAnnotationSource,
+  parseOfficialDiffSource,
+} from './official-source.ts'
 import type { AnnotationAnchor } from './annotation-source.ts'
+import { quoteFragmentHash } from './snapshot-hash.ts'
 import {
   DEFAULT_PROCESSING_MODE,
   FALLBACK_PROTOCOL_LOCALE,
@@ -211,15 +219,21 @@ export function parseStructuredSelection(value: unknown, field: string): Structu
 export function parseAnnotationAnchor(value: Record<string, unknown>): AnnotationAnchor {
   if (value.source !== undefined) {
     const source = record(value.source, 'annotation.source')
-    if (source.kind === 'diff') {
+    if (source.kind === 'diff' || source.kind === 'file' || source.kind === 'official-diff') {
       if (
         value.messageId !== undefined ||
         value.messageSeq !== undefined ||
         value.responseVersion !== undefined
       ) {
-        throw new ProtocolError('Diff annotations must not carry message coordinates')
+        throw new ProtocolError('Non-message annotations must not carry message coordinates')
       }
-      return { source: parseDiffSource(source) }
+      try {
+        if (source.kind === 'diff') return { source: parseDiffSource(source) }
+        if (source.kind === 'file') return { source: parseFileAnnotationSource(source) }
+        return { source: parseOfficialDiffSource(source) }
+      } catch (error: unknown) {
+        throw new ProtocolError(error instanceof Error ? error.message : String(error))
+      }
     }
     if (source.kind !== 'message') throw new ProtocolError('Unknown annotation source kind')
   }
@@ -241,13 +255,85 @@ export function parseAnnotationAnchor(value: Record<string, unknown>): Annotatio
   return { ...anchor, source: Object.freeze({ kind: 'message' as const, ...anchor }) }
 }
 
-/** Diff quotes are reconstructed from complete frozen file contents, including blank lines. */
+/** Diff quotes are reconstructed from immutable snapshots, never from current files. */
 export function parseAnnotationQuote(value: unknown, anchor: AnnotationAnchor): TextQuoteSelector {
-  if (anchor.source?.kind !== 'diff') return parseTextQuoteSelector(value, 'quote')
+  if (
+    anchor.source?.kind !== 'diff' &&
+    anchor.source?.kind !== 'official-diff' &&
+    anchor.source?.kind !== 'file'
+  )
+    return parseTextQuoteSelector(value, 'quote')
+  if (
+    (anchor.source.kind === 'official-diff' && anchor.source.wholeFile) ||
+    (anchor.source.kind === 'file' && anchor.source.wholeFile)
+  ) {
+    const quote = record(value, 'quote')
+    if (quote.exact !== '' || quote.start !== 0 || quote.end !== 0) {
+      throw new ProtocolError('Whole-file official sources must not carry a text quote')
+    }
+    return Object.freeze({ exact: '', prefix: '', suffix: '', start: 0, end: 0 })
+  }
+  if (anchor.source.kind === 'file') {
+    const quote = parseTextQuoteSelector(value, 'quote')
+    if (anchor.source.snapshot.version === 2) {
+      if (quote.exact.length === 0 || quoteFragmentHash(quote) !== anchor.source.snapshot.fragmentHash)
+        throw new ProtocolError('File quote does not match its verified fragment')
+      if (anchor.source.snapshot.coordinateSpace === 'raw') {
+        const lines = quote.exact.split('\n')
+        if (lines.length !== anchor.source.endLine! - anchor.source.startLine! + 1)
+          throw new ProtocolError('File quote does not match its line range')
+        if (
+          lines.length === 1 &&
+          anchor.source.endColumn! - anchor.source.startColumn! !== quote.exact.length
+        )
+          throw new ProtocolError('File quote does not match its column range')
+        if (lines.length > 1 && anchor.source.endColumn !== lines[lines.length - 1]!.length)
+          throw new ProtocolError('File quote does not match its final column')
+      }
+      return quote
+    }
+    const text = anchor.source.snapshot.renderedText ?? anchor.source.snapshot.text
+    if (text === undefined || quote.exact.length === 0 || text.slice(quote.start, quote.end) !== quote.exact)
+      throw new ProtocolError('File quote does not match its immutable snapshot')
+    if (
+      text.slice(Math.max(0, quote.start - quote.prefix.length), quote.start) !== quote.prefix ||
+      text.slice(quote.end, quote.end + quote.suffix.length) !== quote.suffix
+    )
+      throw new ProtocolError('File quote context does not match its immutable snapshot')
+    const startLine = text.slice(0, quote.start).split('\n').length
+    const endLine = text.slice(0, quote.end).split('\n').length
+    const startColumn = quote.start - text.lastIndexOf('\n', quote.start - 1) - 1
+    const endColumn = quote.end - text.lastIndexOf('\n', quote.end - 1) - 1
+    if (
+      anchor.source.startLine !== startLine ||
+      anchor.source.endLine !== endLine ||
+      anchor.source.startColumn !== startColumn ||
+      anchor.source.endColumn !== endColumn
+    )
+      throw new ProtocolError('File anchor does not match its immutable snapshot')
+    return quote
+  }
   const quote = record(value, 'quote')
-  const expected = diffQuote(anchor.source)
+  if (anchor.source.kind === 'official-diff' && anchor.source.snapshot.version === 2) {
+    const parsed = parseTextQuoteSelector(quote, 'quote')
+    if (parsed.exact.length === 0 || quoteFragmentHash(parsed) !== anchor.source.snapshot.fragmentHash)
+      throw new ProtocolError('Diff quote does not match its verified fragment')
+    const lines = parsed.exact.split('\n')
+    if (
+      lines.length !== anchor.source.endLine! - anchor.source.startLine! + 1 ||
+      (lines.length === 1 &&
+        anchor.source.startColumn !== undefined &&
+        parsed.exact.length !== anchor.source.endColumn! - anchor.source.startColumn) ||
+      (lines.length > 1 &&
+        anchor.source.endColumn !== undefined &&
+        lines[lines.length - 1]!.length !== anchor.source.endColumn)
+    )
+      throw new ProtocolError('Diff quote does not match its line and column range')
+    return parsed
+  }
+  const expected = anchor.source.kind === 'diff' ? diffQuote(anchor.source) : officialDiffQuote(anchor.source)
   if (Object.entries(expected).some(([key, item]) => quote[key] !== item)) {
-    throw new ProtocolError('Diff quote does not match its original file lines')
+    throw new ProtocolError('Diff quote does not match its immutable snapshot')
   }
   return expected
 }
@@ -269,7 +355,10 @@ export function parseSubmittedAnnotation(value: unknown, index: number): Submitt
     throw new ProtocolError(`${field}.supplementalTo must not reference the annotation itself`)
   }
   const anchor = parseAnnotationAnchor(source)
-  if (anchor.source?.kind === 'diff' && parsedStructure !== undefined)
+  if (
+    (anchor.source?.kind === 'diff' || anchor.source?.kind === 'official-diff') &&
+    parsedStructure !== undefined
+  )
     throw new ProtocolError('Diff sources cannot use message-fragment coordinates')
   const parsed: SubmittedAnnotation = {
     annotationId,
@@ -289,7 +378,7 @@ export function parseSubmittedAnnotation(value: unknown, index: number): Submitt
 export function parseSubmissionPayload(value: unknown): AnnotationSubmissionPayload {
   const source = record(value, 'submission')
   const version = source.protocolVersion
-  if (version !== 1 && version !== 2 && version !== 3) {
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5) {
     throw new ProtocolError(`unsupported protocolVersion ${String(version)}`)
   }
   if (!Array.isArray(source.annotations) || source.annotations.length === 0) {
@@ -301,10 +390,38 @@ export function parseSubmissionPayload(value: unknown): AnnotationSubmissionPayl
     }
   }
   const annotations = source.annotations.map(parseSubmittedAnnotation)
-  if (version === 3 && annotations.some((item) => item.source === undefined))
-    throw new ProtocolError('Protocol v3 requires an explicit annotation source')
+  if (
+    (version === 3 || version === 4 || version === 5) &&
+    annotations.some((item) => item.source === undefined)
+  )
+    throw new ProtocolError(`Protocol v${version} requires an explicit annotation source`)
   if (version !== 3 && annotations.some((item) => item.source?.kind === 'diff'))
-    throw new ProtocolError('Diff sources require protocol v3')
+    throw new ProtocolError('Historical Diff sources require protocol v3')
+  if (
+    version !== 4 &&
+    version !== 5 &&
+    annotations.some((item) => item.source?.kind === 'file' || item.source?.kind === 'official-diff')
+  )
+    throw new ProtocolError('Official file and Diff sources require protocol v4')
+  if (
+    version !== 5 &&
+    annotations.some(
+      (item) =>
+        (item.source?.kind === 'file' || item.source?.kind === 'official-diff') &&
+        item.source.snapshot.version === 2,
+    )
+  )
+    throw new ProtocolError('Compact official sources require protocol v5')
+  if (
+    version === 5 &&
+    annotations.some(
+      (item) =>
+        (item.source?.kind === 'file' || item.source?.kind === 'official-diff') &&
+        item.source.wholeFile &&
+        item.annotation.trim() === '',
+    )
+  )
+    throw new ProtocolError('Whole-file annotations require an opinion')
   const ids = new Set(annotations.map((item) => item.annotationId))
   if (ids.size !== annotations.length) throw new ProtocolError('annotation ids must be unique')
   const ordinals = annotations.map((item) => item.ordinal)
@@ -318,7 +435,7 @@ export function parseSubmissionPayload(value: unknown): AnnotationSubmissionPayl
   const overallRequirement = optionalString(source.overallRequirement, 'overallRequirement')
   const protocolLocale: ProtocolLocale = source.protocolLocale === 'zh' ? 'zh' : 'en'
   return Object.freeze({
-    protocolVersion: version === 3 ? 3 : 2,
+    protocolVersion: version === 5 ? 5 : version === 4 ? 4 : version === 3 ? 3 : 2,
     source: PROTOCOL_SOURCE,
     submissionId: id<SubmissionId>(source.submissionId, 'submissionId'),
     sessionId: id<SessionIdentity>(source.sessionId, 'sessionId'),
@@ -451,11 +568,54 @@ const PROCESSING_INSTRUCTIONS_EN: Readonly<Record<ProcessingMode, readonly strin
   ],
 }
 
-/** Human-readable Git context is derived solely from the durable submitted source. */
+/** Human-readable source context is derived solely from the durable submitted source. */
 function annotationLocationLines(item: SubmittedAnnotation): string[] {
-  if (item.source?.kind !== 'diff')
-    return [`Reply message: ${item.messageId}`, `Reply event seq: ${item.messageSeq}`]
   const source = item.source
+  if (source === undefined || source.kind === 'message')
+    return [`Reply message: ${item.messageId}`, `Reply event seq: ${item.messageSeq}`]
+  if (source.kind === 'file') {
+    const coordinateSpace =
+      source.snapshot.coordinateSpace ?? (source.snapshot.renderedText === undefined ? 'raw' : 'rendered')
+    return [
+      `Source: file preview; ${source.path}${source.wholeFile ? ' · whole file' : ''}`,
+      `Session: ${source.sessionId}; resource: ${source.resourceAddress}`,
+      `Format: ${source.format}; snapshot: ${source.snapshot.hash}; bytes: ${source.snapshot.bytes}`,
+      `Resource version: ${source.resourceVersion}; whole file: ${source.wholeFile ? 'yes' : 'no'}`,
+      ...(source.wholeFile
+        ? ['Range: entire captured file']
+        : coordinateSpace === 'rendered' && source.startLine === undefined
+          ? [
+              `Coordinates (rendered): UTF-16 offsets ${item.quote.start}–${item.quote.end} (zero-based, end exclusive; original file line mapping unavailable)`,
+            ]
+          : source.startColumn === undefined || source.endColumn === undefined
+            ? [`Coordinates (${coordinateSpace}): lines ${source.startLine}–${source.endLine} (one-based)`]
+            : [
+                `Coordinates (${coordinateSpace}): lines ${source.startLine}–${source.endLine}; UTF-16 columns ${source.startColumn}–${source.endColumn} (zero-based, end exclusive)`,
+              ]),
+      `Creation entry: ${source.entry}`,
+      'These coordinates refer to the captured resource version, not the current file at the same path.',
+    ]
+  }
+  if (source.kind === 'official-diff') {
+    const context = officialDiffContext(source)
+    return [
+      `Source: official turn Diff; ${officialDiffPosition(source)}`,
+      `Session: ${source.snapshot.sessionId}; changes event seq: ${source.snapshot.seq}; turn: ${source.snapshot.turn}`,
+      `File index: ${source.snapshot.fileIndex}; snapshot: ${source.snapshot.hash}`,
+      `Diff kind: ${source.snapshot.kind}; creation entry: ${source.entry}`,
+      `Side: ${source.side}; whole file: ${source.wholeFile ? 'yes' : 'no'}`,
+      ...(source.startLine === undefined
+        ? []
+        : [
+            `Coordinates: ${source.startLine}${source.endLine === source.startLine ? '' : `-${source.endLine}`}${
+              source.startColumn === undefined ? '' : `:${source.startColumn + 1}-${source.endColumn}`
+            }`,
+          ]),
+      `Snapshot context before: ${JSON.stringify(context.before)}`,
+      `Snapshot context after: ${JSON.stringify(context.after)}`,
+      'These coordinates refer to the captured official turn snapshot, not the current workspace or Git state.',
+    ]
+  }
   const snapshot = source.snapshot
   const version = (side: typeof snapshot.old) =>
     side.kind === 'absent' ? 'absent' : `${side.kind} ${side.oid ?? `sha256:${side.sha256}`}`
@@ -508,8 +668,12 @@ function formatSubmissionMessageZh(payload: AnnotationSubmissionPayload): string
     }
     lines.push(
       ...annotationLocationLines(item),
+      '原文前文：',
+      item.quote.prefix,
       '被选中的原文：',
       item.quote.exact,
+      '原文后文：',
+      item.quote.suffix,
       '用户的注解：',
       item.kind === 'highlight-only' ? highlightOnlyLabel('zh') : item.annotation,
     )
@@ -552,8 +716,12 @@ function formatSubmissionMessageEn(payload: AnnotationSubmissionPayload): string
     }
     lines.push(
       ...annotationLocationLines(item),
+      'Quote prefix:',
+      item.quote.prefix,
       'Selected text:',
       item.quote.exact,
+      'Quote suffix:',
+      item.quote.suffix,
       'User annotation:',
       item.kind === 'highlight-only' ? highlightOnlyLabel('en') : item.annotation,
     )

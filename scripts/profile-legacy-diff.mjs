@@ -79,7 +79,7 @@ export async function exerciseLegacyDiffHistory(
       retrySubmissionId: failedPayload.submissionId,
     },
   })
-  await openReadingSession(page, workspace, replay.source)
+  await openReadingSession(page, replay.header.id, replay.source)
   const timeline = page.locator('.dia-timeline')
   await timeline.locator('.dia-timeline__trigger').click()
   const items = timeline.locator('.dia-timeline-item')
@@ -96,7 +96,8 @@ export async function exerciseLegacyDiffHistory(
   await record.waitFor()
   const localRow = record.locator('.dia-record-row').filter({ hasText: localDiff.annotation })
   await localRow.waitFor()
-  assert.equal(await localRow.getByRole('button').count(), 0)
+  assert.equal(await localRow.getByRole('button', { name: '编辑', exact: true }).count(), 0)
+  assert.equal(await localRow.getByRole('button', { name: '定位原文', exact: true }).count(), 0)
   const messageRow = record.locator('.dia-record-row').filter({ hasText: localMessage.annotation })
   await messageRow.getByRole('button', { name: '编辑' }).click()
   const editor = page.locator('.dia-record-editor')

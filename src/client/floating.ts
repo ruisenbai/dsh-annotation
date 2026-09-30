@@ -1,6 +1,7 @@
 /** Measured annotation overlays that leave reply text and the current composer unobstructed when space permits. */
 import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import type { AnnotationId } from '../shared/types.ts'
+import { sourceKey } from '../shared/annotation-source.ts'
 import { FOCUS_CHANGED_EVENT } from './focus-adapter.ts'
 import { rangeFromSelector, type SelectionCapture } from './selection.ts'
 
@@ -9,7 +10,12 @@ export type FloatingRect = Pick<DOMRectReadOnly, 'top' | 'right' | 'bottom' | 'l
 
 /** A live element or a measured selection with its containing element for clipping and resize observation. */
 export type AnnotationFloatingAnchor =
-  HTMLElement | { readonly rect: FloatingRect; readonly contextElement: HTMLElement }
+  | HTMLElement
+  | {
+      readonly rect: FloatingRect
+      readonly contextElement: HTMLElement
+      readonly selectionRect?: FloatingRect
+    }
 
 /** Placement and size limits for a fixed overlay; a panel occupies at most half the available height. */
 export interface AnnotationFloatingPosition {
@@ -23,6 +29,21 @@ export interface AnnotationFloatingPosition {
 const margin = 12
 const gap = 8
 const floatingAttribute = 'data-annotation-floating'
+const officialAnchors = new Map<string, Set<(capture: SelectionCapture) => Range | HTMLElement | null>>()
+
+/** Register a mounted official view for live editor placement. */
+export function registerOfficialAnchor(
+  key: string,
+  resolve: (capture: SelectionCapture) => Range | HTMLElement | null,
+): () => void {
+  const entries = officialAnchors.get(key) ?? new Set()
+  entries.add(resolve)
+  officialAnchors.set(key, entries)
+  return () => {
+    entries.delete(resolve)
+    if (entries.size === 0) officialAnchors.delete(key)
+  }
+}
 
 function intersects(left: FloatingRect, right: FloatingRect): boolean {
   return (
@@ -60,6 +81,7 @@ export function computeAnnotationFloating(geometry: {
   readonly composer: FloatingRect | null
   readonly size: { readonly width: number; readonly height: number }
   readonly preferBelow?: boolean
+  readonly selectionRect?: FloatingRect
 }): AnnotationFloatingPosition {
   const { anchor, body, boundary, composer, size, preferBelow = false } = geometry
   const bounds = availableBounds(boundary, composer)
@@ -67,8 +89,16 @@ export function computeAnnotationFloating(geometry: {
   const maxHeight = bounds.bottom - bounds.top
   const width = Math.min(size.width, maxWidth)
   const placementGap = preferBelow ? 10 : gap
-  const left = clamp((anchor?.left ?? bounds.left) - (preferBelow ? 8 : 0), bounds.left, bounds.right - width)
+  const rightPreferred = preferBelow && anchor !== null && anchor.right + gap + width <= bounds.right
+  const left = clamp(
+    rightPreferred ? anchor.right + gap : (anchor?.left ?? bounds.left) - (preferBelow ? 8 : 0),
+    bounds.left,
+    bounds.right - width,
+  )
   const anchored = anchor !== null && intersects(anchor, bounds)
+  const selectionTop = preferBelow
+    ? (geometry.selectionRect?.top ?? anchor?.top ?? bounds.top)
+    : (anchor?.top ?? bounds.top)
 
   if (anchored) {
     if (!preferBelow && body !== null && size.height <= maxHeight) {
@@ -91,28 +121,29 @@ export function computeAnnotationFloating(geometry: {
         maxHeight: preferBelow ? bounds.bottom - anchor.bottom - placementGap : maxHeight,
       }
     }
-    if (anchor.top - placementGap - size.height >= bounds.top) {
+    if (selectionTop - placementGap - size.height >= bounds.top) {
       return {
         placement: 'top',
         left,
-        top: anchor.top - placementGap - size.height,
+        top: selectionTop - placementGap - size.height,
         maxWidth,
-        maxHeight: preferBelow ? anchor.top - placementGap - bounds.top : maxHeight,
+        maxHeight: preferBelow ? selectionTop - placementGap - bounds.top : maxHeight,
       }
     }
   }
 
   if (anchor !== null && intersects(anchor, bounds)) {
-    const above = Math.max(0, anchor.top - placementGap - bounds.top)
+    const above = Math.max(0, selectionTop - placementGap - bounds.top)
     const below = Math.max(0, bounds.bottom - anchor.bottom - placementGap)
     const placeBelow = below >= above
     const room = placeBelow ? below : above
+
     return {
       placement: 'panel',
       left: bounds.left + (maxWidth - width) / 2,
       top: placeBelow
         ? anchor.bottom + placementGap
-        : anchor.top - placementGap - Math.min(size.height, room),
+        : selectionTop - placementGap - Math.min(size.height, room),
       maxWidth,
       maxHeight: room,
     }
@@ -156,7 +187,8 @@ function portalZoom(element: HTMLElement): number {
   }, 1)
 }
 
-function rendered(element: HTMLElement): boolean {
+/** Whether a source is mounted and visible, excluding hidden retained sidebar tabs. */
+export function rendered(element: HTMLElement): boolean {
   if (!element.isConnected || element.closest('[hidden], [inert], [aria-hidden="true"]') !== null)
     return false
   const rect = element.getBoundingClientRect()
@@ -173,7 +205,11 @@ function rendered(element: HTMLElement): boolean {
   })
 }
 
-function visibleBoundary(element: HTMLElement, viewport: FloatingRect): FloatingRect {
+/** Intersect viewport edges with every clipping ancestor's client area. */
+export function visibleBoundary(
+  element: HTMLElement,
+  viewport: FloatingRect = viewportRect(element.ownerDocument.defaultView!),
+): FloatingRect {
   let bounds = viewport
   const view = element.ownerDocument.defaultView!
   for (const parent of ancestors(element)) {
@@ -236,6 +272,15 @@ export function selectionAnchor(
   capture: SelectionCapture,
   root: ParentNode = document,
 ): AnnotationFloatingAnchor | null {
+  if (capture.source?.kind === 'file' || capture.source?.kind === 'official-diff') {
+    for (const resolve of officialAnchors.get(sourceKey(capture)) ?? []) {
+      const target = resolve(capture)
+      const element = target instanceof Range ? target.startContainer.parentElement : target
+      if (target !== null && element !== null && rendered(element))
+        return target instanceof Range ? rangeAnchor(target) : target
+    }
+    return null
+  }
   const reply = visibleElement(
     Array.from(root.querySelectorAll<HTMLElement>('[data-dsh-annotation-message-id]')).filter(
       (element) => element.dataset.dshAnnotationMessageId === capture.messageId,
@@ -245,6 +290,19 @@ export function selectionAnchor(
   if (body == null) return null
   const range = rangeFromSelector(body, capture.quote)
   if (range === null) return null
+  return rangeAnchor(range)
+}
+
+/** Anchor a floating editor to the final visible character of a live DOM Range. */
+export function rangeAnchor(range: Range): {
+  readonly rect: FloatingRect
+  readonly contextElement: HTMLElement
+  readonly selectionRect: FloatingRect
+} {
+  const body =
+    range.commonAncestorContainer instanceof HTMLElement
+      ? range.commonAncestorContainer
+      : (range.commonAncestorContainer.parentElement ?? document.body)
   const nodes: Text[] = []
   const walker = body.ownerDocument.createTreeWalker(body, NodeFilter.SHOW_TEXT)
   for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
@@ -260,7 +318,10 @@ export function selectionAnchor(
       const character = body.ownerDocument.createRange()
       character.setStart(node, offset)
       character.setEnd(node, offset + 1)
-      const rect = character.getBoundingClientRect()
+      const rect =
+        typeof character.getBoundingClientRect === 'function'
+          ? character.getBoundingClientRect()
+          : range.getBoundingClientRect()
       if (rect.width > 0 && rect.height > 0) {
         finalRect = rect
         break
@@ -270,6 +331,7 @@ export function selectionAnchor(
   return {
     rect: finalRect ?? range.getBoundingClientRect(),
     contextElement: range.startContainer.parentElement ?? body,
+    selectionRect: range.getBoundingClientRect(),
   }
 }
 
@@ -334,6 +396,15 @@ export function useAnnotationFloating(options: AnnotationFloatingOptions): {
     let frame: number | null = null
     let lastContext: HTMLElement | null = null
     let floatingElement: HTMLElement | null = null
+    let reserved: { element: HTMLElement; value: string; priority: string; base: number } | null = null
+    let reserveKey = ''
+    const releaseSpace = (): void => {
+      if (reserved === null) return
+      if (reserved.value === '') reserved.element.style.removeProperty('padding-bottom')
+      else reserved.element.style.setProperty('padding-bottom', reserved.value, reserved.priority)
+      reserved = null
+      reserveKey = ''
+    }
     const observed = new Set<HTMLElement>()
     const schedule = () => {
       if (disposed || frame !== null) return
@@ -369,7 +440,7 @@ export function useAnnotationFloating(options: AnnotationFloatingOptions): {
         floating.setAttribute(floatingAttribute, '')
         floatingElement = floating
       }
-      const resolved = latest.current.anchor()
+      let resolved = latest.current.anchor()
       const candidate = resolved instanceof HTMLElement ? resolved : (resolved?.contextElement ?? null)
       const context = candidate !== null && rendered(candidate) ? candidate : null
       if (context !== null) lastContext = context
@@ -398,6 +469,40 @@ export function useAnnotationFloating(options: AnnotationFloatingOptions): {
       floating.style.maxHeight = priorHeight
       floating.scrollTop = scrollTop
       floating.scrollLeft = scrollLeft
+      if (latest.current.preferBelow && context !== null && resolved !== null) {
+        const scrollport = [context, ...ancestors(context)].find((element) =>
+          /auto|scroll|overlay/.test(
+            view.getComputedStyle(element).overflowY || view.getComputedStyle(element).overflow,
+          ),
+        )
+        if (scrollport !== undefined) {
+          const required = Math.min(size.height, Math.max(0, (bounds.bottom - bounds.top) / 2)) + 10
+          const key = `${Math.round(required)}:${Math.round(bounds.top)}:${Math.round(bounds.bottom)}:${Math.round(bounds.right - bounds.left)}`
+          if (reserved?.element !== scrollport) {
+            releaseSpace()
+            reserved = {
+              element: scrollport,
+              value: scrollport.style.getPropertyValue('padding-bottom'),
+              priority: scrollport.style.getPropertyPriority('padding-bottom'),
+              base: Number.parseFloat(view.getComputedStyle(scrollport).paddingBottom) || 0,
+            }
+          }
+          if (reserveKey !== key) {
+            reserveKey = key
+            scrollport.style.setProperty('padding-bottom', `${reserved.base + required}px`)
+            const rect = resolved instanceof HTMLElement ? resolved.getBoundingClientRect() : resolved.rect
+            const targetBottom = bounds.bottom - required
+            const delta =
+              rect.bottom > targetBottom
+                ? rect.bottom - targetBottom
+                : rect.top < bounds.top
+                  ? rect.top - bounds.top
+                  : 0
+            if (delta !== 0) scrollport.scrollTop += delta
+            resolved = latest.current.anchor()
+          }
+        }
+      } else releaseSpace()
       const visual = computeAnnotationFloating({
         anchor:
           context === null || resolved === null
@@ -410,6 +515,9 @@ export function useAnnotationFloating(options: AnnotationFloatingOptions): {
         composer: composerRect,
         size,
         preferBelow: latest.current.preferBelow,
+        ...(resolved !== null && !(resolved instanceof HTMLElement) && resolved.selectionRect !== undefined
+          ? { selectionRect: resolved.selectionRect }
+          : {}),
       })
       // DOMRects already include CSS zoom; fixed styles use the portal's unzoomed CSS coordinates.
       const next = {
@@ -477,6 +585,7 @@ export function useAnnotationFloating(options: AnnotationFloatingOptions): {
       resize?.disconnect()
       mutations.disconnect()
       floatingElement?.removeAttribute(floatingAttribute)
+      releaseSpace()
       view.removeEventListener('resize', schedule)
       view.removeEventListener('scroll', onScroll, true)
       view.removeEventListener(FOCUS_CHANGED_EVENT, schedule)

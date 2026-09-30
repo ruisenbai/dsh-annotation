@@ -1,9 +1,9 @@
 - button "2 条注释" [expanded]
 - list:
   - listitem:
-    - text: selected source
+    - text: "[正文] [对话正文] selected source"
     - paragraph: Explain this claim.
     - button "定位原文"
   - listitem:
-    - text: 旧 Diff 批注（只读） src/example.ts 工作区 · 新侧 · 2–2 new value
+    - text: "[Diff] 旧 Diff 批注（只读） src/example.ts 工作区 · 新侧 · 2–2 new value"
     - paragraph: Check this file line.

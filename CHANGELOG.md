@@ -4,6 +4,24 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+### Added
+
+- Add official file-preview annotations for text, Markdown, code, HTML, image, PDF, Office, Excel, CSV, TSV, and other public renderers, including whole-file actions for non-text previews.
+- Add official turn-Diff annotations from the public changes summary/Diff APIs, with immutable line and multiline column anchors, sidebar selection, and Locate navigation that restores the same annotation ID.
+
+### Changed
+
+- Adapt the manifest and lockfile to DeepSeek Harness `0.2.0-rc.1`.
+- Reuse the reply selection action, editor, and numbered marker for official file and Diff text; retain drafts and editor placement while sources scroll or load.
+- Keep historical Git Diff annotations permanently read-only while storing compact v2 official file and turn-Diff sources with protocol v5 and browser-storage v6. Existing v1–v4 submissions and v1–v5 storage remain readable.
+- Require a written opinion for whole-file annotations, validate legacy UTF-8 BOM byte digests, and restore source markers from saved annotations after a preview remount.
+
+### Fixed
+
+- Restore multiline code-preview selection and Locate by indexing the code element's direct line spans and preserving the source newline between highlighted rows.
+- Keep a durably sent annotation labelled sent when its paperclip is selected for a later message; the selection controls the next attachment independently of delivery status.
+- Cancel a blank new annotation after three outside clicks or composer input without saving a highlight-only record; explicit empty selection saves remain available.
+
 ## [1.0.0] - 2026-09-28
 
 Target host: DeepSeek Harness `0.1.7-rc.2`, official source tag `dsh-v0.1.7-rc.2` at commit `477b4f420553e8a52c2fbccc464d7561b239c443`.

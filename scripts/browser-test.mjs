@@ -6,7 +6,8 @@ import { createServer } from 'vite'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const artifacts = join(root, 'artifacts', 'browser')
-const selectedCase = process.argv[2]
+const selectedCase = process.argv.slice(2).find((argument) => argument !== '--blank-only')
+const blankOnly = process.argv.includes('--blank-only')
 const variants = [
   { name: 'wide-light', width: 1280, dark: false },
   { name: 'narrow-dark', width: 390, dark: true },
@@ -72,6 +73,9 @@ async function inspectVariant(browser, base, variant) {
       return {
         width: card.width,
         radius: getComputedStyle(element).borderTopLeftRadius,
+        checkRadius: getComputedStyle(element.querySelector('.dia-record-editor__check')).borderRadius,
+        checkWidth: check.width,
+        checkHeight: check.height,
         placement: element.dataset.floatingPlacement,
         checkCenter: check.top + check.height / 2,
         fieldCenter: field.top + field.height / 2,
@@ -81,7 +85,9 @@ async function inspectVariant(browser, base, variant) {
     })
     assert(
       quickShape.width <= 392 &&
-        quickShape.radius === '14px' &&
+        quickShape.radius === '999px' &&
+        quickShape.checkRadius === '50%' &&
+        quickShape.checkWidth === quickShape.checkHeight &&
         quickShape.resize === 'none' &&
         quickShape.fieldHeight <= 33 &&
         Math.abs(quickShape.checkCenter - quickShape.fieldCenter) <= 2,
@@ -91,6 +97,69 @@ async function inspectVariant(browser, base, variant) {
       quickShape.placement === 'bottom',
       `The quick editor must start below the selected character: ${JSON.stringify(quickShape)}`,
     )
+    await quickInput.fill(' \n\t ')
+    for (let outside = 0; outside < 2; outside += 1) {
+      await page.mouse.click(2, 2)
+      assert(await quick.isVisible(), 'The first two outside clicks must retain the blank editor')
+      await page.locator('.dia-record-editor--quick.dia-record-editor--shake').waitFor()
+      await page.locator('.dia-record-editor--quick.dia-record-editor--shake').waitFor({
+        state: 'hidden',
+      })
+      if (outside === 0) await quickInput.click()
+    }
+    await page.mouse.click(2, 2)
+    await quick.waitFor({ state: 'detached' })
+    const blankView = JSON.parse(await page.getByTestId('interaction-view-json').textContent())
+    assert(
+      blankView.annotations.length === 0 &&
+        blankView.trash.length === 0 &&
+        blankView.editorDrafts.length === 0 &&
+        blankView.editor === null &&
+        blankView.selectedAnnotationIds.length === 0 &&
+        (await page.locator('.dia-marker, .dia-composer-chip').count()) === 0,
+      'Canceling a blank editor must create neither records, trash nor recoverable blank buffers',
+    )
+    await page.getByTestId('begin-quick-editor').evaluate((button) => button.click())
+    await quick.waitFor()
+    await page.locator('[data-composer-input]').fill('Keep the composer focus')
+    await quick.waitFor({ state: 'detached' })
+    assert(
+      (await page.locator('main').getAttribute('data-annotation-count')) === '0' &&
+        (await page
+          .locator('[data-composer-input]')
+          .evaluate((element) => element.contains(document.activeElement))),
+      'Typing in the composer must not implicitly save an empty annotation',
+    )
+    const restoredPage = await context.newPage()
+    try {
+      await restoredPage.goto(`${base}/?scenario=interaction`, { waitUntil: 'networkidle' })
+      await restoredPage.getByTestId('interaction-view-json').waitFor({ state: 'attached' })
+      const restoredBlankView = JSON.parse(
+        await restoredPage.getByTestId('interaction-view-json').textContent(),
+      )
+      assert(
+        restoredBlankView.annotations.length === 0 &&
+          restoredBlankView.trash.length === 0 &&
+          restoredBlankView.editorDrafts.length === 0 &&
+          restoredBlankView.editor === null &&
+          restoredBlankView.selectedAnnotationIds.length === 0 &&
+          (await restoredPage.locator('.dia-marker, .dia-composer-chip').count()) === 0,
+        'Canceled blank editors must stay absent after a browser refresh',
+      )
+    } finally {
+      await restoredPage.close()
+    }
+    if (blankOnly) {
+      assert(errors.length === 0, `Browser errors: ${errors.join('\n')}`)
+      console.log(`PASS ${variant.name}: blank editor shake, cancel, composer focus, and refresh recovery`)
+      return
+    }
+    await page.locator('[data-composer-input]').fill('')
+    await page.getByTestId('conversation-scroll').evaluate((element) => {
+      element.scrollTop = 250
+    })
+    await page.getByTestId('begin-quick-editor').evaluate((button) => button.click())
+    await quick.waitFor()
     await quickInput.fill('A wrapped annotation '.repeat(15))
     assert(
       (await quickInput.evaluate((element) => element.getBoundingClientRect().height)) > 32,
@@ -129,23 +198,70 @@ async function inspectVariant(browser, base, variant) {
     await scroller.evaluate((element) => {
       element.style.height = '320px'
     })
-    await page.waitForFunction(() => {
-      const card = document.querySelector('.dia-record-editor--quick')
-      const field = card?.querySelector('textarea')
-      return card !== null && field !== null && field.getBoundingClientRect().height < 152
-    })
+    try {
+      await page.waitForFunction(() => {
+        const card = document.querySelector('.dia-record-editor--quick')
+        const field = card?.querySelector('textarea')
+        const scroller = document.querySelector('[data-testid="conversation-scroll"]')
+        if (card === null || field === null || scroller === null) return false
+        const reservedBottom = parseFloat(getComputedStyle(scroller).paddingBottom)
+        return (
+          field.getBoundingClientRect().height < 152 ||
+          (reservedBottom >= card.getBoundingClientRect().height + 8 &&
+            scroller.scrollHeight > scroller.clientHeight)
+        )
+      })
+    } catch (cause) {
+      const geometry = await quick.evaluate((element) => {
+        const scroller = document.querySelector('[data-testid="conversation-scroll"]')
+        const style = getComputedStyle(scroller)
+        return {
+          editor: element.getBoundingClientRect().toJSON(),
+          field: element.querySelector('textarea').getBoundingClientRect().toJSON(),
+          scroller: scroller.getBoundingClientRect().toJSON(),
+          scrollerStyle: {
+            inlineHeight: scroller.style.height,
+            computedHeight: style.height,
+            minHeight: style.minHeight,
+            padding: style.padding,
+            boxSizing: style.boxSizing,
+            transform: style.transform,
+          },
+        }
+      })
+      throw new Error(`A short source viewport did not constrain the editor: ${JSON.stringify(geometry)}`, {
+        cause,
+      })
+    }
     const constrainedQuick = await quick.evaluate((element) => {
       const card = element.getBoundingClientRect()
       const check = element.querySelector('.dia-record-editor__check').getBoundingClientRect()
       const hit = document.elementFromPoint(check.left + check.width / 2, check.top + check.height / 2)
+      const body = document.querySelector('[data-testid="interaction-source"] .dia-assistant__body')
+      const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT)
+      let sourceBottom = null
+      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+        const start = node.textContent.indexOf('Alpha')
+        if (start < 0) continue
+        const range = document.createRange()
+        range.setStart(node, start + 4)
+        range.setEnd(node, start + 5)
+        sourceBottom = range.getBoundingClientRect().bottom
+        break
+      }
       return {
+        cardTop: card.top,
         cardBottom: card.bottom,
         checkBottom: check.bottom,
         clickable: hit !== null && element.querySelector('.dia-record-editor__check').contains(hit),
+        sourceBottom,
       }
     })
     assert(
-      constrainedQuick.checkBottom <= constrainedQuick.cardBottom + 1 && constrainedQuick.clickable,
+      constrainedQuick.checkBottom <= constrainedQuick.cardBottom + 1 &&
+        constrainedQuick.clickable &&
+        constrainedQuick.sourceBottom !== null &&
+        constrainedQuick.cardTop >= constrainedQuick.sourceBottom + 7,
       `A short source viewport must keep the check visible: ${JSON.stringify(constrainedQuick)}`,
     )
     await scroller.evaluate((element) => {
@@ -266,6 +382,7 @@ async function inspectVariant(browser, base, variant) {
       const input = card.querySelector('[data-composer-input]').getBoundingClientRect()
       const style = getComputedStyle(element)
       const remove = getComputedStyle(element.querySelector('.dia-composer-chip__remove'))
+      const actions = getComputedStyle(element.querySelector('.dia-composer-chip__actions'))
       return {
         left: chip.left - cardRect.left,
         top: chip.top - cardRect.top,
@@ -274,7 +391,7 @@ async function inspectVariant(browser, base, variant) {
         background: style.backgroundColor,
         selector: getComputedStyle(card).getPropertyValue('--dsw-specific-selector').trim(),
         removeWidth: remove.width,
-        removeOpacity: remove.opacity,
+        removeOpacity: actions.opacity,
         clearOfInput: chip.bottom <= input.top,
       }
     })
@@ -284,14 +401,14 @@ async function inspectVariant(browser, base, variant) {
         chipLayout.height === 32 &&
         chipLayout.radius === '999px' &&
         chipLayout.background === chipLayout.selector &&
-        chipLayout.removeWidth === '0px' &&
+        chipLayout.removeWidth === '28px' &&
         chipLayout.removeOpacity === '0' &&
         chipLayout.clearOfInput,
       `The count chip must align with official composer buttons without covering text: ${JSON.stringify(chipLayout)}`,
     )
     await chip.hover()
     await page.waitForFunction(
-      () => parseFloat(getComputedStyle(document.querySelector('.dia-composer-chip__remove')).width) >= 27,
+      () => parseFloat(getComputedStyle(document.querySelector('.dia-composer-chip__actions')).opacity) === 1,
     )
     const openChip = await chip.boundingBox()
     const chipCard = await page.locator('[data-composer-card]').boundingBox()
@@ -304,25 +421,68 @@ async function inspectVariant(browser, base, variant) {
     await page.screenshot({ path: join(artifacts, `chip-${variant.name}.png`), fullPage: true })
     await page.mouse.move(0, 0)
     await page.waitForFunction(
-      () => parseFloat(getComputedStyle(document.querySelector('.dia-composer-chip__remove')).width) < 1,
+      () => parseFloat(getComputedStyle(document.querySelector('.dia-composer-chip__actions')).opacity) === 0,
     )
     await chip.locator('.dia-composer-chip__main').focus()
     await page.waitForFunction(
-      () => parseFloat(getComputedStyle(document.querySelector('.dia-composer-chip__remove')).width) >= 27,
+      () => parseFloat(getComputedStyle(document.querySelector('.dia-composer-chip__actions')).opacity) === 1,
     )
+    assert(
+      (await chip.locator('.dia-composer-chip__main').innerText()).trim() === '3 annotations',
+      'The composer count must omit the send-with-message suffix',
+    )
+    const beforeTrash = JSON.parse(await page.getByTestId('interaction-view-json').textContent()).trash.length
+    await chip.getByRole('button', { name: 'Remove annotations from this message' }).click()
+    assert(
+      (await page.locator('main').getAttribute('data-annotation-count')) === '3',
+      'The X only detaches annotations',
+    )
+    assert(
+      JSON.parse(await page.getByTestId('interaction-view-json').textContent()).trash.length === beforeTrash,
+      'Detaching must not put records in the recycle bin',
+    )
+    await toggle.click()
+    for (let index = 0; index < 3; index += 1) {
+      await page.locator('.dia-record-row').nth(index).locator('.dia-record-action').first().click()
+    }
+    await chip.hover()
+    const trash = chip.getByRole('button', { name: 'Move attached annotations to the recycle bin' })
+    const detach = chip.getByRole('button', { name: 'Remove annotations from this message' })
+    const trashBox = await trash.boundingBox()
+    const detachBox = await detach.boundingBox()
+    assert(trashBox.x + trashBox.width <= detachBox.x, 'Trash must be left of the X')
+    await trash.hover()
+    const dangerBackground = await trash.evaluate((element) => getComputedStyle(element).backgroundColor)
+    await detach.hover()
+    const neutralBackground = await detach.evaluate((element) => getComputedStyle(element).backgroundColor)
+    assert(
+      dangerBackground !== 'rgba(0, 0, 0, 0)' && dangerBackground !== neutralBackground,
+      'Trash must use a red background and X a distinct neutral highlight in both themes',
+    )
+    await trash.click()
+    assert(
+      (await page.locator('main').getAttribute('data-annotation-count')) === '0',
+      'Trash deletes the captured attachment batch',
+    )
+    assert(
+      JSON.parse(await page.getByTestId('interaction-view-json').textContent()).trash.length ===
+        beforeTrash + 3,
+      'Every removed attachment must remain in the recycle bin',
+    )
+    await page.getByTestId('seed-three').click()
     await chip.locator('.dia-composer-chip__main').click()
     const record = page.locator('.dia-record')
     await record.waitFor()
     assert((await record.locator('.dia-record-row').count()) === 3, 'Record must show three rows')
     await chip.locator('.dia-composer-chip__main').click()
     assert(
-      (await record.locator('.dia-record__header').getAttribute('aria-expanded')) === 'false',
+      (await record.locator('.dia-record__heading-action').getAttribute('aria-expanded')) === 'false',
       'Chip must fold an open record',
     )
     assert((await record.locator('.dia-record-row').count()) === 0, 'Folded record must hide its rows')
     await chip.locator('.dia-composer-chip__main').click()
     assert(
-      (await record.locator('.dia-record__header').getAttribute('aria-expanded')) === 'true',
+      (await record.locator('.dia-record__heading-action').getAttribute('aria-expanded')) === 'true',
       'Chip must reopen a folded record',
     )
     assert((await record.locator('.dia-record-row').count()) === 3, 'Reopened record must show its rows')
@@ -366,7 +526,7 @@ async function inspectVariant(browser, base, variant) {
     await firstRow.getByRole('button', { name: 'Locate source' }).click()
     assert((await record.count()) === 1, 'Locating source must keep the record visible')
     assert(
-      (await record.locator('.dia-record__header').getAttribute('aria-expanded')) === 'true',
+      (await record.locator('.dia-record__heading-action').getAttribute('aria-expanded')) === 'true',
       'Locating source must preserve the expanded record',
     )
     const firstPaperclip = firstRow.locator('.dia-record-action').first()
@@ -430,6 +590,9 @@ async function inspectVariant(browser, base, variant) {
     assert((await record.count()) === 0, 'Record must automatically hide after all notes are sent')
     assert((await chip.count()) === 0, 'Composer chip must clear after sending')
     await marker.click()
+    if ((await marker.getAttribute('aria-haspopup')) === 'menu') {
+      await page.getByRole('menuitem', { name: /#1 First saved note/ }).click()
+    }
     const sentCard = page.locator('.dia-record-editor--detail')
     await sentCard.waitFor()
     const sentInput = sentCard.locator('textarea')
