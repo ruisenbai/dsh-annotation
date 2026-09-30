@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
 import { createServer } from 'vite'
@@ -9,9 +9,23 @@ const artifacts = join(root, 'artifacts', 'browser')
 const selectedCase = process.argv.slice(2).find((argument) => argument !== '--blank-only')
 const blankOnly = process.argv.includes('--blank-only')
 const variants = [
-  { name: 'wide-light', width: 1280, dark: false },
-  { name: 'narrow-dark', width: 390, dark: true },
+  { name: 'wide-light', width: 1280, height: 850, dark: false },
+  { name: 'narrow-dark', width: 390, height: 850, dark: true },
 ]
+const geometryReport = { generatedAt: new Date().toISOString(), variants: {}, trash: null }
+
+function rectEdges(rect) {
+  assert(rect !== null, 'Expected a visible element with a DOMRect')
+  return {
+    left: rect.x,
+    top: rect.y,
+    right: rect.x + rect.width,
+    bottom: rect.y + rect.height,
+    width: rect.width,
+    height: rect.height,
+  }
+}
+
 if (selectedCase !== undefined && !variants.some((variant) => variant.name === selectedCase)) {
   throw new Error(`Unknown browser case: ${selectedCase}`)
 }
@@ -44,7 +58,7 @@ const server = await createServer({
 
 async function inspectVariant(browser, base, variant) {
   const context = await browser.newContext({
-    viewport: { width: variant.width, height: 850 },
+    viewport: { width: variant.width, height: variant.height },
     colorScheme: variant.dark ? 'dark' : 'light',
   })
   const page = await context.newPage()
@@ -59,12 +73,63 @@ async function inspectVariant(browser, base, variant) {
     )
     const source = page.getByTestId('interaction-source')
     await source.locator('.dia-assistant__body').scrollIntoViewIfNeeded()
+    if (!variant.dark) {
+      const flash = await source.evaluate(async (element) => {
+        const { showSourceFlash } = await import('/src/client/source-flash.ts')
+        const root = element.querySelector('.dia-assistant__body')
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+        let text = walker.nextNode()
+        while (text !== null && !text.textContent.includes('Alpha')) text = walker.nextNode()
+        if (!(text instanceof Text)) return { visible: false, faded: false }
+        const start = text.textContent.indexOf('Alpha')
+        const range = document.createRange()
+        range.setStart(text, start)
+        range.setEnd(text, start + 5)
+        const dispose = showSourceFlash(root, [range])
+        const mark = document.querySelector('.dia-source-flash')
+        const visible = mark !== null && mark.getBoundingClientRect().width > 0
+        await new Promise((resolve) => setTimeout(resolve, 1_100))
+        const faded = mark !== null && Number(getComputedStyle(mark).opacity) < 0.9
+        dispose?.()
+        return { visible, faded }
+      })
+      assert(flash.visible && flash.faded, `Located source highlight must fade: ${JSON.stringify(flash)}`)
+    }
     await page.getByTestId('conversation-scroll').evaluate((element) => {
       element.scrollTop = 250
     })
+    await page.evaluate(() => window.scrollTo(0, 0))
     await page.getByTestId('begin-quick-editor').evaluate((button) => button.click())
     const quick = page.locator('.dia-record-editor--quick')
     await quick.waitFor()
+    const quickRect = rectEdges(await quick.boundingBox())
+    const selectionLastLine = await source.evaluate((element) => {
+      const body = element.querySelector('.dia-assistant__body')
+      const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT)
+      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+        const start = node.textContent.indexOf('Alpha')
+        if (start < 0) continue
+        const range = document.createRange()
+        range.setStart(node, start)
+        range.setEnd(node, start + 'Alpha'.length)
+        const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0)
+        const rect = rects.at(-1) ?? range.getBoundingClientRect()
+        return {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        }
+      }
+      throw new Error('Selected source text is missing')
+    })
+    assert(
+      quickRect.top >= selectionLastLine.bottom,
+      `The quick editor must not overlap the selected final line: ${JSON.stringify({ quickRect, selectionLastLine })}`,
+    )
+    await page.screenshot({ path: join(artifacts, `editor-${variant.name}.png`), fullPage: true })
     const quickInput = quick.locator('textarea')
     const quickShape = await quick.evaluate((element) => {
       const card = element.getBoundingClientRect()
@@ -109,6 +174,12 @@ async function inspectVariant(browser, base, variant) {
     }
     await page.mouse.click(2, 2)
     await quick.waitFor({ state: 'detached' })
+    geometryReport.variants[variant.name] = {
+      viewport: { width: variant.width, height: variant.height },
+      selectionLastLine,
+      editor: quickRect,
+      capsule: quickShape,
+    }
     const blankView = JSON.parse(await page.getByTestId('interaction-view-json').textContent())
     assert(
       blankView.annotations.length === 0 &&
@@ -517,6 +588,28 @@ async function inspectVariant(browser, base, variant) {
         material.shadow !== 'none',
       `The record must match the official task panel material: ${JSON.stringify(material)}`,
     )
+    const recordBody = await record.locator('.dia-record__body').boundingBox()
+    assert(recordBody !== null, 'The record body must be visible')
+    await page.mouse.click(recordBody.x + recordBody.width / 2, recordBody.y + 2)
+    assert(
+      (await record.locator('.dia-record__heading-action').getAttribute('aria-expanded')) === 'false',
+      'Clicking the record top padding must fold the record',
+    )
+    await page.mouse.click(recordBody.x + recordBody.width / 2, recordBody.y + 2)
+    assert(
+      (await record.locator('.dia-record__heading-action').getAttribute('aria-expanded')) === 'true',
+      'Clicking the record top padding must expand the record',
+    )
+    await record.locator('.dia-record__progress').click()
+    assert(
+      (await record.locator('.dia-record__heading-action').getAttribute('aria-expanded')) === 'false',
+      'Clicking the record header text must fold the record',
+    )
+    await record.locator('.dia-record__progress').click()
+    assert(
+      (await record.locator('.dia-record__heading-action').getAttribute('aria-expanded')) === 'true',
+      'Clicking the record header text must expand the record',
+    )
     const firstRow = record.locator('.dia-record-row').first()
     const firstGlyph = firstRow.locator('.dia-record-row__glyph [data-state]')
     assert(
@@ -670,6 +763,181 @@ async function inspectVariant(browser, base, variant) {
   }
 }
 
+async function inspectTrash(browser, base) {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 780 },
+    colorScheme: 'light',
+  })
+  const page = await context.newPage()
+  const errors = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  try {
+    await page.goto(`${base}/?scenario=trash`, { waitUntil: 'networkidle' })
+    await page.getByRole('button', { name: /Recycle bin/u }).click()
+    const dialog = page.locator('.dia-trash-modal')
+    await dialog.waitFor({ state: 'visible' })
+    const sessionLabels = await dialog.locator('.dia-trash__session-field option').allTextContents()
+    assert(sessionLabels.includes('project-1 - Review 1'), 'Trash Sessions must use project and title labels')
+    const radioRows = await dialog
+      .locator('.dia-trash__source-filter label')
+      .evaluateAll((labels) => labels.map((label) => Math.round(label.getBoundingClientRect().top)))
+    assert(new Set(radioRows).size < radioRows.length, 'Trash source radios must share a compact row')
+    const first = dialog.locator('.dia-trash__disclosure').first()
+    await first.focus()
+    await page.keyboard.press('Enter')
+    await dialog.locator('.dia-trash__source pre').waitFor({ state: 'visible' })
+    const initial = await dialog.evaluate((element) => {
+      const edges = (rect) => ({
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+      })
+      const modal = element.getBoundingClientRect()
+      const content = element.querySelector('.dia-trash-modal__content')?.getBoundingClientRect()
+      const workspace = element.querySelector('.dia-trash__workspace')?.getBoundingClientRect()
+      const list = element.querySelector('.dia-trash__list')
+      const detail = element.querySelector('.dia-trash__detail')
+      const selected = element.querySelector('.dia-trash__row[data-selected="true"]')
+      const row = element.querySelector('.dia-trash__row')
+      return {
+        modal: edges(modal),
+        content: content && edges(content),
+        workspace: workspace && edges(workspace),
+        list: list && {
+          ...edges(list.getBoundingClientRect()),
+          clientHeight: list.clientHeight,
+          scrollHeight: list.scrollHeight,
+        },
+        detail: detail && {
+          ...edges(detail.getBoundingClientRect()),
+          clientHeight: detail.clientHeight,
+          scrollHeight: detail.scrollHeight,
+        },
+        row: row && {
+          ...edges(row.getBoundingClientRect()),
+          buttons: Array.from(row.querySelectorAll('button')).map((button) => ({
+            label: button.getAttribute('aria-label') ?? button.textContent?.trim(),
+            ...edges(button.getBoundingClientRect()),
+            clientWidth: button.clientWidth,
+            scrollWidth: button.scrollWidth,
+          })),
+        },
+        selected: selected !== null,
+      }
+    })
+    assert(
+      initial.modal.top >= -1 && initial.modal.bottom <= 781,
+      `The trash modal is clipped: ${JSON.stringify(initial)}`,
+    )
+    assert(
+      initial.content && initial.workspace && initial.list && initial.detail && initial.row,
+      `The trash layout is incomplete: ${JSON.stringify(initial)}`,
+    )
+    assert(initial.selected, 'The disclosed recycle-bin row needs a visible selected state')
+    assert(
+      initial.list.scrollHeight > initial.list.clientHeight &&
+        initial.detail.scrollHeight > initial.detail.clientHeight,
+      `The narrow recycle-bin fixture must exercise both scroll regions: ${JSON.stringify(initial)}`,
+    )
+    assert(
+      initial.workspace.left >= initial.modal.left - 1 &&
+        initial.workspace.right <= initial.modal.right + 1 &&
+        initial.list.left >= initial.workspace.left - 1 &&
+        initial.list.right <= initial.workspace.right + 1 &&
+        initial.detail.left >= initial.workspace.left - 1 &&
+        initial.detail.right <= initial.workspace.right + 1,
+      `The narrow recycle-bin workspace escapes the modal: ${JSON.stringify(initial)}`,
+    )
+    assert(
+      initial.row.left >= initial.list.left - 1 &&
+        initial.row.right <= initial.list.right + 1 &&
+        initial.row.buttons.every(
+          (button) =>
+            button.left >= initial.row.left - 1 &&
+            button.right <= initial.row.right + 1 &&
+            button.scrollWidth <= button.clientWidth + 1,
+        ),
+      `The narrow recycle-bin row or its actions are clipped: ${JSON.stringify(initial.row)}`,
+    )
+    await page.screenshot({ path: join(artifacts, 'trash-390x780-top.png'), fullPage: false })
+    const scrolled = await dialog.evaluate((element) => {
+      const measure = (target) => {
+        target.scrollTop = target.scrollHeight
+        return {
+          scrollTop: target.scrollTop,
+          clientHeight: target.clientHeight,
+          scrollHeight: target.scrollHeight,
+          reachesBottom: Math.abs(target.scrollTop + target.clientHeight - target.scrollHeight) <= 1,
+        }
+      }
+      return {
+        list: measure(element.querySelector('.dia-trash__list')),
+        detail: measure(element.querySelector('.dia-trash__detail')),
+      }
+    })
+    assert(
+      scrolled.list.reachesBottom && scrolled.detail.reachesBottom,
+      `Trash content cannot reach its end: ${JSON.stringify(scrolled)}`,
+    )
+    await page.screenshot({ path: join(artifacts, 'trash-390x780-bottom.png'), fullPage: false })
+    await dialog.getByRole('button', { name: 'Delete permanently' }).first().click()
+    const confirmation = page.locator('.dia-trash-confirm-modal')
+    await confirmation.waitFor({ state: 'visible' })
+    const confirmationRect = rectEdges(await confirmation.boundingBox())
+    const confirmationButtons = await confirmation.getByRole('button').evaluateAll((buttons) =>
+      buttons.map((button) => {
+        const rect = button.getBoundingClientRect()
+        const style = getComputedStyle(button)
+        return {
+          label: button.getAttribute('aria-label') ?? button.textContent?.trim(),
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+          clientWidth: button.clientWidth,
+          scrollWidth: button.scrollWidth,
+          borderRadius: style.borderRadius,
+          color: style.color,
+          background: style.backgroundColor,
+        }
+      }),
+    )
+    assert(confirmationButtons.length >= 2, 'The confirmation must expose official cancel and delete buttons')
+    assert(
+      confirmationButtons.every(
+        (button) =>
+          button.left >= confirmationRect.left - 1 &&
+          button.right <= confirmationRect.right + 1 &&
+          button.left >= -1 &&
+          button.right <= 391 &&
+          button.scrollWidth <= button.clientWidth + 1,
+      ),
+      `The confirmation buttons are clipped: ${JSON.stringify({ confirmationRect, confirmationButtons })}`,
+    )
+    await page.screenshot({ path: join(artifacts, 'trash-confirm-390x780.png'), fullPage: false })
+    await confirmation.getByRole('button', { name: 'Cancel' }).click()
+    await confirmation.waitFor({ state: 'hidden' })
+    geometryReport.trash = {
+      viewport: { width: 390, height: 780 },
+      initial,
+      scrolled,
+      confirmation: { rect: confirmationRect, buttons: confirmationButtons },
+    }
+    assert(errors.length === 0, `Trash browser errors: ${errors.join('\n')}`)
+    console.log('PASS trash-390x780: list/detail scrolling, selection, and confirmation actions')
+  } catch (error) {
+    await page.screenshot({ path: join(artifacts, 'trash-390x780-failure.png'), fullPage: false })
+    throw error
+  } finally {
+    await context.close()
+  }
+}
+
 let browser
 try {
   await mkdir(artifacts, { recursive: true })
@@ -681,6 +949,8 @@ try {
   const base = `http://127.0.0.1:${address.port}`
   for (const variant of variants.filter((item) => selectedCase === undefined || item.name === selectedCase))
     await inspectVariant(browser, base, variant)
+  if (selectedCase === undefined) await inspectTrash(browser, base)
+  await writeFile(join(artifacts, 'browser-geometry.json'), `${JSON.stringify(geometryReport, null, 2)}\n`)
 } finally {
   await browser?.close()
   await server.close()

@@ -77,11 +77,14 @@ function clamp(value: number, minimum: number, maximum: number): number {
 export function computeAnnotationFloating(geometry: {
   readonly anchor: FloatingRect | null
   readonly body: FloatingRect | null
+  /** Region the overlay may occupy, already bounded by the source's own scrolling band. */
   readonly boundary: FloatingRect
   readonly composer: FloatingRect | null
   readonly size: { readonly width: number; readonly height: number }
   readonly preferBelow?: boolean
   readonly selectionRect?: FloatingRect
+  /** Every clipping edge, including non-scrolling wrappers; only decides whether the source shows. */
+  readonly visibleBoundary?: FloatingRect
 }): AnnotationFloatingPosition {
   const { anchor, body, boundary, composer, size, preferBelow = false } = geometry
   const bounds = availableBounds(boundary, composer)
@@ -95,7 +98,7 @@ export function computeAnnotationFloating(geometry: {
     bounds.left,
     bounds.right - width,
   )
-  const anchored = anchor !== null && intersects(anchor, bounds)
+  const anchored = anchor !== null && intersects(anchor, geometry.visibleBoundary ?? bounds)
   const selectionTop = preferBelow
     ? (geometry.selectionRect?.top ?? anchor?.top ?? bounds.top)
     : (anchor?.top ?? bounds.top)
@@ -132,7 +135,7 @@ export function computeAnnotationFloating(geometry: {
     }
   }
 
-  if (anchor !== null && intersects(anchor, bounds)) {
+  if (anchored) {
     const above = Math.max(0, selectionTop - placementGap - bounds.top)
     const below = Math.max(0, bounds.bottom - anchor.bottom - placementGap)
     const placeBelow = below >= above
@@ -217,21 +220,70 @@ export function visibleBoundary(
     const clipX = /auto|scroll|hidden|clip|overlay/.test(style.overflowX || style.overflow)
     const clipY = /auto|scroll|hidden|clip|overlay/.test(style.overflowY || style.overflow)
     if (!clipX && !clipY) continue
-    const rect = parent.getBoundingClientRect()
-    const scaleX = parent.offsetWidth > 0 ? rect.width / parent.offsetWidth : 1
-    const scaleY = parent.offsetHeight > 0 ? rect.height / parent.offsetHeight : 1
-    const left = rect.left + parent.clientLeft * scaleX
-    const top = rect.top + parent.clientTop * scaleY
-    const right = parent.clientWidth > 0 ? left + parent.clientWidth * scaleX : rect.right
-    const bottom = parent.clientHeight > 0 ? top + parent.clientHeight * scaleY : rect.bottom
+    const box = clientBox(parent)
     bounds = {
-      left: clipX ? Math.max(bounds.left, left) : bounds.left,
-      right: clipX ? Math.min(bounds.right, right) : bounds.right,
-      top: clipY ? Math.max(bounds.top, top) : bounds.top,
-      bottom: clipY ? Math.min(bounds.bottom, bottom) : bounds.bottom,
+      left: clipX ? Math.max(bounds.left, box.left) : bounds.left,
+      right: clipX ? Math.min(bounds.right, box.right) : bounds.right,
+      top: clipY ? Math.max(bounds.top, box.top) : bounds.top,
+      bottom: clipY ? Math.min(bounds.bottom, box.bottom) : bounds.bottom,
     }
   }
   return bounds
+}
+
+function clipsOnScroll(style: CSSStyleDeclaration, axis: 'x' | 'y'): boolean {
+  const value = axis === 'y' ? style.overflowY || style.overflow : style.overflowX || style.overflow
+  return /auto|scroll|overlay/.test(value)
+}
+
+/** The nearest ancestor that actually scrolls its content, in either axis. */
+function nearestScrollport(element: HTMLElement, axis: 'x' | 'y' = 'y'): HTMLElement | undefined {
+  const view = element.ownerDocument.defaultView!
+  return ancestors(element).find((parent) => clipsOnScroll(view.getComputedStyle(parent), axis))
+}
+
+/**
+ * The band an overlay may occupy: the visible part of the source's own scrolling surfaces.
+ *
+ * Only real scrollports bound this band. A decorative `overflow: hidden` or `clip` wrapper does
+ * not, because the overlay is portalled outside it and stays visible; letting such a wrapper
+ * bound the band is what pushed editors above the selection while the page still had room below.
+ *
+ * @param source - Live element whose overlay is being placed.
+ * @param viewport - Visible viewport edges in CSS pixels.
+ * @returns The largest rectangle the overlay may use before the composer is subtracted.
+ */
+export function overlayRegion(source: HTMLElement, viewport: FloatingRect): FloatingRect {
+  const view = source.ownerDocument.defaultView!
+  let bounds = viewport
+  for (const parent of ancestors(source)) {
+    const style = view.getComputedStyle(parent)
+    const clipX = clipsOnScroll(style, 'x')
+    const clipY = clipsOnScroll(style, 'y')
+    if (!clipX && !clipY) continue
+    const box = clientBox(parent)
+    bounds = {
+      left: clipX ? Math.max(bounds.left, box.left) : bounds.left,
+      right: clipX ? Math.min(bounds.right, box.right) : bounds.right,
+      top: clipY ? Math.max(bounds.top, box.top) : bounds.top,
+      bottom: clipY ? Math.min(bounds.bottom, box.bottom) : bounds.bottom,
+    }
+  }
+  return bounds
+}
+
+function clientBox(element: HTMLElement): FloatingRect {
+  const rect = element.getBoundingClientRect()
+  const scaleX = element.offsetWidth > 0 ? rect.width / element.offsetWidth : 1
+  const scaleY = element.offsetHeight > 0 ? rect.height / element.offsetHeight : 1
+  const left = rect.left + element.clientLeft * scaleX
+  const top = rect.top + element.clientTop * scaleY
+  return {
+    left,
+    top,
+    right: element.clientWidth > 0 ? left + element.clientWidth * scaleX : rect.right,
+    bottom: element.clientHeight > 0 ? top + element.clientHeight * scaleY : rect.bottom,
+  }
 }
 
 function visibleElement(elements: readonly HTMLElement[]): HTMLElement | null {
@@ -451,11 +503,13 @@ export function useAnnotationFloating(options: AnnotationFloatingOptions): {
         proposedComposer !== null && rendered(proposedComposer) ? proposedComposer : null
       const source = retained ?? composerElement
       const viewport = viewportRect(view)
+      // Visibility still honours every clip; placement uses only the source's own scrolling band.
       const boundary = source === null ? viewport : visibleBoundary(source, viewport)
+      const region = source === null ? viewport : overlayRegion(source, viewport)
       const body =
         context?.closest('.dia-assistant')?.querySelector<HTMLElement>('.dia-assistant__body') ?? null
       const composerRect = composerElement?.getBoundingClientRect() ?? null
-      const bounds = availableBounds(boundary, composerRect)
+      const bounds = availableBounds(region, composerRect)
       const zoom = portalZoom(floating)
       const priorWidth = floating.style.maxWidth
       const priorHeight = floating.style.maxHeight
@@ -470,15 +524,19 @@ export function useAnnotationFloating(options: AnnotationFloatingOptions): {
       floating.scrollTop = scrollTop
       floating.scrollLeft = scrollLeft
       if (latest.current.preferBelow && context !== null && resolved !== null) {
-        const scrollport = [context, ...ancestors(context)].find((element) =>
-          /auto|scroll|overlay/.test(
-            view.getComputedStyle(element).overflowY || view.getComputedStyle(element).overflow,
-          ),
-        )
-        if (scrollport !== undefined) {
-          const required = Math.min(size.height, Math.max(0, (bounds.bottom - bounds.top) / 2)) + 10
-          const key = `${Math.round(required)}:${Math.round(bounds.top)}:${Math.round(bounds.bottom)}:${Math.round(bounds.right - bounds.left)}`
-          if (reserved?.element !== scrollport) {
+        const scrollport = nearestScrollport(context)
+        if (scrollport === undefined) releaseSpace()
+        else {
+          // The official composer seat is a sticky child of the conversation scrollport, so any
+          // padding there lifts the input box. Only a source scrollport without the composer may
+          // be given temporary room; the conversation band is widened by scrolling instead.
+          const shared = composerElement !== null && scrollport.contains(composerElement)
+          const required = shared
+            ? 0
+            : Math.min(size.height, Math.max(0, (bounds.bottom - bounds.top) / 2)) + 10
+          const key = `${shared ? 's' : 'r'}:${Math.round(required)}:${Math.round(bounds.top)}:${Math.round(bounds.bottom)}:${Math.round(bounds.right - bounds.left)}`
+          if (shared) releaseSpace()
+          else if (reserved?.element !== scrollport) {
             releaseSpace()
             reserved = {
               element: scrollport,
@@ -489,17 +547,23 @@ export function useAnnotationFloating(options: AnnotationFloatingOptions): {
           }
           if (reserveKey !== key) {
             reserveKey = key
-            scrollport.style.setProperty('padding-bottom', `${reserved.base + required}px`)
+            if (!shared && reserved !== null)
+              scrollport.style.setProperty('padding-bottom', `${reserved.base + required}px`)
             const rect = resolved instanceof HTMLElement ? resolved.getBoundingClientRect() : resolved.rect
-            const targetBottom = bounds.bottom - required
+            // Bring the selection into the band above the composer before choosing a side, so a
+            // selection hidden behind the sticky input never decides the placement on its own.
+            const targetBottom = bounds.bottom - (shared ? size.height + 10 : required)
             const delta =
               rect.bottom > targetBottom
                 ? rect.bottom - targetBottom
                 : rect.top < bounds.top
                   ? rect.top - bounds.top
                   : 0
-            if (delta !== 0) scrollport.scrollTop += delta
-            resolved = latest.current.anchor()
+            if (delta !== 0) {
+              const before = scrollport.scrollTop
+              scrollport.scrollTop += delta
+              if (scrollport.scrollTop !== before) resolved = latest.current.anchor()
+            }
           }
         }
       } else releaseSpace()
@@ -511,7 +575,8 @@ export function useAnnotationFloating(options: AnnotationFloatingOptions): {
               ? resolved.getBoundingClientRect()
               : resolved.rect,
         body: body?.getBoundingClientRect() ?? null,
-        boundary,
+        boundary: region,
+        visibleBoundary: boundary,
         composer: composerRect,
         size,
         preferBelow: latest.current.preferBelow,

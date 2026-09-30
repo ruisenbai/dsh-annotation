@@ -2,6 +2,11 @@
 import type { AnnotationController, AnnotationView } from './controller.ts'
 import type { SelectionCapture } from './selection.ts'
 import { sourceFields } from '../shared/annotation-source.ts'
+import {
+  isAbsoluteResourcePath,
+  sameAbsoluteResourcePath,
+  sameResourceAddress,
+} from '../shared/resource-path.ts'
 import { sha256Hex } from '../shared/snapshot-hash.ts'
 import type { MessageIdentity, SubmittedAnnotation } from '../shared/types.ts'
 import { loadOfficialDiff } from './diff-integration.tsx'
@@ -55,8 +60,13 @@ export async function captureSourceContent(
       mediaType: 'text/plain',
     }
   }
+  if (!sameResourceAddress(source.resourceAddress, source.sessionId, source.path))
+    throw new Error('snapshot-source-changed')
   const chunks: Uint8Array[] = []
   let offset = 0
+  // The official read resolves a workspace-relative path; its own answer is the target identity
+  // every chunk must agree with, so a relative saved path is never compared to an absolute one.
+  let absolutePath: string | undefined
   while (!signal.aborted) {
     const result = await readFile(source.sessionId, source.path, signal, { offset, length: 1024 * 1024 })
     if (signal.aborted) throw new Error('snapshot-cancelled')
@@ -66,13 +76,19 @@ export async function captureSourceContent(
       value === undefined ||
       value.offset !== offset ||
       value.version !== source.resourceVersion ||
-      value.absolutePath !== source.path ||
+      !isAbsoluteResourcePath(value.absolutePath) ||
+      (absolutePath !== undefined && value.absolutePath !== absolutePath) ||
       (value.bytes !== undefined && value.bytes !== source.snapshot.bytes) ||
       value.data.length > 1024 * 1024 ||
       offset + value.data.length > source.snapshot.bytes ||
       (!value.eof && value.data.length === 0)
     )
       throw new Error('snapshot-source-changed')
+    if (absolutePath === undefined) {
+      if (isAbsoluteResourcePath(source.path) && !sameAbsoluteResourcePath(source.path, value.absolutePath))
+        throw new Error('snapshot-source-changed')
+      absolutePath = value.absolutePath
+    }
     chunks.push(value.data)
     offset += value.data.length
     if (!value.eof) continue
@@ -125,6 +141,40 @@ interface CaptureCandidate {
   readonly capture: SelectionCapture
 }
 
+interface CaptureRetryState {
+  readonly annotations: AnnotationView['annotations']
+  readonly trash: AnnotationView['trash']
+  readonly deletionMarks: AnnotationView['deletionMarks']
+  readonly editor: AnnotationView['editor']
+  readonly editorDrafts: AnnotationView['editorDrafts']
+  readonly panelOpen: boolean
+  readonly recordExpanded: boolean
+}
+
+function retryState(view: AnnotationView): CaptureRetryState {
+  return {
+    annotations: view.annotations,
+    trash: view.trash,
+    deletionMarks: view.deletionMarks,
+    editor: view.editor,
+    editorDrafts: view.editorDrafts,
+    panelOpen: view.panelOpen,
+    recordExpanded: view.recordExpanded,
+  }
+}
+
+function sameRetryState(left: CaptureRetryState, right: CaptureRetryState): boolean {
+  return (
+    left.annotations === right.annotations &&
+    left.trash === right.trash &&
+    left.deletionMarks === right.deletionMarks &&
+    left.editor === right.editor &&
+    left.editorDrafts === right.editorDrafts &&
+    left.panelOpen === right.panelOpen &&
+    left.recordExpanded === right.recordExpanded
+  )
+}
+
 function candidates(view: AnnotationView): Map<string, CaptureCandidate> {
   const entries = new Map<string, CaptureCandidate>()
   for (const editor of [...view.editorDrafts, ...(view.editor === null ? [] : [view.editor])])
@@ -151,19 +201,27 @@ export function observeSourceSnapshots(
   const inFlight = new Set<string>()
   const completed = new Set<string>()
   const storageFailed = new Set<string>()
-  const lastAttempt = new Map<string, { readonly phase: CapturePhase; readonly view: AnnotationView }>()
+  const reported = new Set<string>()
+  const lastAttempt = new Map<string, { readonly phase: CapturePhase; readonly state: CaptureRetryState }>()
   let previousTrash = controller.getSnapshot().trash
   let previousMarks = controller.getSnapshot().deletionMarks
   const refresh = (): void => {
     const view = controller.getSnapshot()
     const sources = candidates(view)
     const next = new Set(sources.keys())
+    const purged = new Set<string>(
+      view.deletionMarks.filter((mark) => mark.state === 'purged').map((mark) => mark.annotationId),
+    )
     for (const id of retained)
       if (!next.has(id)) {
         completed.delete(id)
         storageFailed.delete(id)
+        reported.delete(id)
         lastAttempt.delete(id)
-        void snapshots.release(snapshotOwner(controller.sessionId, id)).catch(() => {
+        const key = snapshotOwner(controller.sessionId, id)
+        // A permanently deleted record leaves a tombstone; every other removal just frees the copy.
+        const removal = purged.has(id) ? snapshots.purge(key) : snapshots.release(key)
+        void removal.catch(() => {
           // The durable deletion still prevents resurrection; a later purge retries local content cleanup.
           if (active) cleanupFailed()
         })
@@ -171,14 +229,15 @@ export function observeSourceSnapshots(
     retained = next
     for (const [id, candidate] of sources) {
       const previous = lastAttempt.get(id)
+      const currentRetryState = retryState(view)
       if (
         inFlight.has(id) ||
         completed.has(id) ||
         storageFailed.has(id) ||
-        (previous?.phase === candidate.phase && previous.view === view)
+        (previous?.phase === candidate.phase && sameRetryState(previous.state, currentRetryState))
       )
         continue
-      lastAttempt.set(id, { phase: candidate.phase, view })
+      lastAttempt.set(id, { phase: candidate.phase, state: currentRetryState })
       inFlight.add(id)
       const key = snapshotOwner(controller.sessionId, id)
       void snapshots
@@ -187,16 +246,31 @@ export function observeSourceSnapshots(
           if (!active || !retained.has(id)) return
           const saved = await snapshots.read(key)
           if (!active || !retained.has(id)) return
-          if (saved.state === 'complete') completed.add(id)
-          else if (saved.error === 'storage') {
+          if (saved.state === 'complete') {
+            completed.add(id)
+            reported.delete(id)
+          } else if (saved.error === 'storage') {
             storageFailed.add(id)
-            captureFailed()
+            if (!reported.has(id)) {
+              reported.add(id)
+              captureFailed()
+            }
+          } else if (saved.error === 'source') {
+            if (!reported.has(id)) {
+              reported.add(id)
+              captureFailed()
+            }
+            if (active && retained.has(id))
+              lastAttempt.set(id, { phase: candidate.phase, state: retryState(controller.getSnapshot()) })
           }
         })
         .catch(() => {
           if (active && retained.has(id)) {
             storageFailed.add(id)
-            captureFailed()
+            if (!reported.has(id)) {
+              reported.add(id)
+              captureFailed()
+            }
           }
         })
         .finally(() => {

@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { parseReplyMarkers, stripMachineMarkers } from '../../shared/model-ack.ts'
+import { isOutboxPayloadEntry } from '../../shared/outbox-redaction.ts'
 import { replyHeadingNeedles } from '../../shared/protocol.ts'
 import type { AnnotationDraft, AnnotationId, MessageIdentity, TextQuoteSelector } from '../../shared/types.ts'
 import type { AssistantAnnotationProps } from '../contract.ts'
@@ -176,7 +177,7 @@ interface QuoteFlashState {
   readonly rects: readonly QuoteFlashRect[]
 }
 
-const QUOTE_FLASH_MS = 1_300
+const QUOTE_FLASH_MS = 2_200
 
 function quoteFlashRects(root: HTMLElement, range: Range): readonly QuoteFlashRect[] {
   const rootRect = root.getBoundingClientRect()
@@ -446,7 +447,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     }
     for (const association of replyAssociations ?? []) add(association.submissionId, association.annotationId)
     for (const entry of outbox) {
-      if (entry.status !== 'sent') continue
+      if (entry.status !== 'sent' || !isOutboxPayloadEntry(entry)) continue
       for (const item of entry.payload.annotations) add(entry.payload.submissionId, item.annotationId)
     }
     return known

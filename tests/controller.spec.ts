@@ -91,7 +91,7 @@ describe('annotation controller', () => {
       ])
       expect(restored.getSnapshot()).toMatchObject({
         storageAvailable: false,
-        notice: { level: 'error', text: 'storage' },
+        notice: { level: 'error', messageKey: 'error.storage' },
       })
       restored.reconcile(snapshot())
       restored.clearNotice()
@@ -99,7 +99,7 @@ describe('annotation controller', () => {
       expect(memory.values.get(storage.key)).toBe(raw)
       expect(restored.getSnapshot()).toMatchObject({
         storageAvailable: false,
-        notice: { level: 'error', text: 'storage' },
+        notice: { level: 'error', messageKey: 'error.storage' },
       })
     } finally {
       restored.dispose()
@@ -120,7 +120,7 @@ describe('annotation controller', () => {
         expect(memory.values.get(storage.key)).toBe(raw)
         expect(controller.getSnapshot()).toMatchObject({
           storageAvailable: false,
-          notice: { level: 'error', text: 'storage' },
+          notice: { level: 'error', messageKey: 'error.storage' },
         })
       } finally {
         controller.dispose()
@@ -449,6 +449,29 @@ describe('annotation controller', () => {
     }
   })
 
+  it('keeps the active editor and text when the explicit save cannot persist', () => {
+    const { controller, memory } = harness()
+    controller.beginSelection(capture())
+    controller.updateEditorText('Keep this failed save')
+    const before = new Map(memory.values)
+    const writes = vi.spyOn(memory, 'setItem').mockImplementation(() => {
+      throw new Error('quota exceeded')
+    })
+
+    expect(() => controller.saveEditor()).toThrow('annotation-storage-failed')
+
+    expect(controller.getSnapshot()).toMatchObject({
+      annotations: [],
+      editor: { kind: 'new', text: 'Keep this failed save' },
+      editorSaveStatus: 'error',
+      storageAvailable: false,
+      notice: { level: 'error', messageKey: 'error.storage' },
+    })
+    expect(memory.values).toEqual(before)
+    writes.mockRestore()
+    controller.dispose()
+  })
+
   it('retains unsaved edits and storage feedback until a later write recovers', () => {
     const { controller, memory } = harness()
     const setItem = vi.spyOn(memory, 'setItem')
@@ -466,12 +489,12 @@ describe('annotation controller', () => {
         editor: { kind: 'edit', annotationId: id, text: 'Retained while storage is unavailable' },
         editorSaveStatus: 'error',
         storageAvailable: false,
-        notice: { level: 'error', text: 'storage' },
+        notice: { level: 'error', messageKey: 'error.storage' },
       })
       expect(memory.values).toEqual(stored)
 
       controller.setPanelOpen(true)
-      expect(controller.getSnapshot().notice).toEqual({ level: 'error', text: 'storage' })
+      expect(controller.getSnapshot().notice).toMatchObject({ level: 'error', messageKey: 'error.storage' })
       expect(memory.values).toEqual(stored)
       controller.updateEditorText('Recovered after storage retry')
       vi.advanceTimersByTime(400)
@@ -878,7 +901,7 @@ describe('annotation controller', () => {
 
     await expect(firstNavigation).resolves.toBe(false)
     expect(revealFirst).not.toHaveBeenCalled()
-    expect(controller.getSnapshot()).toMatchObject({ navigationEpoch: 2, notice: null })
+    expect(controller.getSnapshot()).toMatchObject({ navigationEpoch: 2 })
   })
 
   it('waits for the mounted endpoint after a history page lands instead of failing a sync check', async () => {
@@ -908,7 +931,7 @@ describe('annotation controller', () => {
     })
     await expect(missing.controller.navigate(missingId)).resolves.toBe(false)
     expect(missing.controller.getSnapshot()).toMatchObject({
-      notice: { level: 'error', text: 'locate' },
+      notice: { level: 'error', messageKey: 'error.locate' },
     })
   })
 

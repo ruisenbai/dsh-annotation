@@ -2,10 +2,15 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { waitFor } from '@testing-library/dom'
+import { act } from '@testing-library/react'
 import { AnnotationController } from '../src/client/controller.ts'
 import { installDocumentIntegration } from '../src/client/document-integration.tsx'
 import { compactFileSource, fileSource } from '../src/client/official-adapters.ts'
-import { createSource, readFileBytesDigest } from '../src/client/components/FileWholeAnnotationAction.tsx'
+import {
+  createSource,
+  readFileBytesDigest,
+  type AnnotationCreationToggle,
+} from '../src/client/components/FileWholeAnnotationAction.tsx'
 import { AnnotationStorage } from '../src/client/storage.ts'
 import { DEFAULT_CONFIG } from '../src/shared/config.ts'
 import type { SessionIdentity } from '../src/shared/types.ts'
@@ -36,6 +41,26 @@ function controller(): AnnotationController {
     DEFAULT_CONFIG,
     () => 1_700_000_000_000,
   )
+}
+
+function creationToggle(initial: boolean) {
+  let enabled = initial
+  const listeners = new Set<() => void>()
+  const value: AnnotationCreationToggle = {
+    getSnapshot: () => enabled,
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  }
+  return {
+    value,
+    set(next: boolean) {
+      enabled = next
+      for (const listener of listeners) listener()
+    },
+    listenerCount: () => listeners.size,
+  }
 }
 
 function source(wholeFile: boolean) {
@@ -611,6 +636,62 @@ describe('official document integration', () => {
       stop()
       owner.dispose()
     }
+  })
+
+  it('keeps file history mounted while the creation toggle changes', async () => {
+    const owner = controller()
+    const savedSource = source(false)
+    owner.beginSelection({
+      source: savedSource,
+      quote: { exact: 'beta', prefix: 'alpha ', suffix: '', start: 6, end: 10 },
+      rect: { top: 1, left: 2, right: 3, bottom: 4 },
+    })
+    owner.updateEditorText('historical note')
+    const annotationId = owner.saveEditor()
+    owner.setSourceNavigator(async () => true)
+    const registrations = vi.spyOn(owner, 'registerSourceEndpoint')
+    const toggle = creationToggle(false)
+    const stop = installDocumentIntegration(
+      { get: (id) => (id === sessionId ? owner : undefined) },
+      (key) => (key === 'selection.annotate' ? 'Annotate' : String(key)),
+      () => source(true),
+      undefined,
+      toggle.value,
+    )
+    try {
+      const markerLayer = document.querySelector('[data-dsh-official-markers]')
+      expect(markerLayer).not.toBeNull()
+      const registrationCount = registrations.mock.calls.length
+      expect(registrationCount).toBeGreaterThan(0)
+      await expect(owner.locateSource(annotationId)).resolves.toBe('shown')
+
+      const text = document.querySelector('[data-textpreview-plain] span')!.firstChild!
+      const range = document.createRange()
+      range.setStart(text, 6)
+      range.setEnd(text, 10)
+      Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => new DOMRect(20, 10, 40, 20),
+      })
+      window.getSelection()!.addRange(range)
+      document.body.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
+      await Promise.resolve()
+      expect(document.querySelector('.dia-selection-bar')).toBeNull()
+
+      act(() => toggle.set(true))
+      document.body.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
+      await waitFor(() => expect(document.querySelector('.dia-selection-bar__action')).not.toBeNull())
+      act(() => toggle.set(false))
+      expect(document.querySelector('.dia-selection-bar')).toBeNull()
+      expect(document.querySelector('[data-dsh-official-markers]')).toBe(markerLayer)
+      expect(registrations).toHaveBeenCalledTimes(registrationCount)
+      expect(toggle.listenerCount()).toBe(1)
+      await expect(owner.locateSource(annotationId)).resolves.toBe('shown')
+    } finally {
+      stop()
+      owner.dispose()
+    }
+    expect(toggle.listenerCount()).toBe(0)
   })
 
   it.each(['alpha\n', 'alpha\r\n'])('captures an entire line including its separator: %j', async (text) => {

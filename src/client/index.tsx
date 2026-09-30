@@ -23,12 +23,14 @@ import type {} from '@deepseek-ai/dsh-client-ui-deliverables/client'
 import { resolveConfig, LEGACY_COMMAND_NAMES } from '../shared/config.ts'
 import { encodeSubmissionCommand } from '../shared/codec.ts'
 import { parseAttachmentIdentities, sameAttachmentIdentities } from '../shared/protocol.ts'
+import { isOutboxPayloadEntry, outboxSubmissionId } from '../shared/outbox-redaction.ts'
 import { ATTACHMENT_PREPARE_INPUT, ATTACHMENT_IDENTITY_MISMATCH } from '../shared/types.ts'
 import { ANNOTATION_SETTINGS_NAMESPACE, type AnnotationSettings } from '../shared/settings.ts'
 import type {
   AnnotationConfig,
   MessageIdentity,
   OutboxAttachments,
+  OutboxPayloadEntry,
   ProtocolLocale,
   SessionIdentity,
   SubmissionId,
@@ -82,6 +84,7 @@ import {
 import type { FileAnnotationSource, OfficialDiffAnnotationSource } from '../shared/annotation-source.ts'
 import { compactFileSource, compactOfficialDiffSource } from './official-adapters.ts'
 import { createDiffReviewAction, installDiffIntegration } from './diff-integration.tsx'
+import { AnnotationNoticeHub, AnnotationToastHost } from './notice.tsx'
 
 declare module '@deepseek-ai/dsh-client-ui-sidebar-right/client' {
   interface SidebarRightResourceParamsMap {
@@ -230,8 +233,10 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   const autoAttachEnabled = settingsController.autoAttach()
   const compactSummaryEnabled = settingsController.compactSummary()
   const marketUpdateController = new MarketUpdateController()
+  const noticeHub = new AnnotationNoticeHub()
   ctx.effect(() => () => settingsController.dispose(), 'dsh-annotation: settings controller')
   ctx.effect(() => () => marketUpdateController.dispose(), 'dsh-annotation: market update controller')
+  ctx.effect(() => () => noticeHub.dispose(), 'dsh-annotation: notice hub')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-annotation: dictionaries')
   const annotationT = ctx.locale.bind(NS)
   ctx.effect(() => {
@@ -321,12 +326,12 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       if (entry.controller === controller) continue
       for (const outbox of controller.getSnapshot().outbox) {
         if (outbox.targetSessionId === (otherId as unknown as SessionIdentity)) {
-          linkMirrors(outbox.payload.submissionId, controller, entry.controller)
+          linkMirrors(outboxSubmissionId(outbox), controller, entry.controller)
         }
       }
       for (const outbox of entry.controller.getSnapshot().outbox) {
         if (outbox.targetSessionId === (sessionId as unknown as SessionIdentity)) {
-          linkMirrors(outbox.payload.submissionId, entry.controller, controller)
+          linkMirrors(outboxSubmissionId(outbox), entry.controller, controller)
         }
       }
     }
@@ -413,10 +418,10 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
           signal,
         ),
       annotationTrash.refresh,
-      () => controller.setNotice('error', annotationT('trash.error.cleanup')),
+      () => controller.setNotice('error', 'trash.error.cleanup'),
       () => {
         if (controller.getSnapshot().notice === null)
-          controller.setNotice('error', annotationT('trash.snapshotUnavailable'))
+          controller.setNotice('error', 'trash.snapshotUnavailable')
       },
     )
     const inboxFace = binding.session.projections.faceOf('inbox')
@@ -538,14 +543,18 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         ? undefined
         : origin
             .getSnapshot()
-            .outbox.find((item) => item.payload.submissionId === selectedRetry.payload.submissionId)
+            .outbox.find(
+              (item): item is OutboxPayloadEntry =>
+                isOutboxPayloadEntry(item) &&
+                item.payload.submissionId === selectedRetry.payload.submissionId,
+            )
     if (selectedRetry !== undefined) {
       if (retry === undefined || retry.status === 'withdrawn') throw new SubmissionChangedError()
       if (retry.status !== 'ready' && retry.status !== 'failed') return
     }
     const draftCount = selectedAnnotations(snapshot).length
     if (retry === undefined && draftCount > config.maxAnnotationsPerSubmission) {
-      origin.setNotice('error', 'items')
+      origin.setNotice('error', 'error.items')
       throw new Error(`annotation batch exceeds ${config.maxAnnotationsPerSubmission} annotations`)
     }
     // 刷新后附件由用户重新选择；数量或类型不符时不能丢弃原批次的附件继续发送。
@@ -561,7 +570,11 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
           count === 0
             ? annotationT('error.retryAttachmentsAdded')
             : annotationT('error.attachmentsRequired', { count })
-        origin.setNotice('error', message)
+        origin.setNotice(
+          'error',
+          count === 0 ? 'error.retryAttachmentsAdded' : 'error.attachmentsRequired',
+          count === 0 ? undefined : { count },
+        )
         throw new Error(message)
       }
     }
@@ -586,13 +599,13 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
           }
         } catch (cause: unknown) {
           const message = annotationT('error.prepareAttachments')
-          origin.setNotice('error', message)
+          origin.setNotice('error', 'error.prepareAttachments')
           throw new Error(message, { cause })
         }
       }
       if (attachmentIdentities !== undefined && !sameAttachmentIdentities(attachmentIdentities, actual)) {
         const message = annotationT('error.retryAttachmentsChanged')
-        origin.setNotice('error', message)
+        origin.setNotice('error', 'error.retryAttachmentsChanged')
         throw new Error(message)
       }
       attachmentIdentities = actual
@@ -613,7 +626,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       linkMirrors(entry.payload.submissionId, origin, target)
     }
     const rejectLocal = (notice: 'items' | 'payload', message: string): never => {
-      origin.setNotice('error', notice)
+      origin.setNotice('error', notice === 'items' ? 'error.items' : 'error.payload')
       throw new Error(message)
     }
     if (entry.payload.annotations.length > config.maxAnnotationsPerSubmission) {
@@ -659,7 +672,9 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   }
 
   const withdraw = async (origin: AnnotationController, submissionId: SubmissionId): Promise<void> => {
-    const entry = origin.getSnapshot().outbox.find((item) => item.payload.submissionId === submissionId)
+    const entry = origin
+      .getSnapshot()
+      .outbox.find((item) => isOutboxPayloadEntry(item) && item.payload.submissionId === submissionId)
     if (
       entry === undefined ||
       entry.status !== 'queued' ||
@@ -669,7 +684,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     const targetId = entry.targetSessionId as unknown as SessionId
     const binding = sessions.binding(targetId)
     if (binding === undefined) {
-      origin.setNotice('error', 'Target Session is unavailable')
+      origin.setNotice('error', 'error.targetSessionUnavailable')
       return
     }
     const target = targetId === (origin.sessionId as unknown as SessionId) ? origin : controllerFor(targetId)
@@ -701,7 +716,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         if (target !== origin) target.markQueueClaimed(submissionId)
         return
       }
-      origin.setNotice('error', transportMessage(result))
+      origin.setNotice('error', 'error.send')
       return
     }
     origin.markWithdrawn(submissionId)
@@ -709,7 +724,9 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   }
 
   const discardOutbox = (origin: AnnotationController, submissionId: SubmissionId): void => {
-    const entry = origin.getSnapshot().outbox.find((item) => item.payload.submissionId === submissionId)
+    const entry = origin
+      .getSnapshot()
+      .outbox.find((item) => isOutboxPayloadEntry(item) && item.payload.submissionId === submissionId)
     if (entry === undefined) return
     const targetId = entry.targetSessionId as unknown as SessionId
     const binding = sessions.binding(targetId)
@@ -902,6 +919,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         compactSummary: compactSummaryEnabled,
       },
       annotationT,
+      bindNoticeHost: (anchor) => noticeHub.activate(controller, anchor),
       beginSelection: (capture) => changeSendIntent(() => controller.beginSelection(capture)),
       chooseOverlap: (annotationId) => changeSendIntent(() => controller.chooseOverlap(annotationId)),
       dismissOverlap: () => controller.dismissOverlap(),
@@ -941,22 +959,18 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       closeEditor: (force) => (force === true && !canEdit() ? false : controller.closeEditor(force)),
       detachAnnotations: (ids) =>
         changeSendIntent(() => {
-          if (!controller.detachAnnotations(ids))
-            controller.setNotice('error', annotationT('trash.error.write'))
+          if (!controller.detachAnnotations(ids)) controller.setNotice('error', 'trash.error.write')
         }),
       trashAnnotations: (ids) =>
         changeSendIntent(() => {
           try {
-            if (!controller.trashAnnotations(ids))
-              controller.setNotice('error', annotationT('trash.error.write'))
+            if (!controller.trashAnnotations(ids)) controller.setNotice('error', 'trash.error.write')
           } catch (error) {
             controller.setNotice(
               'error',
-              annotationT(
-                error instanceof Error && error.message === 'annotation-submission-locked'
-                  ? 'trash.error.locked'
-                  : 'trash.error.write',
-              ),
+              error instanceof Error && error.message === 'annotation-submission-locked'
+                ? 'trash.error.locked'
+                : 'trash.error.write',
             )
           }
         }),
@@ -983,6 +997,18 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     }
   }
 
+  ctx.slots.inject('shell.overlay', () =>
+    ctx.slots.register(
+      {
+        name: 'shell.overlay',
+        id: 'dsh-annotation-notice',
+        locale: NS,
+        inject: () => noticeHub.inject(),
+      },
+      AnnotationToastHost,
+    ),
+  )
+
   ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
       {
@@ -999,7 +1025,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
             ...settings,
             ...market,
             ...trash,
-            hooks: { ...settings.hooks, ...market.hooks, ...trash.hooks },
+            hooks: { ...settings.hooks, ...market.hooks, ...trash.hooks, sessionCatalog: sessions.list },
           }
         },
       },
@@ -1049,89 +1075,88 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       }
     }
     const disposers = [
-      ...(officialDiffEnabled.getSnapshot()
-        ? [
-            ctx.slots.inject('deliverables.review.file.actions', () =>
-              ctx.slots.register(
-                {
-                  name: 'deliverables.review.file.actions',
-                  id: 'dsh-annotation-official-diff-action',
-                  locale: NS,
-                },
-                createDiffReviewAction(beginOfficialDiff),
-              ),
+      ctx.slots.inject('deliverables.review.file.actions', () =>
+        ctx.slots.register(
+          {
+            name: 'deliverables.review.file.actions',
+            id: 'dsh-annotation-official-diff-action',
+            locale: NS,
+          },
+          createDiffReviewAction(beginOfficialDiff, officialDiffEnabled),
+        ),
+      ),
+      installDiffIntegration(
+        {
+          get: (sessionId) =>
+            [...controllers.values()].find(
+              (candidate) => String(candidate.controller.sessionId) === String(sessionId),
+            )?.controller,
+        },
+        {
+          t: annotationT,
+          annotate: annotationT('selection.annotate'),
+          title: annotationT('editor.editTitle'),
+          annotation: annotationT('editor.annotationLabel'),
+          save: annotationT('editor.save'),
+          cancel: annotationT('editor.cancel'),
+          edit: annotationT('source.edit'),
+          locate: annotationT('source.locate'),
+          wholeFile: annotationT('source.wholeFile'),
+          failed: annotationT('editor.autosaveFailed'),
+          status: {
+            draft: annotationT('status.draft'),
+            queued: annotationT('status.queued'),
+            sent: annotationT('status.sent'),
+            processed: annotationT('status.processed'),
+          },
+        },
+        highlights,
+        officialDiffEnabled,
+      ),
+      ctx.slots.inject('sidebar.right.tab.document.action', () =>
+        DOCUMENT_RENDERER_IDS.map((key) =>
+          ctx.slots.register(
+            {
+              name: 'sidebar.right.tab.document.action',
+              key,
+              locale: NS,
+              registrant: 'dsh-annotation',
+            },
+            FileWholeAnnotationAction(
+              beginFileAnnotation,
+              readFileSnapshot,
+              registerPreviewSource,
+              readFilePage,
+              officialFileEnabled,
             ),
-            installDiffIntegration(
-              {
-                get: (sessionId) =>
-                  [...controllers.values()].find(
-                    (candidate) => String(candidate.controller.sessionId) === String(sessionId),
-                  )?.controller,
-              },
-              {
-                t: annotationT,
-                annotate: annotationT('selection.annotate'),
-                title: annotationT('editor.editTitle'),
-                annotation: annotationT('editor.annotationLabel'),
-                save: annotationT('editor.save'),
-                cancel: annotationT('editor.cancel'),
-                edit: annotationT('source.edit'),
-                locate: annotationT('source.locate'),
-                wholeFile: annotationT('source.wholeFile'),
-                failed: annotationT('editor.autosaveFailed'),
-                status: {
-                  draft: annotationT('status.draft'),
-                  queued: annotationT('status.queued'),
-                  sent: annotationT('status.sent'),
-                  processed: annotationT('status.processed'),
-                },
-              },
-              highlights,
-            ),
-          ]
-        : []),
-      ...(officialFileEnabled.getSnapshot()
-        ? [
-            ctx.slots.inject('sidebar.right.tab.document.action', () =>
-              DOCUMENT_RENDERER_IDS.map((key) =>
-                ctx.slots.register(
-                  {
-                    name: 'sidebar.right.tab.document.action',
-                    key,
-                    locale: NS,
-                    registrant: 'dsh-annotation',
-                  },
-                  FileWholeAnnotationAction(
-                    beginFileAnnotation,
-                    readFileSnapshot,
-                    registerPreviewSource,
-                    readFilePage,
-                  ),
-                ),
-              ),
-            ),
-            ctx.slots.inject('sidebar.right.tab.document.actions', () =>
-              ctx.slots.register(
-                {
-                  name: 'sidebar.right.tab.document.actions',
-                  id: 'dsh-annotation-office-whole-file',
-                  locale: NS,
-                },
-                OfficeWholeAnnotationAction(beginFileAnnotation, readFileSnapshot, registerPreviewSource),
-              ),
-            ),
-            installDocumentIntegration(
-              {
-                get: (sessionId) =>
-                  [...controllers.entries()].find(([id]) => String(id) === String(sessionId))?.[1]
-                    ?.controller,
-              },
-              (key) => annotationT(key),
-              (address) => previewSources.get(address),
-              highlights,
-            ),
-          ]
-        : []),
+          ),
+        ),
+      ),
+      ctx.slots.inject('sidebar.right.tab.document.actions', () =>
+        ctx.slots.register(
+          {
+            name: 'sidebar.right.tab.document.actions',
+            id: 'dsh-annotation-office-whole-file',
+            locale: NS,
+          },
+          OfficeWholeAnnotationAction(
+            beginFileAnnotation,
+            readFileSnapshot,
+            registerPreviewSource,
+            officialFileEnabled,
+          ),
+        ),
+      ),
+      installDocumentIntegration(
+        {
+          get: (sessionId) =>
+            [...controllers.entries()].find(([id]) => String(id) === String(sessionId))?.[1]?.controller,
+        },
+        (key) => annotationT(key),
+        (address) => previewSources.get(address),
+        highlights,
+        officialFileEnabled,
+      ),
       ctx.slots.inject('conversation.chat.node', () => {
         const restoreAssistantRenderers = decorateAssistantRenderers(ctx, faceFor)
         const removeUser = ctx.slots.register(
@@ -1324,16 +1349,10 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
 
   ctx.effect(() => {
     let disposeIntegrations: (() => void) | undefined
-    let integrationSignature: string | undefined
     const sync = (): void => {
       if (featureEnabled.getSnapshot()) {
         cancelPendingDetachRetries()
-        const nextSignature = `${officialFileEnabled.getSnapshot() ? 'file' : ''}:${officialDiffEnabled.getSnapshot() ? 'diff' : ''}`
-        if (disposeIntegrations === undefined || integrationSignature !== nextSignature) {
-          disposeIntegrations?.()
-          disposeIntegrations = installConversationIntegrations()
-          integrationSignature = nextSignature
-        }
+        disposeIntegrations ??= installConversationIntegrations()
         for (const sessionId of controllers.keys()) repairComposerAttachment(sessionId)
         return
       }
@@ -1341,17 +1360,12 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       detachAllComposerAttachments()
       const dispose = disposeIntegrations
       disposeIntegrations = undefined
-      integrationSignature = undefined
       dispose?.()
       highlights.dispose()
     }
     const unsubscribeFeature = featureEnabled.subscribe(sync)
-    const unsubscribeOfficialFile = officialFileEnabled.subscribe(sync)
-    const unsubscribeOfficialDiff = officialDiffEnabled.subscribe(sync)
     sync()
     return () => {
-      unsubscribeOfficialDiff()
-      unsubscribeOfficialFile()
       unsubscribeFeature()
       cancelPendingDetachRetries()
       disposeIntegrations?.()

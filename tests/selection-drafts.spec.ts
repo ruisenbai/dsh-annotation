@@ -415,7 +415,7 @@ describe('explicit annotation send sets and editor recovery', () => {
           supplementalTo: id,
         })
       }
-      expect(controller.getSnapshot().notice?.text).toBe('local-edits-preserved')
+      expect(controller.getSnapshot().notice?.messageKey).toBe('notice.localEditsPreserved')
     },
   )
 

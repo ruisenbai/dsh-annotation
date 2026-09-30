@@ -1,7 +1,13 @@
 /** Main-Settings section for Host-backed annotation settings. */
 
 import { Switch, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type {
+  InjectFace,
+  PropsLocale,
+  PropsRuntime,
+  SnapshotSelectorHook,
+} from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { AnnotationSettingsInjected } from '../feature-toggle.ts'
 import type { MarketUpdateInjected, MarketUpdateState } from '../market-update.ts'
@@ -11,7 +17,9 @@ import { AnnotationTrashPanel } from './AnnotationTrashPanel.tsx'
 /** Full props for the annotation section in main Settings. */
 export type AnnotationPluginCardProps = PropsRuntime<'settings.section'> &
   PropsLocale<'dshAnnotation'> &
-  InjectFace<AnnotationSettingsInjected & MarketUpdateInjected & AnnotationTrashInjected>
+  InjectFace<AnnotationSettingsInjected & MarketUpdateInjected & AnnotationTrashInjected> & {
+    readonly useSessionCatalog: SnapshotSelectorHook<SessionListState>
+  }
 
 function marketStatus(props: AnnotationPluginCardProps, state: MarketUpdateState) {
   if (state.phase === 'idle') return props.t('settings.updateIdle')

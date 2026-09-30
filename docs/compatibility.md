@@ -42,11 +42,11 @@ node scripts/browser-test.mjs narrow-dark
 node scripts/profile-smoke.mjs --official-only
 node scripts/profile-smoke.mjs
 npm pack --ignore-scripts --cache /tmp/dsh-annotation-pack-cache --pack-destination artifacts
-./node_modules/.bin/publint run artifacts/dsh-annotation-1.0.0.tgz --level error
+./node_modules/.bin/publint run artifacts/dsh-annotation-1.1.0.tgz --level error
 cd .. && node --import tsx/esm scripts/verify-translation-pairing.ts dsh-annotation/README.md
 ```
 
-The unit/component suite covers Composer attachment, compact official file/Diff validation, delayed selection, multiline columns, transient Locate failure, bounded large-file hashing, empty files, storage v6 migration, batch deletion undo, and source snapshot capture after a quick save. The isolated profile links the built plugin into a temporary `web` profile and uses a deterministic model adapter. The local archive was then installed into the existing CLI `web` profile; `dsh plugin --profile web why dsh-annotation` resolved one `dsh-annotation@1.0.0`, the installed `lib/client.js` SHA-256 matched the built bundle, and the installed Web Settings page showed enabled annotation, file, Diff, automatic attachment, and recycle-bin controls. A real provider run requires a configured API key.
+The unit/component suite covers Composer attachment, compact official file/Diff validation, delayed selection, multiline columns, transient Locate failure, bounded large-file hashing, empty files, storage v6 migration, batch deletion undo, and source snapshot capture after a quick save. The isolated profile links the built plugin into a temporary `web` profile and uses a deterministic model adapter. The local archive was then installed into the existing CLI `web` profile; `dsh plugin --profile web why dsh-annotation` resolved one `dsh-annotation@1.1.0`, the installed `lib/client.js` SHA-256 matched the built bundle, and the installed Web Settings page showed enabled annotation, file, Diff, automatic attachment, and recycle-bin controls. A real provider run requires a configured API key.
 
 The official `dsh-client-ui-primitives` npm bundle references a missing source map; Vitest reported that warning while tests passed. `publint` passed on the built tarball. The existing CLI profile reported an unrelated `dsh-smooth-stream` import failure during Web startup; annotation settings still loaded. The first offline installation attempt lacked cached `micromark-util-edit-map` metadata; the normal local-archive install succeeded with a peer-dependency warning. Windows, macOS, the Node 22/24 CI matrix, independent source-build CI, and a live-provider check require separate verification.
 

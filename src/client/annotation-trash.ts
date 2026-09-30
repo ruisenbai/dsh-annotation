@@ -29,8 +29,8 @@ export interface AnnotationTrashInjected {
     readonly sourceSnapshots: HostObservable<number>
   }
   readonly refreshTrash: () => void
-  readonly restoreTrashed: (sessionId: SessionIdentity, ids: readonly AnnotationId[]) => Promise<void>
-  readonly purgeTrashed: (rows: readonly AnnotationTrashRow[]) => Promise<void>
+  readonly restoreTrashed: (sessionId: SessionIdentity, ids: readonly AnnotationId[]) => Promise<boolean>
+  readonly purgeTrashed: (rows: readonly AnnotationTrashRow[]) => Promise<boolean>
   readonly readSourceSnapshot: (sessionId: SessionIdentity, id: AnnotationId) => Promise<SourceSnapshotView>
 }
 
@@ -114,7 +114,7 @@ export class AnnotationTrashController {
     const task = settled
       .then(() => {
         if (this.disposed) return
-        return this.snapshots.release(key)
+        return this.snapshots.purge(key)
       })
       .then(
         () => {
@@ -172,25 +172,68 @@ export class AnnotationTrashController {
   }
 
   /** Restore one Session's records without arming the composer. */
-  restore = async (sessionId: SessionIdentity, ids: readonly AnnotationId[]): Promise<void> => {
-    this.finish(await this.change(sessionId, ids, 'restore'))
+  restore = async (sessionId: SessionIdentity, ids: readonly AnnotationId[]): Promise<boolean> => {
+    const error = await this.change(sessionId, ids, 'restore')
+    this.finish(error)
+    return error === null
   }
 
   /** Permanently remove selected recycle-bin rows, retaining durable anti-resurrection marks. */
-  purge = async (rows: readonly AnnotationTrashRow[]): Promise<void> => {
-    const groups = new Map<SessionIdentity, AnnotationId[]>()
+  purge = async (rows: readonly AnnotationTrashRow[]): Promise<boolean> => {
+    const groups = new Map<SessionIdentity, AnnotationTrashRow[]>()
     for (const row of rows) {
-      const ids = groups.get(row.sessionId) ?? []
-      if (!ids.includes(row.entry.annotation.annotationId)) ids.push(row.entry.annotation.annotationId)
-      groups.set(row.sessionId, ids)
+      const entries = groups.get(row.sessionId) ?? []
+      if (!entries.some((entry) => entry.entry.annotation.annotationId === row.entry.annotation.annotationId))
+        entries.push(row)
+      groups.set(row.sessionId, entries)
     }
-    let firstError: AnnotationTrashView['error'] = null
-    for (const [sessionId, ids] of groups) {
-      const error = await this.change(sessionId, ids, 'purge')
-      firstError ??= error
+    const plans: {
+      readonly controller: AnnotationController
+      readonly owned: boolean
+      readonly ids: readonly AnnotationId[]
+    }[] = []
+    try {
+      for (const [sessionId, entries] of groups) {
+        const existing = this.mounted(sessionId)
+        const store =
+          existing === undefined
+            ? new AnnotationStorage(this.storage, sessionId, this.coordination)
+            : undefined
+        const controller =
+          existing ??
+          new AnnotationController(
+            sessionId,
+            store!,
+            { getSnapshot: () => ({ hasMore: false }), loadOlder: async () => undefined },
+            this.config,
+          )
+        plans.push({
+          controller,
+          owned: existing === undefined,
+          ids: controller.preflightPurgeAnnotations(
+            entries.map((row) => ({
+              annotationId: row.entry.annotation.annotationId,
+              deletionId: row.entry.deletionId,
+            })),
+          ),
+        })
+      }
+    } catch (error) {
+      for (const plan of plans) if (plan.owned) plan.controller.dispose()
+      const result =
+        error instanceof Error && error.message === 'annotation-submission-locked' ? 'locked' : 'write'
+      this.finish(result)
+      return false
     }
-    this.finish(firstError)
+
+    let failed = false
+    for (const plan of plans) if (!plan.controller.purgeAnnotations(plan.ids)) failed = true
+    const settled = await Promise.all(plans.map((plan) => plan.controller.whenStorageIdle()))
+    if (settled.some((saved) => !saved)) failed = true
+    for (const plan of plans) if (plan.owned) plan.controller.dispose()
+    this.finish(failed ? 'write' : null)
     await this.whenIdle()
+    return !failed && this.view.error === null
   }
 
   /** Wait for currently owned readers and source cleanup without polling the browser. */

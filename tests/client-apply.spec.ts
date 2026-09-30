@@ -62,6 +62,7 @@ import {
 } from '../src/shared/settings.ts'
 import type { MessageIdentity, SessionIdentity } from '../src/shared/types.ts'
 import { fixturePayload } from './fixtures.ts'
+import { expectOutboxPayload } from './outbox-test-helpers.ts'
 
 function emptySnapshot(): AnnotationReconciliationSnapshot {
   return {
@@ -816,7 +817,7 @@ describe('Client plugin composer attachment lifecycle', () => {
       expect(fixture.inputSnapshot().phase).toBe('plain')
       face.toggleSelected(id)
       await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
-      const payload = face.hooks.annotations.getSnapshot().outbox[0]!.payload
+      const payload = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload
       expect(payload.overallRequirement).toBe(draft || undefined)
       expect(payload.annotations.map((item) => item.annotationId)).toEqual([id])
       expect(command).toHaveBeenCalledOnce()
@@ -956,14 +957,14 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(face.ensureComposerAttachment()).toBe(true)
     fixture.setComposerText('Rewrite the proposal.')
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'error', text: 'offline' })
-    const failed = face.hooks.annotations.getSnapshot().outbox[0]!
+    const failed = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0])
     expect(failed).toMatchObject({ status: 'failed', attempts: 1 })
     expect(failed.payload.overallRequirement).toBe('Rewrite the proposal.')
     expect(fixture.inputSnapshot()).toMatchObject({ phase: 'claimed' })
 
     command.mockResolvedValueOnce(remoteSuccess())
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
-    const retried = face.hooks.annotations.getSnapshot().outbox[0]!
+    const retried = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0])
     expect(retried.payload).toBe(failed.payload)
     expect(retried.payload.submissionId).toBe(failed.payload.submissionId)
     expect(retried.payload.delivery).toBe('queue')
@@ -987,9 +988,9 @@ describe('Client plugin composer attachment lifecycle', () => {
     ])
 
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
-    expect(face.hooks.annotations.getSnapshot().outbox[0]?.payload.overallRequirement).toBe(
-      'Compare <reference>session-current</reference> with <reference>file-guide</reference>.',
-    )
+    expect(
+      expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload.overallRequirement,
+    ).toBe('Compare <reference>session-current</reference> with <reference>file-guide</reference>.')
     await fixture.dispose()
   })
 
@@ -1003,7 +1004,9 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(face.ensureComposerAttachment()).toBe(true)
     expect(fixture.inputSnapshot().draft).toBe(`${COMPOSER_ATTACHMENT_TOKEN}${COMPOSER_TEXT_SEAT}`)
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
-    expect(face.hooks.annotations.getSnapshot().outbox[0]?.payload.overallRequirement).toBeUndefined()
+    expect(
+      expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload.overallRequirement,
+    ).toBeUndefined()
     expect(command).toHaveBeenCalledOnce()
     await fixture.dispose()
   })
@@ -1071,9 +1074,13 @@ describe('Client plugin composer attachment lifecycle', () => {
     saveAnnotation(face, 8, 'second', 'Second note.')
 
     await fixture.submitComposer()
-    expect(face.hooks.annotations.getSnapshot().outbox[0]?.payload.annotations).toHaveLength(2)
     expect(
-      face.hooks.annotations.getSnapshot().outbox[0]?.payload.annotations.map((item) => item.annotation),
+      expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload.annotations,
+    ).toHaveLength(2)
+    expect(
+      expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload.annotations.map(
+        (item) => item.annotation,
+      ),
     ).toEqual(['First note.', 'Second note.'])
     await fixture.dispose()
   })
@@ -1115,9 +1122,9 @@ describe('Client plugin composer attachment lifecycle', () => {
     )
     expect(face.hooks.annotations.getSnapshot().overallRequirementDraft).toBe('')
     await fixture.submitComposer()
-    expect(face.hooks.annotations.getSnapshot().outbox[0]?.payload.overallRequirement).toBe(
-      'Rewrite the introduction.\n\nKeep the original structure.',
-    )
+    expect(
+      expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload.overallRequirement,
+    ).toBe('Rewrite the introduction.\n\nKeep the original structure.')
     await fixture.dispose()
   })
 
@@ -1139,7 +1146,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(command.mock.calls[0]?.[0]).toBe('session-test')
     expect(String(command.mock.calls[0]?.[1])).toContain('annotation_submit')
     expect(command.mock.calls[0]?.[2]).toEqual([image])
-    const outbox = face.hooks.annotations.getSnapshot().outbox[0]!
+    const outbox = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0])
     expect(outbox.attachments).toEqual({
       count: 1,
       kinds: ['image'],
@@ -1182,7 +1189,8 @@ describe('Client plugin composer attachment lifecycle', () => {
         expect(fixture.prepareAttachments).toHaveBeenCalledTimes(2)
         expect(command).toHaveBeenCalledOnce()
         expect(
-          fixture.face().hooks.annotations.getSnapshot().outbox[0]?.payload.attachmentIdentities,
+          expectOutboxPayload(fixture.face().hooks.annotations.getSnapshot().outbox[0]).payload
+            .attachmentIdentities,
         ).toHaveLength(1)
       } finally {
         await fixture.dispose()
@@ -1255,7 +1263,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     await expect(fixture.submitComposer(attachments)).resolves.toEqual({ kind: 'success' })
 
     expect(command.mock.calls[0]?.[2]).toEqual(attachments)
-    const outbox = face.hooks.annotations.getSnapshot().outbox[0]!
+    const outbox = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0])
     expect(outbox.attachments).toEqual({
       count: 2,
       kinds: ['image', 'file'],
@@ -1280,7 +1288,8 @@ describe('Client plugin composer attachment lifecycle', () => {
       kind: 'error',
       text: 'offline',
     })
-    const submissionId = first.face().hooks.annotations.getSnapshot().outbox[0]!.payload.submissionId
+    const submissionId = expectOutboxPayload(first.face().hooks.annotations.getSnapshot().outbox[0]).payload
+      .submissionId
     await first.dispose()
     const recoveredStorage = new AnnotationStorage(localStorage, 'session-test' as SessionIdentity)
     const recovered = recoveredStorage.load()
@@ -1305,7 +1314,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     }
     expect(command).toHaveBeenCalledOnce()
     expect(face.hooks.annotations.getSnapshot().outbox[0]).toMatchObject({ attempts: 1, status: 'failed' })
-    const frozen = JSON.stringify(face.hooks.annotations.getSnapshot().outbox[0]!.payload)
+    const frozen = JSON.stringify(expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload)
     refreshed.fileContents.set('replacement-file', 'different content')
     for (const replacements of [
       [imageAttachment('renamed.png'), fileAttachment()],
@@ -1319,7 +1328,9 @@ describe('Client plugin composer attachment lifecycle', () => {
         kind: 'error',
         text: 'error.retryAttachmentsChanged',
       })
-      expect(JSON.stringify(face.hooks.annotations.getSnapshot().outbox[0]!.payload)).toBe(frozen)
+      expect(
+        JSON.stringify(expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload),
+      ).toBe(frozen)
     }
     expect(command).toHaveBeenCalledOnce()
     expect(face.hooks.annotations.getSnapshot().outbox[0]).toMatchObject({ attempts: 1, status: 'failed' })
@@ -1328,7 +1339,9 @@ describe('Client plugin composer attachment lifecycle', () => {
     const replacements = [imageAttachment(), fileAttachment('fresh-upload-receipt')]
     await expect(refreshed.submitComposer(replacements)).resolves.toEqual({ kind: 'success' })
     expect(command.mock.calls[1]?.[2]).toEqual(replacements)
-    expect(face.hooks.annotations.getSnapshot().outbox[0]!.payload.submissionId).toBe(submissionId)
+    expect(expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload.submissionId).toBe(
+      submissionId,
+    )
     expect(persistedAnnotationValues()).not.toContain('fresh-upload-receipt')
     await refreshed.dispose()
   })
@@ -1372,7 +1385,8 @@ describe('Client plugin composer attachment lifecycle', () => {
     saveAnnotation(face)
     expect(face.ensureComposerAttachment()).toBe(true)
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'error', text: 'offline' })
-    const submissionId = face.hooks.annotations.getSnapshot().outbox[0]!.payload.submissionId
+    const submissionId = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload
+      .submissionId
 
     await expect(fixture.submitComposer([fileAttachment()])).resolves.toEqual({
       kind: 'error',
@@ -1383,7 +1397,9 @@ describe('Client plugin composer attachment lifecycle', () => {
 
     command.mockResolvedValueOnce(remoteSuccess())
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
-    expect(face.hooks.annotations.getSnapshot().outbox[0]!.payload.submissionId).toBe(submissionId)
+    expect(expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload.submissionId).toBe(
+      submissionId,
+    )
     await fixture.dispose()
   })
 
@@ -1412,7 +1428,7 @@ describe('Client plugin composer attachment lifecycle', () => {
       text: 'error.attachmentsRequired',
     })
     expect(face.hooks.annotations.getSnapshot()).toMatchObject({
-      notice: { level: 'error', text: 'error.attachmentsRequired' },
+      notice: { level: 'error', messageKey: 'error.attachmentsRequired' },
       outbox: [{ status: 'failed', attempts: 1 }],
     })
 
@@ -1436,7 +1452,8 @@ describe('Client plugin composer attachment lifecycle', () => {
       text: 'offline',
     })
 
-    const submissionId = face.hooks.annotations.getSnapshot().outbox[0]!.payload.submissionId
+    const submissionId = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload
+      .submissionId
     face.discardOutbox(submissionId)
 
     expect(face.hooks.annotations.getSnapshot().outbox[0]?.status).toBe('withdrawn')
@@ -1634,7 +1651,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(face.ensureComposerAttachment()).toBe(true)
 
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
-    const outbox = face.hooks.annotations.getSnapshot().outbox[0]!
+    const outbox = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0])
     expect(outbox.payload.protocolLocale).toBe('zh')
     expect(outbox.payload.annotations[0]).toMatchObject({ kind: 'highlight-only', annotation: '' })
     await fixture.dispose()
@@ -1648,7 +1665,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     saveAnnotation(face)
     face.ensureComposerAttachment()
     await fixture.submitComposer()
-    const accepted = face.hooks.annotations.getSnapshot().outbox[0]!
+    const accepted = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0])
 
     fixture.setInbox(inboxSnapshot([accepted.messageId]))
     expect(face.hooks.annotations.getSnapshot().outbox[0]?.status).toBe('queued')
@@ -1681,7 +1698,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     face.ensureComposerAttachment()
     expect(fixture.inputSnapshot().claim).toMatchObject({ name: DEFAULT_CONFIG.commandName })
     await fixture.submitComposer()
-    const entry = face.hooks.annotations.getSnapshot().outbox[0]!
+    const entry = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0])
     fixture.setInbox(inboxSnapshot([entry.messageId]))
     expect(face.hooks.annotations.getSnapshot().outbox[0]?.status).toBe('queued')
 
@@ -1720,7 +1737,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     saveAnnotation(face)
     face.ensureComposerAttachment()
     await fixture.submitComposer()
-    const entry = face.hooks.annotations.getSnapshot().outbox[0]!
+    const entry = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0])
     fixture.setInbox(inboxSnapshot([entry.messageId]))
     fixture.setInbox(inboxSnapshot([], [entry.messageId]), false)
     await face.withdraw(entry.payload.submissionId)
@@ -1741,7 +1758,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     saveAnnotation(face)
     face.ensureComposerAttachment()
     await fixture.submitComposer()
-    const accepted = face.hooks.annotations.getSnapshot().outbox[0]!
+    const accepted = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0])
 
     fixture.setInbox(inboxSnapshot([accepted.messageId]))
     expect(face.hooks.annotations.getSnapshot().outbox[0]?.status).toBe('queued')
@@ -1828,7 +1845,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(outcome.kind).toBe('error')
     expect(command).not.toHaveBeenCalled()
     expect(face.hooks.annotations.getSnapshot()).toMatchObject({
-      notice: { level: 'error', text: 'items' },
+      notice: { level: 'error', messageKey: 'error.items' },
       outbox: [],
     })
     expect(face.hooks.annotations.getSnapshot().annotations.map((item) => item.status)).toEqual([
@@ -1923,7 +1940,7 @@ describe('Client plugin composer attachment lifecycle', () => {
       face.setProcessingMode('rewrite')
       const attachments = [imageAttachment(), fileAttachment()]
       expect(await fixture.submitComposer(attachments)).toEqual({ kind: 'error', text: 'offline' })
-      const original = face.hooks.annotations.getSnapshot().outbox[0]!
+      const original = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0])
       const firstLine = command.mock.calls[0]?.[1]
       face.selectRetry(original.payload.submissionId)
       expect(fixture.inputSnapshot()).toMatchObject({ phase: 'plain', claim: null })
@@ -1938,7 +1955,9 @@ describe('Client plugin composer attachment lifecycle', () => {
       expect(command).toHaveBeenCalledTimes(1)
       expect(await fixture.submitComposer(attachments)).toEqual({ kind: 'success' })
       expect(command.mock.calls[1]?.[1]).toBe(firstLine)
-      expect(face.hooks.annotations.getSnapshot().outbox[0]?.payload).toEqual(original.payload)
+      expect(expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload).toEqual(
+        original.payload,
+      )
       expect(
         face.hooks.annotations.getSnapshot().annotations.filter((item) => item.status === 'draft'),
       ).toHaveLength(1)
@@ -1974,7 +1993,7 @@ describe('Client plugin composer attachment lifecycle', () => {
       face.suspendEditor()
       gate.release('<reference>notes.md</reference>')
       expect(await pending).toEqual({ kind: 'success' })
-      expect(face.hooks.annotations.getSnapshot().outbox[0]?.payload).toMatchObject({
+      expect(expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload).toMatchObject({
         processingMode: 'answer',
         annotations: [{ annotationId: id, annotation: 'Revise this.' }],
       })
@@ -2043,7 +2062,7 @@ describe('Client plugin composer attachment lifecycle', () => {
       face.ensureComposerAttachment()
       fixture.setComposerReferences('Use @notes', [{ display: '@notes', source: 'files', ref: 'notes.md' }])
       expect(await fixture.submitComposer()).toEqual({ kind: 'error', text: 'offline' })
-      const original = face.hooks.annotations.getSnapshot().outbox[0]!
+      const original = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0])
       gate = deferredReference(fixture)
       pending = fixture.submitComposer()
       await vi.waitFor(() => expect(gate!.serialize).toHaveBeenCalledOnce())
@@ -2078,7 +2097,7 @@ describe('Client plugin composer attachment lifecycle', () => {
       saveAnnotation(face)
       face.ensureComposerAttachment()
       await fixture.submitComposer()
-      const original = face.hooks.annotations.getSnapshot().outbox[0]!
+      const original = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0])
       fixture.setInbox(inboxSnapshot([String(original.messageId)]), false)
       expect(face.hooks.annotations.getSnapshot().outbox[0]?.status).toBe('failed')
       face.discardOutbox(original.payload.submissionId)

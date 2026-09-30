@@ -13,11 +13,14 @@ import { waitForSourceTargetResult, type SourceTargetRead } from './source-targe
 import { registerOfficialAnchor, rangeAnchor } from './floating.ts'
 import { installOfficialMarkers } from './official-markers.tsx'
 import { sha256Hex } from '../shared/snapshot-hash.ts'
+import { parseFileResourceAddress } from '../shared/resource-path.ts'
 import type { AnnotationDraft } from '../shared/types.ts'
 import type { TextQuoteSelector } from '../shared/types.ts'
 import type { SelectionCapture } from './selection.ts'
 import type { HighlightManager } from './highlight.ts'
+import { showSourceFlash, SOURCE_FLASH_MS } from './source-flash.ts'
 import type { InputAnnotationProps } from './contract.ts'
+import type { AnnotationCreationToggle } from './components/FileWholeAnnotationAction.tsx'
 
 interface ControllerRegistry {
   get(sessionId: SessionIdentity): AnnotationController | undefined
@@ -31,18 +34,10 @@ export type WholeFileSourceInput = Parameters<typeof fileSource>[0]
 export function parseResourceAddress(
   address: string,
 ): { sessionId: SessionIdentity; path: string } | undefined {
-  const prefix = 'dsh-resource://file/session/'
-  if (!address.startsWith(prefix)) return undefined
-  const slash = address.indexOf('/', prefix.length)
-  if (slash < 0) return undefined
-  try {
-    return {
-      sessionId: decodeURIComponent(address.slice(prefix.length, slash)) as SessionIdentity,
-      path: decodeURIComponent(address.slice(slash + 1)) as string,
-    }
-  } catch {
-    return undefined
-  }
+  const parsed = parseFileResourceAddress(address)
+  return parsed?.scope === 'session'
+    ? { sessionId: parsed.sessionId as SessionIdentity, path: parsed.path }
+    : undefined
 }
 
 export async function digest(value: string | Uint8Array): Promise<string> {
@@ -261,6 +256,7 @@ export function installDocumentIntegration(
   translate: InputAnnotationProps['t'],
   getPreviewSource?: FilePreviewSourceLookup,
   highlights?: HighlightManager,
+  creationEnabled?: AnnotationCreationToggle,
 ): () => void {
   let disposeBar: (() => void) | undefined
   let pendingSelection: {
@@ -271,6 +267,7 @@ export function installDocumentIntegration(
   } | null = null
   let selectionEpoch = 0
   const endpointDisposers = new Map<HTMLElement, { readonly key: string; readonly dispose: () => void }>()
+  const canCreate = (): boolean => creationEnabled?.getSnapshot() ?? true
 
   const locateTarget = async (
     root: HTMLElement,
@@ -323,13 +320,15 @@ export function installDocumentIntegration(
     const pulse = (element: HTMLElement, range: Range | null): void => {
       clearPulse?.()
       const owner = `file-navigation:${key}`
-      if (range !== null) highlights?.activate(owner, range)
+      const flash = range === null ? null : showSourceFlash(root, [range])
+      if (range !== null && flash === null) highlights?.activate(owner, range)
       element.dataset.dshOfficialFileLocated = ''
-      const timer = window.setTimeout(() => clearPulse?.(), 1200)
+      const timer = window.setTimeout(() => clearPulse?.(), SOURCE_FLASH_MS)
       clearPulse = () => {
         window.clearTimeout(timer)
+        flash?.()
         delete element.dataset.dshOfficialFileLocated
-        highlights?.activate(owner, null)
+        if (flash === null) highlights?.activate(owner, null)
         clearPulse = undefined
       }
     }
@@ -452,13 +451,14 @@ export function installDocumentIntegration(
   }
   const showBar = (capture: Parameters<AnnotationController['beginSelection']>[0]): void => {
     closeBar()
+    if (!canCreate()) return
     disposeBar = showOfficialSelectionAction(capture, translate('selection.annotate'), () => {
       if (capture.source?.kind === 'file') registry.get(capture.source.sessionId)?.beginSelection(capture)
     })
   }
 
   const captureSelection = (event: Event): void => {
-    if (!selectionGesture(event)) return
+    if (!canCreate() || !selectionGesture(event)) return
     queueMicrotask(() => {
       const selection = window.getSelection()
       if (selection === null || selection.isCollapsed || selection.rangeCount === 0) return
@@ -505,8 +505,16 @@ export function installDocumentIntegration(
     attributes: true,
     attributeFilter: ['data-textpreview-url', 'disabled'],
   })
+  const unsubscribeCreation = creationEnabled?.subscribe(() => {
+    if (!canCreate()) {
+      pendingSelection = null
+      selectionEpoch += 1
+      closeBar()
+    }
+  })
   syncEndpoints()
   return () => {
+    unsubscribeCreation?.()
     document.removeEventListener('pointerup', captureSelection, true)
     document.removeEventListener('keyup', captureSelection, true)
     document.removeEventListener('selectionchange', onSelectionChange)

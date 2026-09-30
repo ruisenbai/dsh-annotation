@@ -233,19 +233,37 @@ export interface OutboxAttachments extends OutboxImages {
   readonly kinds: readonly ('image' | 'file')[]
 }
 
-/** Immutable retry record. The payload never changes after its first attempt. */
-export interface OutboxEntry {
-  readonly payload: AnnotationSubmissionPayload
+/** Common durable identity and lifecycle fields for one submission attempt. */
+interface OutboxEntryBase {
   readonly targetSessionId: SessionIdentity
   readonly messageId: MessageIdentity
-  readonly status: OutboxStatus
   readonly attempts: number
+}
+
+/** Immutable retry record. The payload never changes while the batch can still be transported. */
+export interface OutboxPayloadEntry extends OutboxEntryBase {
+  readonly payload: AnnotationSubmissionPayload
+  readonly status: OutboxStatus
   readonly lastError?: string
   /** Metadata for attachments carried by the original submission. */
   readonly attachments?: OutboxAttachments
   /** Image-only metadata written by plugin versions before 0.6.0. */
   readonly images?: OutboxImages
 }
+
+/** Content-free receipt retained after a terminal batch has a permanently deleted member. */
+export interface OutboxReceiptEntry extends OutboxEntryBase {
+  readonly kind: 'receipt'
+  readonly submissionId: SubmissionId
+  readonly status: 'sent' | 'withdrawn'
+  readonly payload?: never
+  readonly lastError?: never
+  readonly attachments?: never
+  readonly images?: never
+}
+
+/** Durable transport payload or a terminal content-free receipt. */
+export type OutboxEntry = OutboxPayloadEntry | OutboxReceiptEntry
 
 /** Browser-local deleted annotation; immutable submission payloads remain unchanged. */
 export interface AnnotationTrashEntry {

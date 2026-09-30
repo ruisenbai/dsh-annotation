@@ -3,7 +3,7 @@ import { IconEditOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-deliverables/client'
 import type { ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { SessionIdentity } from '../shared/types.ts'
 import type { OfficialDiffAnnotationSource, OfficialDiffSnapshot } from '../shared/annotation-source.ts'
 import { officialDiffLines, officialDiffQuote } from '../shared/official-source.ts'
@@ -17,6 +17,8 @@ import { registerOfficialAnchor, rangeAnchor } from './floating.ts'
 import { sourceKey } from '../shared/annotation-source.ts'
 import type { AnnotationDraft } from '../shared/types.ts'
 import type { HighlightManager } from './highlight.ts'
+import { showSourceFlash, SOURCE_FLASH_MS } from './source-flash.ts'
+import type { AnnotationCreationToggle } from './components/FileWholeAnnotationAction.tsx'
 import type { InputAnnotationProps } from './contract.ts'
 import type { SelectionCapture } from './selection.ts'
 
@@ -240,8 +242,14 @@ type ReviewActionProps = Pick<PropsRuntime<'deliverables.review.file.actions'>, 
 /** Create a review-slot action that keeps the source inside the official Diff snapshot. */
 export function createDiffReviewAction(
   begin: (source: OfficialDiffAnnotationSource, rect: DOMRect) => void,
+  creationEnabled?: AnnotationCreationToggle,
 ): (props: ReviewActionProps) => ReactNode {
   return function DiffReviewAction({ actionUrl, pending, t }: ReviewActionProps): ReactNode {
+    const enabled = useSyncExternalStore(
+      creationEnabled?.subscribe ?? (() => () => undefined),
+      creationEnabled?.getSnapshot ?? (() => true),
+      creationEnabled?.getSnapshot ?? (() => true),
+    )
     const label = t('selection.annotateOfficial')
     const request = useRef<AbortController | null>(null)
     const [loading, setLoading] = useState(false)
@@ -251,6 +259,7 @@ export function createDiffReviewAction(
       setFailed(false)
       return () => request.current?.abort()
     }, [actionUrl])
+    if (!enabled) return <span hidden data-dsh-official-diff-source="" data-action-url={actionUrl} />
     return (
       <button
         type="button"
@@ -260,6 +269,7 @@ export function createDiffReviewAction(
         aria-busy={loading}
         disabled={pending || loading}
         data-official-diff-annotate=""
+        data-dsh-official-diff-source=""
         data-action-url={actionUrl}
         onClick={(event) => {
           request.current?.abort()
@@ -427,12 +437,14 @@ function registerDiffView(
     clearPulse?.()
     target.dataset.dshOfficialDiffLocated = ''
     const owner = `diff-navigation:${actionUrl}`
-    highlights?.activate(owner, ranges)
-    const timer = window.setTimeout(() => clearPulse?.(), 1200)
+    const flash = showSourceFlash(root, ranges)
+    if (flash === null) highlights?.activate(owner, ranges)
+    const timer = window.setTimeout(() => clearPulse?.(), SOURCE_FLASH_MS)
     clearPulse = () => {
       window.clearTimeout(timer)
+      flash?.()
       delete target.dataset.dshOfficialDiffLocated
-      highlights?.activate(owner, null)
+      if (flash === null) highlights?.activate(owner, null)
       clearPulse = undefined
     }
   }
@@ -524,13 +536,15 @@ export function installDiffIntegration(
   registry: OfficialDiffRegistry,
   labels: OfficialDiffLabels,
   highlights?: HighlightManager,
+  creationEnabled?: AnnotationCreationToggle,
 ): () => void {
   let selectionEpoch = 0
   let selectionAbort: AbortController | null = null
   let disposeAction: (() => void) | undefined
   const mounted = new Map<HTMLElement, MountedDiff>()
   const actionUrlFor = (root: HTMLElement): string | undefined =>
-    root.querySelector<HTMLElement>('[data-official-diff-annotate]')?.dataset.actionUrl
+    root.querySelector<HTMLElement>('[data-dsh-official-diff-source], [data-official-diff-annotate]')?.dataset
+      .actionUrl
   const closeSelection = (): void => {
     selectionEpoch += 1
     selectionAbort?.abort()
@@ -538,7 +552,7 @@ export function installDiffIntegration(
     disposeAction = undefined
   }
   const capture = (event: Event): void => {
-    if (!selectionGesture(event)) return
+    if (creationEnabled?.getSnapshot() === false || !selectionGesture(event)) return
     queueMicrotask(() => {
       const selection = window.getSelection()
       if (selection === null || selection.isCollapsed || selection.rangeCount === 0) return
@@ -600,8 +614,13 @@ export function installDiffIntegration(
     attributes: true,
     attributeFilter: ['data-action-url'],
   })
+  const unsubscribeCreation = creationEnabled?.subscribe(() => {
+    if (creationEnabled.getSnapshot()) return
+    closeSelection()
+  })
   sync()
   return () => {
+    unsubscribeCreation?.()
     closeSelection()
     document.removeEventListener('pointerup', capture, true)
     document.removeEventListener('keyup', capture, true)

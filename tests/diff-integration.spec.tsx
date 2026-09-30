@@ -15,6 +15,8 @@ import type { SessionIdentity } from '../src/shared/types.ts'
 import { AnnotationController } from '../src/client/controller.ts'
 import { AnnotationStorage } from '../src/client/storage.ts'
 import { DEFAULT_CONFIG } from '../src/shared/config.ts'
+import type { AnnotationCreationToggle } from '../src/client/components/FileWholeAnnotationAction.tsx'
+import { HighlightManager } from '../src/client/highlight.ts'
 
 const sessionId = 'session-official-diff' as SessionIdentity
 const actionUrl = 'api/changes.open?sessionId=session-official-diff&seq=7&index=0'
@@ -41,6 +43,26 @@ function fetcher(url: string | URL | Request): Promise<Response> {
       hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: [' context', '+new value'] }],
     }),
   )
+}
+
+function creationToggle(initial: boolean) {
+  let enabled = initial
+  const listeners = new Set<() => void>()
+  const value: AnnotationCreationToggle = {
+    getSnapshot: () => enabled,
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  }
+  return {
+    value,
+    set(next: boolean) {
+      enabled = next
+      for (const listener of listeners) listener()
+    },
+    listenerCount: () => listeners.size,
+  }
 }
 
 afterEach(() => {
@@ -256,6 +278,131 @@ describe('official Diff integration', () => {
       owner.dispose()
     }
   })
+  it('keeps Diff history mounted while its creation entry toggles', async () => {
+    const countedFetch = vi.fn(fetcher)
+    vi.stubGlobal('fetch', countedFetch)
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() })
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => new DOMRect(20, 10, 40, 20),
+    })
+    const values = new Map<string, string>()
+    const owner = new AnnotationController(
+      sessionId,
+      new AnnotationStorage(
+        {
+          getItem: (key) => values.get(key) ?? null,
+          setItem: (key, value) => {
+            values.set(key, value)
+          },
+          removeItem: (key) => {
+            values.delete(key)
+          },
+        },
+        sessionId,
+      ),
+      { getSnapshot: () => ({ hasMore: false }), loadOlder: async () => undefined },
+      DEFAULT_CONFIG,
+    )
+    owner.setSourceNavigator(async () => true)
+    const loaded = await loadOfficialDiff(actionUrl, fetcher)
+    const selectedSource = officialDiffSource(loaded.snapshot, 'new', 'sidebar', {
+      startLine: 2,
+      endLine: 2,
+      startColumn: 4,
+      endColumn: 9,
+    })
+    const quote = { exact: 'value', prefix: 'new ', suffix: '', start: 0, end: 5 }
+    owner.beginSelection({
+      source: compactOfficialDiffSource(selectedSource, quote),
+      quote,
+      rect: { top: 1, left: 2, right: 3, bottom: 4 },
+    })
+    owner.updateEditorText('Keep this selected change.')
+    const savedId = owner.saveEditor()
+
+    const review = document.createElement('div')
+    review.dataset.changesReview = ''
+    review.innerHTML =
+      '<div data-diff-side="right"><div data-diff-line="add"><span>2</span><span data-diff-code>new value</span></div></div><div data-action-host></div>'
+    document.body.append(review)
+    const toggle = creationToggle(false)
+    const begin = vi.fn()
+    const Action = createDiffReviewAction(begin, toggle.value)
+    const action = render(createElement(Action, { actionUrl, pending: false, t: (key) => key }), {
+      container: review.querySelector<HTMLElement>('[data-action-host]')!,
+    })
+    const registrations = vi.spyOn(owner, 'registerSourceEndpoint')
+    const highlights = new HighlightManager()
+    const activate = vi.spyOn(highlights, 'activate')
+    const stop = installDiffIntegration(
+      { get: (id) => (id === sessionId ? owner : undefined) },
+      {
+        t: (key) => key,
+        annotate: 'Annotate',
+        title: 'Annotation',
+        annotation: 'Comment',
+        save: 'Save',
+        cancel: 'Cancel',
+        edit: 'Edit',
+        locate: 'Locate',
+        wholeFile: 'Whole file',
+        failed: 'Save failed',
+        status: { draft: 'Draft', queued: 'Queued', sent: 'Sent', processed: 'Processed' },
+      },
+      highlights,
+      toggle.value,
+    )
+    try {
+      expect(review.querySelector('[data-official-diff-annotate]')).toBeNull()
+      expect(review.querySelector('[data-dsh-official-diff-source]')).not.toBeNull()
+      const markerLayer = await waitFor(() => {
+        expect(registrations).toHaveBeenCalled()
+        const found = document.querySelector<HTMLElement>('[data-dsh-official-markers]')
+        expect(found).not.toBeNull()
+        return found!
+      })
+      const registrationCount = registrations.mock.calls.length
+      const fetchCount = countedFetch.mock.calls.length
+      await expect(owner.locateSource(savedId)).resolves.toBe('shown')
+      expect(activate).toHaveBeenCalledWith(expect.stringContaining('diff-navigation:'), expect.any(Array))
+
+      const text = review.querySelector<HTMLElement>('[data-diff-code]')!.firstChild!
+      const range = document.createRange()
+      range.setStart(text, 4)
+      range.setEnd(text, 9)
+      window.getSelection()!.addRange(range)
+      document.body.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
+      await Promise.resolve()
+      expect(document.querySelector('.dia-selection-bar')).toBeNull()
+
+      act(() => toggle.set(true))
+      await waitFor(() => expect(review.querySelector('[data-official-diff-annotate]')).not.toBeNull())
+      document.body.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
+      await waitFor(() => expect(document.querySelector('.dia-selection-bar__action')).not.toBeNull())
+      act(() => toggle.set(false))
+      expect(document.querySelector('.dia-selection-bar')).toBeNull()
+      expect(review.querySelector('[data-official-diff-annotate]')).toBeNull()
+      expect(review.querySelector('[data-dsh-official-diff-source]')).not.toBeNull()
+      expect(document.querySelector('[data-dsh-official-markers]')).toBe(markerLayer)
+      expect(registrations).toHaveBeenCalledTimes(registrationCount)
+      expect(countedFetch).toHaveBeenCalledTimes(fetchCount + 2)
+      expect(toggle.listenerCount()).toBe(2)
+      await expect(owner.locateSource(savedId)).resolves.toBe('shown')
+    } finally {
+      stop()
+      action.unmount()
+      highlights.dispose()
+      owner.dispose()
+    }
+    expect(toggle.listenerCount()).toBe(0)
+
+    const hover = document.createElement('div')
+    hover.dataset.changesHoverPreview = ''
+    document.body.append(hover)
+    expect(hover.querySelector('[data-official-diff-annotate]')).toBeNull()
+  })
+
   it('cancels a whole-file load when its sidebar action unmounts', async () => {
     const summary = Promise.withResolvers<Response>()
     const diff = Promise.withResolvers<Response>()

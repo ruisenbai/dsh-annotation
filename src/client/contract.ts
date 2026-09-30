@@ -11,6 +11,8 @@ export interface AnnotationInjected {
   }
   /** 注解界面的翻译函数，避免覆盖原消息渲染器自己的 t。 */
   readonly annotationT: PropsLocale<'dshAnnotation'>['t']
+  /** Bind the mounted composer to the root notice host for this Session. */
+  readonly bindNoticeHost: (anchor: HTMLElement | null) => () => void
   readonly beginSelection: (capture: SelectionCapture) => void
   readonly chooseOverlap: (annotationId?: AnnotationId) => void
   readonly dismissOverlap: () => void

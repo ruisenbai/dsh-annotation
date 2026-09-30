@@ -2,6 +2,7 @@ import { sourceFields, sourceKey } from '../shared/annotation-source.ts'
 import type { AnnotationAnchor } from '../shared/annotation-source.ts'
 import { createAnnotationId, createSubmissionId, submissionMessageId } from '../shared/ids.ts'
 import { parseModelAcknowledgements } from '../shared/model-ack.ts'
+import { isOutboxPayloadEntry, outboxSubmissionId, redactOutbox } from '../shared/outbox-redaction.ts'
 import {
   parseAnnotationSource,
   parseSubmissionPayload,
@@ -30,6 +31,7 @@ import type {
   ModelAcknowledgement,
   OutboxEntry,
   OutboxAttachments,
+  OutboxPayloadEntry,
   PersistedEditorDraft,
   PersistedSessionState,
   ProtocolLocale,
@@ -40,9 +42,27 @@ import type {
 } from '../shared/types.ts'
 import { AnnotationStorage } from './storage.ts'
 import type { SelectionCapture } from './selection.ts'
+import type { AnnotationLocaleKey } from './locales.ts'
 
 export type EditorState = PersistedEditorDraft
 export type AnnotationPresentation = 'summary' | 'marker' | 'marker-edit'
+
+export type AnnotationNoticeLevel = 'info' | 'success' | 'error'
+export type AnnotationNoticeParams = Readonly<Record<string, string | number>>
+export type AnnotationNoticeAction = {
+  readonly kind: 'undo-delete'
+  readonly labelKey: 'list.undo'
+}
+
+/** One transient, Session-scoped operation result. */
+export interface AnnotationNotice {
+  readonly id: number
+  readonly sessionId: SessionIdentity
+  readonly level: AnnotationNoticeLevel
+  readonly messageKey: AnnotationLocaleKey
+  readonly params?: AnnotationNoticeParams
+  readonly action?: AnnotationNoticeAction
+}
 
 /** Submission preparation observed a later edit or deletion; no outbox was created. */
 export class SubmissionChangedError extends Error {
@@ -78,7 +98,7 @@ export interface AnnotationView {
   readonly deletedAnnotationIds: readonly AnnotationId[]
   readonly panelOpen: boolean
   readonly recordExpanded: boolean
-  readonly notice: { readonly level: 'info' | 'error'; readonly text: string } | null
+  readonly notice: AnnotationNotice | null
   readonly activeAnnotationId: AnnotationId | null
   /** Monotonic identity for the latest transient source-navigation effect. */
   readonly navigationEpoch: number
@@ -296,9 +316,10 @@ export function selectedAnnotations(view: AnnotationView): readonly AnnotationDr
  * @param view Current or submit-time Session state.
  * @returns The selected ready/failed entry, when it is still retryable.
  */
-export function retryEntry(view: AnnotationView): OutboxEntry | undefined {
+export function retryEntry(view: AnnotationView): OutboxPayloadEntry | undefined {
   return view.outbox.find(
-    (item) =>
+    (item): item is OutboxPayloadEntry =>
+      isOutboxPayloadEntry(item) &&
       item.payload.submissionId === view.retrySubmissionId &&
       (item.status === 'failed' || item.status === 'ready') &&
       item.payload.annotations.every((annotation) => annotation.source?.kind !== 'diff'),
@@ -389,6 +410,7 @@ export class AnnotationController {
   private persistedOnce = false
   private pendingLocalEdit = false
   private disposed = false
+  private noticeSequence = 0
 
   constructor(
     readonly sessionId: SessionIdentity,
@@ -416,6 +438,7 @@ export class AnnotationController {
         persisted.annotations.map((item) => {
           if (item.status === 'draft' || item.submissionId === undefined) return item
           const submitted = persisted.outbox
+            .filter(isOutboxPayloadEntry)
             .find((entry) => entry.payload.submissionId === item.submissionId)
             ?.payload.annotations.find((entry) => entry.annotationId === item.annotationId)
           return submitted === undefined || submitted.ordinal === item.ordinal
@@ -441,12 +464,14 @@ export class AnnotationController {
       retrySubmissionId:
         persisted.retrySubmissionId === undefined
           ? (persisted.outbox.find(
-              (item) =>
+              (item): item is OutboxPayloadEntry =>
+                isOutboxPayloadEntry(item) &&
                 (item.status === 'failed' || item.status === 'ready') &&
                 item.payload.annotations.every((annotation) => annotation.source?.kind !== 'diff'),
             )?.payload.submissionId ?? null)
           : persisted.outbox.some(
                 (item) =>
+                  isOutboxPayloadEntry(item) &&
                   item.payload.submissionId === persisted.retrySubmissionId &&
                   item.payload.annotations.some((annotation) => annotation.source?.kind === 'diff'),
               )
@@ -458,7 +483,7 @@ export class AnnotationController {
       deletedAnnotationIds: [],
       panelOpen: false,
       recordExpanded: true,
-      notice: storage.lastError() === null ? null : { level: 'error' as const, text: 'storage' },
+      notice: storage.lastError() === null ? null : this.newNotice('error', 'error.storage'),
       activeAnnotationId,
       navigationEpoch: 0,
       markerAnnotationId: null,
@@ -557,7 +582,7 @@ export class AnnotationController {
             ? this.view.markerAnnotationId
             : null,
         storageAvailable: true,
-        notice: this.view.notice?.text === 'storage' ? null : this.view.notice,
+        notice: this.view.notice?.messageKey === 'error.storage' ? null : this.view.notice,
       },
       false,
     )
@@ -618,7 +643,7 @@ export class AnnotationController {
     )
     if (recovery !== undefined) {
       this.resumeEditor(editorBufferKey(recovery))
-      this.setNotice('info', 'resume-before-supplement')
+      this.setNotice('info', 'notice.resumeBeforeSupplement')
       return
     }
     const changedQuote =
@@ -680,7 +705,7 @@ export class AnnotationController {
       selectionMode,
       selectedAnnotationIds: Object.freeze([]),
       retrySubmissionId: null,
-      notice: { level: 'info', text: 'selection-mode-changed' },
+      notice: this.newNotice('info', 'notice.selectionModeChanged'),
     })
   }
 
@@ -714,6 +739,7 @@ export class AnnotationController {
     if (
       !this.view.outbox.some(
         (entry) =>
+          isOutboxPayloadEntry(entry) &&
           entry.payload.submissionId === submissionId &&
           (entry.status === 'ready' || entry.status === 'failed') &&
           entry.payload.annotations.every((annotation) => annotation.source?.kind !== 'diff'),
@@ -889,7 +915,7 @@ export class AnnotationController {
         }),
       )
     }
-    this.publish({
+    const saved = this.commitLifecycle({
       ...this.view,
       annotations,
       editor: null,
@@ -902,7 +928,9 @@ export class AnnotationController {
         editor.kind === 'new'
           ? Object.freeze([...this.view.selectedAnnotationIds, savedId])
           : this.view.selectedAnnotationIds,
+      notice: this.newNotice('success', 'notice.saved'),
     })
+    if (!saved) throw new Error('annotation-storage-failed')
     return savedId
   }
 
@@ -1046,6 +1074,12 @@ export class AnnotationController {
           : this.view.markerAnnotationId,
       deletedDraft: entries.at(-1)?.annotation ?? null,
       deletedAnnotationIds: Object.freeze(entries.map((entry) => entry.annotation.annotationId)),
+      notice: this.newNotice(
+        'success',
+        'notice.deleted',
+        { count: entries.length },
+        { kind: 'undo-delete', labelKey: 'list.undo' },
+      ),
     })
   }
 
@@ -1086,13 +1120,39 @@ export class AnnotationController {
           ? null
           : this.view.deletedDraft,
       deletedAnnotationIds: Object.freeze(this.view.deletedAnnotationIds.filter((id) => !ids.has(id))),
+      notice: this.newNotice('success', 'notice.restored', { count: targets.length }),
     })
+  }
+
+  /** Validate recycle-bin identities and locked submissions without changing durable state. */
+  preflightPurgeAnnotations(
+    targets: readonly { readonly annotationId: AnnotationId; readonly deletionId: AnnotationDeletionId }[],
+  ): readonly AnnotationId[] {
+    this.synchronizeStorage()
+    const pending: AnnotationId[] = []
+    for (const target of targets) {
+      const mark = this.view.deletionMarks.find((item) => item.annotationId === target.annotationId)
+      const entry = this.view.trash.find((item) => item.annotation.annotationId === target.annotationId)
+      if (
+        mark?.state === 'trashed' &&
+        mark.deletionId === target.deletionId &&
+        entry?.deletionId === target.deletionId
+      ) {
+        pending.push(target.annotationId)
+        continue
+      }
+      if (mark?.state === 'purged' && mark.deletionId === target.deletionId) continue
+      throw new Error('annotation-trash-changed')
+    }
+    this.assertNotFrozen(new Set(pending))
+    return Object.freeze(pending)
   }
 
   /** Remove recycled content while retaining the minimal mark that blocks historical replay. */
   purgeAnnotations(annotationIds: readonly AnnotationId[]): boolean {
     this.synchronizeStorage()
     const ids = new Set(annotationIds)
+    // Every target is checked before any of them changes, so a locked batch cannot half-apply.
     this.assertNotFrozen(ids)
     const targets = this.view.trash.filter((entry) => ids.has(entry.annotation.annotationId))
     if (targets.length === 0) return true
@@ -1104,10 +1164,32 @@ export class AnnotationController {
         Object.freeze({ ...current, revision: current.revision + 1, state: 'purged', updatedAt: this.now() }),
       )
     }
+    const deletionMarks = Object.freeze([...marks.values()])
+    const keepsEditor = (editor: EditorState): boolean =>
+      editor.kind === 'edit'
+        ? !ids.has(editor.annotationId)
+        : !(
+            (editor.draftId !== undefined && ids.has(editor.draftId)) ||
+            (editor.supplementalTo !== undefined && ids.has(editor.supplementalTo))
+          )
+    const editor = this.view.editor !== null && !keepsEditor(this.view.editor) ? null : this.view.editor
+    const editorDrafts = this.view.editorDrafts.some((entry) => !keepsEditor(entry))
+      ? Object.freeze(this.view.editorDrafts.filter(keepsEditor))
+      : this.view.editorDrafts
+    // Ended batches are never transported again, so their content copies go with the records.
+    const outbox = redactOutbox(this.view.outbox, deletionMarks)
     return this.commitLifecycle({
       ...this.view,
       trash: Object.freeze(this.view.trash.filter((entry) => !ids.has(entry.annotation.annotationId))),
-      deletionMarks: Object.freeze([...marks.values()]),
+      deletionMarks,
+      outbox,
+      editor,
+      editorDrafts,
+      editorSaveStatus: editor === null ? 'idle' : this.view.editorSaveStatus,
+      overlap:
+        this.view.overlap !== null && this.view.overlap.annotationIds.some((id) => ids.has(id))
+          ? null
+          : this.view.overlap,
       deletedDraft:
         this.view.deletedDraft !== null && ids.has(this.view.deletedDraft.annotationId)
           ? null
@@ -1119,9 +1201,12 @@ export class AnnotationController {
   /** Cancel only the supplied next-message attachment relationships. */
   detachAnnotations(annotationIds: readonly AnnotationId[]): boolean {
     const ids = new Set(annotationIds)
+    const selectedAnnotationIds = this.view.selectedAnnotationIds.filter((id) => !ids.has(id))
+    const count = this.view.selectedAnnotationIds.length - selectedAnnotationIds.length
     return this.commitLifecycle({
       ...this.view,
-      selectedAnnotationIds: Object.freeze(this.view.selectedAnnotationIds.filter((id) => !ids.has(id))),
+      selectedAnnotationIds: Object.freeze(selectedAnnotationIds),
+      ...(count === 0 ? {} : { notice: this.newNotice('success', 'notice.detached', { count }) }),
     })
   }
 
@@ -1133,8 +1218,11 @@ export class AnnotationController {
     this.trashAnnotations([annotationId])
   }
 
-  undoDelete(): void {
-    if (this.view.deletedAnnotationIds.length > 0) this.restoreAnnotations(this.view.deletedAnnotationIds)
+  undoDelete(): boolean {
+    if (this.view.deletedAnnotationIds.length === 0) return true
+    const restored = this.restoreAnnotations(this.view.deletedAnnotationIds)
+    if (!restored) this.setNotice('error', 'trash.error.write')
+    return restored
   }
 
   private assertNotFrozen(ids: ReadonlySet<AnnotationId>): void {
@@ -1143,6 +1231,7 @@ export class AnnotationController {
         (entry) =>
           entry.status !== 'sent' &&
           entry.status !== 'withdrawn' &&
+          isOutboxPayloadEntry(entry) &&
           entry.payload.annotations.some((annotation) => ids.has(annotation.annotationId)),
       )
     )
@@ -1153,7 +1242,12 @@ export class AnnotationController {
     if (this.disposed) return false
     if (!this.storage.save(cloneState(next))) {
       this.publish(
-        { ...this.view, storageAvailable: false, notice: { level: 'error', text: 'storage' } },
+        {
+          ...this.view,
+          editorSaveStatus: this.view.editor === null ? 'idle' : 'error',
+          storageAvailable: false,
+          notice: this.storageNotice(),
+        },
         false,
       )
       return false
@@ -1163,7 +1257,11 @@ export class AnnotationController {
     this.persistedOnce = true
     this.pendingLocalEdit = false
     this.publish(
-      { ...next, storageAvailable: true, notice: next.notice?.text === 'storage' ? null : next.notice },
+      {
+        ...next,
+        storageAvailable: true,
+        notice: next.notice?.messageKey === 'error.storage' ? null : next.notice,
+      },
       false,
     )
     return true
@@ -1195,8 +1293,13 @@ export class AnnotationController {
     this.publish({ ...this.view, overallRequirementDraft })
   }
 
-  setNotice(level: 'info' | 'error', text: string): void {
-    this.publish({ ...this.view, notice: { level, text } }, false)
+  setNotice(
+    level: AnnotationNoticeLevel,
+    messageKey: AnnotationLocaleKey,
+    params?: AnnotationNoticeParams,
+    action?: AnnotationNoticeAction,
+  ): void {
+    this.publish({ ...this.view, notice: this.newNotice(level, messageKey, params, action) }, false)
   }
 
   /** Retain an official snapshot when its current Host resource can no longer be opened. */
@@ -1231,11 +1334,12 @@ export class AnnotationController {
           candidate.annotationId === annotationId ? updated : candidate,
         ),
       ),
-      notice: { level: 'error', text: 'source-expired' },
+      notice: this.newNotice('error', 'source.expired'),
     })
   }
 
-  clearNotice(): void {
+  clearNotice(id?: number): void {
+    if (id !== undefined && this.view.notice?.id !== id) return
     this.publish({ ...this.view, notice: null }, false)
   }
 
@@ -1247,11 +1351,12 @@ export class AnnotationController {
     protocolLocale: ProtocolLocale = FALLBACK_PROTOCOL_LOCALE,
     snapshot: AnnotationView = this.view,
     attachmentIdentities?: readonly SubmittedAttachmentIdentity[],
-  ): OutboxEntry {
+  ): OutboxPayloadEntry {
     if (
       snapshot.retrySubmissionId !== null &&
       snapshot.outbox.some(
         (entry) =>
+          isOutboxPayloadEntry(entry) &&
           entry.payload.submissionId === snapshot.retrySubmissionId &&
           entry.payload.annotations.some((annotation) => annotation.source?.kind === 'diff'),
       )
@@ -1259,10 +1364,9 @@ export class AnnotationController {
       throw new Error('Diff annotations are read-only')
     const retry = retryEntry(snapshot)
     if (retry !== undefined) {
-      const current = this.view.outbox.find(
-        (item) => item.payload.submissionId === retry.payload.submissionId,
-      )
-      if (current === undefined || current.status === 'withdrawn') throw new SubmissionChangedError()
+      const current = this.view.outbox.find((item) => outboxSubmissionId(item) === retry.payload.submissionId)
+      if (current === undefined || !isOutboxPayloadEntry(current) || current.status === 'withdrawn')
+        throw new SubmissionChangedError()
       return current
     }
     const drafts = sortAnnotations(selectedAnnotations(snapshot))
@@ -1307,7 +1411,7 @@ export class AnnotationController {
       this.config,
       new TextEncoder().encode(JSON.stringify(payload)).byteLength,
     )
-    const entry: OutboxEntry = Object.freeze({
+    const entry: OutboxPayloadEntry = Object.freeze({
       payload,
       targetSessionId,
       messageId: submissionMessageId(submissionId),
@@ -1349,7 +1453,7 @@ export class AnnotationController {
     return entry
   }
 
-  adoptOutbox(entry: OutboxEntry): void {
+  adoptOutbox(entry: OutboxPayloadEntry): void {
     const existingIds = new Set([
       ...this.view.annotations.map((item) => item.annotationId),
       ...this.view.deletionMarks.filter((mark) => mark.state !== 'restored').map((mark) => mark.annotationId),
@@ -1367,7 +1471,7 @@ export class AnnotationController {
           }),
         ),
     ]
-    const outbox = this.view.outbox.some((item) => item.payload.submissionId === entry.payload.submissionId)
+    const outbox = this.view.outbox.some((item) => outboxSubmissionId(item) === entry.payload.submissionId)
       ? this.view.outbox
       : [...this.view.outbox, entry]
     this.publish({ ...this.view, annotations: withOrdinals(annotations), outbox })
@@ -1377,6 +1481,7 @@ export class AnnotationController {
     if (
       this.view.outbox.some(
         (entry) =>
+          isOutboxPayloadEntry(entry) &&
           entry.payload.submissionId === submissionId &&
           entry.payload.annotations.some((annotation) => annotation.source?.kind === 'diff'),
       )
@@ -1390,11 +1495,15 @@ export class AnnotationController {
   }
 
   markAccepted(submissionId: SubmissionId): void {
+    const count = this.view.outbox
+      .filter(isOutboxPayloadEntry)
+      .find((item) => item.payload.submissionId === submissionId)?.payload.annotations.length
     this.patchOutbox(submissionId, (item) => {
       if (item.status === 'queued' || item.status === 'sent' || item.status === 'withdrawn') return item
       const { lastError: _lastError, ...rest } = item
       return Object.freeze({ ...rest, status: 'accepted' })
     })
+    if (count !== undefined) this.setNotice('success', 'toast.queued', { count })
   }
 
   markQueueClaimed(submissionId: SubmissionId): void {
@@ -1405,16 +1514,21 @@ export class AnnotationController {
   }
 
   markFailed(submissionId: SubmissionId, error: string): void {
+    const count = this.view.outbox
+      .filter(isOutboxPayloadEntry)
+      .find((item) => item.payload.submissionId === submissionId)?.payload.annotations.length
     this.patchOutbox(submissionId, (item) => {
       if (item.status !== 'ready' && item.status !== 'sending' && item.status !== 'failed') return item
       return Object.freeze({ ...item, status: 'failed', lastError: error })
     })
+    if (count !== undefined) this.setNotice('error', 'toast.failed', { count })
   }
 
   markWithdrawn(submissionId: SubmissionId): void {
     if (
       this.view.outbox.some(
         (entry) =>
+          isOutboxPayloadEntry(entry) &&
           entry.payload.submissionId === submissionId &&
           entry.payload.annotations.some((annotation) => annotation.source?.kind === 'diff'),
       )
@@ -1429,16 +1543,20 @@ export class AnnotationController {
         return Object.freeze({ ...rest, status: 'draft' as const, updatedAt: time })
       }),
       outbox: this.view.outbox.map((item) =>
-        item.payload.submissionId === submissionId
+        isOutboxPayloadEntry(item) && item.payload.submissionId === submissionId
           ? Object.freeze({ ...item, status: 'withdrawn' as const })
           : item,
       ),
+      notice: this.newNotice('success', 'notice.withdrawn'),
     })
   }
 
   /** Drop a never-queued retry record and return its annotations to the editable draft list. */
   discardOutbox(submissionId: SubmissionId): void {
-    const entry = this.view.outbox.find((item) => item.payload.submissionId === submissionId)
+    const entry = this.view.outbox.find(
+      (item): item is OutboxPayloadEntry =>
+        isOutboxPayloadEntry(item) && item.payload.submissionId === submissionId,
+    )
     if (
       entry === undefined ||
       (entry.status !== 'ready' && entry.status !== 'failed') ||
@@ -1454,7 +1572,7 @@ export class AnnotationController {
         return Object.freeze({ ...rest, status: 'draft' as const, updatedAt: time })
       }),
       outbox: this.view.outbox.map((item) =>
-        item.payload.submissionId === submissionId
+        isOutboxPayloadEntry(item) && item.payload.submissionId === submissionId
           ? Object.freeze({ ...item, status: 'withdrawn' as const })
           : item,
       ),
@@ -1651,8 +1769,7 @@ export class AnnotationController {
         submissions.has(item.submissionId) &&
         acknowledgements.get(item.submissionId)?.has(item.annotationId) === true
       const queuedNow = this.view.outbox.some(
-        (outbox) =>
-          outbox.payload.submissionId === item.submissionId && queued?.has(String(outbox.messageId)),
+        (outbox) => outboxSubmissionId(outbox) === item.submissionId && queued?.has(String(outbox.messageId)),
       )
       const candidate: AnnotationStatus = processed
         ? 'processed'
@@ -1665,11 +1782,14 @@ export class AnnotationController {
       return status === item.status ? item : Object.freeze({ ...item, status, updatedAt: this.now() })
     })
     const outbox = this.view.outbox.map((item) => {
-      if (submissions.has(item.payload.submissionId)) {
+      if (submissions.has(outboxSubmissionId(item))) {
+        if (!isOutboxPayloadEntry(item))
+          return item.status === 'sent' ? item : Object.freeze({ ...item, status: 'sent' as const })
         if (item.status === 'sent' && item.lastError === undefined) return item
         const { lastError: _lastError, ...rest } = item
         return Object.freeze({ ...rest, status: 'sent' as const })
       }
+      if (!isOutboxPayloadEntry(item)) return item
       if (queued?.has(String(item.messageId)) && item.status !== 'sent' && item.status !== 'withdrawn') {
         if (item.status === 'queued' && item.lastError === undefined) return item
         const { lastError: _lastError, ...rest } = item
@@ -1707,7 +1827,7 @@ export class AnnotationController {
         this.view.markerAnnotationId !== null && restoredDrafts.has(this.view.markerAnnotationId)
           ? null
           : this.view.markerAnnotationId,
-      notice: preservedChanges ? { level: 'info', text: 'local-edits-preserved' } : this.view.notice,
+      notice: preservedChanges ? this.newNotice('info', 'notice.localEditsPreserved') : this.view.notice,
       panelOpen:
         annotations.length > 0 &&
         annotations.every((item) => item.status === 'sent' || item.status === 'processed') &&
@@ -1739,7 +1859,7 @@ export class AnnotationController {
       changed = true
       return Object.freeze({ ...item, status, updatedAt: this.now() })
     })
-    const sourceOutbox = source.outbox.find((item) => item.payload.submissionId === submissionId)
+    const sourceOutbox = source.outbox.find((item) => outboxSubmissionId(item) === submissionId)
     const sourceOwnsTarget = sourceOutbox?.targetSessionId === sourceSessionId
     const mirroredOutboxStatus =
       sourceOutbox?.status === 'sent'
@@ -1750,7 +1870,7 @@ export class AnnotationController {
             ? ('accepted' as const)
             : null
     const outbox = this.view.outbox.map((item) => {
-      if (item.payload.submissionId !== submissionId || mirroredOutboxStatus === null) return item
+      if (outboxSubmissionId(item) !== submissionId || mirroredOutboxStatus === null) return item
       if (
         item.status === mirroredOutboxStatus ||
         (mirroredOutboxStatus === 'queued' && (item.status === 'sent' || item.status === 'withdrawn')) ||
@@ -1759,6 +1879,8 @@ export class AnnotationController {
         return item
       }
       changed = true
+      if (!isOutboxPayloadEntry(item))
+        return mirroredOutboxStatus === 'sent' ? Object.freeze({ ...item, status: 'sent' as const }) : item
       const { lastError: _lastError, ...rest } = item
       return Object.freeze({ ...rest, status: mirroredOutboxStatus })
     })
@@ -1899,7 +2021,7 @@ export class AnnotationController {
     }
     if (this.view.navigationEpoch !== navigationEpoch) return false
     if (this.pendingNavigation?.navigationEpoch === navigationEpoch) this.pendingNavigation = null
-    this.publish({ ...this.view, notice: { level: 'error', text: 'locate' } }, false)
+    this.setNotice('error', 'error.locate')
     return false
   }
 
@@ -1919,11 +2041,36 @@ export class AnnotationController {
     return this.endpoints.get(messageId)
   }
 
-  private patchOutbox(submissionId: SubmissionId, update: (entry: OutboxEntry) => OutboxEntry): void {
+  private newNotice(
+    level: AnnotationNoticeLevel,
+    messageKey: AnnotationLocaleKey,
+    params?: AnnotationNoticeParams,
+    action?: AnnotationNoticeAction,
+  ): AnnotationNotice {
+    return Object.freeze({
+      id: ++this.noticeSequence,
+      sessionId: this.sessionId,
+      level,
+      messageKey,
+      ...(params === undefined ? {} : { params: Object.freeze({ ...params }) }),
+      ...(action === undefined ? {} : { action: Object.freeze(action) }),
+    })
+  }
+
+  private storageNotice(): AnnotationNotice {
+    return this.view?.notice?.messageKey === 'error.storage'
+      ? this.view.notice
+      : this.newNotice('error', 'error.storage')
+  }
+
+  private patchOutbox(
+    submissionId: SubmissionId,
+    update: (entry: OutboxPayloadEntry) => OutboxPayloadEntry,
+  ): void {
     this.publish({
       ...this.view,
       outbox: this.view.outbox.map((item) =>
-        item.payload.submissionId === submissionId ? update(item) : item,
+        isOutboxPayloadEntry(item) && item.payload.submissionId === submissionId ? update(item) : item,
       ),
     })
   }
@@ -1959,6 +2106,7 @@ export class AnnotationController {
       selectedIds.every((id, index) => id === next.selectedAnnotationIds[index])
     const retryPresent = next.outbox.some(
       (item) =>
+        isOutboxPayloadEntry(item) &&
         item.payload.submissionId === next.retrySubmissionId &&
         (item.status === 'ready' || item.status === 'sending' || item.status === 'failed'),
     )
@@ -1985,20 +2133,20 @@ export class AnnotationController {
             ...this.view,
             editorSaveStatus: this.view.editorSaveStatus === 'saving' ? 'saved' : this.view.editorSaveStatus,
             storageAvailable: true,
-            notice: this.view.notice?.text === 'storage' ? null : this.view.notice,
+            notice: this.view.notice?.messageKey === 'error.storage' ? null : this.view.notice,
           })
         : Object.freeze({
             ...this.view,
             editorSaveStatus: this.view.editor === null ? 'idle' : 'error',
             storageAvailable: false,
-            notice: { level: 'error' as const, text: 'storage' },
+            notice: this.storageNotice(),
           })
     }
     if (this.storage.lastError() !== null) {
       this.view = Object.freeze({
         ...this.view,
         storageAvailable: false,
-        notice: { level: 'error' as const, text: 'storage' },
+        notice: this.storageNotice(),
       })
     }
     if (sameView(previous, this.view)) {

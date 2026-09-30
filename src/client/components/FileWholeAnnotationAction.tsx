@@ -1,7 +1,7 @@
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconEditOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { DocumentContent } from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/client'
 import { digest, parseResourceAddress } from '../document-integration.tsx'
 import { fileSource } from '../official-adapters.ts'
@@ -10,8 +10,19 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionIdentity } from '../../shared/types.ts'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
+import { isAbsoluteResourcePath, sameAbsoluteResourcePath } from '../../shared/resource-path.ts'
 
 type Props = PropsRuntime<'sidebar.right.tab.document.action'> & PropsLocale<'dshAnnotation'>
+
+export interface AnnotationCreationToggle {
+  readonly getSnapshot: () => boolean
+  readonly subscribe: (listener: () => void) => () => void
+}
+
+const ALWAYS_ENABLED: AnnotationCreationToggle = {
+  getSnapshot: () => true,
+  subscribe: () => () => undefined,
+}
 
 /** Complete file bytes returned by the official workspace-files Remote. */
 export type ReadFileSnapshot = (
@@ -54,9 +65,15 @@ export async function readFileBytesDigest(
       !response.ok ||
       value === undefined ||
       value.offset !== offset ||
+      !isAbsoluteResourcePath(value.absolutePath) ||
       (version !== undefined && value.version !== version) ||
       (absolutePath !== undefined && value.absolutePath !== absolutePath) ||
       (declaredBytes !== undefined && value.bytes !== declaredBytes) ||
+      (absolutePath === undefined &&
+        isAbsoluteResourcePath(path) &&
+        !sameAbsoluteResourcePath(path, value.absolutePath)) ||
+      value.data.length > chunkSize ||
+      (value.bytes !== undefined && offset + value.data.length > value.bytes) ||
       (value.data.length === 0 && !value.eof)
     )
       return undefined
@@ -215,8 +232,14 @@ export function FileWholeAnnotationAction(
   readFile: ReadFileSnapshot,
   registerFileSource?: (source: FileAnnotationSource) => () => void,
   readPage?: ReadFilePage,
+  creationEnabled: AnnotationCreationToggle = ALWAYS_ENABLED,
 ): (props: Props) => ReactNode {
   return function FileWholeAnnotationActionBody({ content, useTabInfo, useResource, t }: Props): ReactNode {
+    const enabled = useSyncExternalStore(
+      creationEnabled.subscribe,
+      creationEnabled.getSnapshot,
+      creationEnabled.getSnapshot,
+    )
     const { tab } = useTabInfo()
     const address = tab.contentId
     const resource = useResource<'file'>(address)
@@ -249,6 +272,7 @@ export function FileWholeAnnotationAction(
         unregister?.()
       }
     }, [content, address, observedVersion, readFile, readPage, registerFileSource, tab.signal])
+    if (!enabled) return null
     const label = t('selection.annotateOfficial')
     const unavailable = t(availability === 'loading' ? 'source.loading' : 'source.unavailable')
     return (
@@ -282,14 +306,20 @@ export function OfficeWholeAnnotationAction(
   beginFileAnnotation: (source: FileAnnotationSource, rect: DOMRect) => void,
   readFile: ReadFileSnapshot,
   registerFileSource: (source: FileAnnotationSource) => () => void,
+  creationEnabled: AnnotationCreationToggle = ALWAYS_ENABLED,
 ): (props: OfficeProps) => ReactNode {
   return function OfficeWholeAnnotationActionBody({ absolutePath, t }: OfficeProps): ReactNode {
-    const button = useRef<HTMLButtonElement>(null)
+    const enabled = useSyncExternalStore(
+      creationEnabled.subscribe,
+      creationEnabled.getSnapshot,
+      creationEnabled.getSnapshot,
+    )
+    const anchor = useRef<HTMLSpanElement>(null)
     const [address, setAddress] = useState<string>()
     const [source, setSource] = useState<FileAnnotationSource>()
     const [availability, setAvailability] = useState<'loading' | 'unavailable' | 'ready'>('loading')
     useEffect(() => {
-      const root = button.current?.closest<HTMLElement>('[data-textpreview-url]')
+      const root = anchor.current?.closest<HTMLElement>('[data-textpreview-url]')
       setAddress(root?.dataset.documentPreview?.endsWith('/office') ? root.dataset.textpreviewUrl : undefined)
     }, [absolutePath])
     useEffect(() => {
@@ -337,21 +367,26 @@ export function OfficeWholeAnnotationAction(
     const label = t('selection.annotateOfficial')
     const unavailable = t(availability === 'loading' ? 'source.loading' : 'source.unavailable')
     return (
-      <button
-        ref={button}
-        type="button"
-        className="dia-official-file-action"
-        aria-label={source === undefined ? unavailable : label}
-        title={source === undefined ? unavailable : label}
-        disabled={source === undefined}
-        data-official-file-annotate=""
-        hidden={address === undefined}
-        onClick={(event) => {
-          if (source !== undefined) beginFileAnnotation(source, event.currentTarget.getBoundingClientRect())
-        }}
-      >
-        <IconEditOutlineRegular size={15} />
-      </button>
+      <>
+        <span ref={anchor} hidden aria-hidden="true" />
+        {enabled ? (
+          <button
+            type="button"
+            className="dia-official-file-action"
+            aria-label={source === undefined ? unavailable : label}
+            title={source === undefined ? unavailable : label}
+            disabled={source === undefined}
+            data-official-file-annotate=""
+            hidden={address === undefined}
+            onClick={(event) => {
+              if (source !== undefined)
+                beginFileAnnotation(source, event.currentTarget.getBoundingClientRect())
+            }}
+          >
+            <IconEditOutlineRegular size={15} />
+          </button>
+        ) : null}
+      </>
     )
   }
 }

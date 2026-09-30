@@ -5,6 +5,7 @@ import { mathFromMarkdown } from 'mdast-util-math'
 import { gfm } from 'micromark-extension-gfm'
 import { math } from 'micromark-extension-math'
 import { parseReplyMarkers } from '../shared/model-ack.ts'
+import { isOutboxPayloadEntry } from '../shared/outbox-redaction.ts'
 import { replyHeadingNeedles } from '../shared/protocol.ts'
 import type { AnnotationView } from './controller.ts'
 
@@ -40,7 +41,7 @@ export function knownReplyPairs(
     if (ids.has(item.annotationId)) pairs.add(`${item.submissionId}\0${item.annotationId}`)
   }
   for (const entry of view.outbox) {
-    if (entry.status !== 'sent') continue
+    if (entry.status !== 'sent' || !isOutboxPayloadEntry(entry)) continue
     for (const item of entry.payload.annotations) {
       if (ids.has(item.annotationId)) pairs.add(`${entry.payload.submissionId}\0${item.annotationId}`)
     }

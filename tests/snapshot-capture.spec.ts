@@ -59,13 +59,17 @@ function messageCapture(): SelectionCapture {
   }
 }
 
-function fileCapture(text = 'abcd'): SelectionCapture {
+function fileCapture(
+  text = 'abcd',
+  path = '/workspace/notes.txt',
+  resourceAddress = 'dsh-resource://file/session/snapshot-session/%2Fworkspace%2Fnotes.txt',
+): SelectionCapture {
   return {
     source: {
       kind: 'file',
       sessionId,
-      resourceAddress: 'dsh-resource://file/session/snapshot-session/%2Fworkspace%2Fnotes.txt',
-      path: '/workspace/notes.txt',
+      resourceAddress,
+      path,
       resourceVersion: 'file-v1',
       format: 'text',
       snapshot: {
@@ -211,10 +215,23 @@ describe('retained source snapshots', () => {
       if (!readable) throw new Error('snapshot-source-unavailable')
       return { kind: 'message', text: 'source', mediaType: 'text/markdown' }
     })
-    const stop = observeSourceSnapshots(owner, snapshots, load, vi.fn(), vi.fn(), vi.fn())
+    const reported = deferred<void>()
+    const captureFailed = vi.fn(() => {
+      owner.setNotice('error', 'trash.snapshotUnavailable')
+      reported.resolve(undefined)
+    })
+    const stop = observeSourceSnapshots(owner, snapshots, load, vi.fn(), vi.fn(), captureFailed)
     releases.push(stop)
     await first.promise
+    await reported.promise
+    await Promise.resolve()
     expect(capture).toHaveBeenCalledOnce()
+    expect(captureFailed).toHaveBeenCalledOnce()
+    owner.clearNotice()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(capture).toHaveBeenCalledOnce()
+    expect(captureFailed).toHaveBeenCalledOnce()
     readable = true
     owner.setPanelOpen(true)
     await complete.promise
@@ -333,5 +350,127 @@ describe('retained source snapshots', () => {
       },
     })
     await expect(operation).rejects.toThrow('snapshot-cancelled')
+  })
+
+  it('accepts a Session-relative file path when the Host resolves one stable absolute path', async () => {
+    const capture = fileCapture('abcd', 'notes.txt', 'dsh-resource://file/session/snapshot-session/notes.txt')
+    const data = new TextEncoder().encode('abcd')
+    const read = vi.fn<ReadFileSnapshot>(async (readSessionId, path, _signal, range) => ({
+      ok: true,
+      value: {
+        absolutePath: '/workspace/notes.txt',
+        version: 'file-v1',
+        bytes: data.length,
+        data: range?.offset === 0 ? data.slice(0, 2) : data.slice(2),
+        offset: range?.offset ?? 0,
+        eof: range?.offset !== 0,
+      },
+    }))
+
+    await expect(
+      captureSourceContent(capture, read, () => undefined, new AbortController().signal),
+    ).resolves.toMatchObject({ kind: 'file', text: 'abcd', data })
+    expect(read).toHaveBeenNthCalledWith(1, sessionId, 'notes.txt', expect.any(AbortSignal), {
+      offset: 0,
+      length: 1024 * 1024,
+    })
+  })
+
+  it.each([
+    ['a non-absolute Host path', { absolutePath: 'workspace/notes.txt' }],
+    ['an absolute saved-path mismatch', { absolutePath: '/workspace/other.txt' }],
+    ['a changed Host path between chunks', { secondAbsolutePath: '/workspace/other.txt' }],
+    ['a changed version between chunks', { secondVersion: 'file-v2' }],
+    ['a changed declared size between chunks', { secondBytes: 5 }],
+    ['an unexpected offset', { secondOffset: 3 }],
+  ])('rejects %s', async (_label, change) => {
+    const capture = fileCapture()
+    const data = new TextEncoder().encode('abcd')
+    const read = vi.fn<ReadFileSnapshot>(async (_session, _path, _signal, range) => {
+      const second = (range?.offset ?? 0) > 0
+      return {
+        ok: true,
+        value: {
+          absolutePath:
+            second && 'secondAbsolutePath' in change
+              ? change.secondAbsolutePath!
+              : 'absolutePath' in change
+                ? change.absolutePath!
+                : '/workspace/notes.txt',
+          version: second && 'secondVersion' in change ? change.secondVersion! : 'file-v1',
+          bytes: second && 'secondBytes' in change ? change.secondBytes! : 4,
+          data: second ? data.slice(2) : data.slice(0, 2),
+          offset: second && 'secondOffset' in change ? change.secondOffset! : (range?.offset ?? 0),
+          eof: second,
+        },
+      }
+    })
+
+    await expect(
+      captureSourceContent(capture, read, () => undefined, new AbortController().signal),
+    ).rejects.toThrow('snapshot-source-changed')
+  })
+
+  it('rejects an oversized block, a stalled non-EOF read, and a digest mismatch', async () => {
+    const oversize = new Uint8Array(1024 * 1024 + 1)
+    const oversizedCapture = fileCapture('x'.repeat(oversize.length))
+    await expect(
+      captureSourceContent(
+        oversizedCapture,
+        async () => ({
+          ok: true,
+          value: {
+            absolutePath: '/workspace/notes.txt',
+            version: 'file-v1',
+            bytes: oversize.length,
+            data: oversize,
+            offset: 0,
+            eof: true,
+          },
+        }),
+        () => undefined,
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('snapshot-source-changed')
+
+    await expect(
+      captureSourceContent(
+        fileCapture(),
+        async () => ({
+          ok: true,
+          value: {
+            absolutePath: '/workspace/notes.txt',
+            version: 'file-v1',
+            bytes: 4,
+            data: new Uint8Array(),
+            offset: 0,
+            eof: false,
+          },
+        }),
+        () => undefined,
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('snapshot-source-changed')
+
+    const changed = fileCapture('abcd')
+    const corrupt = new TextEncoder().encode('abce')
+    await expect(
+      captureSourceContent(
+        changed,
+        async () => ({
+          ok: true,
+          value: {
+            absolutePath: '/workspace/notes.txt',
+            version: 'file-v1',
+            bytes: corrupt.length,
+            data: corrupt,
+            offset: 0,
+            eof: true,
+          },
+        }),
+        () => undefined,
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('snapshot-source-changed')
   })
 })

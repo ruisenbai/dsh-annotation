@@ -16,10 +16,12 @@ export interface SourceSnapshotView {
   readonly error?: 'storage' | 'source'
 }
 
+type OwnerState = SourceSnapshotView['state'] | 'purged'
+
 interface SnapshotOwner {
   readonly key: string
   readonly captureId: string
-  readonly state: SourceSnapshotView['state']
+  readonly state: OwnerState
   readonly contentKey?: string
   readonly error?: SourceSnapshotView['error']
 }
@@ -50,7 +52,7 @@ function ownerValue(value: unknown): SnapshotOwner | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   if (!('key' in value) || typeof value.key !== 'string') return undefined
   if (!('captureId' in value) || typeof value.captureId !== 'string') return undefined
-  if (!('state' in value) || !['capturing', 'complete', 'fragment'].includes(String(value.state)))
+  if (!('state' in value) || !['capturing', 'complete', 'fragment', 'purged'].includes(String(value.state)))
     return undefined
   if ('contentKey' in value && typeof value.contentKey !== 'string') return undefined
   if (value.state === 'complete' && (!('contentKey' in value) || typeof value.contentKey !== 'string'))
@@ -142,6 +144,7 @@ export class SourceSnapshotStore {
           ? undefined
           : contentValue(await requestValue(tx.objectStore('contents').get(owner.contentKey)))
       await done
+      if (owner?.state === 'purged') return { state: 'fragment', error: 'source' }
       if (owner?.state === 'complete' && content !== undefined) return { state: 'complete', content }
       if (owner?.state === 'capturing' && this.pending.has(key)) return { state: 'capturing' }
       return { state: 'fragment', ...(owner?.error === undefined ? {} : { error: owner.error }) }
@@ -180,6 +183,11 @@ export class SourceSnapshotStore {
       const start = db.transaction(['owners', 'contents'], 'readwrite')
       const started = transactionDone(start)
       const existing = ownerValue(await requestValue(start.objectStore('owners').get(key)))
+      // A tombstone outlives the page that removed the content; nothing may capture it again.
+      if (existing?.state === 'purged') {
+        await started
+        return
+      }
       if (existing?.state === 'complete' && existing.contentKey !== undefined) {
         const content = contentValue(
           await requestValue(start.objectStore('contents').get(existing.contentKey)),
@@ -245,6 +253,24 @@ export class SourceSnapshotStore {
 
   /** Release one owner and remove content only when no remaining annotation refers to it. */
   async release(key: string): Promise<void> {
+    await this.discard(key, null)
+  }
+
+  /**
+   * Permanently remove one owner's content while leaving a content-free tombstone.
+   *
+   * The tombstone is what keeps a second page, a delayed capture, or a replayed record from
+   * writing the deleted source back into IndexedDB. It holds the owner key and a capture id,
+   * never any part of the removed content.
+   *
+   * @param key - Owner key previously used to capture the deleted annotation's source.
+   * @returns once the tombstone is committed and unreferenced content is removed.
+   */
+  async purge(key: string): Promise<void> {
+    await this.discard(key, crypto.randomUUID())
+  }
+
+  private async discard(key: string, tombstone: string | null): Promise<void> {
     this.pending.get(key)?.abort()
     this.pending.delete(key)
     this.captureTasks.delete(key)
@@ -255,7 +281,8 @@ export class SourceSnapshotStore {
     const owners = tx.objectStore('owners')
     try {
       const owner = ownerValue(await requestValue(owners.get(key)))
-      owners.delete(key)
+      if (tombstone === null) owners.delete(key)
+      else owners.put({ key, captureId: tombstone, state: 'purged' } satisfies SnapshotOwner)
       if (owner?.contentKey !== undefined) {
         const remaining: unknown[] = await requestValue(owners.getAll())
         if (!remaining.some((item) => ownerValue(item)?.contentKey === owner.contentKey))

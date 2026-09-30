@@ -1,7 +1,7 @@
 /** Recycle-bin durability and interleaved browser/session lifecycle coverage. */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AnnotationController } from '../src/client/controller.ts'
-import { AnnotationStorage, emptyPersistedState } from '../src/client/storage.ts'
+import { AnnotationStorage, emptyPersistedState, type StorageCoordination } from '../src/client/storage.ts'
 import { compactFileSource, compactOfficialDiffSource } from '../src/client/official-adapters.ts'
 import { DEFAULT_CONFIG } from '../src/shared/config.ts'
 import { officialDiffHash, sha256Hex } from '../src/shared/snapshot-hash.ts'
@@ -35,8 +35,8 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function harness(memory = new MemoryStorage(), id = sessionId) {
-  const storage = new AnnotationStorage(memory, id)
+function harness(memory = new MemoryStorage(), id = sessionId, coordination?: StorageCoordination) {
+  const storage = new AnnotationStorage(memory, id, coordination)
   const controller = new AnnotationController(
     id,
     storage,
@@ -179,6 +179,53 @@ describe('annotation recycle bin', () => {
     writes.mockRestore()
   })
 
+  it.each(['active', 'suspended'] as const)(
+    'removes a %s new-editor buffer whose draft identity was permanently deleted',
+    async (location) => {
+      const { controller, storage } = harness()
+      const annotationId = save(controller)
+      expect(controller.trashAnnotations([annotationId])).toBe(true)
+      const editor = Object.freeze({
+        kind: 'new' as const,
+        draftId: annotationId,
+        capture: selection(9),
+        text: 'PURGED-EDITOR-BUFFER-SENTINEL',
+        longSelectionConfirmed: true,
+      })
+      const persisted = storage.load(true)
+      const seeded = new MemoryStorage()
+      seeded.values.set(
+        storage.key,
+        JSON.stringify({
+          ...persisted,
+          ...(location === 'active' ? { editorDraft: editor, editorDrafts: [] } : { editorDrafts: [editor] }),
+        }),
+      )
+
+      let tail = Promise.resolve()
+      const coordination: StorageCoordination = {
+        keys: () => [...seeded.values.keys()],
+        runExclusive(_name, task) {
+          const running = tail.then(task)
+          tail = running.then(
+            () => undefined,
+            () => undefined,
+          )
+          return running
+        },
+      }
+      const reloaded = harness(seeded, sessionId, coordination).controller
+      const retained =
+        location === 'active' ? reloaded.getSnapshot().editor : reloaded.getSnapshot().editorDrafts[0]
+      expect(retained).toMatchObject({ kind: 'new', draftId: annotationId })
+      expect(reloaded.purgeAnnotations([annotationId])).toBe(true)
+      expect(reloaded.getSnapshot().editor).toBeNull()
+      expect(reloaded.getSnapshot().editorDrafts).toEqual([])
+      expect(await reloaded.whenStorageIdle()).toBe(true)
+      expect([...seeded.values.values()].join('\n')).not.toContain('PURGED-EDITOR-BUFFER-SENTINEL')
+    },
+  )
+
   it.each(['restore', 'purge'] as const)('retains recycled data when %s cannot persist', (operation) => {
     const { controller, memory } = harness()
     const id = save(controller)
@@ -223,7 +270,73 @@ describe('annotation recycle bin', () => {
     expect(reloaded.getSnapshot().annotations).toEqual([])
     expect(reloaded.getSnapshot().trash).toEqual([])
     expect(reloaded.getSnapshot().deletionMarks[0]?.state).toBe('purged')
-    expect(reloaded.getSnapshot().outbox[0]?.payload).toEqual(entry.payload)
+    // Permanent deletion keeps only the terminal transport identity; no annotation content remains.
+    expect(reloaded.getSnapshot().outbox).toEqual([
+      {
+        kind: 'receipt',
+        submissionId: entry.payload.submissionId,
+        targetSessionId: sessionId,
+        messageId: entry.messageId,
+        status: 'sent',
+        attempts: 0,
+      },
+    ])
+    expect(JSON.stringify(reloaded.getSnapshot())).not.toContain(entry.payload.annotations[0]!.quote.exact)
+  })
+
+  it('redacts an entire terminal mixed batch without renumbering the surviving annotation', async () => {
+    const memory = new MemoryStorage()
+    let tail = Promise.resolve()
+    const coordination: StorageCoordination = {
+      keys: () => [...memory.values.keys()],
+      runExclusive(_name, task) {
+        const running = tail.then(task)
+        tail = running.then(
+          () => undefined,
+          () => undefined,
+        )
+        return running
+      },
+    }
+    const { controller } = harness(memory, sessionId, coordination)
+    const sentinel = 'PURGED-MIXED-BATCH-SENTINEL'
+    controller.beginSelection({
+      ...selection(),
+      quote: { exact: sentinel, prefix: '', suffix: '', start: 0, end: sentinel.length },
+    })
+    controller.updateEditorText(sentinel)
+    const removed = controller.saveEditor()
+    const surviving = save(controller, 1)
+    const { entry, snapshot } = durable(controller)
+    expect(entry.payload.annotations.map((item) => item.ordinal)).toEqual([1, 2])
+
+    expect(controller.trashAnnotations([removed])).toBe(true)
+    expect(controller.purgeAnnotations([removed])).toBe(true)
+    controller.markFailed(entry.payload.submissionId, 'late failure')
+    controller.reconcile(snapshot)
+    expect(await controller.whenStorageIdle()).toBe(true)
+
+    expect(controller.getSnapshot().annotations).toEqual([
+      expect.objectContaining({
+        annotationId: surviving,
+        ordinal: 2,
+        submissionId: entry.payload.submissionId,
+      }),
+    ])
+    expect(controller.getSnapshot().outbox).toEqual([
+      expect.objectContaining({
+        kind: 'receipt',
+        submissionId: entry.payload.submissionId,
+        status: 'sent',
+      }),
+    ])
+    expect([...memory.values.values()].join('\n')).not.toContain(sentinel)
+    const reloaded = harness(memory, sessionId, coordination).controller
+    reloaded.reconcile(snapshot)
+    expect(reloaded.getSnapshot().annotations).toEqual([
+      expect.objectContaining({ annotationId: surviving, ordinal: 2 }),
+    ])
+    expect(JSON.stringify(reloaded.getSnapshot())).not.toContain(sentinel)
   })
 
   it('updates recycled history status without restoring the record', () => {

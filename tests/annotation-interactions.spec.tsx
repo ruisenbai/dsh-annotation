@@ -76,6 +76,7 @@ function harness(values = new Map<string, string>()) {
     dismissDeleteUndo: vi.fn(() => controller.dismissDeleteUndo()),
     discardOutbox: vi.fn(),
     navigate: vi.fn(async () => true),
+    bindNoticeHost: vi.fn(() => () => undefined),
     repairComposerAttachment: vi.fn(),
     autoAttachEnabled: vi.fn(() => true),
     ensureComposerAttachment: vi.fn(() => true),
@@ -195,6 +196,10 @@ describe('annotation record and composer interactions', () => {
     expect(within(record).getByRole('tab', { name: 'File' })).toBeInTheDocument()
     expect(within(record).getByRole('tab', { name: 'File' }).closest('.dia-record__header')).not.toBeNull()
     fireEvent.click(within(record).getByRole('tab', { name: 'File' }))
+    expect(within(record).getByRole('button', { name: /^Annotations/ })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
     expect(within(record).getAllByRole('listitem')).toHaveLength(1)
     fireEvent.pointerEnter(document.querySelector('.dia-composer-chip')!)
     expect(screen.getByRole('tooltip')).toHaveTextContent('File:hello')
@@ -235,6 +240,10 @@ describe('annotation record and composer interactions', () => {
     expect(within(record).getByText('Clarify this point.')).toBeInTheDocument()
     expect(within(record).queryByText('source')).toBeNull()
     const header = within(record).getByRole('button', { name: /^Annotations/ })
+    fireEvent.click(record.querySelector('.dia-record__header')!)
+    expect(header).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(record.querySelector('.dia-record__body')!)
+    expect(header).toHaveAttribute('aria-expanded', 'true')
     fireEvent.click(header)
     expect(header).toHaveAttribute('aria-expanded', 'false')
     fireEvent.click(header)
@@ -377,6 +386,27 @@ describe('annotation record and composer interactions', () => {
     h.controller.dispose()
   })
 
+  it('keeps the quick editor focused when persistence rejects an explicit save', () => {
+    const h = harness()
+    act(() => beginNewEditor(h, 'body'))
+    h.actions.saveEditor.mockImplementationOnce(() => {
+      throw new Error('annotation-storage-failed')
+    })
+    render(<AnnotationExperience {...h.props} />)
+    const editor = screen.getByRole('dialog', { name: 'Add annotation' })
+    const input = within(editor).getByRole('textbox', { name: 'Your annotation' })
+    fireEvent.change(input, { target: { value: 'Retain this draft' } })
+
+    fireEvent.click(within(editor).getByRole('button', { name: 'Save' }))
+
+    expect(editor).toBeInTheDocument()
+    expect(input).toHaveValue('Retain this draft')
+    expect(input).toHaveFocus()
+    expect(within(editor).queryByRole('alert')).toBeNull()
+    expect(h.actions.ensureComposerAttachment).not.toHaveBeenCalled()
+    h.controller.dispose()
+  })
+
   it('uses the latest textarea value when a pointer arrives before React publishes input', () => {
     const h = harness()
     act(() => beginNewEditor(h, 'body'))
@@ -440,6 +470,13 @@ describe('annotation record and composer interactions', () => {
     const second = h.save(20, 'Second note')
     render(<AnnotationComposerChip {...h.props} />)
     expect(screen.getByText('2 annotations')).toBeInTheDocument()
+    const chip = document.querySelector('.dia-composer-chip')!
+    const actions = chip.querySelector('.dia-composer-chip__actions')!
+    expect(actions).toHaveAttribute('data-expanded', 'false')
+    fireEvent.pointerEnter(chip)
+    expect(actions).toHaveAttribute('data-expanded', 'true')
+    fireEvent.pointerLeave(chip)
+    expect(actions).toHaveAttribute('data-expanded', 'false')
     fireEvent.click(screen.getByRole('button', { name: 'Remove annotations from this message' }))
     expect(h.actions.detachAnnotations).toHaveBeenCalledExactlyOnceWith([first, second])
     expect(h.controller.getSnapshot().annotations).toHaveLength(2)
@@ -463,16 +500,21 @@ describe('annotation record and composer interactions', () => {
     render(<AnnotationExperience {...h.props} />)
 
     act(() => h.controller.trashAnnotations([first, second]))
-    expect(screen.getByRole('status')).toHaveTextContent('Annotations moved to the recycle bin')
-    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(h.controller.getSnapshot().notice).toMatchObject({
+      level: 'success',
+      messageKey: 'notice.deleted',
+      params: { count: 2 },
+      action: { kind: 'undo-delete', labelKey: 'list.undo' },
+    })
+    act(() => h.actions.undoDelete())
     expect(h.actions.undoDelete).toHaveBeenCalledOnce()
     expect(h.controller.getSnapshot().annotations.map((item) => item.annotationId)).toEqual([first, second])
     expect(h.controller.getSnapshot().trash).toHaveLength(0)
 
     act(() => h.controller.trashAnnotations([first, second]))
-    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
-    act(() => vi.advanceTimersByTime(4500))
-    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
+    expect(h.controller.getSnapshot().notice?.action?.kind).toBe('undo-delete')
+    act(() => h.controller.dismissDeleteUndo())
+    expect(h.controller.getSnapshot().deletedAnnotationIds).toEqual([])
     expect(h.controller.getSnapshot().trash).toHaveLength(2)
     h.controller.dispose()
   })

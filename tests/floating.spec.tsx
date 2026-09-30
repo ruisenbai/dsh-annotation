@@ -454,7 +454,7 @@ function FloatingProbe({
 }
 
 describe('annotation floating lifecycle', () => {
-  it('reserves scrolling space for an editor and restores the original padding after close', () => {
+  it('scrolls a selection out from under the composer without padding the composer scrollport', () => {
     layoutEvents()
     const current = scene()
     current.scroll.style.paddingBottom = '7px'
@@ -464,10 +464,28 @@ describe('annotation floating lifecycle', () => {
       rect: rect(820, 680 - current.scroll.scrollTop, 24, 22),
     })
     const mounted = render(<FloatingProbe current={current} preferBelow anchor={anchor} />)
-    expect(Number.parseFloat(current.scroll.style.paddingBottom)).toBeGreaterThan(7)
+    // The composer seat is a sticky child of this scrollport: reserving room here moves the input.
+    expect(current.scroll.style.paddingBottom).toBe('7px')
     expect(current.scroll.scrollTop).toBeGreaterThan(0)
     const panel = screen.getByTestId('floating')
     expect(Number.parseFloat(panel.style.top)).toBeGreaterThanOrEqual(anchor().rect.bottom)
+    mounted.unmount()
+    expect(current.scroll.style.paddingBottom).toBe('7px')
+  })
+
+  it('reserves temporary room only in a source scrollport that does not contain the composer', () => {
+    layoutEvents()
+    const current = scene()
+    current.scroll.style.paddingBottom = '7px'
+    // A sidebar surface scrolls its own content and never holds the conversation input.
+    current.root.append(current.composer)
+    current.bounds.marker = rect(820, 680, 24, 22)
+    const anchor = () => ({
+      contextElement: current.body,
+      rect: rect(820, 680 - current.scroll.scrollTop, 24, 22),
+    })
+    const mounted = render(<FloatingProbe current={current} preferBelow anchor={anchor} />)
+    expect(Number.parseFloat(current.scroll.style.paddingBottom)).toBeGreaterThan(7)
     mounted.unmount()
     expect(current.scroll.style.paddingBottom).toBe('7px')
   })
@@ -725,6 +743,28 @@ describe('annotation floating lifecycle', () => {
     expect(screen.getByTestId('floating')).toHaveStyle({ top: '180px' })
     expect(events.observers[0]!.targets.has(current.marker)).toBe(false)
     expect(events.observers[0]!.targets.has(replacement)).toBe(true)
+  })
+
+  it('uses the current source when an older source already queued a layout frame', () => {
+    const events = layoutEvents()
+    const first = scene()
+    const second = scene()
+    second.bounds.marker = rect(820, 220, 24, 22)
+    const mounted = render(<FloatingProbe current={first} />)
+    const panel = screen.getByTestId('floating')
+    expect(panel).toHaveStyle({ top: '400px' })
+
+    first.bounds.marker = rect(820, 620, 24, 22)
+    act(() => {
+      first.scroll.dispatchEvent(new Event('scroll'))
+    })
+    expect(events.frames.size).toBe(1)
+    mounted.rerender(<FloatingProbe current={second} />)
+    events.flush()
+
+    expect(panel).toHaveStyle({ top: '220px' })
+    expect(events.observers[0]!.targets.has(first.body)).toBe(false)
+    expect(events.observers[0]!.targets.has(second.body)).toBe(true)
   })
 
   it('does not create measurement feedback between two open overlays', async () => {

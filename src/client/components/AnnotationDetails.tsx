@@ -1,9 +1,24 @@
 /** Complete source information shared by record previews and deleted-record details. */
 import type { ReactNode } from 'react'
+import { HoverCard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AnnotationDraft } from '../../shared/types.ts'
 import { officialDiffContext } from '../../shared/official-source.ts'
 import type { InputAnnotationProps } from '../contract.ts'
 import { AnnotationSourceLabel, displayAnnotationQuote } from './AnnotationSourceLabel.tsx'
+
+function FullValue({ value }: { readonly value: string }) {
+  return (
+    <HoverCard
+      inline
+      anchor={
+        <span className="dia-detail-value" tabIndex={0}>
+          {value}
+        </span>
+      }
+      content={<span className="dia-detail-value__full">{value}</span>}
+    />
+  )
+}
 
 /**
  * Show captured text without list truncation or assumptions about current file contents.
@@ -69,15 +84,21 @@ export function AnnotationDetails({
             <dt>{t('details.filename')}</dt>
             <dd>{path.split(/[\\/]/u).at(-1)}</dd>
             <dt>{t('details.path')}</dt>
-            <dd>{path}</dd>
+            <dd>
+              <FullValue value={path} />
+            </dd>
           </>
         )}
         {source?.kind === 'file' && (
           <>
             <dt>{t('details.address')}</dt>
-            <dd>{source.resourceAddress}</dd>
+            <dd>
+              <FullValue value={source.resourceAddress} />
+            </dd>
             <dt>{t('details.version')}</dt>
-            <dd>{source.resourceVersion}</dd>
+            <dd>
+              <FullValue value={source.resourceVersion} />
+            </dd>
           </>
         )}
         {start !== undefined && end !== undefined && (
@@ -103,13 +124,17 @@ export function AnnotationDetails({
         {session && (
           <>
             <dt>{t('details.session')}</dt>
-            <dd>{session}</dd>
+            <dd>
+              <FullValue value={String(session)} />
+            </dd>
           </>
         )}
         {source === undefined || source.kind === 'message' ? (
           <>
             <dt>{t('details.message')}</dt>
-            <dd>{item.messageId}</dd>
+            <dd>
+              <FullValue value={String(item.messageId)} />
+            </dd>
           </>
         ) : null}
         {source?.kind === 'official-diff' && (
@@ -123,7 +148,9 @@ export function AnnotationDetails({
             <dt>{t('details.side')}</dt>
             <dd>{source.side === 'file' ? t('source.wholeFile') : t(`diff.${source.side}`)}</dd>
             <dt>{t('details.version')}</dt>
-            <dd>{source.snapshot.hash}</dd>
+            <dd>
+              <FullValue value={source.snapshot.hash} />
+            </dd>
             {diffContext?.before && (
               <>
                 <dt>{t('details.contextBefore')}</dt>

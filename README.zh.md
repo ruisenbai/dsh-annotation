@@ -24,7 +24,7 @@
 
 ### 3. 查看记录并附加
 
-新注解默认附加到下一条消息，不会自动展开记录框。输入框左上角显示附加数量；悬浮可预览原文和注解，点击可展开或折叠记录。模型选择按钮左侧的注解按钮也可控制记录框。记录中的回形针控制本次附加，地图定位图标跳转原文；空注解内容保持空白。
+新注解默认附加到下一条消息，不会自动展开记录框。输入框左上角显示附加数量；悬浮可预览原文和注解，点击可展开或折叠记录。模型选择按钮左侧的注解按钮及记录框顶部空白处也可展开或折叠。记录中的回形针控制本次附加，地图定位图标跳转原文；定位文字会明显高亮并逐渐淡出。空注解内容保持空白。
 
 ![注解记录和输入框中的附加提示](docs/assets/annotation-record.png)
 
@@ -38,7 +38,7 @@
 
 ### 5. 设置
 
-在 **设置 → 注解** 中启用或停用插件，分别控制文件预览批注和官方 turn-Diff 批注，并设置保存新注解后是否自动附加。关闭任一官方来源入口不会删除已有记录；关闭自动附加后，仍可在记录中手动点击回形针。设置页还会在 dsh-market 提供公开更新接口时显示插件更新操作。停用插件会移除界面和输入框附着，本地注解数据仍会保留。
+在 **设置 → 注解** 中启用或停用插件，分别控制文件预览批注和官方 turn-Diff 批注，并设置保存新注解后是否自动附加。关闭任一官方来源入口不会删除已有记录；关闭自动附加后，仍可在记录中手动点击回形针。回收站在宿主提供会话资料时按“项目名 - 会话标题”显示，并用单选框筛选来源类型。设置页还会在 dsh-market 提供公开更新接口时显示插件更新操作。停用插件会移除界面和输入框附着，本地注解数据仍会保留。
 
 ![DSH 设置中的注解选项](docs/assets/annotation-settings.png)
 
@@ -59,18 +59,18 @@ dsh --version
 pnpm install --frozen-lockfile --strict-peer-dependencies
 pnpm run verify
 pnpm --config.ignoreScripts=true pack --pack-destination artifacts
-dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.0.0.tgz
+dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.1.0.tgz
 dsh plugin --profile annotation-dev why dsh-annotation
 ```
 
-第一条命令应输出 `0.2.0-rc.1`，最后一条应显示本地构建包的 `dsh-annotation@1.0.0`。安装后重启临时 profile 的 Web 宿主，在 **设置 → 注解** 中确认插件可用。构建步骤见[开发说明](docs/development.md#install-and-verify)；已执行的验证见[兼容性说明](docs/compatibility.md)。
+第一条命令应输出 `0.2.0-rc.1`，最后一条应显示本地构建包的 `dsh-annotation@1.1.0`。安装后重启临时 profile 的 Web 宿主，在 **设置 → 注解** 中确认插件可用。构建步骤见[开发说明](docs/development.md#install-and-verify)；已执行的验证见[兼容性说明](docs/compatibility.md)。
 
 ### 交给 AI agent 安装
 
 将下面的提示词交给能够操作本机终端的 AI agent：
 
 ```text
-Build this dsh-annotation checkout for DeepSeek Harness Web 0.2.0-rc.1. Run dsh --version and stop if it differs. Run the plugin's frozen install, verify, and local pack commands, then install that local archive into a disposable annotation-dev profile. Confirm dsh plugin --profile annotation-dev why dsh-annotation shows dsh-annotation@1.0.0. Do not use the older published archive or change Host dependencies. Report the commands, version, installation result, and warnings.
+Build this dsh-annotation checkout for DeepSeek Harness Web 0.2.0-rc.1. Run dsh --version and stop if it differs. Run the plugin's frozen install, verify, and local pack commands, then install that local archive into a disposable annotation-dev profile. Confirm dsh plugin --profile annotation-dev why dsh-annotation shows dsh-annotation@1.1.0. Do not use the older published archive or change Host dependencies. Report the commands, version, installation result, and warnings.
 ```
 
 新对话没有注解时，不显示记录框或空状态文案。插件仅提供注解相关功能，不隐藏思考、工具调用或其他会话内容。记录行显示意见和状态，来源类型、创建入口及已保存的上下文在详情中显示。存在至少两种来源时才显示 `全部/正文/Diff/文件` 筛选。历史 Git Diff 批注及快照仍然只读；新的官方 turn-Diff 批注仅从 Diff 侧栏创建，悬浮预览没有添加注解入口。已有悬浮来源记录仍可读取，定位会用原 annotationId 打开侧栏。文件与 Diff 的整文件批注必须填写意见，记录保留来源身份。文件预览支持文本、Markdown、代码、HTML、图片、PDF、Office、Excel、CSV 和 TSV 等官方渲染内容；非文本内容保存官方预览版本身份，不从磁盘推断文件内容。

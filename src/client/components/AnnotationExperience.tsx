@@ -8,6 +8,7 @@ import {
   IconListPenOutlineRegular,
   IconPaperclipOutlineRegular,
   IconTrashOutlineRegular,
+  Button,
   HoverCard,
   SegmentedControl,
   StateDot,
@@ -18,6 +19,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, ty
 import { createPortal } from 'react-dom'
 import type { AnnotationDraft } from '../../shared/types.ts'
 import { sourceType } from '../../shared/annotation-source.ts'
+import { isOutboxPayloadEntry } from '../../shared/outbox-redaction.ts'
 import { composerInput, createComposerFocus } from '../composer-focus.ts'
 import type { AnnotationBoundProps, InputAnnotationProps } from '../contract.ts'
 import { editorBufferKey, retryEntry, selectedAnnotations, type AnnotationView } from '../controller.ts'
@@ -133,6 +135,7 @@ export function AnnotationComposerChip({
       (entry) =>
         entry.status !== 'sent' &&
         entry.status !== 'withdrawn' &&
+        isOutboxPayloadEntry(entry) &&
         entry.payload.annotations.some((item) =>
           items.some((selected) => selected.annotationId === item.annotationId),
         ),
@@ -161,7 +164,7 @@ export function AnnotationComposerChip({
         <IconPaperclipOutlineRegular size={16} />
         <span>{t('record.attachedCount', { count: items.length })}</span>
       </button>
-      <span className="dia-composer-chip__actions">
+      <span className="dia-composer-chip__actions" data-expanded={preview}>
         <Tooltip label={t('record.trashAttached')} side="top" delayMs={350}>
           <button
             type="button"
@@ -321,11 +324,13 @@ function AnnotationEditor({
       return true
     } catch (cause) {
       setError(
-        cause instanceof Error && cause.message === 'whole-file-opinion-required'
-          ? t('editor.wholeFileOpinionRequired')
-          : cause instanceof Error
-            ? cause.message
-            : String(cause),
+        cause instanceof Error && cause.message === 'annotation-storage-failed'
+          ? null
+          : cause instanceof Error && cause.message === 'whole-file-opinion-required'
+            ? t('editor.wholeFileOpinionRequired')
+            : cause instanceof Error
+              ? cause.message
+              : String(cause),
       )
       textarea.current?.focus()
       return false
@@ -465,15 +470,15 @@ function AnnotationEditor({
         }}
       />
       {quick ? (
-        <button
-          type="button"
+        <Button
+          size="sm"
+          variant="primary"
           className="dia-record-editor__check"
+          icon={<IconCheckOutlineRegular size={17} />}
           aria-label={t('editor.save')}
           disabled={submitting || editor.longSelectionConfirmed === false}
           onClick={save}
-        >
-          <IconCheckOutlineRegular size={17} />
-        </button>
+        />
       ) : (
         <div className="dia-record-editor__footer">
           <IconAction
@@ -695,8 +700,6 @@ export function AnnotationExperience({
   const [filter, setFilter] = useState<'all' | 'message' | 'diff' | 'file'>('all')
   const anchorRef = useRef<HTMLSpanElement>(null)
   const focus = useRef<ReturnType<typeof createComposerFocus> | null>(null)
-  const dismissDeleteUndo = useRef(actions.dismissDeleteUndo)
-  dismissDeleteUndo.current = actions.dismissDeleteUndo
   useEffect(() => {
     focus.current = createComposerFocus(() => composerInput(anchorRef.current))
     return () => {
@@ -704,6 +707,7 @@ export function AnnotationExperience({
       focus.current = null
     }
   }, [sessionId])
+  useLayoutEffect(() => actions.bindNoticeHost(anchorRef.current), [actions.bindNoticeHost, sessionId])
   useEffect(() => {
     actions.repairComposerAttachment()
   }, [
@@ -713,11 +717,6 @@ export function AnnotationExperience({
     input.phase,
     view.selectedAnnotationIds,
   ])
-  useEffect(() => {
-    if (view.deletedAnnotationIds.length === 0) return undefined
-    const timer = setTimeout(() => dismissDeleteUndo.current(), 4500)
-    return () => clearTimeout(timer)
-  }, [view.deletedAnnotationIds])
   const saveEditor = () => {
     const isNew = view.editor?.kind === 'new'
     const request = focus.current?.capture()
@@ -749,51 +748,69 @@ export function AnnotationExperience({
   return (
     <>
       <span ref={anchorRef} hidden aria-hidden="true" />
-      {view.deletedAnnotationIds.length > 0 && (
-        <div className="dia-undo" role="status">
-          <span>{t('list.deleted')}</span>
-          <button type="button" onClick={actions.undoDelete}>
-            {t('list.undo')}
-          </button>
-        </div>
-      )}
       {view.annotations.length > 0 && view.panelOpen && (
         <section id="dia-annotation-record" className="dia-record" aria-label={t('record.title')}>
-          <div className="dia-record__body">
-            <div className="dia-record__header">
-              <button
-                type="button"
-                className="dia-record__heading-action"
-                aria-controls={listId}
-                aria-expanded={view.recordExpanded}
-                onClick={() => actions.setRecordExpanded(!view.recordExpanded)}
+          <div
+            className="dia-record__body"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) actions.setRecordExpanded(!view.recordExpanded)
+            }}
+          >
+            <div
+              className="dia-record__header"
+              onClick={(event) => {
+                if (event.target instanceof Element && event.target.closest('button, [role="tab"]')) return
+                actions.setRecordExpanded(!view.recordExpanded)
+              }}
+            >
+              <Tooltip
+                label={view.recordExpanded ? t('dock.collapse') : t('dock.expand')}
+                side="top"
+                delayMs={350}
               >
-                <span className="dia-record__lead" aria-hidden="true">
-                  <IconListPenOutlineRegular />
-                </span>
-                <span className="dia-record__title">{t('record.title')}</span>
-              </button>
+                <button
+                  type="button"
+                  className="dia-record__heading-action"
+                  aria-controls={listId}
+                  aria-expanded={view.recordExpanded}
+                  onClick={() => actions.setRecordExpanded(!view.recordExpanded)}
+                >
+                  <span className="dia-record__lead" aria-hidden="true">
+                    <IconListPenOutlineRegular />
+                  </span>
+                  <span className="dia-record__title">{t('record.title')}</span>
+                </button>
+              </Tooltip>
               <span className="dia-record__progress">{recordSummary(view, t)}</span>
               {showFilters && (
-                <SegmentedControl
-                  id={`${listId}-filter`}
-                  value={effectiveFilter}
-                  options={filterOptions}
-                  onChange={setFilter}
-                  label={t('details.sourceFilter')}
-                  className="dia-record__filters"
-                />
+                <Tooltip label={t('details.sourceFilter')} side="top" delayMs={350}>
+                  <span className="dia-record__filters">
+                    <SegmentedControl
+                      id={`${listId}-filter`}
+                      value={effectiveFilter}
+                      options={filterOptions}
+                      onChange={setFilter}
+                      label={t('details.sourceFilter')}
+                    />
+                  </span>
+                </Tooltip>
               )}
-              <button
-                type="button"
-                className="dia-record__chevron"
-                aria-label={view.recordExpanded ? t('dock.collapse') : t('dock.expand')}
-                aria-controls={listId}
-                aria-expanded={view.recordExpanded}
-                onClick={() => actions.setRecordExpanded(!view.recordExpanded)}
+              <Tooltip
+                label={view.recordExpanded ? t('dock.collapse') : t('dock.expand')}
+                side="top"
+                delayMs={350}
               >
-                {view.recordExpanded ? <IconChevronDownOutlineRegular /> : <IconChevronUpOutlineRegular />}
-              </button>
+                <button
+                  type="button"
+                  className="dia-record__chevron"
+                  aria-label={view.recordExpanded ? t('dock.collapse') : t('dock.expand')}
+                  aria-controls={listId}
+                  aria-expanded={view.recordExpanded}
+                  onClick={() => actions.setRecordExpanded(!view.recordExpanded)}
+                >
+                  {view.recordExpanded ? <IconChevronDownOutlineRegular /> : <IconChevronUpOutlineRegular />}
+                </button>
+              </Tooltip>
             </div>
             {view.recordExpanded && (
               <div
@@ -818,9 +835,15 @@ export function AnnotationExperience({
             {retry && (
               <div className="dia-record__retry" role="status">
                 <span>{t('error.send')}</span>
-                <button type="button" onClick={() => actions.discardOutbox(retry.payload.submissionId)}>
-                  {t('list.discard')}
-                </button>
+                <Tooltip label={t('list.discard')} side="top" delayMs={350}>
+                  <button
+                    type="button"
+                    aria-label={t('list.discard')}
+                    onClick={() => actions.discardOutbox(retry.payload.submissionId)}
+                  >
+                    {t('list.discard')}
+                  </button>
+                </Tooltip>
               </div>
             )}
           </div>

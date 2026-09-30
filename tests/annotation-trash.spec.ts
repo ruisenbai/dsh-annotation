@@ -39,6 +39,7 @@ function harness() {
   const snapshots = new SourceSnapshotStore(undefined)
   owners.push(snapshots)
   const release = vi.spyOn(snapshots, 'release').mockResolvedValue(undefined)
+  const purge = vi.spyOn(snapshots, 'purge').mockResolvedValue(undefined)
   const catalog = new AnnotationTrashController(memory, coordination, DEFAULT_CONFIG, snapshots, (id) =>
     mounted.get(id),
   )
@@ -70,7 +71,7 @@ function harness() {
     expect(controller.trashAnnotations([id])).toBe(true)
     return { sessionId, id, controller, storage }
   }
-  return { memory, coordination, mounted, snapshots, release, catalog, create }
+  return { memory, coordination, mounted, snapshots, release, purge, catalog, create }
 }
 
 function deferred<T>() {
@@ -156,6 +157,45 @@ describe('all-session annotation recycle bin', () => {
     expect(catalog.getSnapshot().rows).toHaveLength(1)
     expect(catalog.getSnapshot().rows[0]?.sessionId).toBe(failed.sessionId)
     writes.mockRestore()
+
+    expect(await catalog.purge(catalog.getSnapshot().rows)).toBe(true)
+    expect(catalog.getSnapshot()).toEqual({ rows: [], error: null })
+  })
+
+  it('preflights every Session before changing any row when one target is frozen', async () => {
+    const { catalog, create, memory } = harness()
+    const locked = create('a-locked')
+    const unlocked = create('b-unlocked')
+    const recycled = locked.storage.load(true)
+    expect(locked.controller.restoreAnnotations([locked.id])).toBe(true)
+    locked.controller.toggleSelected(locked.id)
+    locked.controller.createOutbox('queue', locked.sessionId)
+    expect(await locked.controller.whenStorageIdle()).toBe(true)
+    const active = locked.storage.load(true)
+    for (const key of memory.values.keys())
+      if (key.startsWith(`${locked.storage.key}:journal:`)) memory.values.delete(key)
+    memory.values.set(
+      locked.storage.key,
+      JSON.stringify({
+        ...active,
+        annotations: [],
+        trash: recycled.trash,
+        deletionMarks: recycled.deletionMarks,
+      }),
+    )
+    catalog.refresh()
+    await catalog.whenIdle()
+    const before = new Map(memory.values)
+
+    expect(await catalog.purge(catalog.getSnapshot().rows)).toBe(false)
+    expect(catalog.getSnapshot().error).toBe('locked')
+    expect(
+      catalog
+        .getSnapshot()
+        .rows.map((row) => row.sessionId)
+        .sort(),
+    ).toEqual([locked.sessionId, unlocked.sessionId])
+    expect(memory.values).toEqual(before)
   })
 
   it('awaits mounted-controller persistence and retains compaction errors', async () => {
@@ -179,40 +219,40 @@ describe('all-session annotation recycle bin', () => {
   })
 
   it('cleans snapshots only after the reader journal has finished compacting', async () => {
-    const { catalog, create, release } = harness()
+    const { catalog, create, purge } = harness()
     const { controller } = create()
     controller.purgeAnnotations(controller.getSnapshot().trash.map((entry) => entry.annotation.annotationId))
     const pending = deferred<void>()
     const idle = vi.spyOn(AnnotationStorage.prototype, 'whenIdle').mockReturnValue(pending.promise)
     catalog.refresh()
     await Promise.resolve()
-    expect(release).not.toHaveBeenCalled()
+    expect(purge).not.toHaveBeenCalled()
     pending.resolve(undefined)
     await catalog.whenIdle()
-    expect(release).toHaveBeenCalledOnce()
+    expect(purge).toHaveBeenCalledOnce()
     idle.mockRestore()
   })
 
   it('keeps a cleanup failure retryable after the recycled row has been permanently removed', async () => {
-    const { catalog, create, release } = harness()
+    const { catalog, create, purge } = harness()
     const { sessionId, id } = create()
-    release.mockRejectedValueOnce(new Error('database unavailable')).mockResolvedValue(undefined)
+    purge.mockRejectedValueOnce(new Error('database unavailable')).mockResolvedValue(undefined)
     catalog.refresh()
     await catalog.purge(catalog.getSnapshot().rows)
     await catalog.whenIdle()
     expect(catalog.getSnapshot()).toEqual({ rows: [], error: 'cleanup' })
     catalog.retry()
     await catalog.whenIdle()
-    expect(release).toHaveBeenCalledTimes(2)
-    expect(release).toHaveBeenLastCalledWith(snapshotOwner(sessionId, id))
+    expect(purge).toHaveBeenCalledTimes(2)
+    expect(purge).toHaveBeenLastCalledWith(snapshotOwner(sessionId, id))
     expect(catalog.getSnapshot()).toEqual({ rows: [], error: null })
     catalog.refresh()
     await catalog.whenIdle()
-    expect(release).toHaveBeenCalledTimes(2)
+    expect(purge).toHaveBeenCalledTimes(2)
   })
 
   it('does not repeat or notify cleanup after disposal', async () => {
-    const { catalog, create, release } = harness()
+    const { catalog, create, purge } = harness()
     const { controller } = create()
     controller.purgeAnnotations(controller.getSnapshot().trash.map((entry) => entry.annotation.annotationId))
     const pending = deferred<void>()
@@ -224,7 +264,7 @@ describe('all-session annotation recycle bin', () => {
     catalog.dispose()
     pending.resolve(undefined)
     await catalog.whenIdle()
-    expect(release).not.toHaveBeenCalled()
+    expect(purge).not.toHaveBeenCalled()
     expect(subscriber).toHaveBeenCalledTimes(calls)
   })
 

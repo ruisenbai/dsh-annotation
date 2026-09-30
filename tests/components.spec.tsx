@@ -31,7 +31,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-const QUOTE_FLASH_TEST_MS = 1_300
+const QUOTE_FLASH_TEST_MS = 2_200
 
 const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
   const values: Partial<Record<AnnotationLocaleKey, string>> = {
@@ -221,6 +221,8 @@ describe('annotation Settings tab', () => {
       useAnnotationTrash: <S,>(selector: (value: { rows: never[]; error: null }) => S) =>
         selector({ rows: [], error: null }),
       useSourceSnapshots: <S,>(selector: (value: number) => S) => selector(0),
+      useSessionCatalog: <S,>(selector: (value: { byId: Record<string, never> }) => S) =>
+        selector({ byId: {} }),
       refreshTrash: vi.fn(),
       setEnabled: vi.fn(),
       resetEnabled: vi.fn(),

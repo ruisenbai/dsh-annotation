@@ -26,6 +26,28 @@ let output = ''
 let forced = false
 const pending = new Map()
 let nextId = 0
+const acceptanceGeometry = {}
+
+function rectEdges(rect) {
+  assert.ok(rect, 'Expected a visible element with a DOMRect')
+  return {
+    left: rect.x,
+    top: rect.y,
+    right: rect.x + rect.width,
+    bottom: rect.y + rect.height,
+    width: rect.width,
+    height: rect.height,
+  }
+}
+
+function assertStableComposer(before, current, label) {
+  for (const key of ['top', 'bottom', 'height']) {
+    assert.ok(
+      Math.abs(before[key] - current[key]) <= 1,
+      `${label} changed composer ${key}: ${JSON.stringify({ before, current })}`,
+    )
+  }
+}
 
 /** Bound an observable event, not a delay used as a readiness guess. */
 async function deadline(promise, label, ms = 90_000) {
@@ -40,6 +62,21 @@ async function deadline(promise, label, ms = 90_000) {
   } finally {
     clearTimeout(timer)
   }
+}
+
+async function assertLocateFlash(page, selector, label) {
+  const flash = page.locator(selector).first()
+  await flash.waitFor({ state: 'visible', timeout: 1_500 })
+  await page.waitForFunction(
+    (target) => {
+      const mark = document.querySelector(target)
+      return mark !== null && Number(getComputedStyle(mark).opacity) < 0.7
+    },
+    selector,
+    { timeout: 2_000 },
+  )
+  await flash.waitFor({ state: 'detached', timeout: 2_500 })
+  assert.equal(await page.locator(selector).count(), 0, `${label} flash must clear`)
 }
 
 async function request(action, payload) {
@@ -574,10 +611,122 @@ try {
     )
     await openReadingSession(page, 'annotation-reading-first', replay.source)
     assert.equal(await page.locator('.dia-record, .dia-composer-chip').count(), 0)
+    const composerCard = page.locator('[data-composer-card]').first()
+    const composerInput = composerCard.locator('[contenteditable="true"]')
+    const composerBeforeEditor = rectEdges(await composerCard.boundingBox())
+    const composerDraftBeforeEditor = await composerInput.innerText()
     await selectReadingSource(page, replay.source)
+    const bodySelectionLastLine = await page.evaluate(() => {
+      const selection = window.getSelection()
+      if (selection === null || selection.rangeCount === 0) return null
+      const range = selection.getRangeAt(0)
+      const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0)
+      const rect = rects.at(-1) ?? range.getBoundingClientRect()
+      return {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+      }
+    })
+    assert.ok(bodySelectionLastLine, 'The body selection needs a measurable final line')
     await page.getByRole('button', { name: '添加注解', exact: true }).click()
     const editor = page.locator('.dia-record-editor--quick')
+    await editor.waitFor({ state: 'visible' })
+    const composerWithEditor = rectEdges(await composerCard.boundingBox())
+    const bodyEditorRect = rectEdges(await editor.boundingBox())
+    const bodyCapsule = await editor.evaluate((element) => {
+      const editorRect = element.getBoundingClientRect()
+      const input = element.querySelector('textarea')
+      const confirm = element.querySelector('.dia-record-editor__check')
+      if (!(input instanceof HTMLTextAreaElement) || !(confirm instanceof HTMLElement)) return null
+      const inputRect = input.getBoundingClientRect()
+      const confirmRect = confirm.getBoundingClientRect()
+      const editorStyle = getComputedStyle(element)
+      const inputStyle = getComputedStyle(input)
+      return {
+        editorHeight: editorRect.height,
+        editorRadius: editorStyle.borderTopLeftRadius,
+        inputLeftInset: inputRect.left - editorRect.left,
+        inputRightInset: editorRect.right - inputRect.right,
+        inputPaddingLeft: inputStyle.paddingLeft,
+        inputPaddingRight: inputStyle.paddingRight,
+        confirmWidth: confirmRect.width,
+        confirmHeight: confirmRect.height,
+        confirmRadius: getComputedStyle(confirm).borderRadius,
+      }
+    })
+    assert.ok(bodyCapsule, 'The body quick editor needs measurable controls')
+    assertStableComposer(composerBeforeEditor, composerWithEditor, 'Opening a body annotation editor')
+    assert.ok(
+      bodyEditorRect.top >= bodySelectionLastLine.bottom,
+      `The body editor overlaps its final selection line: ${JSON.stringify({ bodySelectionLastLine, bodyEditorRect })}`,
+    )
+    assert.ok(
+      Math.abs(bodyCapsule.confirmWidth - bodyCapsule.confirmHeight) <= 1 &&
+        bodyCapsule.confirmWidth > 0 &&
+        bodyCapsule.editorHeight >= bodyCapsule.confirmHeight &&
+        bodyCapsule.inputLeftInset > 0 &&
+        bodyCapsule.inputRightInset > 0,
+      `The body quick editor is not a usable capsule with a circular confirmation button: ${JSON.stringify(bodyCapsule)}`,
+    )
+    await mkdir(artifacts, { recursive: true })
+    await page.screenshot({ path: join(artifacts, 'editor-below-selection-profile.png'), fullPage: true })
+    const cdp = await page.context().newCDPSession(page)
+    const zoom = {}
+    try {
+      for (const scale of [1.25, 1.5]) {
+        await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: scale })
+        await page.waitForTimeout(50)
+        const metric = await editor.evaluate((element) => {
+          const editorRect = element.getBoundingClientRect()
+          const confirmRect = element.querySelector('.dia-record-editor__check').getBoundingClientRect()
+          return {
+            scale: window.visualViewport?.scale ?? 1,
+            visualWidth: window.visualViewport?.width ?? window.innerWidth,
+            editor: {
+              left: editorRect.left,
+              top: editorRect.top,
+              right: editorRect.right,
+              bottom: editorRect.bottom,
+              width: editorRect.width,
+              height: editorRect.height,
+            },
+            confirmWidth: confirmRect.width,
+            confirmHeight: confirmRect.height,
+          }
+        })
+        assert.ok(Math.abs(metric.scale - scale) < 0.01, `Chromium page scale did not reach ${scale}`)
+        assert.ok(
+          metric.editor.left >= 0 &&
+            metric.editor.right <= metric.visualWidth + 1 &&
+            Math.abs(metric.confirmWidth - metric.confirmHeight) <= 1,
+          `The quick editor is clipped or its confirmation button is distorted at ${scale}: ${JSON.stringify(metric)}`,
+        )
+        zoom[String(scale)] = metric
+        await page.screenshot({
+          path: join(artifacts, `editor-zoom-${String(scale).replace('.', '')}-profile.png`),
+        })
+      }
+    } finally {
+      await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: 1 })
+      await cdp.detach()
+    }
     await cancelBlankNewEditor(page, editor, 'Body')
+    const composerAfterEditor = rectEdges(await composerCard.boundingBox())
+    assertStableComposer(composerBeforeEditor, composerAfterEditor, 'Canceling a body annotation editor')
+    assert.equal(await composerInput.innerText(), composerDraftBeforeEditor)
+    acceptanceGeometry.bodyEditor = {
+      composerBefore: composerBeforeEditor,
+      composerOpen: composerWithEditor,
+      composerAfterCancel: composerAfterEditor,
+      selectionLastLine: bodySelectionLastLine,
+      editor: bodyEditorRect,
+      capsule: bodyCapsule,
+      zoom,
+    }
     await openReadingSession(page, 'annotation-reading-first', replay.source)
     assert.equal(await page.locator('.dia-record, .dia-composer-chip, .dia-marker').count(), 0)
     await selectReadingSource(page, replay.source)
@@ -586,6 +735,17 @@ try {
     await editor.getByRole('textbox', { name: '你的注解', exact: true }).fill(note)
     await editor.getByRole('button', { name: '保存', exact: true }).click()
     await editor.waitFor({ state: 'hidden' })
+    const savedToast = page.locator('[role="alert"][data-dsh-annotation-toast]').last()
+    await savedToast.waitFor({ state: 'visible' })
+    const toastRect = rectEdges(await savedToast.boundingBox())
+    const toastComposerRect = rectEdges(await composerCard.boundingBox())
+    assert.ok(
+      Math.abs(toastRect.left - toastComposerRect.left) <= 1 &&
+        Math.abs(toastRect.right - toastComposerRect.right) <= 1,
+      `The annotation Toast must share the composer edges: ${JSON.stringify({ toastRect, toastComposerRect })}`,
+    )
+    acceptanceGeometry.toast = { toast: toastRect, composer: toastComposerRect }
+    await page.screenshot({ path: join(artifacts, 'toast-composer-alignment-profile.png'), fullPage: true })
     const chip = page.locator('.dia-composer-chip')
     await chip.waitFor()
     assert.equal(await page.locator('.dia-record').count(), 0, 'Saving does not open the record')
@@ -844,6 +1004,7 @@ try {
     const located = page.locator(`.dia-marker[data-annotation-id="${annotationId}"]`)
     await located.waitFor({ state: 'visible' })
     await review.locator('[data-dsh-official-diff-located]').waitFor({ state: 'visible' })
+    await assertLocateFlash(page, '.dia-source-flash', 'Diff source')
     await page.screenshot({ path: join(artifacts, 'official-diff-located-profile.png'), fullPage: true })
     console.log(
       'PASS Diff hover has no annotation entry; sidebar selection creates a bubble and Locate restores its range',
@@ -1034,6 +1195,15 @@ try {
       fileMarkers.length >= 2 && fileMarkers.every((ids) => ids?.split(' ').length === 1),
       `Whole-file and text-range notes need distinct bubbles: ${JSON.stringify(fileMarkers)}`,
     )
+    const fileRecord = page.locator('.dia-record')
+    if (!(await fileRecord.isVisible()))
+      await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
+    await fileRecord
+      .locator('.dia-record-row')
+      .filter({ hasText: 'Check this Markdown line.' })
+      .getByRole('button', { name: '定位原文', exact: true })
+      .click()
+    await assertLocateFlash(page, '.dia-source-flash', 'File source')
     await filePreview.locator('[data-document-markdown]').evaluate((body) => {
       body.style.minHeight = '0'
       body.style.height = '60px'
@@ -1121,6 +1291,12 @@ try {
     const record = page.locator('.dia-record')
     if (!(await record.isVisible()))
       await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
+    await record
+      .locator('.dia-record-row')
+      .filter({ hasText: 'Review this reply.' })
+      .getByRole('button', { name: '定位原文', exact: true })
+      .click()
+    await assertLocateFlash(page, '.dia-quote-flash', 'Reply source')
     await record.getByRole('tab', { name: '文件', exact: true }).click()
     assert.equal(await record.locator('.dia-record-row').count(), 2)
     await record.getByRole('tab', { name: 'Diff', exact: true }).click()
@@ -1203,6 +1379,11 @@ try {
     await captureReleaseScreenshots(page, request)
     console.log('PASS seven release screenshots captured from the Chinese Web profile')
   }
+  await mkdir(artifacts, { recursive: true })
+  await writeFile(
+    join(artifacts, 'acceptance-geometry.json'),
+    `${JSON.stringify(acceptanceGeometry, null, 2)}\n`,
+  )
   assert.equal(pageErrors.length, 0, `${pageErrors.length} browser errors: ${pageErrors[0] ?? ''}`)
 } catch (error) {
   console.error(output)
