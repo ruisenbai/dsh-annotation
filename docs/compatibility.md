@@ -48,6 +48,8 @@ node scripts/browser-test.mjs
 DSH_RELEASE_SCREENSHOTS=1 node scripts/profile-smoke.mjs
 ```
 
+The 1.1.1 archive also passed `publint` and installed through `dsh plugin --profile web add` into a fresh temporary DSH home. `why dsh-annotation` resolved exactly one version, and the installed Client bundle hash matched the built bundle. The installed Web Settings card exposed all four enabled controls without browser errors after completing the preview notice and deferring model setup. The CLI reported peer-dependency and cross-filesystem store warnings while installation and loading succeeded.
+
 The published Host primitives package references a missing `index.js.map`; Vitest reported that source-map warning while all tests passed. Browser and profile checks used isolated local state and a deterministic model adapter, not a live provider. macOS, Windows, other browsers, the Node 22/24 matrix, and independent source-build verification remain separate CI/manual evidence.
 
 ## Marketplace placement
