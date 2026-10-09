@@ -4,8 +4,9 @@ const root = new URL('../', import.meta.url)
 const manifest = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
 const baseline = JSON.parse(await readFile(new URL('source-baseline.json', root), 'utf8'))
 const expectedDshVersion = baseline.version
-if (manifest.engines?.dsh !== expectedDshVersion) {
-  throw new Error(`package.json engines.dsh must be ${expectedDshVersion}`)
+const expectedDshRange = `>=${expectedDshVersion}`
+if (manifest.engines?.dsh !== expectedDshRange) {
+  throw new Error(`package.json engines.dsh must be ${expectedDshRange}`)
 }
 const platformModules = JSON.parse(await readFile(new URL('client-platform.json', root), 'utf8'))
 const expectedPlatformModules = [
@@ -23,11 +24,15 @@ if (JSON.stringify(platformModules) !== JSON.stringify(expectedPlatformModules))
   throw new Error(`client-platform.json does not match the DSH ${expectedDshVersion} platform modules`)
 }
 for (const [name, range] of Object.entries(manifest.peerDependencies ?? {})) {
-  if (manifest.devDependencies?.[name] !== range) {
+  if (name.startsWith('@deepseek-ai/dsh-')) {
+    if (range !== expectedDshRange) {
+      throw new Error(`DSH peer ${name} must match engines.dsh`)
+    }
+    if (manifest.devDependencies?.[name] !== expectedDshVersion) {
+      throw new Error(`DSH development dependency ${name} must match the source baseline`)
+    }
+  } else if (manifest.devDependencies?.[name] !== range) {
     throw new Error(`peer and development ranges differ for ${name}`)
-  }
-  if (name.startsWith('@deepseek-ai/dsh-') && range !== expectedDshVersion) {
-    throw new Error(`lockstep DSH peer ${name} must match engines.dsh`)
   }
 }
 const required = [

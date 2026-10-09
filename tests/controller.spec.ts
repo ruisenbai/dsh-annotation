@@ -5,6 +5,8 @@ import { DEFAULT_CONFIG } from '../src/shared/config.ts'
 import { DEFAULT_PROCESSING_MODE } from '../src/shared/types.ts'
 import type { AnnotationId, MessageIdentity, SessionIdentity } from '../src/shared/types.ts'
 import type { SelectionCapture } from '../src/client/selection.ts'
+import type { FileAnnotationSource } from '../src/shared/annotation-source.ts'
+import { sha256Hex } from '../src/shared/snapshot-hash.ts'
 
 class MemoryStorage {
   readonly values = new Map<string, string>()
@@ -89,7 +91,7 @@ describe('annotation controller', () => {
       ])
       expect(restored.getSnapshot()).toMatchObject({
         storageAvailable: false,
-        notice: { level: 'error', text: 'storage' },
+        notice: { level: 'error', messageKey: 'error.storage' },
       })
       restored.reconcile(snapshot())
       restored.clearNotice()
@@ -97,7 +99,7 @@ describe('annotation controller', () => {
       expect(memory.values.get(storage.key)).toBe(raw)
       expect(restored.getSnapshot()).toMatchObject({
         storageAvailable: false,
-        notice: { level: 'error', text: 'storage' },
+        notice: { level: 'error', messageKey: 'error.storage' },
       })
     } finally {
       restored.dispose()
@@ -118,7 +120,7 @@ describe('annotation controller', () => {
         expect(memory.values.get(storage.key)).toBe(raw)
         expect(controller.getSnapshot()).toMatchObject({
           storageAvailable: false,
-          notice: { level: 'error', text: 'storage' },
+          notice: { level: 'error', messageKey: 'error.storage' },
         })
       } finally {
         controller.dispose()
@@ -156,6 +158,109 @@ describe('annotation controller', () => {
       annotation: '',
       kind: 'highlight-only',
     })
+  })
+
+  it('retains an official annotation when its Host resource expires', () => {
+    const memory = new MemoryStorage()
+    const { controller } = harness(memory)
+    const source: FileAnnotationSource = {
+      kind: 'file',
+      resourceVersion: 'file-v1',
+      sessionId: controller.sessionId,
+      resourceAddress: 'dsh-resource://file/session/session-test/%2Fworkspace%2Fnotes.md',
+      path: '/workspace/notes.md',
+      format: 'markdown',
+      snapshot: { version: 1, hash: sha256Hex('notes'), bytes: 5, format: 'markdown', text: 'notes' },
+      wholeFile: true,
+      entry: 'sidebar',
+    }
+    controller.beginSelection({
+      source,
+      quote: { exact: '', prefix: '', suffix: '', start: 0, end: 0 },
+      rect: { top: 1, left: 2, right: 3, bottom: 4 },
+    })
+    controller.updateEditorText('Keep this file note.')
+    const id = controller.saveEditor()
+    controller.markSourceExpired(id)
+    expect(controller.getSnapshot().annotations[0]?.source).toMatchObject({ kind: 'file', expired: true })
+    controller.dispose()
+
+    const restored = harness(memory).controller
+    try {
+      expect(restored.getSnapshot().annotations[0]?.source).toMatchObject({ kind: 'file', expired: true })
+    } finally {
+      restored.dispose()
+    }
+  })
+
+  it('requires a written opinion for a whole-file annotation', () => {
+    const { controller } = harness()
+    const source: FileAnnotationSource = {
+      kind: 'file',
+      resourceVersion: 'file-v1',
+      sessionId: controller.sessionId,
+      resourceAddress: 'dsh-resource://file/session/session-test/%2Fworkspace%2Fnotes.md',
+      path: '/workspace/notes.md',
+      format: 'text',
+      snapshot: { version: 1, hash: sha256Hex('notes'), bytes: 5, format: 'text', text: 'notes' },
+      wholeFile: true,
+      entry: 'sidebar',
+    }
+    controller.beginSelection({
+      source,
+      quote: { exact: '', prefix: '', suffix: '', start: 0, end: 0 },
+      rect: { top: 1, left: 2, right: 3, bottom: 4 },
+    })
+    expect(() => controller.saveEditor()).toThrow('whole-file-opinion-required')
+    controller.updateEditorText('Review this file.')
+    expect(() => controller.saveEditor()).not.toThrow()
+    controller.dispose()
+  })
+
+  it('cancels an older file Locate and keeps an unmatched source retryable', async () => {
+    const { controller } = harness()
+    const source: FileAnnotationSource = {
+      kind: 'file',
+      resourceVersion: 'file-v1',
+      sessionId: controller.sessionId,
+      resourceAddress: 'dsh-resource://file/session/session-test/%2Fworkspace%2Fnotes.md',
+      path: '/workspace/notes.md',
+      format: 'text',
+      snapshot: { version: 1, hash: sha256Hex('notes'), bytes: 5, format: 'text', text: 'notes' },
+      wholeFile: true,
+      entry: 'sidebar',
+    }
+    controller.beginSelection({
+      source,
+      quote: { exact: '', prefix: '', suffix: '', start: 0, end: 0 },
+      rect: { top: 1, left: 2, right: 3, bottom: 4 },
+    })
+    controller.updateEditorText('Review this file.')
+    const id = controller.saveEditor()
+    let finishOld!: (opened: boolean) => void
+    const oldOpen = new Promise<boolean>((resolve) => {
+      finishOld = resolve
+    })
+    let opens = 0
+    controller.setSourceNavigator(async () => (++opens === 1 ? oldOpen : true))
+    const stop = controller.registerSourceEndpoint(
+      { source },
+      {
+        reveal: () => undefined,
+        annotateAll: () => undefined,
+        revealSource: () => 'unmatched',
+      },
+    )
+    const oldLocate = controller.locateSource(id)
+    await expect(controller.locateSource(id)).resolves.toBe('unmatched')
+    finishOld(false)
+    await expect(oldLocate).resolves.toBe('cancelled')
+    expect(controller.getSnapshot().annotations[0]?.source).not.toHaveProperty('expired', true)
+    stop()
+    controller.setSourceNavigator(async () => false)
+    await expect(controller.locateSource(id)).resolves.toBe('unavailable')
+    expect(controller.getSnapshot().annotations[0]?.source).not.toHaveProperty('expired', true)
+    controller.dispose()
   })
 
   it('still requires a valid selection before saving an empty annotation', () => {
@@ -344,6 +449,29 @@ describe('annotation controller', () => {
     }
   })
 
+  it('keeps the active editor and text when the explicit save cannot persist', () => {
+    const { controller, memory } = harness()
+    controller.beginSelection(capture())
+    controller.updateEditorText('Keep this failed save')
+    const before = new Map(memory.values)
+    const writes = vi.spyOn(memory, 'setItem').mockImplementation(() => {
+      throw new Error('quota exceeded')
+    })
+
+    expect(() => controller.saveEditor()).toThrow('annotation-storage-failed')
+
+    expect(controller.getSnapshot()).toMatchObject({
+      annotations: [],
+      editor: { kind: 'new', text: 'Keep this failed save' },
+      editorSaveStatus: 'error',
+      storageAvailable: false,
+      notice: { level: 'error', messageKey: 'error.storage' },
+    })
+    expect(memory.values).toEqual(before)
+    writes.mockRestore()
+    controller.dispose()
+  })
+
   it('retains unsaved edits and storage feedback until a later write recovers', () => {
     const { controller, memory } = harness()
     const setItem = vi.spyOn(memory, 'setItem')
@@ -361,12 +489,12 @@ describe('annotation controller', () => {
         editor: { kind: 'edit', annotationId: id, text: 'Retained while storage is unavailable' },
         editorSaveStatus: 'error',
         storageAvailable: false,
-        notice: { level: 'error', text: 'storage' },
+        notice: { level: 'error', messageKey: 'error.storage' },
       })
       expect(memory.values).toEqual(stored)
 
       controller.setPanelOpen(true)
-      expect(controller.getSnapshot().notice).toEqual({ level: 'error', text: 'storage' })
+      expect(controller.getSnapshot().notice).toMatchObject({ level: 'error', messageKey: 'error.storage' })
       expect(memory.values).toEqual(stored)
       controller.updateEditorText('Recovered after storage retry')
       vi.advanceTimersByTime(400)
@@ -568,6 +696,46 @@ describe('annotation controller', () => {
     expect(reloaded.getSnapshot().replyAssociations).toEqual(restored.getSnapshot().replyAssociations)
   })
 
+  it('closes the record only after durable history consumes its last selected annotation', () => {
+    const { controller } = harness()
+    const first = saveDraft(controller)
+    controller.beginSelection(capture(20, 26))
+    controller.updateEditorText('Second opinion')
+    const second = controller.saveEditor()
+    controller.setPanelOpen(true)
+    const rows = controller.getSnapshot().annotations
+    const message = (id: AnnotationId, submissionId: string) => ({
+      kind: 'user',
+      data: {
+        source: {
+          kind: 'user',
+          annotationSubmission: {
+            protocolVersion: 5,
+            source: 'dsh-annotation',
+            submissionId,
+            sessionId: controller.sessionId,
+            delivery: 'queue',
+            protocolLocale: 'en',
+            processingMode: 'answer',
+            createdAt: 1_700_000_000_000,
+            annotations: [{ ...rows.find((row) => row.annotationId === id)!, ordinal: 1 }],
+          },
+        },
+      },
+    })
+    const firstMessage = message(first, 'sub-first')
+    const secondMessage = message(second, 'sub-second')
+
+    controller.reconcile(snapshot([firstMessage]))
+    expect(controller.getSnapshot().selectedAnnotationIds).toEqual([second])
+    expect(controller.getSnapshot().panelOpen).toBe(true)
+    controller.reconcile(snapshot([firstMessage, secondMessage]))
+    expect(controller.getSnapshot().selectedAnnotationIds).toEqual([])
+    expect(controller.getSnapshot().annotations.map((row) => row.status)).toEqual(['sent', 'sent'])
+    expect(controller.getSnapshot().panelOpen).toBe(false)
+    controller.dispose()
+  })
+
   it('adds a fresh annotation over submitted text without linking it to the original', () => {
     const { controller } = harness()
     const id = saveDraft(controller)
@@ -733,7 +901,7 @@ describe('annotation controller', () => {
 
     await expect(firstNavigation).resolves.toBe(false)
     expect(revealFirst).not.toHaveBeenCalled()
-    expect(controller.getSnapshot()).toMatchObject({ navigationEpoch: 2, notice: null })
+    expect(controller.getSnapshot()).toMatchObject({ navigationEpoch: 2 })
   })
 
   it('waits for the mounted endpoint after a history page lands instead of failing a sync check', async () => {
@@ -763,7 +931,7 @@ describe('annotation controller', () => {
     })
     await expect(missing.controller.navigate(missingId)).resolves.toBe(false)
     expect(missing.controller.getSnapshot()).toMatchObject({
-      notice: { level: 'error', text: 'locate' },
+      notice: { level: 'error', messageKey: 'error.locate' },
     })
   })
 
@@ -841,13 +1009,15 @@ describe('annotation controller', () => {
         restored.undoDelete()
         expect(restored.getSnapshot().annotations).toEqual(expected.annotations)
         expect(new AnnotationStorage(memory, controller.sessionId).load()).toEqual({
-          storageVersion: 3,
+          storageVersion: 6,
+          trash: [],
+          deletionMarks: [expect.objectContaining({ annotationId: draftId, state: 'restored', revision: 2 })],
           annotations: expected.annotations,
           outbox: expected.outbox,
           editorDraft: expected.editor,
           editorDrafts: [],
           selectionMode: 'individual',
-          selectedAnnotationIds: expected.selectedAnnotationIds,
+          selectedAnnotationIds: [],
           processingMode: DEFAULT_PROCESSING_MODE,
           retrySubmissionId: null,
           overallRequirementDraft: expected.overallRequirementDraft,

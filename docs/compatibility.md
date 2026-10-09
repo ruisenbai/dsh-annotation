@@ -2,23 +2,23 @@
 
 ## Host requirement
 
-This baseline applies to `1.0.0`. Release verification results are recorded separately; the baseline declaration does not assert that behavior checks passed.
+Version 1.1.1 uses DSH `0.2.1-alpha.1` as its verification baseline and declares Host `>=0.2.1-alpha.1`. Install the 1.1.1 GitHub Release archive on that Host. Users remaining on the `0.2.0` Host family must keep plugin 1.1.0; see the [upgrade guide](upgrade-guide/v1.1.0/host-baseline/guide.md).
 
 | Component                | Supported baseline                                                                  |
 | ------------------------ | ----------------------------------------------------------------------------------- |
-| DeepSeek Harness host    | `0.1.7-rc.2` exactly                                                                |
-| `engines.dsh`            | `0.1.7-rc.2`                                                                        |
-| Development declarations | `0.1.7-rc.2`                                                                        |
-| Cordis                   | `^4.0.4`                                                                            |
+| DeepSeek Harness host    | `>=0.2.1-alpha.1`                                                                   |
+| `engines.dsh`            | `>=0.2.1-alpha.1`                                                                   |
+| Development declarations | `0.2.1-alpha.1`                                                                     |
+| Cordis                   | `~4.0.5-alpha.1`                                                                    |
 | Node.js                  | `^22.19.0` or `>=24`                                                                |
 | React                    | `^18.2.0`                                                                           |
 | Browser                  | Current Chromium-based DSH Web target; other modern browsers retain marker fallback |
 
-The release manifest declares `engines.dsh: "0.1.7-rc.2"`, and the lockstep `@deepseek-ai/dsh-*` peers, development dependencies, lockfile, and CI checkout use that release. The strict-peer development environment includes `@deepseek-ai/dsh-llm-deepseek`, required by the official provider packages. Host source, annotation protocol v3, browser storage v3, and frozen Session recordings are unchanged.
+The checkout manifest declares `engines.dsh: ">=0.2.1-alpha.1"`, and its `@deepseek-ai/dsh-*` peers, development dependencies, lockfile, and CI checkout use that release. The strict-peer development environment includes `@deepseek-ai/dsh-llm-deepseek`, required by the official provider packages. Host source and frozen Session recordings are unchanged. New annotation submissions use protocol v5 and browser storage uses v6; protocol v1–v4 and storage v1–v5 remain readable compatibility generations.
 
 ## Dependency source
 
-Every DSH dependency used for verification must identify the same `0.1.7-rc.2` source generation. [source-baseline.json](../source-baseline.json) pins official tag `dsh-v0.1.7-rc.2` at commit `477b4f420553e8a52c2fbccc464d7561b239c443`. The npm family is available and the registry lockfile targets it; verify the complete peer closure with `pnpm install --frozen-lockfile --strict-peer-dependencies`. A matching version string or a regenerated lockfile is not a behavior-test result.
+Every DSH dependency used for verification must identify the same `0.2.1-alpha.1` source generation. [source-baseline.json](../source-baseline.json) pins official tag `dsh-v0.2.1-alpha.1` at commit `5badb15009ae1756c3afe0ae0cef1faafc290ccc`. The npm family is available and the registry lockfile targets it; verify the complete peer closure with `pnpm install --frozen-lockfile --strict-peer-dependencies`. A matching version string or a regenerated lockfile is not a behavior-test result.
 
 For an unpublished family, use verifiable official source or official artifacts in a disposable directory. Confirm the repository, source commit or artifact URL, package names, and package versions before deriving integrity values. Include the DSH and vendored Cordis package families and the Landlock entry package, and enforce strict peers in the temporary install. Machine-local `file:` URLs, workspace links, and generated overlay lockfiles must never enter the released plugin manifest or checked-in lockfile. Record the actual source and commands in the release verification evidence; an old lockfile or a successful build against a different host does not verify this baseline.
 
@@ -26,33 +26,37 @@ The source verification helper provides independent source checks: it checks the
 
 ## Verification
 
-The rc.2 registry packages were checked on Linux with Node.js `26.10.0`, pnpm `11.7.0`, and Chromium `151.0.7922.34`. The following commands completed successfully in the plugin directory:
+Release verification targets the published `0.2.1-alpha.1` DSH packages with Cordis `4.0.5-alpha.1`, the group plugin `1.0.5-alpha.1`, and Schemastery `3.18.5-alpha.1`. The removed `@deepseek-ai/dsh-invariants` package is not a development dependency. The plugin's existing no-op `./invariant` export remains available for callers and requires no Host registry.
+
+The registry lockfile and CI source pin identify the same official generation. [Development](development.md) describes the build, strict-peer install, unit/coverage, browser, installed-profile, and archive checks. On 2026-10-09, Linux with Node.js `26.11.1` passed typechecking, lint, formatting, a frozen strict-peer install, the plugin build, and bundle verification. The unit/component coverage run passed **636 tests in 44 files**, with 89.25% line, 93.55% function, 81.07% branch, and 85.64% statement coverage in the configured coverage scope. The wide/light and narrow/dark Chromium fixture passed record ordering, focus/scroll preservation, frost/opaque bubble states, attachment, resend, and recycle-bin interactions.
+
+The complete isolated Web profile passed Settings persistence and archive recovery, frozen Session replay, source selection and ordering, file and official Diff creation/Locate, composer text and image submission, sent-note reattachment, and retry identity. It compares the submitted message with the durable Session log and the deterministic model adapter's input. Seven Chinese Web screenshots were captured from that same Host baseline. The fixture uses the Host's current **显示代码工作视图** setting when opening official Diff views.
+
+Executed commands:
 
 ```bash
-pnpm install --frozen-lockfile --strict-peer-dependencies --ignore-scripts
-pnpm run typecheck
-pnpm run lint
-pnpm run format:check
-pnpm run test
-pnpm run build
-pnpm run verify:bundle
-pnpm run publint
-pnpm run test:browser
-pnpm run test:profile
-pnpm run test:coverage
+pnpm install --frozen-lockfile --strict-peer-dependencies
+./node_modules/.bin/tsc -p tsconfig.json --noEmit
+./node_modules/.bin/oxlint --deny-warnings src tests scripts
+./node_modules/.bin/prettier --check .
+./node_modules/.bin/vitest run --coverage
+node scripts/clean.mjs
+./node_modules/.bin/tsc -p tsconfig.build.json
+./node_modules/.bin/tsdown
+node scripts/verify-bundle.mjs
+node scripts/browser-test.mjs
 DSH_RELEASE_SCREENSHOTS=1 node scripts/profile-smoke.mjs
-pnpm --config.ignoreScripts=true pack --pack-destination artifacts
 ```
 
-The 440 unit/component tests include empty and nonempty composer drafts with automatic attachment disabled. The two browser cases cover wide/light and narrow/dark interactions. The isolated official Web profile checks built-plugin discovery, settings persistence and archive recovery, command admission and retry deduplication, recorded-history selection and navigation, manual composer attachment and same-ID resend, image attachment identity, and read-only historical Diff records. Its browser and Host process close after the check. The retained reading fixtures are read-only; send checks use a live Host-created Session with its protected system head. The screenshot run captured seven Chinese Web views from that profile. The packed tarball contains all seven images; installing it into a disposable DSH `0.1.7-rc.2` Web profile succeeded, and that profile loaded the plugin and started the Web server.
+The 1.1.1 archive also passed `publint` and installed through `dsh plugin --profile web add` into a fresh temporary DSH home. `why dsh-annotation` resolved exactly one version, and the installed Client bundle hash matched the built bundle. The installed Web Settings card exposed all four enabled controls without browser errors after completing the preview notice and deferring model setup. The CLI reported peer-dependency and cross-filesystem store warnings while installation and loading succeeded.
 
-The official `dsh-client-ui-primitives` rc.2 npm bundle references a missing source map; Vitest reports the warning while all tests pass. This verification uses a deterministic model adapter, not a live provider. Windows, macOS, the Node 22/24 CI matrix, and the independent source-build CI workflow are not covered by these local results. Installation into an existing user profile and a live-provider check remain separate release steps.
+The published Host primitives package references a missing `index.js.map`; Vitest reported that source-map warning while all tests passed. Browser and profile checks used isolated local state and a deterministic model adapter, not a live provider. macOS, Windows, other browsers, the Node 22/24 matrix, and independent source-build verification remain separate CI/manual evidence.
 
 ## Marketplace placement
 
 The catalog submission uses **Sessions & Messages** (`session`). The plugin annotates assistant messages, persists drafts per Session, submits one user message through the official composer, and reconciles queue and durable message state; visual decoration supports that message workflow rather than acting as a theme or general appearance extension.
 
-The repository-owned `screenshots.json` lists seven screenshots from the Chinese Web profile. The catalog entry uses the stable `dsh-annotation.tgz` GitHub Release alias, so installation never depends on a local source build.
+The repository-owned `screenshots.json` lists seven screenshots from the Chinese Web profile. The catalog uses `https://github.com/ruisenbai/dsh-annotation/releases/latest/download/dsh-annotation.tgz`; every release publishes that stable filename together with its versioned archive.
 
 ## Marketplace update API
 
@@ -64,7 +68,7 @@ The card checks only the installed `dsh-annotation` package. Update progress com
 
 The Host declares editable booleans as `.volatile()` Config fields on the `dsh-annotation` profile entry and registers `settings.configure({ auto: false }, ctx.fiber)` as an optional effect. The browser uses `ctx.configForms.get()` and contributes the existing top-level `settings.section`; it does not use the removed `settingsScope` or register a second settings namespace. The official main Settings shell owns navigation and persistence through the profile Cordis patch.
 
-The active Settings card exposes `enabled` and `autoAttach`, both enabled by default, alongside optional dsh-market update controls. Historical `compactSummary`, `individualSelection`, and transcript-visibility values remain readable for stored-profile compatibility but have no controls or effects in the current annotation UI. New annotations are selected for the next message by default; row paperclips explicitly attach or detach individual annotations, including previously sent annotations. The composer chip previews attached source text and note content on hover and opens the downward annotation record on click. The record toggle sits to the left of the model selector; its list stays hidden in a new conversation and closes automatically when every annotation has been sent and none is attached. A deployment without a settings provider still runs the annotation command with safe defaults, while the main Settings section renders no form.
+The active Settings card exposes `enabled`, `autoAttach`, `officialFileAnnotations`, and `officialDiffAnnotations`, all enabled by default, alongside optional dsh-market update controls. Disabling either official source entry removes only its new entry points and retains existing records. Historical `compactSummary`, `individualSelection`, and transcript-visibility values remain readable for stored-profile compatibility but have no controls or effects in the current annotation UI. New annotations are selected for the next message by default; row paperclips explicitly attach or detach individual annotations, including previously sent annotations. The composer chip previews attached source text and note content on hover and opens the downward annotation record on click. The record toggle sits to the left of the model selector; its list stays hidden in a new conversation and closes automatically when every annotation has been sent and none is attached. A deployment without a settings provider still runs the annotation command with safe defaults, while the main Settings section renders no form.
 
 The card follows the official plugin-configuration lifecycle: edits are staged, Save writes the Host document with the namespace revision, Discard drops local edits, and Reset clears the user-layer field. Conversation integrations change only after the Host accepts a value.
 
@@ -72,13 +76,13 @@ DSH imports the removed `settings.yaml` into profile configuration and retains `
 
 ## Protocol, storage, and command compatibility
 
-- New submissions use protocol v3, require an explicit `message` source type, and include batch-level `processingMode` plus optional annotation-level `supplementalTo`. Accepted modes are `answer`, `rewrite`, and `modify`; legacy v1/v2 payloads without a mode default to `answer`, while an explicit invalid mode is rejected. A supplemental id is nonblank and bounded, cannot self-reference, and may identify an annotation outside the current batch. Existing `comment`, `source`, `kind`, and `protocolLocale` compatibility stays unchanged, and historical messages are never rewritten.
+- New submissions use protocol v5, require an explicit source type, and include batch-level `processingMode` plus optional annotation-level `supplementalTo`. `message`, official `file`, and official `official-diff` sources are writable; historical Git `diff` sources remain read-only and are rejected for new sends. Accepted modes are `answer`, `rewrite`, and `modify`; legacy v1/v2 payloads without a mode default to `answer`, while an explicit invalid mode is rejected. A supplemental id is nonblank and bounded, cannot self-reference, and may identify an annotation outside the current batch. Existing `comment`, `source`, `kind`, and `protocolLocale` compatibility stays unchanged, and historical messages are never rewritten.
 - `protocolLocale` and `processingMode` freeze in the outbox. `answer` produces separate ordered answers, `rewrite` produces a coherent body before per-annotation notes, and `modify` changes the annotated target and reports the result or blocker before those notes. Every mode emits hidden `dsh-annotation-reply` association markers and asks for acknowledgement of only ids actually completed. Reply parsing accepts Chinese, English, and legacy labels; stable hidden ids own association. Marker-window normalization and duplicate-label ambiguity rules remain unchanged.
-- An overlapping message selection opens a separate annotation editor directly. The quick editor accepts empty content, saves with its check button, shakes on an outside click, and saves after three outside clicks or composer input. Suspended editor buffers remain recoverable and are not submitted. Historical `supplementalTo` links remain readable; no current-version Diff rebind is available.
+- An overlapping message selection opens a separate annotation editor directly. The check button and Enter can explicitly save an empty selection note; a whole-file note requires an opinion. The first two outside clicks shake a new editor. A third outside click or composer input cancels it if its trimmed text is empty, or saves it otherwise. Canceling creates no record, source bubble, selected attachment, or trash item. Suspended editor buffers remain recoverable and are not submitted. Historical `supplementalTo` links remain readable; no current-version Diff rebind is available.
 
 - Optional dsh-focus-chat: the adapter never injects or waits for a focus service; it detects the focus view through its public `[data-focus-flow]` DOM root. Without the plugin everything runs unchanged; with it, hidden-node marker/chip measurement pauses, view switches trigger re-measurement, and normal-view duplicates are hidden by message id. Adapter failures only disable focus enhancements.
 - New messages only emit `dsh-annotation` acknowledgement and `dsh-annotation-reply` markers. The legacy `dsh-inline-comments:` and `dsh-inline-annotations:` prefixes (and their reply-marker variants) remain authoritative reads.
-- Browser storage keeps the `dsh-annotation:v1:<session-id>` namespace and writes `storageVersion: 3`, reading and migrating versions 1 and 2. Frozen v2 outbox payloads remain v2; v1 continues the existing normalization to v2. Neither is upgraded to v3 by migration. Optional `editorDrafts`, `selectionMode`, `selectedAnnotationIds`, `processingMode`, and `retrySubmissionId` default compatibly when absent. Only older records with no retry-selection field use the first retryable-entry fallback; current snapshots persist an explicit id or `null`. Legacy namespace migration retains its validate-write-delete order.
+- Browser storage keeps the `dsh-annotation:v1:<session-id>` namespace and writes `storageVersion: 6`, reading and migrating versions 1 through 6. Frozen v2 outbox payloads remain v2; v1 continues the existing normalization to v2. Older payloads are not rewritten, while validated storage state is written in the current v6 envelope. Optional `trash`, `deletionMarks`, `editorDrafts`, `selectionMode`, `selectedAnnotationIds`, `processingMode`, and `retrySubmissionId` default compatibly when absent. Compact v2 official file and turn-Diff sources first required storage v5; older message and historical Diff records remain readable. Only older records with no retry-selection field use the first retryable-entry fallback; current snapshots persist an explicit id or `null`. Legacy namespace migration retains its validate-write-delete order.
 - The stable submission-derived message id prefix `dsh-inline-annotations:` is retained so persisted retries keep their authoritative queue identity across the rename.
 - Outbox records freeze the selected annotations and ordinals, processing mode, overall requirement, locale, target Session, and ordered attachment metadata. Retry cannot adopt a new current selection, mode, or attachment order. Only `ready` and `failed` records send; stale actions against `queued`, `accepted`, or `sent` skip transmission, and `withdrawn` aborts. Late retry or transport outcomes cannot demote authority already established by queue or durable history. Durable history discovered after an ambiguous failed record was discarded restores the frozen id and ordinal, preserving a later saved change as a new linked draft or an unfinished change as an independent supplemental buffer; neither is selected automatically. Legacy `images` metadata remains readable; [Data model](data-model.md#browser-persistence) owns the exact recovery rules.
 - The legacy internal command names `inline_comments_submit` and `inline_annotations_submit` forward to the new handler through invisible aliases; no second business implementation is retained.
@@ -92,7 +96,7 @@ The plugin uses two different integration mechanisms:
 
 For assistant rows, the decorator keeps the existing component as the body renderer, composes the existing `inject` face with the annotation face, and restores both fields when the feature is disabled or unloaded. It also watches `slots/changed`, so an assistant renderer registered later, including `dsh-smooth-stream`, is decorated without a same-key registration.
 
-DSH `0.1.7-rc.2` renders HTML as literal text. The decorator removes this plugin's acknowledgement and reply comments, including legacy prefixes, from the text and reasoning blocks sent to the inner renderer. The outer annotation parser and persisted Session content retain the raw markers. Unmarked nodes keep their original references, and the Host's Markdown policy is unchanged. [Decision 0003](decisions/0003-assistant-renderer-decoration.md) defines the streaming and incomplete-marker rules.
+The decorator removes this plugin's acknowledgement and reply comments, including legacy prefixes, from the text and reasoning blocks sent to the inner renderer. The outer annotation parser and persisted Session content retain the raw markers. Unmarked nodes keep their original references, and the Host's Markdown policy is unchanged. [Decision 0003](decisions/0003-assistant-renderer-decoration.md) defines the streaming and incomplete-marker rules.
 
 Source navigation consumes the injected `TurnProcessOwnerProps` fields `foldable`, `open`, and `setOpen`, and recognizes actual folded wrappers through `[data-turn-process-hidden]` or `[hidden="until-found"]`. It expands before measuring only when both signals show a folded source. The quote flash uses positioned DOM rectangles rather than the CSS Custom Highlight registry, and a Session-wide navigation epoch cancels stale local overlays and stale history-load continuations.
 
@@ -118,25 +122,25 @@ The internal command is registered through the public command registry. DSH curr
 6. Verify Inbox-only reconciliation, withdrawal, transport retry, refresh recovery, composer-text and annotation-only submission, mixed attachment order, immutable retry metadata, slash-command release, and legacy overall-requirement migration.
 7. Disable automatic attachment and confirm explicit paperclip attachment still works. Add an annotation with automatic attachment enabled and confirm the composer chip updates without opening the record. Detach it, type in the composer, and confirm it stays detached. Send it, reattach the same sent id, and confirm neither the record count nor the source bubble count increases.
 8. Confirm the Slot ledger has no plugin-owned `assistant-step` entry, the existing assistant component and inject face are decorated exactly once, the two `-100` user/steering entries win their cells, and disable or unload restores the original assistant fields. Repeat with `dsh-smooth-stream` enabled.
-9. Open **Settings → Annotations** and confirm only `enabled`, `autoAttach`, and the optional market controls appear. In a new conversation, confirm no empty annotation copy appears above the composer. Check the model-adjacent record toggle, downward list, row paperclip and locate buttons, composer chip preview and click-to-open behavior, quick editor, source bubble clipping, and empty note display. Confirm transcript visibility controls are absent and ordinary transcript content remains visible.
+9. Open **Settings → Annotations** and confirm `enabled`, `autoAttach`, `officialFileAnnotations`, `officialDiffAnnotations`, and the optional market controls appear. Toggle each official source independently and confirm disabling an entry removes only its new action while retaining existing records. In a new conversation, confirm no empty annotation copy appears above the composer. Check the model-adjacent record toggle, source filters (`All`, `Body`, `Diff`, `File`), row paperclip and Locate buttons, composer chip preview and click-to-open behavior, quick editor, source bubble clipping, and empty note display. Confirm transcript visibility controls are absent and ordinary transcript content remains visible.
 
 10. With dsh-market `1.45.0` or later installed, verify capability discovery, version check, progress, eligible force, rollback, refresh, and capability-gated restart. Remove the public API and confirm no legacy update route is called.
 11. Record the verified DSH version in this file and the changelog.
 
 ## Historical Diff compatibility and persistence acknowledgement
 
-DSH `0.1.7-rc.2` writes Session format v4. Plugin protocol and browser storage v3 are independent version domains. The profile smoke restores frozen Session v3 recordings through the official migration catalog, compares them with adjacent v4 fixtures, and verifies that reading preserves the migrated events. Existing v3 fixture generations remain unchanged.
+DSH `0.2.1-alpha.1` writes Session format v4. Plugin protocol v5 and browser storage v6 are independent version domains. The profile smoke restores frozen Session v3 recordings through the official migration catalog, compares them with adjacent v4 fixtures, and verifies that reading preserves the migrated events. Existing v3 fixture generations remain unchanged.
 
-The current plugin emits message-source annotations only. Protocol v1/v2 messages, code-block selections, tables, old source namespaces, acknowledgement/reply markers, and failed message-source retries remain readable. Historical protocol v3 Diff sources and complete snapshots in standard `user/message` metadata remain parseable and visible as read-only history. Browser-local Diff drafts, suspended editors, and failed batches are preserved without automatic migration, retry, or deletion. The former Diff modal, Git reader, signing domain, and preview command are absent. A new Diff submission is rejected by the Host even if an older Client constructs one.
+The current plugin emits v5 annotations from message, official file, and official turn-Diff sources. Protocol v1/v2 messages, code-block selections, tables, old source namespaces, acknowledgement/reply markers, and failed message-source retries remain readable. Historical protocol v3 Git Diff sources and complete snapshots in standard `user/message` metadata remain parseable and visible as read-only history. Browser-local official source drafts, suspended editors, and failed batches are preserved without automatic migration, retry, or deletion. Historical Git Diff remains excluded from new submission admission.
 
-Use matching Host and Client plugin builds. Old plugins cannot consume v3 submissions or browser storage; downgrading after creating them is unsupported. Invalid or incomplete historical records do not become current-file anchors.
+Use matching Host and Client plugin builds. Old plugins cannot consume v5 submissions or storage envelopes containing compact official file/Diff sources; downgrading after creating them is unsupported. Protocol v1–v4 and storage v1–v4 records remain readable by the current plugin. Invalid or incomplete historical records do not become current-file anchors.
 
 ## Browser behavior
 
 The source text has no permanent underline or background for annotations. Hovering or opening its numbered bubble highlights the selected text; navigation renders a separate transient quote-range overlay. The bubble follows its source during scrolling and disappears when the selected text leaves the visible scroll area.
 
-`localStorage` availability depends on site permissions and privacy mode. Denial is fail-soft: in-memory drafts work until the page closes, and the UI warns that refresh recovery is unavailable. Enablement and automatic attachment are Host-backed. Browser storage holds per-Session annotations, editor buffers, explicit selection, and outbox records; historical selection and processing preferences remain readable for compatibility.
+`localStorage` availability depends on site permissions and privacy mode. Denial is fail-soft: in-memory drafts work until the page closes, and the UI warns that refresh recovery is unavailable. Enablement, automatic attachment, and the two official-source switches are Host-backed. Browser storage holds per-Session annotations, editor buffers, explicit selection, and outbox records; historical selection and processing preferences remain readable for compatibility.
 
 ## Forward compatibility goal
 
-When DSH exposes an additive assistant-body decoration or selection Slot, replace the in-place assistant decorator with that Slot. A future typed annotation node or private Client-to-Host transport can retain protocol v3 while fields are additive and old records have defined defaults; an incompatible semantic or structural change requires an explicit successor version.
+When DSH exposes an additive assistant-body decoration or selection Slot, replace the in-place assistant decorator with that Slot. A future typed annotation node or private Client-to-Host transport can retain protocol v5 while fields are additive and old records have defined defaults; an incompatible semantic or structural change requires an explicit successor version.

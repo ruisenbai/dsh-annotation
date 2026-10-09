@@ -181,7 +181,7 @@ describe('explicit annotation send sets and editor recovery', () => {
     expect(restored.createOutbox('queue', restored.sessionId).payload).toEqual(initial.payload)
   })
 
-  it('preserves chosen IDs across reload and restores deletion selection only within the same mode', () => {
+  it('preserves chosen IDs across reload and restores a deleted annotation without reattaching it', () => {
     const { controller, memory } = harness()
     controller.setSelectionMode(true)
     const first = save(controller, 0)
@@ -192,7 +192,8 @@ describe('explicit annotation send sets and editor recovery', () => {
     restored.deleteDraft(second)
     expect(restored.getSnapshot().selectedAnnotationIds).toEqual([])
     restored.undoDelete()
-    expect(restored.getSnapshot().selectedAnnotationIds).toEqual([second])
+    expect(restored.getSnapshot().annotations.some((item) => item.annotationId === second)).toBe(true)
+    expect(restored.getSnapshot().selectedAnnotationIds).toEqual([])
   })
 
   it('keeps multiple suspended edits, blank changes and new highlight drafts without sending old content', () => {
@@ -414,7 +415,7 @@ describe('explicit annotation send sets and editor recovery', () => {
           supplementalTo: id,
         })
       }
-      expect(controller.getSnapshot().notice?.text).toBe('local-edits-preserved')
+      expect(controller.getSnapshot().notice?.messageKey).toBe('notice.localEditsPreserved')
     },
   )
 

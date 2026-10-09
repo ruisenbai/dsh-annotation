@@ -15,6 +15,8 @@ import {
 
 const FIELDS = [
   'enabled',
+  'officialFileAnnotations',
+  'officialDiffAnnotations',
   'autoAttach',
   'individualSelection',
   'compactSummary',

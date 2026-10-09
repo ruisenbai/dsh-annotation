@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AnnotationStorage, emptyPersistedState } from '../src/client/storage.ts'
-import type { MessageIdentity, SessionIdentity } from '../src/shared/types.ts'
+import type { MessageIdentity, SessionIdentity, SubmissionId } from '../src/shared/types.ts'
 import { fixturePayload, fixtureV1Payload } from './fixtures.ts'
 
 class MemoryStorage {
@@ -17,6 +17,120 @@ class MemoryStorage {
 }
 
 describe('draft storage', () => {
+  it('reads and canonically rewrites a v6 content-free terminal receipt', () => {
+    const memory = new MemoryStorage()
+    const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+    const payload = fixturePayload({ sessionId: 'session-1' as SessionIdentity })
+    const sentinel = 'PURGED-RECEIPT-CONTENT-MUST-DISAPPEAR'
+    memory.values.set(
+      storage.key,
+      JSON.stringify({
+        ...emptyPersistedState(),
+        storageVersion: 6,
+        outbox: [
+          {
+            kind: 'receipt',
+            submissionId: payload.submissionId,
+            targetSessionId: payload.sessionId,
+            messageId: 'dsh-inline-annotations:sub-test',
+            status: 'sent',
+            attempts: 2,
+            payload: {
+              ...payload,
+              overallRequirement: sentinel,
+              annotations: [{ ...payload.annotations[0], annotation: sentinel }],
+            },
+            lastError: sentinel,
+            attachments: { count: 1, kinds: ['file'], mediaTypes: ['text/plain'], names: [sentinel] },
+          },
+        ],
+      }),
+    )
+
+    const restored = storage.load()
+    expect(restored.outbox).toEqual([
+      {
+        kind: 'receipt',
+        submissionId: 'sub-test' as SubmissionId,
+        targetSessionId: 'session-1' as SessionIdentity,
+        messageId: 'dsh-inline-annotations:sub-test' as MessageIdentity,
+        status: 'sent',
+        attempts: 2,
+      },
+    ])
+    expect(storage.save({ ...restored, overallRequirementDraft: 'normalized' })).toBe(true)
+    expect(memory.values.get(storage.key)).not.toContain(sentinel)
+  })
+
+  it('drops purged active and suspended editor content while reading v6 state', () => {
+    const memory = new MemoryStorage()
+    const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+    const source = fixturePayload({ sessionId: 'session-1' as SessionIdentity }).annotations[0]!
+    const sentinel = 'PURGED-EDITOR-READ-SENTINEL'
+    const capture = {
+      messageId: source.messageId,
+      messageSeq: source.messageSeq,
+      responseVersion: source.responseVersion,
+      quote: source.quote,
+      rect: { top: 0, left: 0, bottom: 10, right: 80 },
+    }
+    memory.values.set(
+      storage.key,
+      JSON.stringify({
+        ...emptyPersistedState(),
+        deletionMarks: [
+          {
+            annotationId: source.annotationId,
+            deletionId: 'delete-purged-editor',
+            revision: 1,
+            state: 'purged',
+            updatedAt: source.createdAt,
+          },
+        ],
+        editorDraft: {
+          kind: 'new',
+          draftId: source.annotationId,
+          capture,
+          text: sentinel,
+          longSelectionConfirmed: true,
+        },
+        editorDrafts: [{ kind: 'edit', annotationId: source.annotationId, text: sentinel }],
+      }),
+    )
+
+    const restored = storage.load()
+    expect(restored.editorDraft).toBeUndefined()
+    expect(restored.editorDrafts).toEqual([])
+    expect(storage.lastError()).toBeNull()
+    expect(storage.save(restored)).toBe(true)
+    expect(memory.values.get(storage.key)).not.toContain(sentinel)
+  })
+
+  it('continues to read a legacy v6 payload entry without changing its frozen content', () => {
+    const memory = new MemoryStorage()
+    const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+    const payload = fixturePayload({ sessionId: 'session-1' as SessionIdentity })
+    memory.values.set(
+      storage.key,
+      JSON.stringify({
+        ...emptyPersistedState(),
+        storageVersion: 6,
+        outbox: [
+          {
+            payload,
+            targetSessionId: payload.sessionId,
+            messageId: 'dsh-inline-annotations:sub-test',
+            status: 'failed',
+            attempts: 3,
+            lastError: 'offline',
+          },
+        ],
+      }),
+    )
+
+    expect(storage.load().outbox[0]).toMatchObject({ payload, status: 'failed', attempts: 3 })
+  })
+
   it('saves and reloads a validated state', () => {
     const memory = new MemoryStorage()
     const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
@@ -46,7 +160,7 @@ describe('draft storage', () => {
     expect(storage.save({ ...state })).toBe(true)
     expect(writes).not.toHaveBeenCalled()
     writes.mockRestore()
-    expect(storage.load()).toEqual({ ...state, storageVersion: 3 })
+    expect(storage.load()).toEqual({ ...state, storageVersion: 6 })
     expect(storage.loadStatus()).toBe('loaded')
     expect(storage.lastError()).toBeNull()
     expect(storage.usageBytes()).toBeGreaterThan(0)
@@ -340,7 +454,7 @@ describe('draft storage', () => {
         }),
       )
       const restored = storage.load()
-      expect(restored.storageVersion).toBe(3)
+      expect(restored.storageVersion).toBe(6)
       expect(restored.outbox[0]).toMatchObject({
         status: 'failed',
         attempts: 1,

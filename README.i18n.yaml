@@ -1,0 +1,58 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write dsh-annotation/README.md
+/:
+  en: dc087c76cea515e9
+  zh: 2380a445bfc16afe
+/dsh-annotation:
+  en: 62bc0950bddfc133
+  zh: caf0f9ba673d1028
+/dsh-annotation/summary:
+  en: 72b07dbd6615879c
+  zh: 4c06395aaf844864
+/dsh-annotation/contents:
+  en: 393b3905da8e58f1
+  zh: ca07301760ed272c
+/dsh-annotation/install-and-upgrade:
+  en: 1438543427708fa9
+  zh: a03f357ea535d247
+/dsh-annotation/install-and-upgrade/manual-installation:
+  en: 33da6c2a47d5f2e7
+  zh: 9896933926ebe147
+/dsh-annotation/install-and-upgrade/install-with-an-ai-agent:
+  en: 21bb8ed5dc37727e
+  zh: 4515e16837b0565e
+/dsh-annotation/install-and-upgrade/upgrading-from-1-1-0:
+  en: 936407fc18a49d1f
+  zh: 1e329f5897a332ba
+/dsh-annotation/supported-sources:
+  en: 4ada8422c1ab937b
+  zh: 7303c7cf4c623d85
+/dsh-annotation/create-and-edit-notes:
+  en: 6c512f3e3369a803
+  zh: 213332f907832f1f
+/dsh-annotation/records-and-attachments:
+  en: 42672162efe4d3dd
+  zh: ab27d9678c33e285
+/dsh-annotation/send-resend-and-retry:
+  en: 5a27b1564277f72a
+  zh: 55d5b7ddf22b0d6f
+/dsh-annotation/delete-and-recover:
+  en: 23bd6bba888b7490
+  zh: 422d0776c899cda0
+/dsh-annotation/settings:
+  en: 78ddb4da805dcb88
+  zh: 3966d0ecdb464546
+/dsh-annotation/data-and-limitations:
+  en: 429caf67262d0da3
+  zh: 65eb51ca215edb32
+/dsh-annotation/model-experience:
+  en: 89fe35914bc2972c
+  zh: a6cec04329979633
+/dsh-annotation/developer-reference:
+  en: c411e103e5b17edf
+  zh: 9257f41cc32795e2
+/dsh-annotation/developer-reference/dev-note:
+  en: 0a1253c6f7b5e8b9
+  zh: 9f56528562c7c914

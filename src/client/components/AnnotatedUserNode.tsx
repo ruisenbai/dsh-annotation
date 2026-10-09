@@ -1,4 +1,4 @@
-import { AnnotationSourceLabel } from './AnnotationSourceLabel.tsx'
+import { AnnotationSourceLabel, displayAnnotationQuote } from './AnnotationSourceLabel.tsx'
 import { Fragment, useId, useState } from 'react'
 import {
   FileTypeIcon,
@@ -71,8 +71,8 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
         <Tooltip
           label={
             only.annotation === ''
-              ? t('timeline.previewSource', { quote: only.quote.exact })
-              : t('timeline.preview', { quote: only.quote.exact, annotation: only.annotation })
+              ? t('timeline.previewSource', { quote: displayAnnotationQuote(only, t) })
+              : t('timeline.preview', { quote: displayAnnotationQuote(only, t), annotation: only.annotation })
           }
           side="top"
           align="end"
@@ -94,7 +94,7 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
               </span>
               <div className="dia-timeline-item__content">
                 <AnnotationSourceLabel item={item} t={t} />
-                <q>{item.quote.exact}</q>
+                <q>{displayAnnotationQuote(item, t)}</q>
                 {item.annotation !== '' && <p>{item.annotation}</p>}
               </div>
               {item.source?.kind !== 'diff' && (

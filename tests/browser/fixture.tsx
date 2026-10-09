@@ -7,6 +7,10 @@ import {
   AnnotationRecordToggle,
 } from '../../src/client/components/AnnotationExperience.tsx'
 import { AnnotatedUserNode } from '../../src/client/components/AnnotatedUserNode.tsx'
+import { AnnotationTrashPanel } from '../../src/client/components/AnnotationTrashPanel.tsx'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { AnnotationTrashRow, AnnotationTrashView } from '../../src/client/annotation-trash.ts'
 import type { AnnotationEndpoint, AnnotationView } from '../../src/client/controller.ts'
 import {
   AnnotationController,
@@ -20,10 +24,14 @@ import type {
   UserAnnotationProps,
 } from '../../src/client/contract.ts'
 import { en } from '../../src/client/locales.ts'
+import { fileSource } from '../../src/client/official-adapters.ts'
+import type { SourceSnapshotView } from '../../src/client/source-snapshots.ts'
 import { AnnotationStorage } from '../../src/client/storage.ts'
 import { styles } from '../../src/client/styles.ts'
 import { DEFAULT_CONFIG } from '../../src/shared/config.ts'
 import type {
+  AnnotationDeletionId,
+  AnnotationDraft,
   AnnotationId,
   MessageIdentity,
   OutboxAttachments,
@@ -98,6 +106,7 @@ const fixtureTokens = `
   --dsw-alias-button-tool-bar-fill: var(--dsw-alias-bg-layer-2);
   --dsw-alias-button-tool-bar-hover: var(--dsw-alias-interactive-bg-hover);
   --dsw-alias-interactive-bg-hover: #edf2f5;
+  --dsw-alias-interactive-bg-hover-danger: rgba(236, 19, 19, 0.05);
   --dsw-alias-interactive-bg-active: #e3e9ee;
   --dsw-alias-button-info-fill: #4d6bfe;
   --dsw-alias-button-info-hover: #405bd8;
@@ -140,6 +149,8 @@ const fixtureTokens = `
     --dsw-alias-border-l1: #313942;
     --dsw-alias-border-l2: #44505b;
     --dsw-alias-interactive-bg-hover: #2c353e;
+    --dsw-alias-interactive-bg-hover-danger: rgba(242, 90, 90, 0.15);
+    --dsw-alias-state-error-primary: #f25a5a;
     --dsw-alias-state-business-primary: #5b79ff;
     --dsw-alias-state-business-tertiary: #26345f;
     --dsw-alias-scrollbar-bg-l2: #596570;
@@ -333,6 +344,7 @@ function Fixture({ mode }: { mode: 'legacy' | 'reading' | 'blocked' }) {
   const shared = {
     useAnnotations,
     useCompactSummary,
+    bindNoticeHost: () => () => undefined,
     beginSelection: (capture: SelectionCapture) => controller.beginSelection(capture),
     chooseOverlap: controller.chooseOverlap.bind(controller),
     dismissOverlap: controller.dismissOverlap.bind(controller),
@@ -340,6 +352,8 @@ function Fixture({ mode }: { mode: 'legacy' | 'reading' | 'blocked' }) {
     resumeEditor: controller.resumeEditor.bind(controller),
     discardEditorDraft: controller.discardEditorDraft.bind(controller),
     toggleSelected: controller.toggleSelected.bind(controller),
+    detachAnnotations: controller.detachAnnotations.bind(controller),
+    trashAnnotations: controller.trashAnnotations.bind(controller),
     setProcessingMode: controller.setProcessingMode.bind(controller),
     selectRetry: controller.selectRetry.bind(controller),
     openAnnotation: controller.openAnnotation.bind(controller),
@@ -796,6 +810,7 @@ function InteractionSession({
   const shared = {
     useAnnotations,
     useCompactSummary,
+    bindNoticeHost: () => () => undefined,
     beginSelection: controller.beginSelection.bind(controller),
     chooseOverlap: controller.chooseOverlap.bind(controller),
     dismissOverlap: controller.dismissOverlap.bind(controller),
@@ -803,6 +818,8 @@ function InteractionSession({
     resumeEditor: controller.resumeEditor.bind(controller),
     discardEditorDraft: controller.discardEditorDraft.bind(controller),
     toggleSelected: controller.toggleSelected.bind(controller),
+    detachAnnotations: controller.detachAnnotations.bind(controller),
+    trashAnnotations: controller.trashAnnotations.bind(controller),
     setProcessingMode: controller.setProcessingMode.bind(controller),
     selectRetry,
     openAnnotation: controller.openAnnotation.bind(controller),
@@ -1039,6 +1056,122 @@ function InteractionSession({
   )
 }
 
+function trashFixtureRow(index: number): AnnotationTrashRow {
+  const sessionId = `browser-trash-session-with-a-long-identifier-${index % 3}` as SessionIdentity
+  const path = `/workspace/a/very/long/project/path/that-must-stay-contained/review-source-${index}.txt`
+  const quote = `Quoted source text ${index}`
+  const annotation: AnnotationDraft = {
+    annotationId: `browser-trash-annotation-${index}` as AnnotationId,
+    ordinal: index,
+    source: fileSource(
+      {
+        sessionId,
+        resourceAddress: `dsh-resource://file/session/${String(sessionId)}/${encodeURIComponent(path)}`,
+        path,
+        resourceVersion: `browser-trash-version-${index}`,
+        format: 'text',
+        hash: index.toString(16).padStart(64, '0'),
+        bytes: new TextEncoder().encode(quote).byteLength,
+        text: quote,
+      },
+      'sidebar',
+      false,
+    ),
+    quote: {
+      exact: quote,
+      prefix: 'Context before ',
+      suffix: ' context after',
+      start: 15,
+      end: 15 + quote.length,
+    },
+    annotation: `Annotation ${index}: ${'Long review text remains readable and does not crowd the actions. '.repeat(3)}`,
+    kind: 'note',
+    status: 'draft',
+    createdAt: 1_700_000_000_000 + index,
+    updatedAt: 1_700_000_000_000 + index,
+  }
+  return {
+    sessionId,
+    entry: {
+      annotation,
+      deletedAt: 1_700_000_000_000 + index,
+      deletionId: `browser-trash-deletion-${index}` as AnnotationDeletionId,
+      editorDrafts: [],
+    },
+  }
+}
+
+const TRASH_FIXTURE_ROWS = Object.freeze(Array.from({ length: 14 }, (_, index) => trashFixtureRow(index + 1)))
+const trashSessions: SessionListState['byId'] = {}
+for (let index = 0; index < 3; index += 1) {
+  const id = `browser-trash-session-with-a-long-identifier-${index}` as SessionId
+  trashSessions[id] = {
+    id,
+    title: `Review ${index + 1}`,
+    displayTitle: `Review ${index + 1}`,
+    cwd: `/workspace/project-${index + 1}`,
+    running: false,
+    retainedBy: {},
+    blank: false,
+    updatedAt: 0,
+  }
+}
+const trashSessionCatalog: SessionListState = {
+  ids: [],
+  byId: trashSessions,
+  phase: 'ready',
+  projectionsBySession: {},
+}
+const TRASH_SOURCE_TEXT = Array.from(
+  { length: 48 },
+  (_, index) => `Source line ${index + 1}: retained snapshot content stays reachable in the detail pane.`,
+).join('\n')
+
+function TrashFixture() {
+  const [rows, setRows] = useState<readonly AnnotationTrashRow[]>(TRASH_FIXTURE_ROWS)
+  const view = useMemo<AnnotationTrashView>(() => ({ rows, error: null }), [rows])
+  const useAnnotationTrash = useCallback(
+    <Selected,>(selector: (state: AnnotationTrashView) => Selected): Selected => selector(view),
+    [view],
+  )
+  const useSourceSnapshots = useCallback(
+    <Selected,>(selector: (revision: number) => Selected): Selected => selector(0),
+    [],
+  )
+  const restoreTrashed = useCallback(async (_sessionId: SessionIdentity, ids: readonly AnnotationId[]) => {
+    setRows((current) => current.filter((row) => !ids.includes(row.entry.annotation.annotationId)))
+    return true
+  }, [])
+  const purgeTrashed = useCallback(async (selectedRows: readonly AnnotationTrashRow[]) => {
+    const removed = new Set(selectedRows.map((row) => row.entry.annotation.annotationId))
+    setRows((current) => current.filter((row) => !removed.has(row.entry.annotation.annotationId)))
+    return true
+  }, [])
+  const readSourceSnapshot = useCallback(
+    async (): Promise<SourceSnapshotView> => ({
+      state: 'complete',
+      content: { kind: 'file', mediaType: 'text/plain', text: TRASH_SOURCE_TEXT },
+    }),
+    [],
+  )
+  return (
+    <main className="browser-fixture browser-fixture--trash" data-testid="trash-fixture">
+      <style>{fixtureTokens + styles}</style>
+      <h1>Recycle-bin visual fixture</h1>
+      <AnnotationTrashPanel
+        useSessionCatalog={(selector) => selector(trashSessionCatalog)}
+        useAnnotationTrash={useAnnotationTrash}
+        useSourceSnapshots={useSourceSnapshots}
+        refreshTrash={() => undefined}
+        restoreTrashed={restoreTrashed}
+        purgeTrashed={purgeTrashed}
+        readSourceSnapshot={readSourceSnapshot}
+        t={t}
+      />
+    </main>
+  )
+}
+
 const parameters = new URLSearchParams(window.location.search)
 const scenario = parameters.get('scenario')
 if (scenario === 'interaction' && parameters.get('reset') === '1') {
@@ -1050,5 +1183,11 @@ if (scenario === 'interaction' && parameters.get('reset') === '1') {
 }
 const mode = scenario === 'reading' || scenario === 'blocked' ? scenario : 'legacy'
 createRoot(document.getElementById('root')!).render(
-  scenario === 'interaction' ? <InteractionFixture /> : <Fixture mode={mode} />,
+  scenario === 'interaction' ? (
+    <InteractionFixture />
+  ) : scenario === 'trash' ? (
+    <TrashFixture />
+  ) : (
+    <Fixture mode={mode} />
+  ),
 )

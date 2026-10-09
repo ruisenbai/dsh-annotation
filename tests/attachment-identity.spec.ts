@@ -14,6 +14,7 @@ import {
 import { ATTACHMENT_IDENTITY_MISMATCH, ATTACHMENT_PREPARE_INPUT } from '../src/shared/types.ts'
 import type { SessionIdentity } from '../src/shared/types.ts'
 import { fixturePayload, fixtureV1Payload } from './fixtures.ts'
+import { expectOutboxPayload } from './outbox-test-helpers.ts'
 
 const identities = [
   { type: 'image', attachmentId: 'sha256:image', bytes: 8, name: 'shot.png', mediaType: 'image/png' },
@@ -206,7 +207,7 @@ describe('immutable attachment identities', () => {
       attachments: { count: 2, kinds: ['image', 'file'], mediaTypes: ['image/png'], names: ['shot.png'] },
     }
     values.set(storage.key, JSON.stringify({ ...emptyPersistedState(), outbox: [entry] }))
-    expect(storage.load().outbox[0]?.payload.attachmentIdentities).toEqual(identities)
+    expect(expectOutboxPayload(storage.load().outbox[0]).payload.attachmentIdentities).toEqual(identities)
     for (const attachments of [
       undefined,
       { ...entry.attachments, kinds: ['file', 'image'] },

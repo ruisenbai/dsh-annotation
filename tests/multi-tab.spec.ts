@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { AnnotationStorage, emptyPersistedState } from '../src/client/storage.ts'
 import type { StorageCoordination } from '../src/client/storage.ts'
-import type { AnnotationDraft, MessageIdentity, SessionIdentity } from '../src/shared/types.ts'
+import type {
+  AnnotationDeletionId,
+  AnnotationDraft,
+  MessageIdentity,
+  SessionIdentity,
+} from '../src/shared/types.ts'
+import { toOutboxReceipt } from '../src/shared/outbox-redaction.ts'
 import { fixturePayload } from './fixtures.ts'
 
 class MemoryStorage {
@@ -238,6 +244,79 @@ describe('same-session browser pages', () => {
     expect(result?.payload).toEqual(payload)
     first.dispose()
     second.dispose()
+    seed.dispose()
+  })
+
+  it('keeps a terminal receipt over a stale payload update and removes content from journals', async () => {
+    const { open, memory } = environment()
+    const seed = open()
+    const sentinel = 'PURGED-MULTI-TAB-SENTINEL'
+    const basePayload = fixturePayload({ sessionId: 'multi-tab-session' as SessionIdentity })
+    const payload = {
+      ...basePayload,
+      overallRequirement: sentinel,
+      annotations: [
+        {
+          ...basePayload.annotations[0]!,
+          annotation: sentinel,
+        },
+      ],
+    }
+    const entry = {
+      payload,
+      targetSessionId: payload.sessionId,
+      messageId: 'dsh-inline-annotations:sub-test' as MessageIdentity,
+      status: 'sent' as const,
+      attempts: 1,
+    }
+    expect(seed.save({ ...emptyPersistedState(), outbox: [entry] })).toBe(true)
+    await seed.whenIdle()
+    const purging = open()
+    const stale = open()
+    const before = purging.load()
+    stale.load()
+
+    expect(
+      purging.save({
+        ...before,
+        deletionMarks: [
+          {
+            annotationId: payload.annotations[0]!.annotationId,
+            deletionId: 'delete-receipt' as AnnotationDeletionId,
+            revision: 1,
+            state: 'purged',
+            updatedAt: payload.createdAt,
+          },
+        ],
+        outbox: [toOutboxReceipt(entry)],
+      }),
+      purging.lastError() ?? 'receipt save failed',
+    ).toBe(true)
+    const receiptJournal = [...memory.values.entries()].find(([key]) => key.includes(':journal:'))?.[1]
+    expect(receiptJournal).toBeDefined()
+    expect(receiptJournal).not.toContain(sentinel)
+    expect(stale.save({ ...before, outbox: [{ ...entry, attempts: 2 }] })).toBe(true)
+    expect(
+      [...memory.values.entries()]
+        .filter(([key]) => key.includes(':journal:'))
+        .map(([, value]) => value)
+        .join('\n'),
+    ).not.toContain(sentinel)
+    await Promise.all([purging.whenIdle(), stale.whenIdle()])
+
+    expect(open().load().outbox).toEqual([
+      {
+        kind: 'receipt',
+        submissionId: payload.submissionId,
+        targetSessionId: payload.sessionId,
+        messageId: entry.messageId,
+        status: 'sent',
+        attempts: 2,
+      },
+    ])
+    expect([...memory.values.values()].join('\n')).not.toContain(sentinel)
+    purging.dispose()
+    stale.dispose()
     seed.dispose()
   })
 

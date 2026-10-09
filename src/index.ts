@@ -13,6 +13,8 @@ import {
   DEFAULT_ANNOTATION_COMPACT_SUMMARY,
   DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
   DEFAULT_ANNOTATION_ENABLED,
+  DEFAULT_OFFICIAL_FILE_ANNOTATIONS,
+  DEFAULT_OFFICIAL_DIFF_ANNOTATIONS,
   DEFAULT_TRANSCRIPT_VISIBILITY,
   type AnnotationSettings,
 } from './shared/settings.ts'
@@ -34,6 +36,8 @@ export const Config = Schema.object({
   locateHistoryPages: Schema.number().default(DEFAULT_CONFIG.locateHistoryPages),
   [ARCHIVED_PREFERENCES_IMPORTED_FIELD]: Schema.boolean().default(false).volatile(),
   enabled: Schema.boolean().default(DEFAULT_ANNOTATION_ENABLED).volatile(),
+  officialFileAnnotations: Schema.boolean().default(DEFAULT_OFFICIAL_FILE_ANNOTATIONS).volatile(),
+  officialDiffAnnotations: Schema.boolean().default(DEFAULT_OFFICIAL_DIFF_ANNOTATIONS).volatile(),
   autoAttach: Schema.boolean().default(DEFAULT_ANNOTATION_AUTO_ATTACH).volatile(),
   individualSelection: Schema.boolean().default(DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION).volatile(),
   compactSummary: Schema.boolean().default(DEFAULT_ANNOTATION_COMPACT_SUMMARY).volatile(),

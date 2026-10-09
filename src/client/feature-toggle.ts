@@ -7,6 +7,8 @@ import {
   DEFAULT_ANNOTATION_COMPACT_SUMMARY,
   DEFAULT_ANNOTATION_ENABLED,
   DEFAULT_ANNOTATION_INDIVIDUAL_SELECTION,
+  DEFAULT_OFFICIAL_DIFF_ANNOTATIONS,
+  DEFAULT_OFFICIAL_FILE_ANNOTATIONS,
   DEFAULT_TRANSCRIPT_VISIBILITY,
   LEGACY_ANNOTATION_ENABLED_STORAGE_KEY,
   TRANSCRIPT_VISIBILITY_KEYS,
@@ -19,12 +21,20 @@ import {
 export interface AnnotationSettingsCardState {
   /** Whether the Host serves this plugin's settings namespace. */
   readonly available: boolean
+  /** Whether file-preview annotation actions are enabled. */
+  readonly officialFileAnnotations: boolean
+  /** Whether official turn-Diff annotation actions are enabled. */
+  readonly officialDiffAnnotations: boolean
   /** Whether the active settings provider accepts writes. */
   readonly writable: boolean
   /** Enabled value shown by the staged switch. */
   readonly enabled: boolean
   /** Whether saving leaves a user-layer enabled value. */
   readonly overridden: boolean
+  /** Whether saving leaves a user-layer official file value. */
+  readonly officialFileAnnotationsOverridden: boolean
+  /** Whether saving leaves a user-layer official Diff value. */
+  readonly officialDiffAnnotationsOverridden: boolean
   /** Auto-attach value shown by the staged switch. */
   readonly autoAttach: boolean
   /** Whether saving leaves a user-layer auto-attach value. */
@@ -59,6 +69,14 @@ export interface AnnotationSettingsInjected {
   readonly setEnabled: (enabled: boolean) => void
   /** Stage removal of the user override. */
   readonly resetEnabled: () => void
+  /** Stage whether file-preview annotations are enabled. */
+  readonly setOfficialFileAnnotations: (enabled: boolean) => void
+  /** Stage removal of the user file-preview override. */
+  readonly resetOfficialFileAnnotations: () => void
+  /** Stage whether official turn-Diff annotations are enabled. */
+  readonly setOfficialDiffAnnotations: (enabled: boolean) => void
+  /** Stage removal of the user turn-Diff override. */
+  readonly resetOfficialDiffAnnotations: () => void
   /** Stage whether a new annotation is attached to the official composer automatically. */
   readonly setAutoAttach: (enabled: boolean) => void
   /** Stage removal of the user auto-attach override. */
@@ -113,6 +131,8 @@ function readLegacyEnabled(storage: LegacyEnabledStorage | undefined): boolean |
  */
 export class AnnotationSettingsController {
   private readonly featureEnabled = createSnapshotStore(DEFAULT_ANNOTATION_ENABLED)
+  private readonly officialFileAnnotationsEnabled = createSnapshotStore(DEFAULT_OFFICIAL_FILE_ANNOTATIONS)
+  private readonly officialDiffAnnotationsEnabled = createSnapshotStore(DEFAULT_OFFICIAL_DIFF_ANNOTATIONS)
   private readonly autoAttachEnabled = createSnapshotStore(DEFAULT_ANNOTATION_AUTO_ATTACH)
   private readonly individualSelectionEnabled = createSnapshotStore<boolean | null>(null)
   private readonly compactSummaryEnabled = createSnapshotStore(DEFAULT_ANNOTATION_COMPACT_SUMMARY)
@@ -120,6 +140,8 @@ export class AnnotationSettingsController {
     DEFAULT_TRANSCRIPT_VISIBILITY,
   )
   private stagedEnabled: StagedBoolean | undefined
+  private stagedOfficialFileAnnotations: StagedBoolean | undefined
+  private stagedOfficialDiffAnnotations: StagedBoolean | undefined
   private stagedAutoAttach: StagedBoolean | undefined
   private stagedIndividualSelection: StagedBoolean | undefined
   private stagedCompactSummary: StagedBoolean | undefined
@@ -152,6 +174,16 @@ export class AnnotationSettingsController {
   /** @returns the enabled source used to install or remove conversation integrations. */
   feature(): SnapshotStore<boolean> {
     return this.featureEnabled
+  }
+
+  /** @returns whether file-preview annotation actions are enabled. */
+  officialFileAnnotations(): SnapshotStore<boolean> {
+    return this.officialFileAnnotationsEnabled
+  }
+
+  /** @returns whether official turn-Diff annotation actions are enabled. */
+  officialDiffAnnotations(): SnapshotStore<boolean> {
+    return this.officialDiffAnnotationsEnabled
   }
 
   /** @returns whether a newly saved annotation should arm the official composer. */
@@ -190,6 +222,38 @@ export class AnnotationSettingsController {
           this.storedEnabled() === undefined
             ? undefined
             : { kind: 'clear', value: DEFAULT_ANNOTATION_ENABLED }
+        this.failed = false
+        this.publishCard()
+      },
+      setOfficialFileAnnotations: (enabled) => {
+        if (this.disposed) return
+        this.stagedOfficialFileAnnotations =
+          enabled === this.effectiveOfficialFileAnnotations() ? undefined : { kind: 'set', value: enabled }
+        this.failed = false
+        this.publishCard()
+      },
+      resetOfficialFileAnnotations: () => {
+        if (this.disposed) return
+        this.stagedOfficialFileAnnotations =
+          this.storedOfficialFileAnnotations() === undefined
+            ? undefined
+            : { kind: 'clear', value: DEFAULT_OFFICIAL_FILE_ANNOTATIONS }
+        this.failed = false
+        this.publishCard()
+      },
+      setOfficialDiffAnnotations: (enabled) => {
+        if (this.disposed) return
+        this.stagedOfficialDiffAnnotations =
+          enabled === this.effectiveOfficialDiffAnnotations() ? undefined : { kind: 'set', value: enabled }
+        this.failed = false
+        this.publishCard()
+      },
+      resetOfficialDiffAnnotations: () => {
+        if (this.disposed) return
+        this.stagedOfficialDiffAnnotations =
+          this.storedOfficialDiffAnnotations() === undefined
+            ? undefined
+            : { kind: 'clear', value: DEFAULT_OFFICIAL_DIFF_ANNOTATIONS }
         this.failed = false
         this.publishCard()
       },
@@ -271,6 +335,8 @@ export class AnnotationSettingsController {
         if (
           this.disposed ||
           (this.stagedEnabled === undefined &&
+            this.stagedOfficialFileAnnotations === undefined &&
+            this.stagedOfficialDiffAnnotations === undefined &&
             this.stagedAutoAttach === undefined &&
             this.stagedIndividualSelection === undefined &&
             this.stagedCompactSummary === undefined &&
@@ -280,6 +346,8 @@ export class AnnotationSettingsController {
           return
         }
         this.stagedEnabled = undefined
+        this.stagedOfficialFileAnnotations = undefined
+        this.stagedOfficialDiffAnnotations = undefined
         this.stagedAutoAttach = undefined
         this.stagedIndividualSelection = undefined
         this.stagedCompactSummary = undefined
@@ -311,6 +379,20 @@ export class AnnotationSettingsController {
     return snapshot.status === 'ready' && typeof snapshot.value?.enabled === 'boolean'
       ? snapshot.value.enabled
       : DEFAULT_ANNOTATION_ENABLED
+  }
+
+  private effectiveOfficialFileAnnotations(): boolean {
+    const snapshot = this.scope.getSnapshot()
+    return snapshot.status === 'ready' && typeof snapshot.value?.officialFileAnnotations === 'boolean'
+      ? snapshot.value.officialFileAnnotations
+      : DEFAULT_OFFICIAL_FILE_ANNOTATIONS
+  }
+
+  private effectiveOfficialDiffAnnotations(): boolean {
+    const snapshot = this.scope.getSnapshot()
+    return snapshot.status === 'ready' && typeof snapshot.value?.officialDiffAnnotations === 'boolean'
+      ? snapshot.value.officialDiffAnnotations
+      : DEFAULT_OFFICIAL_DIFF_ANNOTATIONS
   }
 
   private effectiveAutoAttach(): boolean {
@@ -360,6 +442,14 @@ export class AnnotationSettingsController {
     return userBoolean(this.scope.getSnapshot().user, 'enabled')
   }
 
+  private storedOfficialFileAnnotations(): boolean | undefined {
+    return userBoolean(this.scope.getSnapshot().user, 'officialFileAnnotations')
+  }
+
+  private storedOfficialDiffAnnotations(): boolean | undefined {
+    return userBoolean(this.scope.getSnapshot().user, 'officialDiffAnnotations')
+  }
+
   private storedAutoAttach(): boolean | undefined {
     return userBoolean(this.scope.getSnapshot().user, 'autoAttach')
   }
@@ -386,6 +476,18 @@ export class AnnotationSettingsController {
       enabled: this.stagedEnabled?.value ?? this.effectiveEnabled(),
       overridden:
         this.stagedEnabled?.kind === 'set' || (this.stagedEnabled === undefined && stored !== undefined),
+      officialFileAnnotations:
+        this.stagedOfficialFileAnnotations?.value ?? this.effectiveOfficialFileAnnotations(),
+      officialFileAnnotationsOverridden:
+        this.stagedOfficialFileAnnotations?.kind === 'set' ||
+        (this.stagedOfficialFileAnnotations === undefined &&
+          this.storedOfficialFileAnnotations() !== undefined),
+      officialDiffAnnotations:
+        this.stagedOfficialDiffAnnotations?.value ?? this.effectiveOfficialDiffAnnotations(),
+      officialDiffAnnotationsOverridden:
+        this.stagedOfficialDiffAnnotations?.kind === 'set' ||
+        (this.stagedOfficialDiffAnnotations === undefined &&
+          this.storedOfficialDiffAnnotations() !== undefined),
       autoAttach: this.stagedAutoAttach?.value ?? this.effectiveAutoAttach(),
       autoAttachOverridden:
         this.stagedAutoAttach?.kind === 'set' ||
@@ -405,6 +507,8 @@ export class AnnotationSettingsController {
       transcriptVisibilityOverridden,
       dirty:
         this.stagedEnabled !== undefined ||
+        this.stagedOfficialFileAnnotations !== undefined ||
+        this.stagedOfficialDiffAnnotations !== undefined ||
         this.stagedAutoAttach !== undefined ||
         this.stagedIndividualSelection !== undefined ||
         this.stagedCompactSummary !== undefined ||
@@ -418,6 +522,8 @@ export class AnnotationSettingsController {
     if (this.disposed) return
     this.syncLegacyPreference()
     this.featureEnabled.set(this.effectiveEnabled())
+    this.officialFileAnnotationsEnabled.set(this.effectiveOfficialFileAnnotations())
+    this.officialDiffAnnotationsEnabled.set(this.effectiveOfficialDiffAnnotations())
     this.autoAttachEnabled.set(this.effectiveAutoAttach())
     const individualSelection = this.effectiveIndividualSelection()
     if (individualSelection !== this.individualSelectionEnabled.getSnapshot()) {
@@ -486,12 +592,16 @@ export class AnnotationSettingsController {
 
   private async save(): Promise<void> {
     const stagedEnabled = this.stagedEnabled
+    const stagedOfficialFileAnnotations = this.stagedOfficialFileAnnotations
+    const stagedOfficialDiffAnnotations = this.stagedOfficialDiffAnnotations
     const stagedAutoAttach = this.stagedAutoAttach
     const stagedIndividualSelection = this.stagedIndividualSelection
     const stagedCompactSummary = this.stagedCompactSummary
     const stagedTranscriptVisibility = { ...this.stagedTranscriptVisibility }
     if (
       (stagedEnabled === undefined &&
+        stagedOfficialFileAnnotations === undefined &&
+        stagedOfficialDiffAnnotations === undefined &&
         stagedAutoAttach === undefined &&
         stagedIndividualSelection === undefined &&
         stagedCompactSummary === undefined &&
@@ -507,6 +617,18 @@ export class AnnotationSettingsController {
       stagedEnabled === undefined
         ? true
         : await this.persistBoolean('enabled', stagedEnabled, () => this.storedEnabled())
+    const officialFileAnnotationsLanded =
+      stagedOfficialFileAnnotations === undefined
+        ? true
+        : await this.persistBoolean('officialFileAnnotations', stagedOfficialFileAnnotations, () =>
+            this.storedOfficialFileAnnotations(),
+          )
+    const officialDiffAnnotationsLanded =
+      stagedOfficialDiffAnnotations === undefined
+        ? true
+        : await this.persistBoolean('officialDiffAnnotations', stagedOfficialDiffAnnotations, () =>
+            this.storedOfficialDiffAnnotations(),
+          )
     const autoAttachLanded =
       stagedAutoAttach === undefined
         ? true
@@ -531,6 +653,18 @@ export class AnnotationSettingsController {
     }
     if (this.disposed) return
     if (enabledLanded && this.stagedEnabled === stagedEnabled) this.stagedEnabled = undefined
+    if (
+      officialFileAnnotationsLanded &&
+      this.stagedOfficialFileAnnotations === stagedOfficialFileAnnotations
+    ) {
+      this.stagedOfficialFileAnnotations = undefined
+    }
+    if (
+      officialDiffAnnotationsLanded &&
+      this.stagedOfficialDiffAnnotations === stagedOfficialDiffAnnotations
+    ) {
+      this.stagedOfficialDiffAnnotations = undefined
+    }
     if (autoAttachLanded && this.stagedAutoAttach === stagedAutoAttach) this.stagedAutoAttach = undefined
     if (individualSelectionLanded && this.stagedIndividualSelection === stagedIndividualSelection) {
       this.stagedIndividualSelection = undefined
@@ -549,6 +683,8 @@ export class AnnotationSettingsController {
     this.saving = false
     this.failed =
       !enabledLanded ||
+      !officialFileAnnotationsLanded ||
+      !officialDiffAnnotationsLanded ||
       !autoAttachLanded ||
       !individualSelectionLanded ||
       !compactSummaryLanded ||

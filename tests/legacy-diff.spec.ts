@@ -14,7 +14,7 @@ import type {
   AnnotationDraft,
   AnnotationId,
   MessageIdentity,
-  OutboxEntry,
+  OutboxPayloadEntry,
   PersistedEditorDraft,
   PersistedSessionState,
   SessionIdentity,
@@ -74,7 +74,7 @@ function saveMessage(controller: AnnotationController) {
   return controller.saveEditor()
 }
 
-function oldBatch(status: 'ready' | 'failed'): OutboxEntry {
+function oldBatch(status: 'ready' | 'failed'): OutboxPayloadEntry {
   const payload = legacyDiffPayload()
   return {
     payload,

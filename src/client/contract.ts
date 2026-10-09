@@ -11,6 +11,8 @@ export interface AnnotationInjected {
   }
   /** 注解界面的翻译函数，避免覆盖原消息渲染器自己的 t。 */
   readonly annotationT: PropsLocale<'dshAnnotation'>['t']
+  /** Bind the mounted composer to the root notice host for this Session. */
+  readonly bindNoticeHost: (anchor: HTMLElement | null) => () => void
   readonly beginSelection: (capture: SelectionCapture) => void
   readonly chooseOverlap: (annotationId?: AnnotationId) => void
   readonly dismissOverlap: () => void
@@ -19,6 +21,10 @@ export interface AnnotationInjected {
   readonly discardEditorDraft: (key: string) => void
   /** Explicit selection arms the composer even when automatic attachment is disabled. */
   readonly toggleSelected: (annotationId: AnnotationId) => void
+  /** Cancel only the captured batch of composer attachments. */
+  readonly detachAnnotations: (annotationIds: readonly AnnotationId[]) => void
+  /** Move saved annotations into the durable recycle bin before removing them. */
+  readonly trashAnnotations: (annotationIds: readonly AnnotationId[]) => void
   readonly setProcessingMode: (mode: ProcessingMode) => void
   readonly selectRetry: (submissionId: SubmissionId) => void
   readonly openAnnotation: (annotationId: AnnotationId, presentation?: AnnotationPresentation) => void

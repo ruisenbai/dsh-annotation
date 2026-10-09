@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { TextDecoder } from 'node:util'
+import { isLegacyDiffSource } from '../shared/annotation-source.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandDefinition, CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import type { FileBlock, ImageBlock } from '@deepseek-ai/dsh-llm'
@@ -115,8 +116,8 @@ export function submitAnnotationPayload(
   ) {
     throw new Error(ATTACHMENT_IDENTITY_MISMATCH)
   }
-  if (payload.annotations.some((item) => item.source?.kind === 'diff'))
-    throw new Error('Diff annotations are read-only')
+  if (payload.annotations.some((item) => isLegacyDiffSource(item)))
+    throw new Error('Historical Git Diff annotations are read-only')
   const messageId = submissionMessageId(payload.submissionId)
   if (hasMessage(agent, messageId)) return Object.freeze({ duplicate: true, messageId })
   const message = createAnnotationMessage(payload, attachments)

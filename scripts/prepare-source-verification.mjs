@@ -29,7 +29,9 @@ if (capture('git', ['rev-parse', 'HEAD'], harness) !== baseline.commit) {
 if (capture('git', ['status', '--porcelain', '--untracked-files=no'], harness) !== '') {
   throw new Error('Harness tracked files must be clean before source verification')
 }
-if (manifest.engines.dsh !== baseline.version) throw new Error('Source baseline differs from engines.dsh')
+if (manifest.engines.dsh !== `>=${baseline.version}`) {
+  throw new Error('Source baseline differs from the minimum engines.dsh version')
+}
 
 const overrides = {}
 const sourceVersions = {}

@@ -1,80 +1,192 @@
-# DSH 注解
+---
+kind: package-bundle
+description: Annotate assistant replies, official files and turn Diffs, then send selected notes through the DSH Web composer.
+---
 
-[English](README.en.md)
+# DSH Annotation
 
-在 DeepSeek Harness Web 的助手回复中选中原文，写下注解，并随下一条消息一起发送。注解记录属于当前会话；已发送的注解可以重新附加，不会生成重复记录或气泡。
+English | [中文](README.zh.md)
 
-**适用宿主：DeepSeek Harness `0.1.7-rc.2`。** 插件通过官方输入框发送文字、图片、文件和注解，不修改宿主源码。
+## Summary
 
-## 使用流程
+Select a passage in an assistant reply, official file preview, or turn Diff, save a note, and attach it to your next message. Numbered bubbles take you back to the source; a per-Session record keeps drafts, sent notes, and their attachment state together. The plugin sends notes with the official composer's text, images, and files. Install it into the Web profile you use; unsent work stays in the current browser.
 
-### 1. 选中原文
+**Version 1.1.1 requires DSH `>=0.2.1-alpha.1`; verification targets `0.2.1-alpha.1`.** See [upgrading](#upgrading) before updating an older Host.
 
-在一条助手回复中选中文字，点击 **添加注解**。重叠选区也可以直接创建独立注解。数字气泡贴在选区末字附近，随正文滚动；平时不为原文添加常驻背景或下划线，悬浮或点击气泡时才高亮。
+## Contents
 
-![在助手回复中选择原文并添加注解](docs/assets/annotation-selection.png)
+- [Install and upgrade](#installation)
+- [Supported sources](#sources)
+- [Create and edit notes](#editing)
+- [Records and attachments](#records)
+- [Send, resend, and retry](#sending)
+- [Delete and recover](#recovery)
+- [Settings](#settings)
+- [Data and limitations](#limitations)
+- [Model experience](#model-experience)
+- [Developer reference](#development)
 
-### 2. 保存注解
+<a id="installation"></a>
 
-输入条显示在选区下方。按 Enter 或点击对号保存，Shift+Enter 换行；内容可留空，只标记原文。输入区从一行自动增高，最多显示七行，更多内容在内部滚动。点击数字气泡可用同样的界面查看或编辑。
+## Install and upgrade
 
-![在选区旁输入注解](docs/assets/annotation-editor.png)
+The package is distributed through [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.1), not npm. In **dsh-market**, find `ruisenbai/dsh-annotation` under Sessions & Messages, then install or update it. The catalog uses the release's stable tarball alias; check the offered version and Host requirement before proceeding.
 
-![通过数字气泡查看和编辑注解](docs/assets/annotation-bubble.png)
+### Manual installation
 
-### 3. 查看记录并附加
-
-新注解默认附加到下一条消息，不会自动展开记录框。输入框左上角显示附加数量；悬浮可预览原文和注解，点击可展开或折叠记录。模型选择按钮左侧的注解按钮也可控制记录框。记录中的回形针控制本次附加，地图定位图标跳转原文；空注解内容保持空白。
-
-![注解记录和输入框中的附加提示](docs/assets/annotation-record.png)
-
-### 4. 发送和再次发送
-
-通过官方输入框发送后，用户消息正文上方显示注释数量。单条注释可悬浮预览、双击定位；多条注释可点击展开或折叠，并逐条定位原文。记录框在全部注解都已发送时自动隐藏。已发送注解仍可用回形针重新附加，注解 ID 与原文气泡保持不变。
-
-![已发送消息上方的注释信息](docs/assets/annotation-sent.png)
-
-![将已发送注解重新附加到输入框](docs/assets/annotation-reattach.png)
-
-### 5. 设置
-
-在 **设置 → 注解** 中启用或停用插件，并设置保存新注解后是否自动附加。关闭自动附加后，仍可在记录中手动点击回形针。设置页还会在 dsh-market 提供公开更新接口时显示插件更新操作。停用插件会移除界面和输入框附着，本地注解数据仍会保留。
-
-![DSH 设置中的注解选项](docs/assets/annotation-settings.png)
-
-## 安装与兼容
-
-发行包只在 [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.0) 发布，不发布到 npm。以下命令将固定版本 `1.1.0` 安装到 DSH Web 的 `web` profile；目标宿主必须是 `>= 0.2.0-rc.1`。
-
-### 手动安装
+Install the fixed release into your `web` profile:
 
 ```bash
 dsh --version
-dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.0/dsh-annotation.tgz
+dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.1/dsh-annotation.tgz
 dsh plugin --profile web why dsh-annotation
 ```
 
-第一条命令应显示不低于 `0.2.0-rc.1` 的 DSH 版本，最后一条应显示 `dsh-annotation@1.1.0`。使用自定义 profile 时，将两处 `web` 换成实际名称。安装后重启该 profile 的 Web 宿主，在 **设置 → 注解** 中确认插件可用。构建与本地验证步骤见[开发说明](docs/development.md#install-and-verify)；精确依赖和已执行的验证见[兼容性说明](docs/compatibility.md)。
+The Host must satisfy `>=0.2.1-alpha.1`; the final command must resolve `dsh-annotation@1.1.1`. For a custom profile, replace both occurrences of `web` with its name. Restart that profile's running Web Host, refresh the page, and check **Settings → Annotations**. Build-from-source instructions and executed verification results are in [Development](docs/development.md) and [Compatibility](docs/compatibility.md).
 
-### 交给 AI agent 安装
+### Install with an AI agent
 
-将下面的提示词交给能够操作本机终端的 AI agent：
+Give an agent with terminal access this prompt:
 
 ```text
-请在本机为我的 DeepSeek Harness Web profile 安装 dsh-annotation 1.1.0。先确认目标 profile 名称；如果没有自定义名称，就使用 web。运行 dsh --version，只有结果不低于 0.2.0-rc.1 才继续；版本过低时停止并报告，不修改宿主依赖。
-使用 dsh plugin --profile <实际 profile 名称> add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.0/dsh-annotation.tgz 安装，然后运行 dsh plugin --profile <实际 profile 名称> why dsh-annotation，确认显示 dsh-annotation@1.1.0。
-不要修改 DSH 或插件源码，也不要清理会话和浏览器数据。如果 Web 宿主正在运行，提醒我重启该 profile。最后报告实际执行的命令、版本、安装结果和任何警告。
+Install dsh-annotation 1.1.1 into my DeepSeek Harness Web profile. Confirm the profile name; use web if I have no custom profile. Run dsh --version and require >=0.2.1-alpha.1 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.1/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.1. Do not change Host dependencies, source files, Sessions, or browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
 ```
 
-新对话没有注解时，不显示记录框或空状态文案。插件仅提供注解相关功能，不隐藏思考、工具调用或其他会话内容。代码 Diff 批注的新增与编辑功能已移除；旧 Diff 批注及快照仍可在历史消息中只读查看。
+<a id="upgrading"></a>
 
-未发送注解、暂存编辑和重试记录保存在当前浏览器。多标签页使用独立待归并记录和浏览器锁保护写入；遇到损坏或未来版本的存储时，保留原数据并提示，不以空状态覆盖。发送时固定本批注解和附件身份，失败重试沿用同一载荷；历史协议和已发送消息不会被迁移时改写。详见[数据模型](docs/data-model.md)与[隐私说明](docs/privacy.md)。
+### Upgrading from 1.1.0
 
-## 限制
+Update the Host to `0.2.1-alpha.1` before installing 1.1.1. Keep plugin 1.1.0 while using a `0.2.0` Host. Drafts, source bubbles, recycle-bin records, and frozen retries retain their existing data formats; do not clear browser storage as an upgrade step. The [upgrade guide](docs/upgrade-guide/v1.1.0/host-baseline/guide.md) ([中文](docs/upgrade-guide/v1.1.0/host-baseline/guide.zh.md)) gives the version checks.
 
-- 未发送草稿不会跨浏览器同步；已发送记录可从会话历史恢复。
-- 选区不能跨助手消息。Markdown、代码和表格内的定位依赖宿主当前正文 DOM。
-- 没有 CSS Custom Highlight API 时，数字气泡和定位原文仍可使用。
-- 模型返回有效的注解确认标记后，记录才会显示为已处理。
+<a id="sources"></a>
 
-[贡献指南](CONTRIBUTING.md) · [更新记录](CHANGELOG.md) · [许可证](LICENSE)
+## Supported sources
+
+Use the official preview or sidebar for the source you want to review:
+
+| Source                                                        | How to annotate                                                                                     | Navigation                                                  |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Assistant reply                                               | Select text within one reply and choose **Add annotation**                                          | Bubble or record-row pin returns to the saved passage       |
+| Official text, code, or Markdown file preview                 | Select a range or choose **Annotate this source** for the whole file                                | Opens the official preview and locates the saved range      |
+| Official HTML, image, PDF, Office, Excel, CSV, or TSV preview | Use the whole-file action; rendered text selection is available only in text/code/Markdown previews | Retains the official resource identity and preview revision |
+| Official turn Diff                                            | Open the Diff sidebar from the turn's changed-file card; select a range or annotate the whole file  | Opens the same official Diff review and saved annotation    |
+| Historical Git Diff                                           | Read existing records and saved context                                                             | Read-only; no new annotation, editing, attachment, or retry |
+
+Whole-file notes require written feedback. Official Diff hover previews have no creation entry; use the sidebar. Source filters appear when the Session contains at least two types. File and Diff notes retain source identity, range coordinates, and quote context; temporary loading or navigation failures keep the saved record available.
+
+<a id="editing"></a>
+
+## Create and edit notes
+
+1. Select source text and choose **Add annotation**. Overlapping selections create separate notes.
+2. Type in the editor below the selection. Enter or the check button saves; Shift+Enter adds a line break. Chinese input composition does not trigger an early save. The input grows from one to seven lines, then scrolls internally.
+3. Explicitly save an empty selection note to mark only the source. For a blank new editor, the first two outside clicks shake it; the third cancels it. Typing in the composer also cancels a blank new editor. Canceling creates no record, bubble, attachment, or trash item. A nonempty new note saves on the third outside click.
+4. Click a numbered bubble to open its note. Drafts can be edited; sent notes show their saved text and can be attached again. Canceling an edit keeps the saved note. A suspended unfinished edit is not sent.
+
+The bubble follows the last selected character and scrolls with its source. Its blue surface has a white outline and number: translucent and frosted at rest or on hover, opaque while its note or group menu is open, and frosted again after closing. Browsers without backdrop blur use an opaque fill. Nearby bubbles can share a group menu. Source text has no permanent fill or underline; hovering or activating the bubble highlights the quote.
+
+![Select source text](docs/assets/annotation-selection.png)
+
+![Write an annotation](docs/assets/annotation-editor.png)
+
+![Open a numbered bubble](docs/assets/annotation-bubble.png)
+
+<a id="records"></a>
+
+## Records and attachments
+
+New notes attach to the next message by default without opening the record. The composer's upper-left chip shows the attached count. Hover to preview quotes and opinions; click to expand or fold the record. The annotation button left of the model selector also opens or closes it. A conversation without annotations shows no empty record.
+
+Each record row offers a paperclip to attach or detach, a pin to locate its source, editing for drafts, and deletion when the record is not locked by sending. Hover its text to inspect the quote, source type, creation entry, and saved context. The chip also provides batch detachment and deletion controls on hover or keyboard focus. Detachment keeps the note; deletion moves it to the recycle bin.
+
+The list orders records in three groups:
+
+1. Attached notes and unfinished sends, including queued and retryable batches.
+2. Other unsent drafts.
+3. Sent history and legacy read-only records.
+
+Each group is newest-created first. Editing leaves creation order unchanged; reattaching a sent note moves it into the first group while retaining its sent status. The **All / Body / Diff / File** filters use the same ordering. Reordering preserves keyboard focus and, where space permits, the scrolled reading position. Display order does not renumber source bubbles, change submission order, or alter frozen retry contents.
+
+![Annotation record and composer chip](docs/assets/annotation-record.png)
+
+<a id="sending"></a>
+
+## Send, resend, and retry
+
+Use the official composer to send attached notes with optional text, images, and files. Regular slash commands keep their own behavior. The sent user message shows an annotation count above its body: hover a single note to preview it and double-click to locate its source, or expand a multi-note count to inspect and locate individual notes. The record closes when all annotations are sent and none remains attached.
+
+Use a sent note's paperclip to attach it again. Its annotation ID and source bubble stay the same; it remains marked as sent even while selected for another message. A draft, a queued send, a durable sent message, and a model acknowledgement are separate states; only a valid model acknowledgement marks a record as processed.
+
+After a failed send, submit through the composer again to retry the saved batch, or choose **Discard** in the record to abandon that retry. A retry keeps the original notes, overall requirement, locale, target Session, and attachment order. After a refresh, reselect the same attachments if requested; the plugin refuses changed attachment identities. New edits and selections do not silently replace the saved batch. Queued or already accepted submissions are not sent again by stale retry actions.
+
+![Annotations above a sent message](docs/assets/annotation-sent.png)
+
+![Attach a sent note again](docs/assets/annotation-reattach.png)
+
+<a id="recovery"></a>
+
+## Delete and recover
+
+Delete one record or the chip's attached batch to move the notes into the browser-local recycle bin. A successful deletion offers Undo. Sending or retry-locked notes must be released from that operation before deletion; the UI explains the lock. Deleting a sent record never edits the original Session message.
+
+Open **Settings → Annotations → Recycle bin** to filter by Session and source type, inspect saved quotes and opinions, and restore records. Session labels use project and title metadata when available. Available source snapshots can be previewed, and saved files can be downloaded; a fragment-only notice appears when the complete source was not captured. Permanent deletion and clearing the bin require confirmation. They remove local recycle-bin content, not sent Session messages.
+
+<a id="settings"></a>
+
+## Settings
+
+**Settings → Annotations** provides four switches, all enabled by default:
+
+| Setting                              | Effect                                                                       |
+| ------------------------------------ | ---------------------------------------------------------------------------- |
+| Enable annotations                   | Shows annotation UI and composer integration; disabling preserves local data |
+| File-preview annotations             | Enables creation from official file previews                                 |
+| Official turn-Diff annotations       | Enables creation from the official Diff sidebar                              |
+| Attach new annotations automatically | Attaches a saved new note to the next message; otherwise use its paperclip   |
+
+Changes are staged until **Save**. **Discard** drops unsaved settings, and **Reset** restores the inherited/default value for an overridden field. Disabling a source entry preserves its existing records. Historical compact-summary and transcript-hiding settings have no active controls or effects.
+
+When dsh-market provides its public update API, the same card can check and install this plugin's update and show progress. Force is offered only after an eligible release-policy failure; rollback, page refresh, and Host restart depend on the capabilities returned by Market. Without that API, use **Settings → Plugin Market**. Annotation content is not included in update requests.
+
+![Annotation settings](docs/assets/annotation-settings.png)
+
+<a id="limitations"></a>
+
+## Data and limitations
+
+- Unsent drafts, suspended edits, retries, recycle-bin entries, and source snapshots stay in the current browser. They do not synchronize across browsers; clearing site data can remove them. Sent annotation records can be restored from Session history.
+- Multiple tabs coordinate local writes and preserve conflicting edits. Corrupt or future-version data is retained with an error instead of being replaced by an empty state.
+- A selection cannot cross assistant messages. Markdown, code, and table navigation depend on the Host's rendered content and available history. The plugin does not hide reasoning, tools, or other conversation content.
+- Whole-file annotations require an opinion. Large selections ask for confirmation. The default submission limits are 100 annotations and 512 KiB of encoded payload; a profile can configure them.
+- Archived Sessions have no active composer; create and attach notes in an editable Session.
+- Historical Git Diff records remain read-only. Existing submitted protocols and Session messages are not rewritten during browser-data migration.
+- DSH Web in Chromium is the tested browser target. Other browsers, operating systems, future Host releases, and optional third-party plugin combinations need their own verification.
+
+See [Privacy](docs/privacy.md) for local data and network requests, and [Data model](docs/data-model.md) for persistence and retry rules.
+
+<a id="model-experience"></a>
+
+## Model experience
+
+The composer sends the selected annotations as one user message, with each quote, opinion, source identity, and any overall request. The current UI asks for ordered answers to the notes. A source-only mark has no written opinion. Full local source snapshots are not automatically added to the model request.
+
+Replies carry hidden annotation association and completion markers so the plugin can link answers to their sources and recognize processed notes. The displayed text hides those markers while the Session log retains them. Missing or invalid acknowledgements leave the record unprocessed; a successful transport alone is not a model acknowledgement.
+
+<a id="development"></a>
+
+## Developer reference
+
+<details>
+<summary>Configuration and implementation</summary>
+
+The [bundle patch](cordis.patch.yml) inserts one `dsh-annotation` entry for the Host command and Web Client. Its profile configuration controls `commandName`, `maxPayloadBytes`, `maxAnnotationsPerSubmission`, `warnSelectionChars`, and `locateHistoryPages`; the four user switches are edited through Host Settings. [Architecture](docs/architecture.md) owns the integration and configuration reference.
+
+[Development](docs/development.md) covers builds, package verification, real Web profile checks, and record-performance measurements. [Compatibility](docs/compatibility.md) records the exact Host baseline and executed evidence. [Releasing](RELEASING.md) covers GitHub assets and catalog updates.
+
+</details>
+
+[Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [License](LICENSE)
+
+### Dev Note
+
+None.

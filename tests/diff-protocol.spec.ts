@@ -115,7 +115,7 @@ it('migrates local state under the same storage key without changing legacy fail
     attempts: 1,
   }
   memory.set(storage.key, JSON.stringify({ ...emptyPersistedState(), storageVersion: 2, outbox: [outbox] }))
-  expect(storage.load()).toMatchObject({ storageVersion: 3, outbox: [outbox] })
-  expect(JSON.parse(memory.get(storage.key)!).storageVersion).toBe(3)
+  expect(storage.load()).toMatchObject({ storageVersion: 6, outbox: [outbox] })
+  expect(JSON.parse(memory.get(storage.key)!).storageVersion).toBe(6)
   expect(JSON.parse(memory.get(storage.key)!).outbox[0].payload).toEqual(old)
 })

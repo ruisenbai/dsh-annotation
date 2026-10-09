@@ -11,6 +11,7 @@ import { decorateAssistantRenderers } from '../src/client/assistant-renderer-dec
 import type { AnnotationInjected, AssistantAnnotationProps } from '../src/client/contract.ts'
 import type { AnnotationView } from '../src/client/controller.ts'
 import { parseModelAcknowledgements, parseReplyMarkers } from '../src/shared/model-ack.ts'
+import type { AnnotationDraft, AnnotationId, MessageIdentity, SubmissionId } from '../src/shared/types.ts'
 
 const decorators: Array<() => void> = []
 
@@ -30,6 +31,7 @@ function mount(
   status: 'settled' | 'running' | 'interrupted' = 'settled',
   options: {
     blocks?: readonly AssistantBlock[]
+    annotations?: readonly AnnotationDraft[]
   } = {},
 ) {
   const received = vi.fn()
@@ -91,7 +93,7 @@ function mount(
   }
   const snapshot = { nodes: { get: () => node } } as unknown as ChatSnapshot
   const view = {
-    annotations: [],
+    annotations: options.annotations ?? [],
     outbox: [],
     activeAnnotationId: null,
     markerAnnotationId: null,
@@ -133,6 +135,31 @@ function mount(
 }
 
 describe('decorated assistant protocol presentation', () => {
+  it.each(['settled', 'running'] as const)(
+    'renders a known reply label as actual strong text in %s Markdown',
+    (status) => {
+      const annotation: AnnotationDraft = {
+        annotationId: 'ann-y' as AnnotationId,
+        submissionId: 'sub-x' as SubmissionId,
+        messageId: 'source-1' as MessageIdentity,
+        responseVersion: 'source-1' as MessageIdentity,
+        messageSeq: 1,
+        quote: { exact: 'original', prefix: '', suffix: '', start: 0, end: 8 },
+        annotation: 'Explain this',
+        ordinal: 1,
+        kind: 'note',
+        status: 'sent',
+        createdAt: 1,
+        updatedAt: 1,
+      }
+      const text =
+        '<!-- dsh-annotation-reply:{"submissionId":"sub-x","annotationId":"ann-y","ordinal":1} -->\n注解 1：说明'
+      const { container, node } = mount(text, status, { annotations: [annotation] })
+      expect(container.querySelector('strong')).toHaveTextContent('注解 1')
+      expect(container.querySelector('strong')?.nextSibling?.textContent).toBe('：说明')
+      expect(node.data.blocks).toEqual([{ kind: 'text', text }])
+    },
+  )
   it.each(['settled', 'running'] as const)(
     'hides protocol comments through the selected %s Markdown renderer while retaining raw receipts',
     (status) => {

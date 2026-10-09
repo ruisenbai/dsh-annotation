@@ -1,4 +1,5 @@
 import { stripMachineMarkers } from '../shared/model-ack.ts'
+import type { FileAnnotationSource, OfficialDiffAnnotationSource } from '../shared/annotation-source.ts'
 import type {
   AnnotationSelectionCapture,
   MessageIdentity,
@@ -31,7 +32,12 @@ function acceptedTextNode(node: Node, root: HTMLElement): node is Text {
   const text = node as Text
   const parent = text.parentElement
   if (parent === null || !root.contains(parent)) return false
-  if (text.data.trim() === '' && parent === root) return false
+  if (
+    text.data.trim() === '' &&
+    parent === root &&
+    !(root.matches('code') && root.closest('[data-code-preview]') !== null)
+  )
+    return false
   if (
     parent.closest(
       'script, style, [aria-hidden="true"], [aria-live], [role="status"], [data-variant="think"], [data-dsh-annotation-ignore="true"]',
@@ -226,6 +232,38 @@ export function captureSelection(
   })
 }
 
+/** Capture a visible Range whose identity belongs to an official file or turn-Diff snapshot. */
+export function captureOfficialSelection(
+  root: HTMLElement,
+  range: Range,
+  source: FileAnnotationSource | OfficialDiffAnnotationSource,
+): SelectionCapture {
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) {
+    throw new Error('selection must stay inside one official preview')
+  }
+  if (range.toString().trim().length === 0) throw new Error('selection must contain text')
+  const index = buildTextIndex(root)
+  const start = boundaryOffset(index.nodes, range.startContainer, range.startOffset)
+  const end = boundaryOffset(index.nodes, range.endContainer, range.endOffset)
+  if (start === null || end === null || end <= start)
+    throw new Error('selection boundaries are not addressable')
+  const exact = index.rendered.slice(start, end)
+  const rect = range.getBoundingClientRect()
+  const structure = structuredSelection(range)
+  return Object.freeze({
+    source,
+    quote: Object.freeze({
+      exact,
+      prefix: index.rendered.slice(Math.max(0, start - 32), start),
+      suffix: index.rendered.slice(end, end + 32),
+      start,
+      end,
+    }),
+    ...(structure === undefined ? {} : { structure }),
+    rect: Object.freeze({ top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right }),
+  })
+}
+
 function resolveSelectorOffsets(
   rendered: string,
   selector: TextQuoteSelector,
@@ -289,6 +327,28 @@ export function rangeFromSelector(
     : textIndex === undefined
       ? null
       : rangeFromSelector(root, selector)
+}
+
+/** Resolve a quote only when its saved offset or its surrounding context selects one occurrence. */
+export function uniqueRangeFromSelector(root: HTMLElement, selector: TextQuoteSelector): Range | null {
+  const rendered = buildTextIndex(root).rendered
+  const contextMatches = (start: number): boolean => {
+    const end = start + selector.exact.length
+    return (
+      rendered.slice(Math.max(0, start - selector.prefix.length), start) === selector.prefix &&
+      rendered.slice(end, end + selector.suffix.length) === selector.suffix
+    )
+  }
+  if (rendered.slice(selector.start, selector.end) === selector.exact && contextMatches(selector.start))
+    return rangeFromSelector(root, selector)
+  const candidates: number[] = []
+  for (let at = rendered.indexOf(selector.exact); at >= 0; at = rendered.indexOf(selector.exact, at + 1)) {
+    if (contextMatches(at)) candidates.push(at)
+    if (candidates.length > 1) return null
+  }
+  if (candidates.length !== 1) return null
+  const start = candidates[0]!
+  return rangeFromSelector(root, { ...selector, start, end: start + selector.exact.length })
 }
 
 export function textOffsetAtPoint(root: HTMLElement, x: number, y: number): number | null {
