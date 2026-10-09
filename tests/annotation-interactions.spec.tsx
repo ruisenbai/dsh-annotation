@@ -449,6 +449,29 @@ describe('annotation record and composer interactions', () => {
     h.controller.dispose()
   })
 
+  it.each(['pointer', 'focus'] as const)(
+    'closes the %s preview when the last note is detached before reattachment',
+    (trigger) => {
+      const h = harness()
+      onTestFinished(() => h.controller.dispose())
+      const id = h.save(0, 'Reattach this note.')
+      render(<AnnotationComposerChip {...h.props} />)
+      const chip = screen.getByRole('button', { name: /Open annotation records/ })
+      if (trigger === 'pointer') fireEvent.pointerEnter(chip.closest('.dia-composer-chip')!)
+      else fireEvent.focus(chip)
+      expect(screen.getByRole('tooltip')).toHaveTextContent('Reattach this note.')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Remove annotations from this message' }))
+      expect(screen.queryByRole('button', { name: /Open annotation records/ })).toBeNull()
+      act(() => h.controller.toggleSelected(id))
+      expect(screen.getByRole('button', { name: /Open annotation records/ })).toBeInTheDocument()
+      expect(screen.queryByRole('tooltip')).toBeNull()
+
+      fireEvent.pointerEnter(screen.getByRole('button', { name: /Open annotation records/ }).parentElement!)
+      expect(screen.getByRole('tooltip')).toHaveTextContent('Reattach this note.')
+    },
+  )
+
   it.each(['', ' \n\t ', 'typed then erased'])(
     'cancels an empty new annotation after three outside clicks: %s',
     (value) => {

@@ -528,6 +528,8 @@ async function inspectVariant(browser, base, variant) {
     )
     await toggle.click()
     for (let index = 0; index < 3; index += 1) {
+      await page.mouse.move(0, 0)
+      await chip.locator('.dia-composer-chip__preview').waitFor({ state: 'hidden' })
       await page
         .locator('.dia-record')
         .getByRole('button', { name: 'Send with message', exact: true })

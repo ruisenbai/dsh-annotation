@@ -134,7 +134,7 @@ function AttachmentPreview({ items, t }: { items: readonly AnnotationDraft[]; t:
   )
 }
 
-/** Count inside the Host composer; click opens the expanded record. */
+/** Count inside the Host composer; click opens the record, and an empty selection closes its preview. */
 export function AnnotationComposerChip({
   useAnnotations,
   setPanelOpen,
@@ -146,6 +146,10 @@ export function AnnotationComposerChip({
   const view = useAnnotations((state) => state)
   const [preview, setPreview] = useState(false)
   const items = selectedAnnotations(view)
+  const hasItems = items.length > 0
+  useEffect(() => {
+    if (!hasItems) setPreview(false)
+  }, [hasItems])
   const busy =
     items.some((item) => item.status === 'queued') ||
     view.outbox.some(
@@ -157,7 +161,7 @@ export function AnnotationComposerChip({
           items.some((selected) => selected.annotationId === item.annotationId),
         ),
     )
-  if (items.length === 0) return null
+  if (!hasItems) return null
   return (
     <div
       className="dia-composer-chip"

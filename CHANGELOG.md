@@ -16,6 +16,10 @@ Target host: DeepSeek Harness `0.2.1-alpha.1`, official source baseline `dsh-v0.
 - Use blue numbered bubbles with a white outline, a frosted translucent idle/hover surface, and an opaque surface while the annotation or group menu is open.
 - Complete both README guides with source support, editor behavior, record ordering, attachment controls, retries, recovery, settings, installation, and upgrade instructions.
 
+### Fixed
+
+- Clear a removed composer chip's open preview before notes are attached again, preventing a stale tooltip from covering record controls on narrow screens.
+
 ## [1.1.0] - 2026-09-30
 
 Target host: DeepSeek Harness `0.2.0-rc.1`, official source baseline `dsh-v0.2.0-rc.1`.
