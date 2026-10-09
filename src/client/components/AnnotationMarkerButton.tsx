@@ -9,7 +9,10 @@ function previewText(value: string): string {
   return compact.length > 120 ? `${compact.slice(0, 120)}…` : compact
 }
 
-/** Numbered marker shared by assistant replies and mounted official resources. */
+/**
+ * Numbered marker shared by assistant replies and mounted official resources.
+ * Active annotations and expanded groups use an opaque surface; hover alone retains the frosted fill.
+ */
 export function AnnotationMarkerButton({
   group,
   annotations,

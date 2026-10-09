@@ -2,23 +2,23 @@
 
 ## Host requirement
 
-This working tree uses `0.2.0-rc.1` as its verification baseline and supports Host `>=0.2.0-rc.1`. The published `1.0.0` archive predates this adaptation; a new archive must be built from this tree before installation on this Host.
+Version 1.1.1 uses DSH `0.2.1-alpha.1` as its verification baseline and declares Host `>=0.2.1-alpha.1`. Install the 1.1.1 GitHub Release archive on that Host. Users remaining on the `0.2.0` Host family must keep plugin 1.1.0; see the [upgrade guide](upgrade-guide/v1.1.0/host-baseline/guide.md).
 
 | Component                | Supported baseline                                                                  |
 | ------------------------ | ----------------------------------------------------------------------------------- |
-| DeepSeek Harness host    | `>=0.2.0-rc.1`                                                                      |
-| `engines.dsh`            | `>=0.2.0-rc.1`                                                                      |
-| Development declarations | `0.2.0-rc.1`                                                                        |
-| Cordis                   | `^4.0.4`                                                                            |
+| DeepSeek Harness host    | `>=0.2.1-alpha.1`                                                                   |
+| `engines.dsh`            | `>=0.2.1-alpha.1`                                                                   |
+| Development declarations | `0.2.1-alpha.1`                                                                     |
+| Cordis                   | `~4.0.5-alpha.1`                                                                    |
 | Node.js                  | `^22.19.0` or `>=24`                                                                |
 | React                    | `^18.2.0`                                                                           |
 | Browser                  | Current Chromium-based DSH Web target; other modern browsers retain marker fallback |
 
-The checkout manifest declares `engines.dsh: ">=0.2.0-rc.1"`, and its `@deepseek-ai/dsh-*` peers, development dependencies, lockfile, and CI checkout use that release. The strict-peer development environment includes `@deepseek-ai/dsh-llm-deepseek`, required by the official provider packages. Host source and frozen Session recordings are unchanged. New annotation submissions use protocol v5 and browser storage uses v6; protocol v1–v4 and storage v1–v5 remain readable compatibility generations.
+The checkout manifest declares `engines.dsh: ">=0.2.1-alpha.1"`, and its `@deepseek-ai/dsh-*` peers, development dependencies, lockfile, and CI checkout use that release. The strict-peer development environment includes `@deepseek-ai/dsh-llm-deepseek`, required by the official provider packages. Host source and frozen Session recordings are unchanged. New annotation submissions use protocol v5 and browser storage uses v6; protocol v1–v4 and storage v1–v5 remain readable compatibility generations.
 
 ## Dependency source
 
-Every DSH dependency used for verification must identify the same `0.2.0-rc.1` source generation. [source-baseline.json](../source-baseline.json) pins official tag `dsh-v0.2.0-rc.1` at commit `4878cdabd87d4041bdaff61d04c966883b9fd07a`. The npm family is available and the registry lockfile targets it; verify the complete peer closure with `pnpm install --frozen-lockfile --strict-peer-dependencies`. A matching version string or a regenerated lockfile is not a behavior-test result.
+Every DSH dependency used for verification must identify the same `0.2.1-alpha.1` source generation. [source-baseline.json](../source-baseline.json) pins official tag `dsh-v0.2.1-alpha.1` at commit `5badb15009ae1756c3afe0ae0cef1faafc290ccc`. The npm family is available and the registry lockfile targets it; verify the complete peer closure with `pnpm install --frozen-lockfile --strict-peer-dependencies`. A matching version string or a regenerated lockfile is not a behavior-test result.
 
 For an unpublished family, use verifiable official source or official artifacts in a disposable directory. Confirm the repository, source commit or artifact URL, package names, and package versions before deriving integrity values. Include the DSH and vendored Cordis package families and the Landlock entry package, and enforce strict peers in the temporary install. Machine-local `file:` URLs, workspace links, and generated overlay lockfiles must never enter the released plugin manifest or checked-in lockfile. Record the actual source and commands in the release verification evidence; an old lockfile or a successful build against a different host does not verify this baseline.
 
@@ -26,35 +26,35 @@ The source verification helper provides independent source checks: it checks the
 
 ## Verification
 
-On 2026-09-29, the repaired plugin passed these checks on Linux with Node.js `26.10.0` and the `0.2.0-rc.1` Host family. The full unit/component run passed 565 tests in 38 files. The Chromium fixture passed its wide/light and narrow/dark layouts, including blank editor cancellation. The full isolated Web profile smoke passed its official Host and model-adapter paths, including sidebar Diff selection and Locate, final-line Markdown selection, a 390px editor, distinct file bubbles, scroll and refresh recovery, blank cancellation, and Session-log/model-input equality:
+Release verification targets the published `0.2.1-alpha.1` DSH packages with Cordis `4.0.5-alpha.1`, the group plugin `1.0.5-alpha.1`, and Schemastery `3.18.5-alpha.1`. The removed `@deepseek-ai/dsh-invariants` package is not a development dependency. The plugin's existing no-op `./invariant` export remains available for callers and requires no Host registry.
+
+The registry lockfile and CI source pin identify the same official generation. [Development](development.md) describes the build, strict-peer install, unit/coverage, browser, installed-profile, and archive checks. On 2026-10-09, Linux with Node.js `26.11.1` passed typechecking, lint, formatting, a frozen strict-peer install, the plugin build, and bundle verification. The unit/component coverage run passed **634 tests in 44 files**, with 89.25% line, 93.55% function, 81.07% branch, and 85.64% statement coverage in the configured coverage scope. The wide/light and narrow/dark Chromium fixture passed record ordering, focus/scroll preservation, frost/opaque bubble states, attachment, resend, and recycle-bin interactions.
+
+The complete isolated Web profile passed Settings persistence and archive recovery, frozen Session replay, source selection and ordering, file and official Diff creation/Locate, composer text and image submission, sent-note reattachment, and retry identity. It compares the submitted message with the durable Session log and the deterministic model adapter's input. Seven Chinese Web screenshots were captured from that same Host baseline. The fixture uses the Host's current **显示代码工作视图** setting when opening official Diff views.
+
+Executed commands:
 
 ```bash
+pnpm install --frozen-lockfile --strict-peer-dependencies
 ./node_modules/.bin/tsc -p tsconfig.json --noEmit
 ./node_modules/.bin/oxlint --deny-warnings src tests scripts
 ./node_modules/.bin/prettier --check .
-./node_modules/.bin/vitest run
+./node_modules/.bin/vitest run --coverage
 node scripts/clean.mjs
 ./node_modules/.bin/tsc -p tsconfig.build.json
 ./node_modules/.bin/tsdown
 node scripts/verify-bundle.mjs
-node scripts/browser-test.mjs wide-light
-node scripts/browser-test.mjs narrow-dark
-node scripts/profile-smoke.mjs --official-only
-node scripts/profile-smoke.mjs
-npm pack --ignore-scripts --cache /tmp/dsh-annotation-pack-cache --pack-destination artifacts
-./node_modules/.bin/publint run artifacts/dsh-annotation-1.1.0.tgz --level error
-cd .. && node --import tsx/esm scripts/verify-translation-pairing.ts dsh-annotation/README.md
+node scripts/browser-test.mjs
+DSH_RELEASE_SCREENSHOTS=1 node scripts/profile-smoke.mjs
 ```
 
-The unit/component suite covers Composer attachment, compact official file/Diff validation, delayed selection, multiline columns, transient Locate failure, bounded large-file hashing, empty files, storage v6 migration, batch deletion undo, and source snapshot capture after a quick save. The isolated profile links the built plugin into a temporary `web` profile and uses a deterministic model adapter. The local archive was then installed into the existing CLI `web` profile; `dsh plugin --profile web why dsh-annotation` resolved one `dsh-annotation@1.1.0`, the installed `lib/client.js` SHA-256 matched the built bundle, and the installed Web Settings page showed enabled annotation, file, Diff, automatic attachment, and recycle-bin controls. A real provider run requires a configured API key.
-
-The official `dsh-client-ui-primitives` npm bundle references a missing source map; Vitest reported that warning while tests passed. `publint` passed on the built tarball. The existing CLI profile reported an unrelated `dsh-smooth-stream` import failure during Web startup; annotation settings still loaded. The first offline installation attempt lacked cached `micromark-util-edit-map` metadata; the normal local-archive install succeeded with a peer-dependency warning. Windows, macOS, the Node 22/24 CI matrix, independent source-build CI, and a live-provider check require separate verification.
+The published Host primitives package references a missing `index.js.map`; Vitest reported that source-map warning while all tests passed. Browser and profile checks used isolated local state and a deterministic model adapter, not a live provider. macOS, Windows, other browsers, the Node 22/24 matrix, and independent source-build verification remain separate CI/manual evidence.
 
 ## Marketplace placement
 
 The catalog submission uses **Sessions & Messages** (`session`). The plugin annotates assistant messages, persists drafts per Session, submits one user message through the official composer, and reconciles queue and durable message state; visual decoration supports that message workflow rather than acting as a theme or general appearance extension.
 
-The repository-owned `screenshots.json` lists seven screenshots from an earlier Chinese Web profile. The published GitHub Release alias still serves the earlier archive; this checkout needs a locally built archive until a new release is published.
+The repository-owned `screenshots.json` lists seven screenshots from the Chinese Web profile. The catalog uses `https://github.com/ruisenbai/dsh-annotation/releases/latest/download/dsh-annotation.tgz`; every release publishes that stable filename together with its versioned archive.
 
 ## Marketplace update API
 
@@ -127,7 +127,7 @@ The internal command is registered through the public command registry. DSH curr
 
 ## Historical Diff compatibility and persistence acknowledgement
 
-DSH `0.2.0-rc.1` writes Session format v4. Plugin protocol v5 and browser storage v6 are independent version domains. The profile smoke restores frozen Session v3 recordings through the official migration catalog, compares them with adjacent v4 fixtures, and verifies that reading preserves the migrated events. Existing v3 fixture generations remain unchanged.
+DSH `0.2.1-alpha.1` writes Session format v4. Plugin protocol v5 and browser storage v6 are independent version domains. The profile smoke restores frozen Session v3 recordings through the official migration catalog, compares them with adjacent v4 fixtures, and verifies that reading preserves the migrated events. Existing v3 fixture generations remain unchanged.
 
 The current plugin emits v5 annotations from message, official file, and official turn-Diff sources. Protocol v1/v2 messages, code-block selections, tables, old source namespaces, acknowledgement/reply markers, and failed message-source retries remain readable. Historical protocol v3 Git Diff sources and complete snapshots in standard `user/message` metadata remain parseable and visible as read-only history. Browser-local official source drafts, suspended editors, and failed batches are preserved without automatic migration, retry, or deletion. Historical Git Diff remains excluded from new submission admission.
 

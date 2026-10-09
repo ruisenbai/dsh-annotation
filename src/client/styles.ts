@@ -279,18 +279,22 @@ export const styles: string = `
 }
 
 .dia-marker {
+  --dia-marker-color: color-mix(in srgb, var(--dia-accent) 45%, var(--dsw-alias-tooltip-bg));
+  --dia-marker-fill: var(--dia-marker-color);
   position: absolute;
   display: grid;
   width: 24px;
   height: 24px;
   place-items: center;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
+  border: 1px solid var(--dia-accent-text);
+  border-radius: 50% 50% 50% 4px;
+  corner-shape: round;
+  background: var(--dia-marker-fill);
+  color: var(--dia-accent-text);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--dsw-alias-tooltip-bg) 16%, transparent);
   padding: 0;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
   pointer-events: auto;
   font-weight: 500;
   isolation: isolate;
@@ -298,14 +302,19 @@ export const styles: string = `
   font-variant-numeric: tabular-nums;
 }
 
-.dia-marker::before {
-  position: absolute;
-  inset: 3px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 5px;
-  background: transparent;
-  content: '';
-  z-index: 0;
+/* Keep white numbers readable against the blue fill in both themes. */
+@supports (color: oklch(from red l c h)) {
+  .dia-marker {
+    --dia-marker-color: oklch(from var(--dia-accent) 48% c h);
+  }
+}
+
+@supports (backdrop-filter: blur(6px)) or (-webkit-backdrop-filter: blur(6px)) {
+  .dia-marker {
+    --dia-marker-fill: color-mix(in srgb, var(--dia-marker-color) 86%, transparent);
+    -webkit-backdrop-filter: blur(6px) saturate(140%);
+    backdrop-filter: blur(6px) saturate(140%);
+  }
 }
 
 .dia-marker > span {
@@ -313,17 +322,11 @@ export const styles: string = `
   z-index: 1;
 }
 
-.dia-marker:hover,
-.dia-marker:focus-visible,
-.dia-marker[data-active='true'] {
-  color: var(--dia-accent);
-}
-
-.dia-marker:hover::before,
-.dia-marker:focus-visible::before,
-.dia-marker[data-active='true']::before {
-  border-color: var(--dia-accent);
-  background: color-mix(in srgb, var(--dia-accent) 8%, transparent);
+.dia-marker[data-active='true'],
+.dia-marker[aria-expanded='true'] {
+  --dia-marker-fill: var(--dia-marker-color);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .dia-marker:focus-visible {
@@ -2664,41 +2667,6 @@ body[data-ds-dark-theme] .dia-record-editor {
 @keyframes dia-record-shake {
   20%, 60% { translate: -5px 0; }
   40%, 80% { translate: 5px 0; }
-}
-
-.dia-marker {
-  border: 2px solid var(--dsw-alias-bg-base);
-  border-radius: 50%;
-  corner-shape: round;
-  background: var(--dsw-alias-state-business-primary);
-  box-shadow: 0 2px 5px rgb(0 0 0 / .18);
-  color: white;
-  font-weight: 600;
-  overflow: visible;
-}
-
-.dia-marker::before {
-  inset: auto auto -4px 2px;
-  width: 9px;
-  height: 9px;
-  border: 0;
-  border-radius: 0;
-  background: var(--dsw-alias-state-business-primary);
-  clip-path: polygon(0 0, 100% 0, 0 100%);
-  transform: rotate(-7deg);
-}
-
-.dia-marker:hover,
-.dia-marker:focus-visible,
-.dia-marker[data-active='true'] {
-  color: white;
-}
-
-.dia-marker:hover::before,
-.dia-marker:focus-visible::before,
-.dia-marker[data-active='true']::before {
-  border: 0;
-  background: var(--dsw-alias-state-business-primary);
 }
 
 .dia-selection-bar__action {

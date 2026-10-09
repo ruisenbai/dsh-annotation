@@ -3,11 +3,15 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
 import { createServer } from 'vite'
+import { assertMarkerMaterial, captureMarker } from './marker-material.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const artifacts = join(root, 'artifacts', 'browser')
-const selectedCase = process.argv.slice(2).find((argument) => argument !== '--blank-only')
+const selectedCase = process.argv
+  .slice(2)
+  .find((argument) => !['--blank-only', '--record-order-only'].includes(argument))
 const blankOnly = process.argv.includes('--blank-only')
+const recordOrderOnly = process.argv.includes('--record-order-only')
 const variants = [
   { name: 'wide-light', width: 1280, height: 850, dark: false },
   { name: 'narrow-dark', width: 390, height: 850, dark: true },
@@ -363,9 +367,18 @@ async function inspectVariant(browser, base, variant) {
       `The bubble must follow the selected word, not the message edge: ${JSON.stringify({ markerRect, lastCharacter })}`,
     )
     assert(markerRect.y < lastCharacter.top, 'The bubble must sit above the selected character')
+    const markerIdle = await assertMarkerMaterial(marker, false)
+    await marker.focus()
+    await assertMarkerMaterial(marker, false)
+    await marker.hover()
+    const markerHover = await assertMarkerMaterial(marker, false)
+    assert(markerIdle.alpha === markerHover.alpha, 'Hover must retain the frosted fill')
+    await captureMarker(page, marker, join(artifacts, `marker-hover-${variant.name}.png`))
     await marker.click()
     const card = page.locator('.dia-record-editor--detail')
     await card.waitFor()
+    await assertMarkerMaterial(marker, true)
+    await captureMarker(page, marker, join(artifacts, `marker-open-${variant.name}.png`))
     const editInput = card.locator('textarea')
     const editShort = await editInput.evaluate((element) => ({
       height: element.getBoundingClientRect().height,
@@ -434,6 +447,7 @@ async function inspectVariant(browser, base, variant) {
       'Edit card action labels must stay on one line',
     )
     await card.getByRole('button', { name: 'Cancel' }).click()
+    await assertMarkerMaterial(marker, false)
     await page.getByTestId('seed-three').click()
     await page.locator('main[data-annotation-count="3"]').waitFor()
     assert((await page.locator('.dia-record').count()) === 0, 'Saving must leave the record closed')
@@ -514,7 +528,11 @@ async function inspectVariant(browser, base, variant) {
     )
     await toggle.click()
     for (let index = 0; index < 3; index += 1) {
-      await page.locator('.dia-record-row').nth(index).locator('.dia-record-action').first().click()
+      await page
+        .locator('.dia-record')
+        .getByRole('button', { name: 'Send with message', exact: true })
+        .first()
+        .click()
     }
     await chip.hover()
     const trash = chip.getByRole('button', { name: 'Move attached annotations to the recycle bin' })
@@ -610,7 +628,7 @@ async function inspectVariant(browser, base, variant) {
       (await record.locator('.dia-record__heading-action').getAttribute('aria-expanded')) === 'true',
       'Clicking the record header text must expand the record',
     )
-    const firstRow = record.locator('.dia-record-row').first()
+    const firstRow = record.locator('.dia-record-row').filter({ hasText: 'First saved note' })
     const firstGlyph = firstRow.locator('.dia-record-row__glyph [data-state]')
     assert(
       (await firstGlyph.getAttribute('data-state')) === 'warning',
@@ -724,7 +742,7 @@ async function inspectVariant(browser, base, variant) {
     )
     await toggle.click()
     await record.waitFor()
-    await record.locator('.dia-record-row').first().locator('.dia-record-action').first().click()
+    await firstRow.locator('.dia-record-action').first().click()
     assert(
       (await page.locator('main').getAttribute('data-annotation-count')) === '3',
       'Reattaching a sent note must reuse its record',
@@ -757,6 +775,104 @@ async function inspectVariant(browser, base, variant) {
     console.log(`PASS ${variant.name}: record, composer chip, paperclip, send, and same-ID resend`)
   } catch (error) {
     await page.screenshot({ path: join(artifacts, `record-${variant.name}-failure.png`), fullPage: true })
+    throw error
+  } finally {
+    await context.close()
+  }
+}
+
+async function inspectRecordOrder(browser, base, variant) {
+  const context = await browser.newContext({
+    viewport: { width: variant.width, height: variant.height },
+    colorScheme: variant.dark ? 'dark' : 'light',
+  })
+  const page = await context.newPage()
+  const errors = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  try {
+    await page.goto(`${base}/?scenario=interaction&reset=1`, { waitUntil: 'networkidle' })
+    const save = async (note) => {
+      await page.getByTestId('begin-quick-editor').evaluate((button) => button.click())
+      const editor = page.locator('.dia-record-editor--quick')
+      await editor.locator('textarea').fill(note)
+      await editor.getByRole('button', { name: 'Save', exact: true }).click()
+      await editor.waitFor({ state: 'hidden' })
+    }
+    const names = Array.from({ length: 24 }, (_, index) => `Record ${String(index).padStart(2, '0')}`)
+    for (const name of names) await save(name)
+    await page.getByRole('button', { name: 'Show annotation records', exact: true }).click()
+    const list = page.locator('.dia-record__list')
+    const row = (name) => list.getByRole('listitem').filter({ has: page.getByText(name, { exact: true }) })
+    const order = () => list.locator('.dia-record-row__preview-anchor').allTextContents()
+    assert(
+      JSON.stringify(await order()) === JSON.stringify([...names].reverse()),
+      'Newest records must appear first',
+    )
+    for (const name of names.slice(0, 8))
+      await row(name).getByRole('button', { name: 'Remove from message' }).click()
+    const target = row('Record 14')
+    await list.scrollIntoViewIfNeeded()
+    await target.evaluate((element) => {
+      const list = element.parentElement
+      list.scrollTop += element.getBoundingClientRect().top - list.getBoundingClientRect().top - 36
+    })
+    const button = target.getByRole('button', { name: 'Remove from message' })
+    await button.focus()
+    const offset = () =>
+      target.evaluate(
+        (element) => element.getBoundingClientRect().top - element.parentElement.getBoundingClientRect().top,
+      )
+    const before = await offset()
+    await button.click()
+    assert(Math.abs((await offset()) - before) <= 1, 'Detaching a row must retain its visible offset')
+    assert(
+      await target
+        .getByRole('button', { name: 'Send with message' })
+        .evaluate((element) => element === document.activeElement),
+      'Reordering must retain keyboard focus',
+    )
+    await target.getByRole('button', { name: 'Send with message' }).click()
+    assert(Math.abs((await offset()) - before) <= 1, 'Reattaching a row must retain its visible offset')
+    await page.screenshot({ path: join(artifacts, `record-order-${variant.name}.png`), fullPage: false })
+    const anchor = await list.evaluate((element) => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+      const bounds = element.getBoundingClientRect()
+      const first = Array.from(element.children).find(
+        (child) => child.getBoundingClientRect().bottom > bounds.top,
+      )
+      return { id: first.dataset.annotationId, offset: first.getBoundingClientRect().top - bounds.top }
+    })
+    await save('Newest while reading')
+    const preservedOffset = await list.evaluate((element, id) => {
+      const row = Array.from(element.children).find((child) => child.dataset.annotationId === id)
+      return row.getBoundingClientRect().top - element.getBoundingClientRect().top
+    }, anchor.id)
+    assert(
+      Math.abs(preservedOffset - anchor.offset) <= 1,
+      'Adding a note while scrolled must preserve the reading anchor',
+    )
+    await list.evaluate((element) => {
+      element.scrollTop = 0
+    })
+    await save('Newest at top')
+    assert((await order())[0] === 'Newest at top', 'The newest note must lead the attached group')
+    assert(
+      await list.evaluate((element) => element.scrollTop === 0),
+      'Readers at the top must see the newly added record',
+    )
+    const beforeReload = await order()
+    await page.reload({ waitUntil: 'networkidle' })
+    await page.getByRole('button', { name: 'Show annotation records', exact: true }).click()
+    assert(JSON.stringify(await order()) === JSON.stringify(beforeReload), 'Reload must retain record order')
+    assert(errors.length === 0, `Record ordering browser errors: ${errors.join('\n')}`)
+    console.log(
+      `PASS record-order-${variant.name}: newest first, attachment priority, focus, scroll anchors, and reload`,
+    )
+  } catch (error) {
+    await page.screenshot({
+      path: join(artifacts, `record-order-${variant.name}-failure.png`),
+      fullPage: false,
+    })
     throw error
   } finally {
     await context.close()
@@ -947,9 +1063,11 @@ try {
     throw new Error('Vite did not expose a TCP address')
   browser = await chromium.launch({ headless: true })
   const base = `http://127.0.0.1:${address.port}`
-  for (const variant of variants.filter((item) => selectedCase === undefined || item.name === selectedCase))
-    await inspectVariant(browser, base, variant)
-  if (selectedCase === undefined) await inspectTrash(browser, base)
+  for (const variant of variants.filter((item) => selectedCase === undefined || item.name === selectedCase)) {
+    if (!recordOrderOnly) await inspectVariant(browser, base, variant)
+    if (!blankOnly) await inspectRecordOrder(browser, base, variant)
+  }
+  if (selectedCase === undefined && !recordOrderOnly) await inspectTrash(browser, base)
   await writeFile(join(artifacts, 'browser-geometry.json'), `${JSON.stringify(geometryReport, null, 2)}\n`)
 } finally {
   await browser?.close()

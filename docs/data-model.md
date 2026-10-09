@@ -162,7 +162,7 @@ The Client rereads submission and acknowledgement history when the Chat snapshot
 
 ## Host preference recovery
 
-DSH `0.2.0-rc.1` stores editable preferences in the `dsh-annotation` profile entry. `archivedPreferencesImported` is a volatile Config boolean, defaulting to `false`, outside browser annotation storage and submission protocols. A successful archive recovery writes supported missing preference fields and this marker in one revision-fenced mutation. Existing user overrides win; after completion, clearing a field inherits its profile/default value rather than restoring the archive. Protocol v5, storage v6 and frozen outbox entries retain their separate versions; the private Diff signing service is no longer installed.
+DSH `0.2.1-alpha.1` stores editable preferences in the `dsh-annotation` profile entry. `archivedPreferencesImported` is a volatile Config boolean, defaulting to `false`, outside browser annotation storage and submission protocols. A successful archive recovery writes supported missing preference fields and this marker in one revision-fenced mutation. Existing user overrides win; after completion, clearing a field inherits its profile/default value rather than restoring the archive. Protocol v5, storage v6 and frozen outbox entries retain their separate versions; the private Diff signing service is no longer installed.
 
 ## Annotation state transitions
 

@@ -15,9 +15,21 @@ import {
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import {
+  PureComponent,
+  createRef,
+  memo,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react'
 import { createPortal } from 'react-dom'
-import type { AnnotationDraft } from '../../shared/types.ts'
+import type { AnnotationDraft, AnnotationId } from '../../shared/types.ts'
 import { sourceType } from '../../shared/annotation-source.ts'
 import { isOutboxPayloadEntry } from '../../shared/outbox-redaction.ts'
 import { composerInput, createComposerFocus } from '../composer-focus.ts'
@@ -25,10 +37,15 @@ import type { AnnotationBoundProps, InputAnnotationProps } from '../contract.ts'
 import { editorBufferKey, retryEntry, selectedAnnotations, type AnnotationView } from '../controller.ts'
 import { markerElement, selectionAnchor, useAnnotationFloating } from '../floating.ts'
 import { MapPin } from '../icons.ts'
+import { orderedRecords } from '../record-order.ts'
 import { displayAnnotationQuote } from './AnnotationSourceLabel.tsx'
 import { AnnotationDetails } from './AnnotationDetails.tsx'
 
 type AnnotationActions = Omit<AnnotationBoundProps, 'useAnnotations' | 'useCompactSummary' | 'saveEditor'>
+type RecordActions = Pick<
+  AnnotationActions,
+  'toggleSelected' | 'navigate' | 'openAnnotation' | 'trashAnnotations'
+>
 type ControlProps = AnnotationBoundProps & PropsLocale<'dshAnnotation'>
 
 function IconAction({
@@ -64,17 +81,17 @@ function IconAction({
   )
 }
 
-function recordStatus(item: AnnotationDraft, view: AnnotationView): 'pending' | 'sent' | 'off' {
+function recordStatus(item: AnnotationDraft, selected: boolean): 'pending' | 'sent' | 'off' {
   if (item.status === 'sent' || item.status === 'processed') return 'sent'
   if (item.source?.kind === 'diff') return 'off'
-  if (view.selectedAnnotationIds.includes(item.annotationId) || item.status === 'queued') return 'pending'
+  if (selected || item.status === 'queued') return 'pending'
   return 'off'
 }
 
-function recordSummary(view: AnnotationView, t: InputAnnotationProps['t']): string {
-  const pending = view.annotations.filter((item) => recordStatus(item, view) === 'pending').length
-  const sent = view.annotations.filter((item) => recordStatus(item, view) === 'sent').length
-  const off = view.annotations.filter((item) => recordStatus(item, view) === 'off').length
+function recordSummary(
+  { pending, sent, off }: Record<ReturnType<typeof recordStatus>, number>,
+  t: InputAnnotationProps['t'],
+): string {
   return [
     sent > 0 ? t('record.sentCount', { count: sent }) : '',
     pending > 0 ? t('record.pendingCount', { count: pending }) : '',
@@ -597,22 +614,23 @@ function SentAnnotationCard({
   )
 }
 
-function RecordRow({
+const RecordRow = memo(function RecordRow({
   item,
-  view,
+  selected,
+  editorOpen,
   t,
   actions,
   submitting,
 }: {
   item: AnnotationDraft
-  view: AnnotationView
+  selected: boolean
+  editorOpen: boolean
   t: InputAnnotationProps['t']
-  actions: AnnotationActions
+  actions: RecordActions
   submitting: boolean
 }) {
   const legacyDiff = item.source?.kind === 'diff'
-  const state = recordStatus(item, view)
-  const selected = view.selectedAnnotationIds.includes(item.annotationId) || item.status === 'queued'
+  const state = recordStatus(item, selected)
   const attachLabel = selected
     ? t('record.detach')
     : item.status === 'sent' || item.status === 'processed'
@@ -622,6 +640,7 @@ function RecordRow({
     <div
       className="dia-record-row"
       role="listitem"
+      data-annotation-id={item.annotationId}
       aria-label={`${item.ordinal} · ${item.annotation} · ${t(`record.${state}`)}`}
     >
       <span className="dia-record-row__glyph" aria-hidden="true">
@@ -630,7 +649,7 @@ function RecordRow({
       <span className="dia-record-row__text">
         <HoverCard
           inline
-          disabled={view.editor !== null}
+          disabled={editorOpen}
           anchor={
             <span
               tabIndex={0}
@@ -682,9 +701,109 @@ function RecordRow({
       </div>
     </div>
   )
+})
+
+interface RecordListProps {
+  readonly id: string
+  readonly scope: string
+  readonly items: readonly AnnotationDraft[]
+  readonly selectedIds: ReadonlySet<AnnotationId>
+  readonly editorOpen: boolean
+  readonly t: InputAnnotationProps['t']
+  readonly actions: RecordActions
+  readonly submitting: boolean
 }
 
-/** The record grows below its header and occupies normal layout above the composer. */
+interface RecordListSnapshot {
+  readonly row: HTMLElement
+  readonly offset: number
+  readonly focus: HTMLElement | null
+}
+
+/** Capture row geometry before React moves keyed children so reordering preserves the reading position. */
+class RecordList extends PureComponent<RecordListProps, Record<string, never>, RecordListSnapshot | null> {
+  private readonly list = createRef<HTMLDivElement>()
+
+  getSnapshotBeforeUpdate(previous: RecordListProps): RecordListSnapshot | null {
+    const list = this.list.current
+    if (
+      list === null ||
+      previous.scope !== this.props.scope ||
+      (previous.items.length === this.props.items.length &&
+        previous.items.every((item, index) => item.annotationId === this.props.items[index]?.annotationId))
+    )
+      return null
+    const retainedIds = new Set<string>(this.props.items.map((item) => item.annotationId))
+    const bounds = list.getBoundingClientRect()
+    const visible = (row: HTMLElement): boolean => {
+      const rect = row.getBoundingClientRect()
+      return rect.bottom > bounds.top && rect.top < bounds.bottom
+    }
+    const active = list.ownerDocument.activeElement
+    const focus = active instanceof HTMLElement && list.contains(active) ? active : null
+    const focusedRow = focus?.closest<HTMLElement>('[data-annotation-id]')
+    const focusedAnchor =
+      focusedRow && retainedIds.has(focusedRow.dataset.annotationId!) && visible(focusedRow)
+        ? focusedRow
+        : null
+    if (list.scrollTop === 0 && focusedAnchor === null) return null
+    const row =
+      focusedAnchor ??
+      Array.from(list.children).find(
+        (element): element is HTMLElement =>
+          element instanceof HTMLElement &&
+          retainedIds.has(element.dataset.annotationId!) &&
+          visible(element),
+      )
+    return row ? { row, offset: row.getBoundingClientRect().top - bounds.top, focus } : null
+  }
+
+  componentDidUpdate(
+    previous: RecordListProps,
+    _state: Record<string, never>,
+    snapshot: RecordListSnapshot | null,
+  ): void {
+    const list = this.list.current
+    if (list === null) return
+    if (previous.scope !== this.props.scope) {
+      list.scrollTop = 0
+      return
+    }
+    if (snapshot === null || !list.contains(snapshot.row)) return
+    if (
+      snapshot.focus !== null &&
+      list.contains(snapshot.focus) &&
+      list.ownerDocument.activeElement === list.ownerDocument.body
+    )
+      snapshot.focus.focus({ preventScroll: true })
+    list.scrollTop +=
+      snapshot.row.getBoundingClientRect().top - list.getBoundingClientRect().top - snapshot.offset
+  }
+
+  render(): ReactNode {
+    const { id, items, selectedIds, editorOpen, t, actions, submitting } = this.props
+    return (
+      <div ref={this.list} id={id} className="dia-record__list" role="list">
+        {items.map((item) => (
+          <RecordRow
+            key={item.annotationId}
+            item={item}
+            selected={selectedIds.has(item.annotationId) || item.status === 'queued'}
+            editorOpen={editorOpen}
+            t={t}
+            actions={actions}
+            submitting={submitting}
+          />
+        ))}
+      </div>
+    )
+  }
+}
+
+/**
+ * The record grows below its header and occupies normal layout above the composer.
+ * Derived counts and selection belong to this mounted view and follow immutable controller snapshots.
+ */
 export function AnnotationExperience({
   useAnnotations,
   useWorkspaces,
@@ -725,15 +844,43 @@ export function AnnotationExperience({
     if (isNew && request) requestAnimationFrame(() => focus.current?.restore(request))
   }
   const retry = retryEntry(view)
-  const sourceTypes = new Set(view.annotations.map(sourceType))
+  const records = useMemo(
+    () =>
+      orderedRecords({
+        annotations: view.annotations,
+        selectedAnnotationIds: view.selectedAnnotationIds,
+        outbox: view.outbox,
+      }),
+    [view.annotations, view.selectedAnnotationIds, view.outbox],
+  )
+  const selectedIds = useMemo(() => new Set(view.selectedAnnotationIds), [view.selectedAnnotationIds])
+  const { counts, sourceTypes } = useMemo(() => {
+    const counts = { pending: 0, sent: 0, off: 0 }
+    const sourceTypes = new Set<ReturnType<typeof sourceType>>()
+    for (const item of view.annotations) {
+      counts[recordStatus(item, selectedIds.has(item.annotationId))]++
+      sourceTypes.add(sourceType(item))
+    }
+    return { counts, sourceTypes }
+  }, [view.annotations, selectedIds])
+  const recordActions = useMemo(
+    () => ({
+      toggleSelected: actions.toggleSelected,
+      navigate: actions.navigate,
+      openAnnotation: actions.openAnnotation,
+      trashAnnotations: actions.trashAnnotations,
+    }),
+    [actions.toggleSelected, actions.navigate, actions.openAnnotation, actions.trashAnnotations],
+  )
   const effectiveFilter = filter === 'all' || sourceTypes.has(filter) ? filter : 'all'
   useEffect(() => {
     if (effectiveFilter !== filter) setFilter('all')
   }, [effectiveFilter, filter])
-  const filteredAnnotations =
-    effectiveFilter === 'all'
-      ? view.annotations
-      : view.annotations.filter((item) => sourceType(item) === effectiveFilter)
+  const filteredAnnotations = useMemo(
+    () =>
+      effectiveFilter === 'all' ? records : records.filter((item) => sourceType(item) === effectiveFilter),
+    [records, effectiveFilter],
+  )
   const filterOptions = (
     [
       ['all', 'records.filterAll'],
@@ -781,7 +928,7 @@ export function AnnotationExperience({
                   <span className="dia-record__title">{t('record.title')}</span>
                 </button>
               </Tooltip>
-              <span className="dia-record__progress">{recordSummary(view, t)}</span>
+              <span className="dia-record__progress">{recordSummary(counts, t)}</span>
               {showFilters && (
                 <Tooltip label={t('details.sourceFilter')} side="top" delayMs={350}>
                   <span className="dia-record__filters">
@@ -818,18 +965,16 @@ export function AnnotationExperience({
                 role={showFilters ? 'tabpanel' : undefined}
                 aria-labelledby={showFilters ? `${listId}-filter-${effectiveFilter}` : undefined}
               >
-                <div id={listId} className="dia-record__list" role="list">
-                  {filteredAnnotations.map((item) => (
-                    <RecordRow
-                      key={item.annotationId}
-                      item={item}
-                      view={view}
-                      t={t}
-                      actions={actions}
-                      submitting={input.phase === 'submitting'}
-                    />
-                  ))}
-                </div>
+                <RecordList
+                  id={listId}
+                  scope={`${sessionId}:${effectiveFilter}`}
+                  items={filteredAnnotations}
+                  selectedIds={selectedIds}
+                  editorOpen={view.editor !== null}
+                  t={t}
+                  actions={recordActions}
+                  submitting={input.phase === 'submitting'}
+                />
               </div>
             )}
             {retry && (

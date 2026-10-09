@@ -1,87 +1,192 @@
+---
+kind: package-bundle
+description: 为助手回复、官方文件预览和 turn Diff 添加注解，并通过 DSH Web 输入框发送选中的注解。
+---
+
 # DSH 注解
 
 [English](README.md) | 中文
 
-在 DeepSeek Harness Web 的助手回复中选中原文，写下注解，并随下一条消息一起发送；也可以在官方文件预览和官方 turn-Diff 中批注。注解记录属于当前会话；已发送的注解可以重新附加，不会生成重复记录或气泡。
+## 概览
 
-**适用宿主：DeepSeek Harness `>= 0.2.0-rc.1`。** 插件通过官方输入框发送文字、图片、文件和注解，不修改宿主源码。
+在助手回复、官方文件预览或 turn Diff 中选中原文，保存注解，再随下一条消息发送。数字气泡可定位来源；每个会话都有自己的记录框，集中显示草稿、已发送注解及本次附加状态。插件通过官方输入框一起发送注解、文字、图片和文件。安装到日常使用的 Web profile 后即可使用；未发送内容保存在当前浏览器中。
 
-## 使用流程
+**1.1.1 要求 DSH `>=0.2.1-alpha.1`，验证基线为 `0.2.1-alpha.1`。** 旧宿主更新前请先看[升级说明](#upgrading)。
 
-### 1. 选中原文
+## 目录
 
-在一条助手回复中选中文字，点击 **添加注解**。重叠选区也可以直接创建独立注解。数字气泡贴在选区末字附近，随正文滚动；平时不为原文添加常驻背景或下划线，悬浮或点击气泡时才高亮。
+- [安装与升级](#installation)
+- [支持的来源](#sources)
+- [新建与编辑](#editing)
+- [记录与附加](#records)
+- [发送、重发与重试](#sending)
+- [删除与恢复](#recovery)
+- [设置](#settings)
+- [数据与限制](#limitations)
+- [模型如何处理注解](#model-experience)
+- [开发参考](#development)
 
-![在助手回复中选择原文并添加注解](docs/assets/annotation-selection.png)
+<a id="installation"></a>
 
-### 2. 保存注解
+## 安装与升级
 
-输入条显示在选区下方。按 Enter 或点击对号保存，Shift+Enter 换行；主动保存的空白选区注解只标记原文。新建内容去除首尾空白后为空时，前两次点击外部会轻微抖动，第三次直接取消，不创建记录。在消息输入框开始输入也会取消空白新建。输入区从一行自动增高，最多显示七行，更多内容在内部滚动。点击数字气泡可用同样的界面查看或编辑。
-
-![在选区旁输入注解](docs/assets/annotation-editor.png)
-
-![通过数字气泡查看和编辑注解](docs/assets/annotation-bubble.png)
-
-### 3. 查看记录并附加
-
-新注解默认附加到下一条消息，不会自动展开记录框。输入框左上角显示附加数量；悬浮可预览原文和注解，点击可展开或折叠记录。模型选择按钮左侧的注解按钮及记录框顶部空白处也可展开或折叠。记录中的回形针控制本次附加，地图定位图标跳转原文；定位文字会明显高亮并逐渐淡出。空注解内容保持空白。
-
-![注解记录和输入框中的附加提示](docs/assets/annotation-record.png)
-
-### 4. 发送和再次发送
-
-通过官方输入框发送后，用户消息正文上方显示注释数量。单条注释可悬浮预览、双击定位；多条注释可点击展开或折叠，并逐条定位原文。记录框在全部注解都已发送时自动隐藏。已发送注解仍可用回形针重新附加，注解 ID 与原文气泡保持不变。
-
-![已发送消息上方的注释信息](docs/assets/annotation-sent.png)
-
-![将已发送注解重新附加到输入框](docs/assets/annotation-reattach.png)
-
-### 5. 设置
-
-在 **设置 → 注解** 中启用或停用插件，分别控制文件预览批注和官方 turn-Diff 批注，并设置保存新注解后是否自动附加。关闭任一官方来源入口不会删除已有记录；关闭自动附加后，仍可在记录中手动点击回形针。回收站在宿主提供会话资料时按“项目名 - 会话标题”显示，并用单选框筛选来源类型。设置页还会在 dsh-market 提供公开更新接口时显示插件更新操作。停用插件会移除界面和输入框附着，本地注解数据仍会保留。
-
-![DSH 设置中的注解选项](docs/assets/annotation-settings.png)
-
-### 6. 批注官方文件与本轮 Diff
-
-打开官方文件预览后，可以批注整文件；文本、代码和 Markdown 预览还支持选区。HTML、图片、PDF、Office 和表格预览提供整文件操作。新记录保存文件地址、资源版本、字节数、坐标、引用上下文及已校验的片段摘要，不逐条复制整份文件。短暂加载或定位失败时，已存记录与草稿仍保留。
-
-从本轮改动卡片打开官方 Diff 侧栏，可以选择 Diff 范围，也可以用 **批注此来源** 标注整文件。选区使用与助手正文相同的浮动编辑器和编号气泡。点击 **定位来源** 会打开官方 Diff 侧栏，等待内容就绪，并高亮同一注解 ID 对应的文字。会话中至少有两种来源时才显示类型筛选；旧 Git Diff 记录继续只读。
-
-## 安装与兼容
-
-本工作区适配 DSH `0.2.0-rc.1`。[已发布的 `1.0.0` 包](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.0.0)早于本次适配；安装到临时 Web profile 前，先构建并验证本工作区。
+发行包通过 [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.1) 分发，不发布到 npm。在 **dsh-market** 的会话与消息分类中找到 `ruisenbai/dsh-annotation`，即可安装或更新。市场使用发行版的固定文件名下载地址；操作前请确认显示的插件版本及宿主要求。
 
 ### 手动安装
 
+将固定版本安装到 `web` profile：
+
 ```bash
 dsh --version
-pnpm install --frozen-lockfile --strict-peer-dependencies
-pnpm run verify
-pnpm --config.ignoreScripts=true pack --pack-destination artifacts
-dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.1.0.tgz
-dsh plugin --profile annotation-dev why dsh-annotation
+dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.1/dsh-annotation.tgz
+dsh plugin --profile web why dsh-annotation
 ```
 
-第一条命令应显示不低于 `0.2.0-rc.1` 的 DSH 版本，最后一条应显示本地构建包的 `dsh-annotation@1.1.0`。安装后重启临时 profile 的 Web 宿主，在 **设置 → 注解** 中确认插件可用。构建步骤见[开发说明](docs/development.md#install-and-verify)；已执行的验证见[兼容性说明](docs/compatibility.md)。
+宿主必须满足 `>=0.2.1-alpha.1`，最后一条命令应解析到 `dsh-annotation@1.1.1`。使用自定义 profile 时，将两处 `web` 改为实际名称。安装后重启该 profile 正在运行的 Web 宿主、刷新页面，并在 **设置 → 注解** 中确认插件可用。源码构建方法和实际验证结果见[开发说明](docs/development.md)及[兼容性说明](docs/compatibility.md)。
 
 ### 交给 AI agent 安装
 
-将下面的提示词交给能够操作本机终端的 AI agent：
+将下面的提示词交给能够操作本机终端的 agent：
 
 ```text
-Build this dsh-annotation checkout for DeepSeek Harness Web >= 0.2.0-rc.1. Run dsh --version and stop if it is older than 0.2.0-rc.1. Run the plugin's frozen install, verify, and local pack commands, then install that local archive into a disposable annotation-dev profile. Confirm dsh plugin --profile annotation-dev why dsh-annotation shows dsh-annotation@1.1.0. Do not use the older published archive or change Host dependencies. Report the commands, version, installation result, and warnings.
+Install dsh-annotation 1.1.1 into my DeepSeek Harness Web profile. Confirm the profile name; use web if I have no custom profile. Run dsh --version and require >=0.2.1-alpha.1 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.1/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.1. Do not change Host dependencies, source files, Sessions, or browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
 ```
 
-新对话没有注解时，不显示记录框或空状态文案。插件仅提供注解相关功能，不隐藏思考、工具调用或其他会话内容。记录行显示意见和状态，来源类型、创建入口及已保存的上下文在详情中显示。存在至少两种来源时才显示 `全部/正文/Diff/文件` 筛选。历史 Git Diff 批注及快照仍然只读；新的官方 turn-Diff 批注仅从 Diff 侧栏创建，悬浮预览没有添加注解入口。已有悬浮来源记录仍可读取，定位会用原 annotationId 打开侧栏。文件与 Diff 的整文件批注必须填写意见，记录保留来源身份。文件预览支持文本、Markdown、代码、HTML、图片、PDF、Office、Excel、CSV 和 TSV 等官方渲染内容；非文本内容保存官方预览版本身份，不从磁盘推断文件内容。
+<a id="upgrading"></a>
 
-未发送注解、暂存编辑和重试记录保存在当前浏览器。多标签页使用独立待归并记录和浏览器锁保护写入；遇到损坏或未来版本的存储时，保留原数据并提示，不以空状态覆盖。发送时固定本批注解和附件身份，失败重试沿用同一载荷；历史协议和已发送消息不会被迁移时改写。详见[数据模型](docs/data-model.md)与[隐私说明](docs/privacy.md)。
+### 从 1.1.0 升级
 
-## 限制
+先将宿主更新到 `0.2.1-alpha.1`，再安装 1.1.1。仍使用 `0.2.0` 系列宿主时，请保留插件 1.1.0。草稿、来源气泡、回收站记录和已固定的重试内容沿用现有数据格式，升级无需清理浏览器存储。[升级指南](docs/upgrade-guide/v1.1.0/host-baseline/guide.md)（[中文](docs/upgrade-guide/v1.1.0/host-baseline/guide.zh.md)）列出了版本检查方法。
 
-- 未发送草稿不会跨浏览器同步；已发送记录可从会话历史恢复。
-- 选区不能跨助手消息。Markdown、代码和表格内的定位依赖宿主当前正文 DOM。
-- 没有 CSS Custom Highlight API 时，数字气泡和定位原文仍可使用。
-- 模型返回有效的注解确认标记后，记录才会显示为已处理。
+<a id="sources"></a>
+
+## 支持的来源
+
+根据要批注的内容，打开对应的官方预览或侧栏：
+
+| 来源                                                 | 添加方式                                                         | 定位方式                             |
+| ---------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------ |
+| 助手回复                                             | 在同一条回复中选中文字，点击 **添加注解**                        | 点击气泡或记录行的定位图标返回原文   |
+| 官方文本、代码或 Markdown 文件预览                   | 选中片段，或点击 **批注此来源** 添加整文件意见                   | 打开官方预览并定位保存的选区         |
+| 官方 HTML、图片、PDF、Office、Excel、CSV 或 TSV 预览 | 使用整文件批注；渲染文本选区仅在文本、代码和 Markdown 预览中提供 | 保留官方资源标识及预览版本           |
+| 官方 turn Diff                                       | 从本轮变更文件卡片打开 Diff 侧栏，选中片段或批注整个文件         | 打开对应的官方 Diff 审阅及保存的注解 |
+| 历史 Git Diff                                        | 查看已有记录和保存的上下文                                       | 只读，不支持新增、编辑、附加或重试   |
+
+整文件批注必须填写意见。官方 Diff 的悬浮预览不提供新增入口，请使用侧栏。当前会话包含至少两种来源时，记录框会显示来源筛选。文件和 Diff 注解保留来源标识、选区坐标和引用上下文；暂时加载失败或定位失败不会删除已保存的记录。
+
+<a id="editing"></a>
+
+## 新建与编辑
+
+1. 选中原文并点击 **添加注解**。重叠选区会创建独立注解。
+2. 在选区下方输入意见。按 Enter 或点击对号保存，Shift+Enter 换行；中文输入法组词期间不会提前保存。输入区从一行自动增高，最多显示七行，超过后在内部滚动。
+3. 主动保存空的选区注解，可以只标记原文。新建编辑框为空时，前两次点击外部会轻微晃动，第三次取消；在主输入框开始输入也会取消空白新注解。取消不会产生记录、气泡、附加项或回收站内容。新建内容非空时，第三次点击外部会保存。
+4. 点击数字气泡打开注解。草稿可以编辑；已发送注解显示保存的内容，并可再次附加。取消编辑会保留原先保存的注解，暂存的未完成修改不会随消息发送。
+
+气泡跟随选区最后一个字符，并随来源滚动。蓝色气泡带白色描边和数字：正常悬浮时半透明磨砂，打开注解或分组菜单后变为不透明，关闭后恢复磨砂。不支持背景模糊的浏览器使用不透明底色。距离较近的气泡可通过分组菜单选择。原文不保留常驻背景或下划线，悬浮或激活气泡时才高亮引用。
+
+![选择原文](docs/assets/annotation-selection.png)
+
+![填写注解](docs/assets/annotation-editor.png)
+
+![打开数字气泡](docs/assets/annotation-bubble.png)
+
+<a id="records"></a>
+
+## 记录与附加
+
+新注解默认附加到下一条消息，不会自动展开记录框。输入框左上角显示附加数量，悬浮可预览原文和意见，点击可展开或折叠记录。模型选择按钮左侧的注解按钮也能打开或关闭记录框。没有注解的新会话不会显示空记录框。
+
+每条记录提供回形针附加或取消附加、定位图标跳转来源、草稿编辑，以及发送状态未锁定时的删除操作。悬浮记录文字可查看引用、来源类型、创建入口和保存的上下文。附加数量提示在悬浮或键盘聚焦时还会显示批量取消附加和删除操作。取消附加会保留注解，删除则移入回收站。
+
+记录分为三组排序：
+
+1. 已附加的注解和未完成的发送，包括排队中、可重试的批次。
+2. 其他尚未发送的草稿。
+3. 已发送历史和旧版只读记录。
+
+每组按创建时间从新到旧排列。编辑不会改变创建顺序；重新附加已发送注解会将其移到第一组，同时保留已发送状态。**全部 / 正文 / Diff / 文件** 筛选沿用相同排序。重排会保持键盘焦点，并在空间允许时保持滚动阅读位置。显示顺序不会改变来源气泡编号、实际提交顺序或已固定的重试内容。
+
+![注解记录与输入框附加提示](docs/assets/annotation-record.png)
+
+<a id="sending"></a>
+
+## 发送、重发与重试
+
+通过官方输入框，将已附加注解与可选的文字、图片和文件一起发送。普通斜杠命令仍按原有方式执行。发送后的用户消息正文上方显示注释数量：单条可悬浮预览、双击定位；多条可展开后逐条查看和定位。全部注解已发送且没有附加项时，记录框自动关闭。
+
+点击已发送注解的回形针，可以再次附加。注解 ID 和来源气泡保持不变，即使选中准备再次发送，仍保留已发送状态。草稿、排队发送、会话中已持久化的消息和模型确认是不同状态；只有收到有效的模型确认标记，记录才会显示为已处理。
+
+发送失败后，通过输入框再次发送可重试保存的批次，也可在记录框中选择 **放弃**，取消该次重试。重试保留原来的注解、整体要求、语言、目标会话和附件顺序。刷新后如提示需要附件，请重新选择原附件；附件身份不一致时会拒绝发送。后续编辑和选择不会悄悄替换原批次，已经排队或被接收的提交也不会因过期的重试操作而重复发送。
+
+![已发送消息上方的注释信息](docs/assets/annotation-sent.png)
+
+![重新附加已发送注解](docs/assets/annotation-reattach.png)
+
+<a id="recovery"></a>
+
+## 删除与恢复
+
+删除单条记录，或通过附加数量提示批量删除，会将注解移入当前浏览器的回收站。删除成功后可撤销。正在发送或被重试批次锁定的注解，需要先解除对应操作才能删除，界面会说明原因。删除已发送记录不会改写原会话消息。
+
+在 **设置 → 注解 → 回收站** 中，可按会话和来源类型筛选，查看保存的引用与意见，并恢复记录。宿主提供会话资料时，列表会显示项目名和会话标题。已捕获的来源快照可以预览，保存的文件可以下载；未捕获完整来源时会提示仅有引用片段。永久删除和清空回收站需要确认，操作只移除本地回收站内容，不删除已发送的会话消息。
+
+<a id="settings"></a>
+
+## 设置
+
+**设置 → 注解** 提供四个开关，默认全部启用：
+
+| 设置                | 作用                                                 |
+| ------------------- | ---------------------------------------------------- |
+| 启用注解            | 显示注解界面并接入输入框；停用后保留本地数据         |
+| 文件预览批注        | 允许从官方文件预览创建批注                           |
+| 官方 turn-Diff 批注 | 允许从官方 Diff 侧栏创建批注                         |
+| 自动附加新注解      | 保存新注解后附加到下一条消息；关闭时可手动使用回形针 |
+
+修改后需要点击 **保存** 才会生效。**放弃** 会取消未保存的设置，**重置** 会将已覆盖的字段恢复为继承值或默认值。关闭某类来源入口仍会保留已有记录。历史版本的紧凑汇总和会话内容隐藏设置不再提供操作入口，也不会影响当前界面。
+
+dsh-market 提供公开更新 API 时，同一设置卡片可检查、安装本插件更新并显示进度。只有符合条件的发布策略错误才会提供强制更新；回退、刷新页面和重启宿主取决于市场返回的能力。没有该 API 时，请使用 **设置 → 插件市场**。更新请求不包含注解内容。
+
+![注解设置](docs/assets/annotation-settings.png)
+
+<a id="limitations"></a>
+
+## 数据与限制
+
+- 未发送草稿、暂存编辑、重试、回收站内容和来源快照保存在当前浏览器，不跨浏览器同步；清理站点数据可能将其删除。已发送的注解记录可从会话历史恢复。
+- 多标签页会协调本地写入并保留冲突修改。遇到损坏或未来版本的数据时，会保留原数据并报错，不以空状态覆盖。
+- 选区不能跨助手消息。Markdown、代码和表格的定位依赖宿主渲染内容及可用历史。插件不会隐藏思考、工具调用或其他会话内容。
+- 整文件批注必须填写意见，较长选区需要确认。默认每批最多发送 100 条注解，编码后的载荷最多 512 KiB，可通过 profile 配置调整。
+- 已归档会话没有可用的输入框，请在可编辑的会话中创建并附加注解。
+- 历史 Git Diff 记录保持只读。浏览器数据迁移不会改写已提交的历史协议或会话消息。
+- 已验证的浏览器环境为 Chromium 中的 DSH Web。其他浏览器、操作系统、未来宿主版本及可选第三方插件组合需要单独验证。
+
+本地数据和网络请求见[隐私说明](docs/privacy.md)，持久化及重试规则见[数据模型](docs/data-model.md)。
+
+<a id="model-experience"></a>
+
+## 模型如何处理注解
+
+输入框将选中的注解作为一条用户消息发送，包含各条引用、意见、来源标识和可选的整体要求。当前界面要求模型按顺序回答注解；只标记原文的注解没有文字意见。本地完整来源快照不会自动加入模型请求。
+
+模型回复中的隐藏关联和完成标记用于将回答对应到原文，并识别已处理注解。界面隐藏这些标记，会话日志仍保留它们。确认标记缺失或无效时，记录不会变为已处理；发送成功本身不等于模型已确认。
+
+<a id="development"></a>
+
+## 开发参考
+
+<details>
+<summary>配置与实现</summary>
+
+[安装补丁](cordis.patch.yml)插入一个 `dsh-annotation` 条目，接入宿主命令与 Web 客户端。profile 配置可调整 `commandName`、`maxPayloadBytes`、`maxAnnotationsPerSubmission`、`warnSelectionChars` 和 `locateHistoryPages`；四个用户开关通过宿主设置编辑。[架构说明](docs/architecture.md)集中介绍接入方式和配置。
+
+[开发说明](docs/development.md)包含构建、发行包验证、真实 Web profile 检查和记录性能测量；[兼容性说明](docs/compatibility.md)记录精确宿主基线及已执行的验证；[发布说明](RELEASING.md)介绍 GitHub 发行包和市场目录更新。
+
+</details>
 
 [贡献指南](CONTRIBUTING.md) · [更新记录](CHANGELOG.md) · [许可证](LICENSE)
+
+### 开发备注
+
+无。

@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import { createSessionFormatCatalogWithChildren } from '@deepseek-ai/dsh-session-format-catalog'
 import { exerciseLegacyDiffHistory } from './profile-legacy-diff.mjs'
+import { measureRecordPerformance } from './profile-record-performance.mjs'
+import { assertMarkerMaterial, captureMarker } from './marker-material.mjs'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
 const artifacts = join(project, 'artifacts/browser')
@@ -462,7 +464,19 @@ try {
   console.log('PASS built Client plugin activates in the real Web GUI')
   const continueFromPreviewNotice = page.getByRole('button', { name: '继续', exact: true })
   if (await continueFromPreviewNotice.isVisible()) await continueFromPreviewNotice.click()
-  if (process.argv.includes('--legacy-diff-only')) {
+  if (process.argv.includes('--record-perf-only')) {
+    await request('submit')
+    const replay = await readingReplay(workspace)
+    assertRecordedSession(
+      await request('seed-session', { header: replay.header, events: replay.events }),
+      replay,
+    )
+    await measureRecordPerformance(page, {
+      artifacts,
+      openSession: () => openReadingSession(page, 'annotation-reading-first', replay.source),
+      source: replay.source,
+    })
+  } else if (process.argv.includes('--legacy-diff-only')) {
     await request('submit')
     await mkdir(artifacts, { recursive: true })
   } else if (!process.argv.includes('--official-only')) {
@@ -749,6 +763,20 @@ try {
     const chip = page.locator('.dia-composer-chip')
     await chip.waitFor()
     assert.equal(await page.locator('.dia-record').count(), 0, 'Saving does not open the record')
+    const bodyMarker = page.locator('.dia-marker').first()
+    const markerIdle = await assertMarkerMaterial(bodyMarker, false)
+    await bodyMarker.hover()
+    const markerHover = await assertMarkerMaterial(bodyMarker, false)
+    await captureMarker(page, bodyMarker, join(artifacts, 'marker-hover-profile.png'))
+    await bodyMarker.click()
+    const markerEditor = page.locator('.dia-record-editor--detail')
+    await markerEditor.waitFor()
+    const markerOpen = await assertMarkerMaterial(bodyMarker, true)
+    await captureMarker(page, bodyMarker, join(artifacts, 'marker-open-profile.png'))
+    await markerEditor.getByRole('button', { name: '取消', exact: true }).click()
+    await markerEditor.waitFor({ state: 'hidden' })
+    const markerClosed = await assertMarkerMaterial(bodyMarker, false)
+    acceptanceGeometry.markerMaterial = { markerIdle, markerHover, markerOpen, markerClosed }
     await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
     const record = page.locator('.dia-record')
     const row = record.locator('.dia-record-row').filter({ hasText: note })
@@ -765,12 +793,38 @@ try {
     await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
     await row.waitFor()
     assert.equal(await record.locator('.dia-record-row').count(), 1)
+    await selectReadingSource(page, replay.source)
+    await page.getByRole('button', { name: '添加注解', exact: true }).click()
+    const newerNote = 'Review the newer annotation first.'
+    await editor.getByRole('textbox', { name: '你的注解', exact: true }).fill(newerNote)
+    await editor.getByRole('button', { name: '保存', exact: true }).click()
+    await editor.waitFor({ state: 'hidden' })
+    const newerRow = record.locator('.dia-record-row').filter({ hasText: newerNote })
+    const groupedMarker = page.locator('.dia-marker[aria-haspopup="menu"]').first()
+    await groupedMarker.click()
+    await page.getByRole('menu').waitFor()
+    await assertMarkerMaterial(groupedMarker, true)
+    await page.keyboard.press('Escape')
+    await page.getByRole('menu').waitFor({ state: 'hidden' })
+    await assertMarkerMaterial(groupedMarker, false)
+    const recordOrder = () => record.locator('.dia-record-row__preview-anchor').allTextContents()
+    const expectedRecordOrder = await readFile(
+      join(project, 'tests/profile-fixtures/annotation-record-order.expected.txt'),
+      'utf8',
+    )
+    assert.equal(`${(await recordOrder()).join('\n')}\n`, expectedRecordOrder)
+    await newerRow.getByRole('button', { name: '取消随消息发送', exact: true }).click()
+    assert.deepEqual(await recordOrder(), [note, newerNote])
+    await newerRow.getByRole('button', { name: '随消息发送', exact: true }).click()
+    assert.equal(`${(await recordOrder()).join('\n')}\n`, expectedRecordOrder)
+    await newerRow.getByRole('button', { name: '删除', exact: true }).click()
+    assert.deepEqual(await recordOrder(), [note])
     assert.equal(await record.locator('.dia-local-data, .dia-local-status').count(), 0)
     assertRecordedSession(await request('read-session', { sessionId: replay.header.id }), replay)
     assert.equal((await request('inspect')).modelRequests, submission.requests.length)
     await page.screenshot({ path: join(artifacts, 'annotation-record-profile.png'), fullPage: true })
     console.log(
-      'PASS recorded Session supports selection, navigation, attachment, and reload without log changes',
+      'PASS recorded Session supports selection, record ordering, navigation, attachment, and reload without log changes',
     )
 
     card = await openAnnotationSettings(page)
@@ -897,7 +951,7 @@ try {
     await page.screenshot({ path: join(artifacts, 'attachment-identity-profile.png'), fullPage: true })
     console.log('PASS the real Web conversation displays the identity-verified image submission')
   }
-  if (!process.argv.includes('--official-only')) {
+  if (!process.argv.includes('--official-only') && !process.argv.includes('--record-perf-only')) {
     await exerciseLegacyDiffHistory(page, {
       request,
       readRecordedReplay,
@@ -907,7 +961,7 @@ try {
       artifacts,
     })
   }
-  if (!process.argv.includes('--legacy-diff-only')) {
+  if (!process.argv.includes('--legacy-diff-only') && !process.argv.includes('--record-perf-only')) {
     await mkdir(artifacts, { recursive: true })
     if (process.argv.includes('--official-only')) await request('submit')
     const official = await request('official-source-session')
@@ -922,7 +976,7 @@ try {
     await page.reload({ waitUntil: 'domcontentloaded' })
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const settings = page.getByRole('dialog', { name: '设置' })
-    const codeTools = settings.getByRole('switch', { name: '代码工作工具' })
+    const codeTools = settings.getByRole('switch', { name: '显示代码工作视图', exact: true })
     if ((await codeTools.getAttribute('aria-checked')) === 'false') await codeTools.click()
     await settings.getByRole('button', { name: '注解', exact: true }).click()
     const annotationSettings = settings.locator('.dia-plugin-card')

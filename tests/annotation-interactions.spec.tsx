@@ -2,7 +2,7 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   AnnotationComposerChip,
   AnnotationExperience,
@@ -27,7 +27,7 @@ afterEach(() => {
 const t: InputAnnotationProps['t'] = (key, params) =>
   en[key as keyof typeof en].replace(/\{(\w+)\}/gu, (_match: string, name: string) => String(params?.[name]))
 
-function harness(values = new Map<string, string>()) {
+function harness(values = new Map<string, string>(), now = () => 1_700_000_000_000) {
   const sessionId = 'interaction-session' as SessionIdentity
   const storage = new AnnotationStorage(
     {
@@ -46,7 +46,7 @@ function harness(values = new Map<string, string>()) {
     storage,
     { getSnapshot: () => ({ hasMore: false }), loadOlder: async () => undefined },
     DEFAULT_CONFIG,
-    () => 1_700_000_000_000,
+    now,
   )
   const actions = {
     beginSelection: (start: number, exact = 'source') => {
@@ -159,6 +159,159 @@ function beginNewEditor(h: ReturnType<typeof harness>, source: NewEditorSource, 
 }
 
 describe('annotation record and composer interactions', () => {
+  it('only renders the changed record when one attachment is toggled', () => {
+    const h = harness()
+    onTestFinished(() => h.controller.dispose())
+    h.save(0, 'First note')
+    h.save(20, 'Second note')
+    h.controller.setPanelOpen(true)
+    const translate = vi.fn(t)
+    render(<AnnotationExperience {...h.props} t={translate} />)
+    const row = screen.getByRole('listitem', { name: /First note/ })
+    translate.mockClear()
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Remove from message' }))
+
+    expect(within(row).getByRole('button', { name: 'Send with message' })).toBeInTheDocument()
+    expect(screen.getByText('1 pending · 1 not sending')).toBeInTheDocument()
+    expect(
+      translate.mock.calls.filter(([key]) => ['record.pending', 'record.sent', 'record.off'].includes(key)),
+    ).toEqual([['record.off']])
+  })
+
+  it('keeps saved rows unchanged while typing and refreshes edited text, locale, and submission controls', () => {
+    const h = harness()
+    onTestFinished(() => h.controller.dispose())
+    const first = h.save(0, 'First note')
+    h.save(20, 'Second note')
+    h.controller.openAnnotation(first, 'summary')
+    h.controller.setPanelOpen(true)
+    const translate = vi.fn(t)
+    const { rerender } = render(<AnnotationExperience {...h.props} t={translate} />)
+    translate.mockClear()
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Your annotation' }), {
+      target: { value: 'Edited note' },
+    })
+    expect(screen.getByRole('listitem', { name: /First note/ })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Your annotation' })).toHaveValue('Edited note')
+    expect(
+      translate.mock.calls.filter(([key]) => ['record.pending', 'record.sent', 'record.off'].includes(key)),
+    ).toEqual([])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(screen.getByRole('listitem', { name: /Edited note/ })).toBeInTheDocument()
+    const localized: InputAnnotationProps['t'] = (key, params) => `Localized ${t(key, params)}`
+    const navigate = vi.fn(async () => true)
+    rerender(
+      <AnnotationExperience
+        {...h.props}
+        t={localized}
+        navigate={navigate}
+        input={{ ...h.props.input, phase: 'submitting' }}
+      />,
+    )
+    const row = screen.getByRole('listitem', { name: /Edited note/ })
+    expect(row).toHaveAccessibleName(/Localized Pending/)
+    expect(within(row).getByRole('button', { name: 'Localized Remove from message' })).toBeDisabled()
+    fireEvent.click(within(row).getByRole('button', { name: 'Localized Locate source' }))
+    expect(navigate).toHaveBeenCalledWith(first)
+  })
+
+  it('shows recent attached notes across sources first while preserving source ordinals and submission order', () => {
+    let time = 1_700_000_000_000
+    const h = harness(new Map(), () => time++)
+    onTestFinished(() => h.controller.dispose())
+    h.save(0, 'Historical note')
+    const sent = h.controller.createOutbox('queue', h.controller.sessionId)
+    h.controller.reconcile({
+      chat: {
+        nodes: new Map([
+          ['sent', { kind: 'user', data: { source: { kind: 'user', annotationSubmission: sent.payload } } }],
+        ]),
+      },
+      queue: [],
+      hasMore: false,
+    })
+    const detached = h.save(20, 'Unattached draft')
+    h.controller.toggleSelected(detached)
+    beginNewEditor(h, 'file')
+    h.controller.updateEditorText('File note')
+    h.controller.saveEditor()
+    beginNewEditor(h, 'diff')
+    h.controller.updateEditorText('Diff note')
+    h.controller.saveEditor()
+    h.save(40, 'Newest body note')
+    h.controller.setPanelOpen(true)
+    const annotations = h.controller.getSnapshot().annotations
+    const { unmount } = render(<AnnotationExperience {...h.props} />)
+    const record = screen.getByRole('region', { name: 'Annotations' })
+    const notes = () =>
+      within(record)
+        .getAllByRole('listitem')
+        .map((row) => row.querySelector('.dia-record-row__preview-anchor')?.textContent)
+    expect(notes()).toEqual([
+      'Newest body note',
+      'Diff note',
+      'File note',
+      'Unattached draft',
+      'Historical note',
+    ])
+    expect(h.controller.getSnapshot().annotations).toBe(annotations)
+    fireEvent.click(within(record).getByRole('tab', { name: 'Body' }))
+    expect(notes()).toEqual(['Newest body note', 'Unattached draft', 'Historical note'])
+    fireEvent.click(within(record).getByRole('tab', { name: 'All' }))
+    expect(notes()).toEqual([
+      'Newest body note',
+      'Diff note',
+      'File note',
+      'Unattached draft',
+      'Historical note',
+    ])
+    unmount()
+    const restored = harness(h.values)
+    onTestFinished(() => restored.controller.dispose())
+    restored.controller.setPanelOpen(true)
+    render(<AnnotationExperience {...restored.props} />)
+    expect(
+      screen
+        .getAllByRole('listitem')
+        .map((row) => row.querySelector('.dia-record-row__preview-anchor')?.textContent),
+    ).toEqual(['Newest body note', 'Diff note', 'File note', 'Unattached draft', 'Historical note'])
+    let pending: ReturnType<AnnotationController['createOutbox']> | undefined
+    act(() => {
+      pending = restored.controller.createOutbox('queue', restored.controller.sessionId)
+    })
+    expect(pending?.payload.annotations.map((item) => item.annotation)).toEqual([
+      'Newest body note',
+      'File note',
+      'Diff note',
+    ])
+    expect(pending?.payload.annotations.map((item) => item.ordinal)).toEqual([1, 2, 3])
+  })
+
+  it('moves a detached row below current attachments and restores its position on reattachment', () => {
+    let time = 1_700_000_000_000
+    const h = harness(new Map(), () => time++)
+    onTestFinished(() => h.controller.dispose())
+    h.save(0, 'Older note')
+    h.save(20, 'Newer note')
+    h.controller.setPanelOpen(true)
+    render(<AnnotationExperience {...h.props} />)
+    const action = within(screen.getByRole('listitem', { name: /Newer note/u })).getByRole('button', {
+      name: 'Remove from message',
+    })
+    fireEvent.click(action)
+    expect(
+      screen
+        .getAllByRole('listitem')
+        .map((row) => row.querySelector('.dia-record-row__preview-anchor')?.textContent),
+    ).toEqual(['Older note', 'Newer note'])
+    expect(action).toHaveAccessibleName('Send with message')
+    fireEvent.click(action)
+    expect(screen.getAllByRole('listitem')[0]).toHaveAccessibleName(/Newer note/u)
+  })
+
   it('derives source filters from all records and adds the file label only in the view', () => {
     const h = harness()
     const bodyId = h.save(0, 'Body note')
