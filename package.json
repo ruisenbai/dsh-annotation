@@ -106,7 +106,7 @@
   },
   "dependencies": {
     "@noble/hashes": "2.4.0",
-    "lucide-react": "0.468.0",
+    "lucide-react": "1.52.0",
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-gfm": "^3.0.0",
     "mdast-util-math": "^3.0.0",
