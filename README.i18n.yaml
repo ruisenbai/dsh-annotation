@@ -3,29 +3,29 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write dsh-annotation/README.md
 /:
-  en: dc087c76cea515e9
-  zh: 2380a445bfc16afe
+  en: 2d6adcd9f45b5705
+  zh: 5571926cbe5d2daf
 /dsh-annotation:
   en: 62bc0950bddfc133
   zh: caf0f9ba673d1028
 /dsh-annotation/summary:
-  en: 72b07dbd6615879c
-  zh: 4c06395aaf844864
+  en: 6730d5813aa59e16
+  zh: ccf918dbf5214417
 /dsh-annotation/contents:
   en: 393b3905da8e58f1
   zh: ca07301760ed272c
 /dsh-annotation/install-and-upgrade:
-  en: 1438543427708fa9
-  zh: a03f357ea535d247
+  en: b8ef148cc0fbdb45
+  zh: f7efd90f95f6ddc9
 /dsh-annotation/install-and-upgrade/manual-installation:
-  en: 33da6c2a47d5f2e7
-  zh: 9896933926ebe147
+  en: f29adffeb7729b65
+  zh: e4bd4928b5c94356
 /dsh-annotation/install-and-upgrade/install-with-an-ai-agent:
   en: 21bb8ed5dc37727e
   zh: 4515e16837b0565e
-/dsh-annotation/install-and-upgrade/upgrading-from-1-1-0:
-  en: 936407fc18a49d1f
-  zh: 1e329f5897a332ba
+/dsh-annotation/install-and-upgrade/upgrading-from-1-1-1:
+  en: 63942fc6c6d97654
+  zh: f2ad40f889095adb
 /dsh-annotation/supported-sources:
   en: 4ada8422c1ab937b
   zh: 7303c7cf4c623d85

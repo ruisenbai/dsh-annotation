@@ -4,6 +4,16 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-10-10
+
+### Changed
+
+- Describe the select → annotate → send workflow, ordered replies, and source navigation in the bilingual README and package summary; omit Host versions from the short description.
+- Adapt version 1.1.2 to DSH `0.2.1-alpha.2`; align Host peers, development dependencies, registry lockfile, and CI source pin with `dsh-v0.2.1-alpha.2`.
+- Remove the retired, unused `dsh-subagent-in-process-driver` development dependency and refresh the exact official-package release-age exceptions.
+- Exercise official file writes through the AgentLoop and file tool in the isolated profile fixture, including the filesystem intents used for workspace Diff capture.
+- Document Release archive installation and the Host upgrade from plugin 1.1.1; preserve annotation protocol v5, browser storage v6, and historical Session fixtures.
+
 ## [1.1.1] - 2026-10-09
 
 Target host: DeepSeek Harness `0.2.1-alpha.1`, official source baseline `dsh-v0.2.1-alpha.1`. Users on the `0.2.0` Host family must keep 1.1.0 until upgrading the Host; see the [upgrade guide](docs/upgrade-guide/v1.1.0/host-baseline/guide.md).
@@ -294,7 +304,8 @@ Target host: DeepSeek Harness `0.1.6-alpha.2`, source tag `dsh-v0.1.6-alpha.2` a
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ruisenbai/dsh-annotation/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.9.0...v1.0.0
