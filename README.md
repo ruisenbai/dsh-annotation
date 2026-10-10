@@ -1,6 +1,6 @@
 ---
 kind: package-bundle
-description: Annotate assistant replies, official files and turn Diffs, then send selected notes through the DSH Web composer.
+description: Select text in replies, diffs, or files → annotate → send with a message; replies address each annotation in order, with source navigation for easy reference.
 ---
 
 # DSH Annotation
@@ -9,9 +9,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Select a passage in an assistant reply, official file preview, or turn Diff, save a note, and attach it to your next message. Numbered bubbles take you back to the source; a per-Session record keeps drafts, sent notes, and their attachment state together. The plugin sends notes with the official composer's text, images, and files. Install it into the Web profile you use; unsent work stays in the current browser.
+Select text in replies, diffs, or files → annotate → send with a message. Replies address each annotation in order, and source navigation makes notes easy to look up. A per-Session record keeps drafts, sent notes, and attachment state together. The plugin sends notes with the official composer's text, images, and files; unsent work stays in the current browser.
 
-**Version 1.1.1 requires DSH `>=0.2.1-alpha.1`; verification targets `0.2.1-alpha.1`.** See [upgrading](#upgrading) before updating an older Host.
+**Version 1.1.2 requires DSH `>=0.2.1-alpha.2`; verification targets `0.2.1-alpha.2`.** See [upgrading](#upgrading) before updating an older Host.
 
 ## Contents
 
@@ -30,7 +30,7 @@ Select a passage in an assistant reply, official file preview, or turn Diff, sav
 
 ## Install and upgrade
 
-The package is distributed through [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.1), not npm. In **dsh-market**, find `ruisenbai/dsh-annotation` under Sessions & Messages, then install or update it. The catalog uses the release's stable tarball alias; check the offered version and Host requirement before proceeding.
+The package is distributed through [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.2), not npm. In **dsh-market**, find `ruisenbai/dsh-annotation` under Sessions & Messages, then install or update it. The catalog uses the release's stable tarball alias; check the offered version and Host requirement before proceeding.
 
 ### Manual installation
 
@@ -38,25 +38,25 @@ Install the fixed release into your `web` profile:
 
 ```bash
 dsh --version
-dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.1/dsh-annotation.tgz
+dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.2/dsh-annotation.tgz
 dsh plugin --profile web why dsh-annotation
 ```
 
-The Host must satisfy `>=0.2.1-alpha.1`; the final command must resolve `dsh-annotation@1.1.1`. For a custom profile, replace both occurrences of `web` with its name. Restart that profile's running Web Host, refresh the page, and check **Settings → Annotations**. Build-from-source instructions and executed verification results are in [Development](docs/development.md) and [Compatibility](docs/compatibility.md).
+The Host must satisfy `>=0.2.1-alpha.2`; the final command must resolve `dsh-annotation@1.1.2`. For a custom profile, replace both occurrences of `web` with its name. Restart that profile's running Web Host, refresh the page, and check **Settings → Annotations**. Build instructions and executed verification results are in [Development](docs/development.md) and [Compatibility](docs/compatibility.md).
 
 ### Install with an AI agent
 
 Give an agent with terminal access this prompt:
 
 ```text
-Install dsh-annotation 1.1.1 into my DeepSeek Harness Web profile. Confirm the profile name; use web if I have no custom profile. Run dsh --version and require >=0.2.1-alpha.1 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.1/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.1. Do not change Host dependencies, source files, Sessions, or browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
+Install dsh-annotation 1.1.2 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.1-alpha.2 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.2/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.2. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
 ```
 
 <a id="upgrading"></a>
 
-### Upgrading from 1.1.0
+### Upgrading from 1.1.1
 
-Update the Host to `0.2.1-alpha.1` before installing 1.1.1. Keep plugin 1.1.0 while using a `0.2.0` Host. Drafts, source bubbles, recycle-bin records, and frozen retries retain their existing data formats; do not clear browser storage as an upgrade step. The [upgrade guide](docs/upgrade-guide/v1.1.0/host-baseline/guide.md) ([中文](docs/upgrade-guide/v1.1.0/host-baseline/guide.zh.md)) gives the version checks.
+Update the Host to `0.2.1-alpha.2` before installing 1.1.2. Keep plugin 1.1.1 while using `0.2.1-alpha.1`, or 1.1.0 while using a `0.2.0` Host. Drafts, source bubbles, recycle-bin records, and frozen retries retain their existing data formats; do not clear browser storage as an upgrade step. The [upgrade guide](docs/upgrade-guide/v1.1.1/host-baseline/guide.md) ([中文](docs/upgrade-guide/v1.1.1/host-baseline/guide.zh.md)) gives the version checks.
 
 <a id="sources"></a>
 

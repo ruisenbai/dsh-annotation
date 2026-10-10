@@ -14,7 +14,7 @@ Do not replace the contributor copyright in `LICENSE` unless the project has a s
 
 ## Release checklist
 
-For `1.1.1`, the verified Host target is `0.2.1-alpha.1`; [Compatibility](docs/compatibility.md#dependency-source) records its official source tag and commit. Record executed checks and outstanding manual checks separately; updating the version, dependency lockfile, or documentation does not establish release readiness. Check the dedicated **Settings → Annotations** page, its annotation record, sent-note reattachment, Inbox-only queue updates, unsynchronized Inbox snapshots, next-step exclusion, clickable user/steering references, and Markdown file-link selection and restoration before release. Capture repository screenshots from the current Chinese Web profile, including the main Settings page.
+For `1.1.2`, the Host target is `0.2.1-alpha.2`; [Compatibility](docs/compatibility.md#dependency-source) records its official source tag and commit. Record executed checks and outstanding manual checks separately; updating the version, dependency lockfile, or documentation does not establish release readiness. Check the dedicated **Settings → Annotations** page, its annotation record, sent-note reattachment, Inbox-only queue updates, unsynchronized Inbox snapshots, next-step exclusion, clickable user/steering references, and Markdown file-link selection and restoration before release. Capture repository screenshots from the current Chinese Web profile, including the main Settings page.
 
 1. Move relevant entries from `Unreleased` into a dated version section in `CHANGELOG.md`.
 2. Update `version` in `package.json`; refresh `pnpm-lock.yaml` only when the complete dependency family is available from its registry.

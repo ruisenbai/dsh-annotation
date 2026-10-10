@@ -295,6 +295,7 @@ async function captureReleaseScreenshots(page, request) {
   await page.screenshot({ path: join(artifacts, 'release-editor.png'), fullPage: true })
   await editor.getByRole('button', { name: '保存', exact: true }).click()
   await editor.waitFor({ state: 'hidden' })
+  await page.locator('[role="alert"][data-dsh-annotation-toast]').last().waitFor({ state: 'hidden' })
   await page.locator('.dia-marker').first().click()
   await page.locator('.dia-record-editor--detail').waitFor()
   await page.screenshot({ path: join(artifacts, 'release-bubble.png'), fullPage: true })
@@ -314,12 +315,14 @@ async function captureReleaseScreenshots(page, request) {
   await page.locator('.dia-composer-chip').waitFor({ state: 'hidden' })
   await page.locator('.dia-user-submission').waitFor()
   await page.getByText('已补充判断依据和一个具体例子。', { exact: false }).last().waitFor()
+  await page.locator('[role="alert"][data-dsh-annotation-toast]').last().waitFor({ state: 'hidden' })
   await page.screenshot({ path: join(artifacts, 'release-sent.png'), fullPage: true })
 
   await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
   const sent = page.locator('.dia-record-row').filter({ hasText: note })
   await sent.getByRole('button', { name: '重新随消息发送', exact: true }).click()
   await page.locator('.dia-composer-chip').waitFor()
+  await page.locator('[role="alert"][data-dsh-annotation-toast]').last().waitFor({ state: 'hidden' })
   await page.screenshot({ path: join(artifacts, 'release-reattach.png'), fullPage: true })
 }
 

@@ -1,12 +1,6 @@
 /** Test-only IPC observer and deterministic provider loaded by the official profile's Loader. */
-import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import {
-  LlmAdapter,
-  createAssistantMessage,
-  createToolResultMessage,
-  createUserMessage,
-} from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 
 export const inject = [
   'pluginManager',
@@ -38,7 +32,20 @@ class FixtureAdapter extends LlmAdapter {
     this.requests.push(options.messages)
     const lastUser = options.messages.findLast((message) => message.role === 'user')
     const officialTurn = this.onOfficialTurn !== undefined
-    if (officialTurn) await this.onOfficialTurn?.()
+    const call = this.onOfficialTurn?.()
+    if (call !== undefined) {
+      yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+      yield {
+        type: 'tool-call-delta',
+        index: 0,
+        id: call.id,
+        name: call.name,
+        argumentsDelta: call.arguments,
+      }
+      yield { type: 'block-end', index: 0, block: call }
+      yield { type: 'finish', reason: { kind: 'tool-calls' } }
+      return
+    }
     const releaseBatch =
       lastUser?.source?.annotationSubmission?.sessionId === 'annotation-release-showcase'
         ? lastUser.source.annotationSubmission
@@ -201,55 +208,26 @@ export function apply(ctx) {
         setup: (scope) => ctx.agentPresets.mount(scope, 'standard').then(() => undefined),
       })
       officialHandle = handle
-      adapter.onOfficialTurn = async () => {
-        const session = handle.agent.session
-        const turn = session.snapshotEvents().findLast((event) => event.type === 'turn/start')?.data.turn
-        if (turn === undefined) throw new Error('Official source turn has not started')
-        const callId = 'official-source-write'
-        const name = 'write'
-        const args = {
-          file_path: join(process.cwd(), 'notes.md'),
-          content: '# Local review notes\nA changed line.\n',
-        }
-        await ctx.waterfall('tools/pre-execute', { agent: { session }, name, arguments: args }, () =>
-          Promise.resolve(undefined),
-        )
-        await writeFile(args.file_path, args.content)
-        const serialized = JSON.stringify(args)
-        session.append(
-          'assistant/message',
-          {
-            stream: [],
-            turn,
-            step: 1,
-            message: createAssistantMessage({
-              content: [{ type: 'tool-call', id: callId, name, arguments: serialized }],
-              source: { provider: 'annotation-fixture', model: 'fixture' },
-            }),
-          },
-          { surfaceOp: 'append' },
-        )
-        const call = session.append('tool/call', {
-          turn,
-          step: 1,
-          callId,
-          name,
-          arguments: serialized,
-        })
-        session.append(
-          'tool/result',
-          {
-            turn,
-            step: 1,
-            message: createToolResultMessage({
-              callId,
-              content: [{ type: 'text', text: 'ok' }],
-              isError: false,
-            }),
-          },
-          { surfaceOp: 'append', sourceEventSeqs: [call.seq] },
-        )
-      }
+      const callId = ToolCallId('official-source-write')
+      const filePath = join(process.cwd(), 'notes.md')
+      const calls = [
+        {
+          type: 'tool-call',
+          id: ToolCallId('official-source-read'),
+          name: 'read',
+          arguments: JSON.stringify({ file_path: filePath }),
+        },
+        {
+          type: 'tool-call',
+          id: callId,
+          name: 'write',
+          arguments: JSON.stringify({
+            file_path: filePath,
+            content: '# Local review notes\nA changed line.\n',
+          }),
+        },
+      ]
+      adapter.onOfficialTurn = () => calls.shift()
       try {
         handle.agent.followup(
           createUserMessage({
@@ -258,10 +236,12 @@ export function apply(ctx) {
           }),
         )
         await handle.agent.whenIdle()
-        await ctx.waterfall('tools/pre-execute', { agent: { session: handle.agent.session } }, () =>
-          Promise.resolve(undefined),
-        )
         const events = handle.agent.session.snapshotEvents()
+        const writeResult = events.find(
+          (event) => event.type === 'tool/result' && event.data.message.toolCallId === callId,
+        )?.data.message
+        if (writeResult === undefined || writeResult.isError)
+          throw new Error(`Official write tool failed: ${JSON.stringify(writeResult)}`)
         const announcement = events.findLast((event) => event.type === 'workspace/changes')
         if (announcement === undefined)
           throw new Error(
