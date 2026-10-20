@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import { assertUserMessageAlignment } from './profile-user-alignment.mjs'
 
 /**
  * Exercise selection, composer geometry, and submission against the installed interface plugin.
@@ -18,6 +19,7 @@ export async function exerciseCodexUi(page, { request, url, artifacts }) {
   await page.locator('html[data-dsh-annotation-compatibility="codex-ui"]').waitFor({ state: 'attached' })
   const body = page.locator('.dia-assistant__body').first()
   await body.getByText('Selected source needs clarification.', { exact: false }).waitFor()
+  await assertUserMessageAlignment(page, 'Codex UI initial plain and annotated messages')
   await body.evaluate((element) => {
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
     const quote = 'needs clarification.'
@@ -47,6 +49,7 @@ export async function exerciseCodexUi(page, { request, url, artifacts }) {
         (dark) => document.body.hasAttribute('data-ds-dark-theme') === dark,
         colorScheme === 'dark',
       )
+      await assertUserMessageAlignment(page, `Codex UI ${width}px ${colorScheme}`)
       await page.waitForFunction(() => {
         const editor = document.querySelector('.dia-record-editor--quick')
         const rect = editor.getBoundingClientRect()
@@ -196,6 +199,14 @@ export async function exerciseCodexUi(page, { request, url, artifacts }) {
     fullPage: true,
   })
   console.log('PASS Codex UI reload, official composer submission, durable log, and model input agree')
+  const plainText = '普通消息发送后保持靠右。'
+  await composer.fill(plainText)
+  await page.getByRole('button', { name: '发送消息', exact: true }).click()
+  await page.locator('[data-chat-flow-kind="user"]').getByText(plainText, { exact: true }).waitFor()
+  await assertUserMessageAlignment(page, 'Codex UI ordinary composer submission')
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.locator('[data-chat-flow-kind="user"]').getByText(plainText, { exact: true }).waitFor()
+  await assertUserMessageAlignment(page, 'Codex UI ordinary message after reload')
   await page.getByRole('button', { name: '账号菜单', exact: true }).click()
   await page.getByRole('menuitem', { name: '设置', exact: true }).click()
   await page.getByRole('button', { name: '注解', exact: true }).click()
@@ -222,4 +233,24 @@ export async function exerciseCodexUi(page, { request, url, artifacts }) {
     }
   }
   console.log('PASS Codex UI settings retains the annotation controls in both widths/themes')
+  for (const enabled of [false, true]) {
+    await settings.getByRole('switch', { name: '启用 DSH 注解', exact: true }).click()
+    await settings.getByRole('button', { name: '保存', exact: true }).click()
+    await settings.getByText('未保存', { exact: true }).waitFor({ state: 'hidden' })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('[data-chat-flow-kind="user"]').getByText(plainText, { exact: true }).waitFor()
+    await page
+      .locator('.dia-user-submission')
+      .first()
+      .waitFor({ state: enabled ? 'visible' : 'hidden' })
+    await assertUserMessageAlignment(page, `Codex UI annotations ${enabled ? 'enabled' : 'disabled'}`)
+    await page.screenshot({ path: join(artifacts, `codex-ui-message-alignment-${enabled}.png`) })
+    if (!enabled) {
+      await page.getByRole('button', { name: '账号菜单', exact: true }).click()
+      await page.getByRole('menuitem', { name: '设置', exact: true }).click()
+      await page.getByRole('button', { name: '注解', exact: true }).click()
+      await settings.waitFor()
+    }
+  }
+  console.log('PASS ordinary and annotated messages stay right-aligned after send, reload, and toggling')
 }

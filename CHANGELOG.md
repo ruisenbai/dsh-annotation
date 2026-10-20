@@ -4,6 +4,16 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-10-20
+
+Target host: DeepSeek Harness `0.2.1-rc.2`; minimum Host `>=0.2.1-rc.2`.
+
+### Fixed
+
+- Keep user and steering messages right-aligned when a submitted message replaces its temporary echo, including ordinary messages and annotation submissions with Codex UI enabled.
+
+Annotation protocol v5 and browser storage v6 retain their existing formats.
+
 ## [1.1.4] - 2026-10-20
 
 Target host: DeepSeek Harness `0.2.1-rc.2`; minimum Host `>=0.2.1-rc.2`.

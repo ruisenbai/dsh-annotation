@@ -1816,10 +1816,11 @@ button.dia-group__heading:focus-visible {
   align-self: start;
 }
 
-.dia-user-submission {
+.dia-user-row {
   display: flex;
   width: 100%;
   flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
 }
 

@@ -11,6 +11,7 @@ import { exerciseLegacyDiffHistory } from './profile-legacy-diff.mjs'
 import { measureRecordPerformance } from './profile-record-performance.mjs'
 import { assertMarkerMaterial, captureMarker } from './marker-material.mjs'
 import { exerciseCodexUi } from './profile-codex-ui.mjs'
+import { assertUserMessageAlignment } from './profile-user-alignment.mjs'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
 const codexUiArgument = process.argv.indexOf('--codex-ui')
@@ -653,6 +654,7 @@ try {
       .getByText('Selected source needs clarification.', { exact: false })
       .waitFor()
     const submissionCard = page.locator('.dia-user-submission')
+    await assertUserMessageAlignment(page, 'Host plain and annotated messages')
     await submissionCard.getByRole('button', { name: '1 条注释，双击定位原文', exact: true }).waitFor()
     const conversation = `# Assistant\n${await page.locator('.dia-assistant__body').first().ariaSnapshot()}\n\n# Annotation submission\n${await submissionCard.ariaSnapshot()}\n`
     await mkdir(artifacts, { recursive: true })
