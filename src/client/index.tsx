@@ -85,6 +85,7 @@ import type { FileAnnotationSource, OfficialDiffAnnotationSource } from '../shar
 import { compactFileSource, compactOfficialDiffSource } from './official-adapters.ts'
 import { createDiffReviewAction, installDiffIntegration } from './diff-integration.tsx'
 import { AnnotationNoticeHub, AnnotationToastHost } from './notice.tsx'
+import { installCodexUiCompatibility } from './codex-ui-compatibility.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-sidebar-right/client' {
   interface SidebarRightResourceParamsMap {
@@ -246,6 +247,17 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     document.head.append(style)
     return () => style.remove()
   }, 'dsh-annotation: styles')
+  ctx.effect(
+    () =>
+      installCodexUiCompatibility(
+        {
+          entries: (name) => ctx.slots.entries(name),
+          subscribe: (listener) => ctx.on('slots/changed', listener),
+        },
+        document.documentElement,
+      ),
+    'dsh-annotation: Codex UI compatibility',
+  )
 
   // dsh-focus-chat 可选兼容：未安装时保持被动，适配失败不影响核心功能。
   const focusAdapter = createFocusChatAdapter()
@@ -885,11 +897,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     // unclaimed token, or an exit from our slash-command release. A manual
     // detach stays detached until the user (or auto-attach) arms it again.
     if (state.claim?.token !== COMPOSER_ATTACHMENT_TOKEN) {
-      if (
-        state.draft.startsWith(COMPOSER_ATTACHMENT_TOKEN) ||
-        commandReleased ||
-        autoAttachEnabled.getSnapshot()
-      ) {
+      if (hasComposerAttachment(state) || commandReleased || autoAttachEnabled.getSnapshot()) {
         ensureComposerAttachment(sessionId)
       }
     }

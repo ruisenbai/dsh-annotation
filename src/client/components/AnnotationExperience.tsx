@@ -144,11 +144,12 @@ export function AnnotationComposerChip({
   t,
 }: ControlProps) {
   const view = useAnnotations((state) => state)
-  const [preview, setPreview] = useState(false)
   const items = selectedAnnotations(view)
   const hasItems = items.length > 0
-  useEffect(() => {
-    if (!hasItems) setPreview(false)
+  const chipRef = useRef<HTMLDivElement>(null)
+  const composerRef = useRef<HTMLElement | null>(null)
+  useLayoutEffect(() => {
+    composerRef.current = chipRef.current?.closest<HTMLElement>('[data-composer-card]') ?? null
   }, [hasItems])
   const busy =
     items.some((item) => item.status === 'queued') ||
@@ -163,29 +164,29 @@ export function AnnotationComposerChip({
     )
   if (!hasItems) return null
   return (
-    <div
-      className="dia-composer-chip"
-      onPointerEnter={() => setPreview(true)}
-      onPointerLeave={() => setPreview(false)}
-      onFocus={() => setPreview(true)}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setPreview(false)
-      }}
-    >
-      <button
-        type="button"
-        className="dia-composer-chip__main"
-        aria-label={t('record.openAttached', { count: items.length })}
-        onClick={() => {
-          setPreview(false)
-          if (!view.panelOpen) setPanelOpen(true)
-          else setRecordExpanded(!view.recordExpanded)
-        }}
-      >
-        <IconPaperclipOutlineRegular size={16} />
-        <span>{t('record.attachedCount', { count: items.length })}</span>
-      </button>
-      <span className="dia-composer-chip__actions" data-expanded={preview}>
+    <div ref={chipRef} className="dia-composer-chip">
+      <HoverCard
+        inline
+        variant="preview"
+        widthAnchorRef={composerRef}
+        openDelayMs={0}
+        anchor={
+          <button
+            type="button"
+            className="dia-composer-chip__main"
+            aria-label={t('record.openAttached', { count: items.length })}
+            onClick={() => {
+              if (!view.panelOpen) setPanelOpen(true)
+              else setRecordExpanded(!view.recordExpanded)
+            }}
+          >
+            <IconPaperclipOutlineRegular size={16} />
+            <span>{t('record.attachedCount', { count: items.length })}</span>
+          </button>
+        }
+        content={<AttachmentPreview items={items} t={t} />}
+      />
+      <span className="dia-composer-chip__actions">
         <Tooltip label={t('record.trashAttached')} side="top" delayMs={350}>
           <button
             type="button"
@@ -216,7 +217,6 @@ export function AnnotationComposerChip({
           </button>
         </Tooltip>
       </span>
-      {preview && <AttachmentPreview items={items} t={t} />}
     </div>
   )
 }
@@ -241,7 +241,7 @@ function fitAnnotationTextarea(
 ): void {
   const scrollTop = element.scrollTop
   const availableHeight =
-    cardHeight === undefined ? annotationTextMaximumHeight : cardHeight - (quick ? 16 : 51)
+    cardHeight === undefined ? annotationTextMaximumHeight : cardHeight - (quick ? 16 : 58)
   const cap = Math.min(annotationTextMaximumHeight, Math.max(annotationTextMinimumHeight, availableHeight))
   element.style.maxHeight = `${cap}px`
   element.style.height = `${annotationTextMinimumHeight}px`
@@ -511,19 +511,24 @@ function AnnotationEditor({
             <IconTrashOutlineRegular size={15} />
           </IconAction>
           <span className="dia-record-editor__footer-right">
-            <button type="button" onClick={() => actions.closeEditor(true)}>
+            <Button size="sm" type="button" onClick={() => actions.closeEditor(true)}>
               {t('editor.cancel')}
-            </button>
-            <button type="button" onClick={save} disabled={submitting}>
+            </Button>
+            <Button size="sm" variant="primary" type="button" onClick={save} disabled={submitting}>
               {t('editor.save')}
-            </button>
+            </Button>
           </span>
         </div>
       )}
       {editor.longSelectionConfirmed === false && (
-        <button type="button" className="dia-record-editor__confirm" onClick={actions.confirmLongSelection}>
+        <Button
+          size="sm"
+          type="button"
+          className="dia-record-editor__confirm"
+          onClick={actions.confirmLongSelection}
+        >
           {t('editor.confirmLong')}
-        </button>
+        </Button>
       )}
       {error && (
         <p className="dia-record-editor__error" role="alert">
@@ -608,9 +613,9 @@ function SentAnnotationCard({
           <IconPaperclipOutlineRegular size={15} />
         </IconAction>
         <span className="dia-record-editor__footer-right">
-          <button type="button" onClick={() => actions.openAnnotation(item.annotationId, 'marker')}>
+          <Button size="sm" type="button" onClick={() => actions.openAnnotation(item.annotationId, 'marker')}>
             {t('editor.cancel')}
-          </button>
+          </Button>
         </span>
       </div>
     </section>,

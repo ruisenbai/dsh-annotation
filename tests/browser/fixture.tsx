@@ -86,6 +86,15 @@ const fixtureTokens = `
 :root {
   color-scheme: light dark;
   --dsw-font-family: system-ui, sans-serif;
+  --dsw-radius-xs: 4px;
+  --dsw-radius-sm: 8px;
+  --dsw-radius-md: 12px;
+  --dsw-radius-lg: 16px;
+  --dsw-radius-xl: 20px;
+  --dsw-radius-panel: 28px;
+  --dsw-alias-settings-card-fill: var(--dsw-alias-bg-layer-2);
+  --dsw-alias-settings-card-stroke: var(--dsw-alias-border-l2);
+  --dsw-specific-input-major: var(--dsw-alias-bg-layer-2);
   --ds-font-family-code: ui-monospace, SFMono-Regular, Consolas;
   --dsw-static-neutral-bluish-00: #ffffff;
   --dsw-alias-bg-base: #ffffff;
@@ -127,6 +136,7 @@ const fixtureTokens = `
   --dsw-alias-scrollbar-hover-l2: #aeb9c1;
   --dsw-specific-tip: var(--dsw-alias-bg-layer-2);
   --dsw-specific-menu: rgba(248, 249, 250, 0.58);
+  --dsw-menu-surface-fill: var(--dsw-specific-menu);
   --dsw-specific-selector: rgb(249, 250, 251);
   --dsw-alias-interactive-bg-hover-solid: rgb(241, 243, 245);
   --dsw-menu-backdrop-filter: blur(40px) saturate(150%);

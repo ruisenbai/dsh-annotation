@@ -1,6 +1,6 @@
 /** Main-Settings section for Host-backed annotation settings. */
 
-import { Switch, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Switch, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   InjectFace,
   PropsLocale,
@@ -66,14 +66,16 @@ export function AnnotationPluginCard(props: AnnotationPluginCardProps) {
             {state.overridden ? (
               <span className="dia-plugin-card__field-actions">
                 <Tag tone="neutral">{props.t('settings.overridden')}</Tag>
-                <button
+                <Button
                   type="button"
+                  size="sm"
+                  variant="ghost"
                   className="dia-plugin-card__reset"
                   disabled={!state.writable || state.saving}
                   onClick={props.resetEnabled}
                 >
                   {props.t('settings.reset')}
-                </button>
+                </Button>
               </span>
             ) : null}
           </div>
@@ -97,14 +99,16 @@ export function AnnotationPluginCard(props: AnnotationPluginCardProps) {
             {state.officialFileAnnotationsOverridden ? (
               <span className="dia-plugin-card__field-actions">
                 <Tag tone="neutral">{props.t('settings.overridden')}</Tag>
-                <button
+                <Button
                   type="button"
+                  size="sm"
+                  variant="ghost"
                   className="dia-plugin-card__reset"
                   disabled={!state.writable || state.saving}
                   onClick={props.resetOfficialFileAnnotations}
                 >
                   {props.t('settings.reset')}
-                </button>
+                </Button>
               </span>
             ) : null}
           </div>
@@ -128,14 +132,16 @@ export function AnnotationPluginCard(props: AnnotationPluginCardProps) {
             {state.officialDiffAnnotationsOverridden ? (
               <span className="dia-plugin-card__field-actions">
                 <Tag tone="neutral">{props.t('settings.overridden')}</Tag>
-                <button
+                <Button
                   type="button"
+                  size="sm"
+                  variant="ghost"
                   className="dia-plugin-card__reset"
                   disabled={!state.writable || state.saving}
                   onClick={props.resetOfficialDiffAnnotations}
                 >
                   {props.t('settings.reset')}
-                </button>
+                </Button>
               </span>
             ) : null}
           </div>
@@ -159,14 +165,16 @@ export function AnnotationPluginCard(props: AnnotationPluginCardProps) {
             {state.autoAttachOverridden ? (
               <span className="dia-plugin-card__field-actions">
                 <Tag tone="neutral">{props.t('settings.overridden')}</Tag>
-                <button
+                <Button
                   type="button"
+                  size="sm"
+                  variant="ghost"
                   className="dia-plugin-card__reset"
                   disabled={!state.writable || state.saving}
                   onClick={props.resetAutoAttach}
                 >
                   {props.t('settings.reset')}
-                </button>
+                </Button>
               </span>
             ) : null}
           </div>
@@ -218,33 +226,59 @@ export function AnnotationPluginCard(props: AnnotationPluginCardProps) {
           ) : null}
           <div className="dia-plugin-card__market-actions">
             {market.phase === 'available' ? (
-              <button type="button" className="dia-plugin-card__save" onClick={() => props.installUpdate()}>
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                className="dia-plugin-card__save"
+                onClick={() => props.installUpdate()}
+              >
                 {props.t('settings.installUpdate')}
-              </button>
+              </Button>
             ) : null}
             {market.forceAllowed ? (
-              <button
+              <Button
                 type="button"
+                size="sm"
+                variant="primary"
                 className="dia-plugin-card__save"
                 onClick={() => props.installUpdate(true)}
               >
                 {props.t('settings.forceUpdate')}
-              </button>
+              </Button>
             ) : null}
             {market.rollbackAvailable ? (
-              <button type="button" className="dia-plugin-card__discard" onClick={props.rollbackUpdate}>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="dia-plugin-card__discard"
+                onClick={props.rollbackUpdate}
+              >
                 {props.t('settings.rollback')}
-              </button>
+              </Button>
             ) : null}
             {market.refreshRequired ? (
-              <button type="button" className="dia-plugin-card__save" onClick={props.refreshClient}>
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                className="dia-plugin-card__save"
+                onClick={props.refreshClient}
+              >
                 {props.t('settings.refresh')}
-              </button>
+              </Button>
             ) : null}
             {market.restartRequired && market.restartSupported ? (
-              <button type="button" className="dia-plugin-card__save" onClick={props.restartHost}>
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                className="dia-plugin-card__save"
+                onClick={props.restartHost}
+              >
                 {props.t('settings.restart')}
-              </button>
+              </Button>
             ) : null}
             {market.restartRequired && !market.restartSupported ? (
               <span className="dia-plugin-card__hint">{props.t('settings.restartManaged')}</span>
@@ -253,9 +287,15 @@ export function AnnotationPluginCard(props: AnnotationPluginCardProps) {
             market.phase !== 'rolling-back' &&
             market.phase !== 'restarting' &&
             market.phase !== 'available' ? (
-              <button type="button" className="dia-plugin-card__discard" onClick={props.checkUpdate}>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="dia-plugin-card__discard"
+                onClick={props.checkUpdate}
+              >
                 {props.t(market.phase === 'idle' ? 'settings.checkUpdate' : 'settings.checkAgain')}
-              </button>
+              </Button>
             ) : null}
           </div>
         </div>
@@ -265,22 +305,26 @@ export function AnnotationPluginCard(props: AnnotationPluginCardProps) {
               {props.t('settings.saveFailed')}
             </p>
           ) : null}
-          <button
+          <Button
             type="button"
+            size="sm"
+            variant="outline"
             className="dia-plugin-card__discard"
             disabled={!state.dirty || state.saving}
             onClick={props.discard}
           >
             {props.t('settings.discard')}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="sm"
+            variant="primary"
             className="dia-plugin-card__save"
             disabled={!state.writable || !state.dirty || state.saving}
             onClick={props.save}
           >
             {props.t(state.saving ? 'settings.saving' : 'settings.save')}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

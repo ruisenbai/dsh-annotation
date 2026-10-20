@@ -491,7 +491,7 @@ async function inspectVariant(browser, base, variant) {
         chipLayout.clearOfInput,
       `The count chip must align with official composer buttons without covering text: ${JSON.stringify(chipLayout)}`,
     )
-    await chip.hover()
+    await chip.locator('.dia-composer-chip__main').hover()
     await page.waitForFunction(
       () => parseFloat(getComputedStyle(document.querySelector('.dia-composer-chip__actions')).opacity) === 1,
     )
@@ -501,8 +501,17 @@ async function inspectVariant(browser, base, variant) {
       openChip && chipCard && openChip.x + openChip.width <= chipCard.x + chipCard.width - 7,
       'Revealing the detach control must remain inside the composer',
     )
-    await chip.locator('.dia-composer-chip__preview').waitFor()
-    assert((await chip.textContent()).includes('First saved note'), 'Hover must preview attached notes')
+    const chipPreview = page.locator('.dia-composer-chip__preview')
+    await chipPreview.waitFor()
+    assert(
+      (await chipPreview.textContent()).includes('First saved note'),
+      'Hover must preview attached notes',
+    )
+    const previewBounds = await chipPreview.locator('..').boundingBox()
+    assert(
+      previewBounds && previewBounds.x >= 0 && previewBounds.x + previewBounds.width <= variant.width,
+      `The attached-note preview must fit the viewport: ${JSON.stringify(previewBounds)}`,
+    )
     await page.screenshot({ path: join(artifacts, `chip-${variant.name}.png`), fullPage: true })
     await page.mouse.move(0, 0)
     await page.waitForFunction(
@@ -529,7 +538,7 @@ async function inspectVariant(browser, base, variant) {
     await toggle.click()
     for (let index = 0; index < 3; index += 1) {
       await page.mouse.move(0, 0)
-      await chip.locator('.dia-composer-chip__preview').waitFor({ state: 'hidden' })
+      await chipPreview.waitFor({ state: 'hidden' })
       await page
         .locator('.dia-record')
         .getByRole('button', { name: 'Send with message', exact: true })
@@ -598,13 +607,14 @@ async function inspectVariant(browser, base, variant) {
         blur: style.backdropFilter,
         shadow: style.boxShadow,
         radius: style.borderRadius,
+        taskRadius: style.getPropertyValue('--dsw-radius-lg').trim(),
       }
     })
     assert(
       material.background === material.officialMenu &&
         material.backgroundImage === 'none' &&
         material.blur.includes('blur(40px)') &&
-        material.radius === '12px' &&
+        material.radius === material.taskRadius &&
         material.shadow !== 'none',
       `The record must match the official task panel material: ${JSON.stringify(material)}`,
     )

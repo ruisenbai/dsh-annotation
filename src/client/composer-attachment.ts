@@ -6,14 +6,20 @@ import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/clie
 type SessionInput = ReturnType<IConversation['input']['for']>
 type InputState = ReturnType<SessionInput['state']['getSnapshot']>
 
-/** Invisible non-whitespace prefix that arms the official composer input machine. */
-export const COMPOSER_ATTACHMENT_TOKEN = '\u200B'
+/** Hidden command prefix accepted by the Host's persisted slash-command draft parser. */
+export const COMPOSER_ATTACHMENT_TOKEN = '/annotation-attachment'
+const LEGACY_ATTACHMENT_TOKEN = '\u200B'
 /** Legacy invisible text seat, retained only to read drafts saved by older releases. */
 export const COMPOSER_TEXT_SEAT = '\u2060'
 
 /** Whether one input snapshot carries this plugin's armed attachment. */
 export function hasComposerAttachment(input: InputState): boolean {
-  return input.claim?.token === COMPOSER_ATTACHMENT_TOKEN || input.draft.startsWith(COMPOSER_ATTACHMENT_TOKEN)
+  return input.claim?.token === COMPOSER_ATTACHMENT_TOKEN || attachmentPrefixLength(input.draft) > 0
+}
+
+function attachmentPrefixLength(text: string): number {
+  if (text.startsWith(COMPOSER_ATTACHMENT_TOKEN)) return COMPOSER_ATTACHMENT_TOKEN.length
+  return text.startsWith(LEGACY_ATTACHMENT_TOKEN) ? LEGACY_ATTACHMENT_TOKEN.length : 0
 }
 
 /** Visible composer text with this plugin's invisible claim prefix removed. */
@@ -28,9 +34,7 @@ export function isSlashCommandLine(input: InputState): boolean {
 
 /** Strip this plugin's claim token and optional invisible text seat from composer text or claim arguments. */
 export function stripComposerToken(text: string): string {
-  const withoutToken = text.startsWith(COMPOSER_ATTACHMENT_TOKEN)
-    ? text.slice(COMPOSER_ATTACHMENT_TOKEN.length)
-    : text
+  const withoutToken = text.slice(attachmentPrefixLength(text))
   return withoutToken.startsWith(COMPOSER_TEXT_SEAT)
     ? withoutToken.slice(COMPOSER_TEXT_SEAT.length)
     : withoutToken
@@ -40,10 +44,9 @@ export function stripComposerToken(text: string): string {
 export function attachComposer(actx: ClientContext, input: SessionInput, claim: CommandClaim): boolean {
   const state = input.state.getSnapshot()
   if (state.phase !== 'plain') return false
-  const existingToken = state.draft.startsWith(COMPOSER_ATTACHMENT_TOKEN)
   const span = {
     start: 0,
-    end: existingToken ? COMPOSER_ATTACHMENT_TOKEN.length : 0,
+    end: attachmentPrefixLength(state.draft),
     draftRev: state.draftRev,
   }
   return actx.bail(actx, 'slash/input-begin-command', { claim, span }) === true
@@ -52,13 +55,11 @@ export function attachComposer(actx: ClientContext, input: SessionInput, claim: 
 /** Remove this plugin's claim token while retaining the user's composer text and references. */
 export function detachComposer(actx: ClientContext, input: SessionInput): boolean {
   const state = input.state.getSnapshot()
-  if (!state.draft.startsWith(COMPOSER_ATTACHMENT_TOKEN))
-    return state.claim?.token !== COMPOSER_ATTACHMENT_TOKEN
+  const tokenLength = attachmentPrefixLength(state.draft)
+  if (tokenLength === 0) return state.claim?.token !== COMPOSER_ATTACHMENT_TOKEN
   const prefixLength =
-    COMPOSER_ATTACHMENT_TOKEN.length +
-    (state.draft.slice(COMPOSER_ATTACHMENT_TOKEN.length).startsWith(COMPOSER_TEXT_SEAT)
-      ? COMPOSER_TEXT_SEAT.length
-      : 0)
+    tokenLength +
+    (state.draft.slice(tokenLength).startsWith(COMPOSER_TEXT_SEAT) ? COMPOSER_TEXT_SEAT.length : 0)
   if (state.phase === 'plain') {
     input.setDraft(state.draft.slice(prefixLength))
     return true

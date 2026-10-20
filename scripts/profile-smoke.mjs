@@ -3,16 +3,26 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import { createSessionFormatCatalogWithChildren } from '@deepseek-ai/dsh-session-format-catalog'
 import { exerciseLegacyDiffHistory } from './profile-legacy-diff.mjs'
 import { measureRecordPerformance } from './profile-record-performance.mjs'
 import { assertMarkerMaterial, captureMarker } from './marker-material.mjs'
+import { exerciseCodexUi } from './profile-codex-ui.mjs'
+import { assertUserMessageAlignment } from './profile-user-alignment.mjs'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
-const artifacts = join(project, 'artifacts/browser')
+const codexUiArgument = process.argv.indexOf('--codex-ui')
+const codexUiPath = codexUiArgument === -1 ? undefined : process.argv[codexUiArgument + 1]
+if (codexUiArgument !== -1) {
+  assert.ok(
+    codexUiPath && isAbsolute(codexUiPath),
+    '--codex-ui requires an absolute installed package directory',
+  )
+}
+const artifacts = join(project, 'artifacts/browser', codexUiPath === undefined ? '' : 'codex-ui')
 const cliManifestPath = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh/package.json'))
 const cliManifest = JSON.parse(await readFile(cliManifestPath, 'utf8'))
 const baseline = JSON.parse(await readFile(join(project, 'source-baseline.json'), 'utf8'))
@@ -349,13 +359,33 @@ try {
   await writeFile(archivePath, archivedPreferences)
   // A local linked bundle exercises the published manifest/patch and built dual-face entries.
   await symlink(project, join(profile, 'node_modules/dsh-annotation'), 'junction')
+  if (codexUiPath !== undefined) {
+    const manifest = JSON.parse(await readFile(join(codexUiPath, 'package.json'), 'utf8'))
+    assert.equal(manifest.name, '@michengai/dsh-codex-ui')
+    await access(join(codexUiPath, 'lib/client.js'))
+    await mkdir(join(profile, 'node_modules/@michengai'), { recursive: true })
+    await symlink(codexUiPath, join(profile, 'node_modules/@michengai/dsh-codex-ui'), 'junction')
+    console.log(`Testing installed Codex UI ${manifest.version}`)
+  }
   await writeFile(
     join(profile, 'package.json'),
     JSON.stringify({
       name: 'dsh-profile-web',
       private: true,
-      dependencies: { 'dsh-annotation': `link:${project}` },
-      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-annotation'] } },
+      dependencies: {
+        'dsh-annotation': `link:${project}`,
+        ...(codexUiPath === undefined ? {} : { '@michengai/dsh-codex-ui': `link:${codexUiPath}` }),
+      },
+      dsh: {
+        profile: {
+          bundles: [
+            '@deepseek-ai/dsh-base',
+            '@deepseek-ai/dsh-web-app',
+            'dsh-annotation',
+            ...(codexUiPath === undefined ? [] : ['@michengai/dsh-codex-ui']),
+          ],
+        },
+      },
     }),
   )
   const patch = join(root, 'observer.patch.yml')
@@ -369,6 +399,7 @@ try {
         }),
       ),
       { id: 'agent-default-model', config: { provider: 'annotation-fixture', model: 'fixture' } },
+      ...(codexUiPath === undefined ? [] : [{ id: 'michengai-codex-ui-session-title', disabled: true }]),
       {
         insert: [
           { id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' },
@@ -480,9 +511,14 @@ try {
     throw error
   }
   console.log('PASS built Client plugin activates in the real Web GUI')
+  if (codexUiPath === undefined) {
+    assert.equal(await page.locator('html').getAttribute('data-dsh-annotation-compatibility'), null)
+  }
   const continueFromPreviewNotice = page.getByRole('button', { name: '继续', exact: true })
   if (await continueFromPreviewNotice.isVisible()) await continueFromPreviewNotice.click()
-  if (process.argv.includes('--record-perf-only')) {
+  if (codexUiPath !== undefined) {
+    await exerciseCodexUi(page, { request, url: initial.url, artifacts })
+  } else if (process.argv.includes('--record-perf-only')) {
     await request('submit')
     const replay = await readingReplay(workspace)
     assertRecordedSession(
@@ -618,6 +654,7 @@ try {
       .getByText('Selected source needs clarification.', { exact: false })
       .waitFor()
     const submissionCard = page.locator('.dia-user-submission')
+    await assertUserMessageAlignment(page, 'Host plain and annotated messages')
     await submissionCard.getByRole('button', { name: '1 条注释，双击定位原文', exact: true }).waitFor()
     const conversation = `# Assistant\n${await page.locator('.dia-assistant__body').first().ariaSnapshot()}\n\n# Annotation submission\n${await submissionCard.ariaSnapshot()}\n`
     await mkdir(artifacts, { recursive: true })
@@ -969,7 +1006,11 @@ try {
     await page.screenshot({ path: join(artifacts, 'attachment-identity-profile.png'), fullPage: true })
     console.log('PASS the real Web conversation displays the identity-verified image submission')
   }
-  if (!process.argv.includes('--official-only') && !process.argv.includes('--record-perf-only')) {
+  if (
+    codexUiPath === undefined &&
+    !process.argv.includes('--official-only') &&
+    !process.argv.includes('--record-perf-only')
+  ) {
     await exerciseLegacyDiffHistory(page, {
       request,
       readRecordedReplay,
@@ -979,7 +1020,11 @@ try {
       artifacts,
     })
   }
-  if (!process.argv.includes('--legacy-diff-only') && !process.argv.includes('--record-perf-only')) {
+  if (
+    codexUiPath === undefined &&
+    !process.argv.includes('--legacy-diff-only') &&
+    !process.argv.includes('--record-perf-only')
+  ) {
     await mkdir(artifacts, { recursive: true })
     if (process.argv.includes('--official-only')) await request('submit')
     const official = await request('official-source-session')

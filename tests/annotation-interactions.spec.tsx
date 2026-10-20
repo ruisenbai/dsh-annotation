@@ -313,6 +313,7 @@ describe('annotation record and composer interactions', () => {
   })
 
   it('derives source filters from all records and adds the file label only in the view', () => {
+    vi.useFakeTimers()
     const h = harness()
     const bodyId = h.save(0, 'Body note')
     act(() => {
@@ -354,7 +355,8 @@ describe('annotation record and composer interactions', () => {
       'true',
     )
     expect(within(record).getAllByRole('listitem')).toHaveLength(1)
-    fireEvent.pointerEnter(document.querySelector('.dia-composer-chip')!)
+    fireEvent.pointerEnter(screen.getByRole('button', { name: /Open annotation records/ }))
+    act(() => vi.advanceTimersByTime(1))
     expect(screen.getByRole('tooltip')).toHaveTextContent('File:hello')
     expect(h.controller.getSnapshot().annotations[1]?.quote.exact).toBe('hello')
     const selected = h.controller.getSnapshot().selectedAnnotationIds
@@ -423,6 +425,7 @@ describe('annotation record and composer interactions', () => {
   })
 
   it('previews the selected quote and note on the composer chip and opens the expanded record', () => {
+    vi.useFakeTimers()
     const h = harness()
     h.save(0, 'Clarify this point.')
     render(
@@ -432,7 +435,8 @@ describe('annotation record and composer interactions', () => {
       </>,
     )
     const chip = screen.getByRole('button', { name: /Open annotation records/ })
-    fireEvent.pointerEnter(chip.closest('.dia-composer-chip')!)
+    fireEvent.pointerEnter(chip)
+    act(() => vi.advanceTimersByTime(1))
     const preview = screen.getByRole('tooltip')
     expect(within(preview).getByText('source')).toBeInTheDocument()
     expect(within(preview).getByText('Clarify this point.')).toBeInTheDocument()
@@ -452,13 +456,18 @@ describe('annotation record and composer interactions', () => {
   it.each(['pointer', 'focus'] as const)(
     'closes the %s preview when the last note is detached before reattachment',
     (trigger) => {
+      vi.useFakeTimers()
       const h = harness()
       onTestFinished(() => h.controller.dispose())
       const id = h.save(0, 'Reattach this note.')
       render(<AnnotationComposerChip {...h.props} />)
       const chip = screen.getByRole('button', { name: /Open annotation records/ })
-      if (trigger === 'pointer') fireEvent.pointerEnter(chip.closest('.dia-composer-chip')!)
-      else fireEvent.focus(chip)
+      if (trigger === 'pointer') fireEvent.pointerEnter(chip)
+      else {
+        fireEvent.keyDown(document.body, { key: 'Tab' })
+        act(() => chip.focus())
+      }
+      act(() => vi.advanceTimersByTime(1))
       expect(screen.getByRole('tooltip')).toHaveTextContent('Reattach this note.')
 
       fireEvent.click(screen.getByRole('button', { name: 'Remove annotations from this message' }))
@@ -468,6 +477,7 @@ describe('annotation record and composer interactions', () => {
       expect(screen.queryByRole('tooltip')).toBeNull()
 
       fireEvent.pointerEnter(screen.getByRole('button', { name: /Open annotation records/ }).parentElement!)
+      act(() => vi.advanceTimersByTime(1))
       expect(screen.getByRole('tooltip')).toHaveTextContent('Reattach this note.')
     },
   )
@@ -646,13 +656,6 @@ describe('annotation record and composer interactions', () => {
     const second = h.save(20, 'Second note')
     render(<AnnotationComposerChip {...h.props} />)
     expect(screen.getByText('2 annotations')).toBeInTheDocument()
-    const chip = document.querySelector('.dia-composer-chip')!
-    const actions = chip.querySelector('.dia-composer-chip__actions')!
-    expect(actions).toHaveAttribute('data-expanded', 'false')
-    fireEvent.pointerEnter(chip)
-    expect(actions).toHaveAttribute('data-expanded', 'true')
-    fireEvent.pointerLeave(chip)
-    expect(actions).toHaveAttribute('data-expanded', 'false')
     fireEvent.click(screen.getByRole('button', { name: 'Remove annotations from this message' }))
     expect(h.actions.detachAnnotations).toHaveBeenCalledExactlyOnceWith([first, second])
     expect(h.controller.getSnapshot().annotations).toHaveLength(2)

@@ -11,7 +11,7 @@ English | [中文](README.zh.md)
 
 Select text in replies, diffs, or files → annotate → send with a message. Replies address each annotation in order, and source navigation makes notes easy to look up. A per-Session record keeps drafts, sent notes, and attachment state together. The plugin sends notes with the official composer's text, images, and files; unsent work stays in the current browser.
 
-**Version 1.1.3 requires DSH `>=0.2.1-rc.2`; verification targets `0.2.1-rc.2`.** See [upgrading](#upgrading) before updating an older Host.
+**Version 1.1.5 requires DSH `>=0.2.1-rc.2`; verification targets `0.2.1-rc.2`.** See [upgrading](#upgrading) before updating an older Host.
 
 ## Contents
 
@@ -30,7 +30,7 @@ Select text in replies, diffs, or files → annotate → send with a message. Re
 
 ## Install and upgrade
 
-The package is distributed through [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.3), not npm. In **dsh-market**, find `ruisenbai/dsh-annotation` under Sessions & Messages, then install or update it. The catalog uses the release's stable tarball alias; check the offered version and Host requirement before proceeding.
+The package is distributed through [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.5), not npm. In **dsh-market**, find `ruisenbai/dsh-annotation` under Sessions & Messages, then install or update it. The catalog uses the release's stable tarball alias; check the offered version and Host requirement before proceeding.
 
 ### Manual installation
 
@@ -38,25 +38,29 @@ Install the fixed release into your `web` profile:
 
 ```bash
 dsh --version
-dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.3/dsh-annotation.tgz
+dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.5/dsh-annotation.tgz
 dsh plugin --profile web why dsh-annotation
 ```
 
-The Host must satisfy `>=0.2.1-rc.2`; the final command must resolve `dsh-annotation@1.1.3`. For a custom profile, replace both occurrences of `web` with its name. Restart that profile's running Web Host, refresh the page, and check **Settings → Annotations**. Build instructions and executed verification results are in [Development](docs/development.md) and [Compatibility](docs/compatibility.md).
+The Host must satisfy `>=0.2.1-rc.2`; the final command must resolve `dsh-annotation@1.1.5`. For a custom profile, replace both occurrences of `web` with its name. Restart that profile's running Web Host, refresh the page, and check **Settings → Annotations**. Build instructions and executed verification results are in [Development](docs/development.md) and [Compatibility](docs/compatibility.md).
+
+When [Codex UI](https://github.com/MichengAI/dsh-codex-ui) is enabled, annotation compatibility activates automatically to keep attached notes clear of the input text. No setting is required; disabling Codex UI restores the standard layout. See [Codex UI compatibility](docs/compatibility.md#codex-ui).
+
+Annotation controls follow the Host's theme, rounded corners, and panel materials. Attached-note previews stay within the window, and narrow record panels place actions below the note text.
 
 ### Install with an AI agent
 
 Give an agent with terminal access this prompt:
 
 ```text
-Install dsh-annotation 1.1.3 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.1-rc.2 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.3/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.3. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
+Install dsh-annotation 1.1.5 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.1-rc.2 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.5/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.5. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
 ```
 
 <a id="upgrading"></a>
 
 ### Upgrading from 1.1.2
 
-Update the Host to `0.2.1-rc.2` before installing 1.1.3. Keep plugin 1.1.2 while using `0.2.1-alpha.2`, 1.1.1 on `0.2.1-alpha.1`, or 1.1.0 on the `0.2.0` family. Drafts, source bubbles, recycle-bin records, and frozen retries retain their existing data formats; do not clear browser storage as an upgrade step. The [upgrade guide](docs/upgrade-guide/v1.1.2/host-baseline/guide.md) ([中文](docs/upgrade-guide/v1.1.2/host-baseline/guide.zh.md)) gives the version checks.
+Update the Host to `0.2.1-rc.2` before installing 1.1.5. Keep plugin 1.1.2 while using `0.2.1-alpha.2`, 1.1.1 on `0.2.1-alpha.1`, or 1.1.0 on the `0.2.0` family. Drafts, source bubbles, recycle-bin records, and frozen retries retain their existing data formats; do not clear browser storage as an upgrade step. The [upgrade guide](docs/upgrade-guide/v1.1.2/host-baseline/guide.md) ([中文](docs/upgrade-guide/v1.1.2/host-baseline/guide.zh.md)) gives the version checks.
 
 <a id="sources"></a>
 
@@ -171,6 +175,8 @@ See [Privacy](docs/privacy.md) for local data and network requests, and [Data mo
 ## Model experience
 
 The composer sends the selected annotations as one user message, with each quote, opinion, source identity, and any overall request. The current UI asks for ordered answers to the notes. A source-only mark has no written opinion. Full local source snapshots are not automatically added to the model request.
+
+Unsent notes add no model context. Each batch shares concise handling instructions and omits unused sections; grouping related notes shares this fixed cost. Submitted text and hidden markers occupy context while retained in model history. [Message formatting](docs/architecture.md#durable-representation) defines the retained fields and conditional instructions.
 
 Replies carry hidden annotation association and completion markers so the plugin can link answers to their sources and recognize processed notes. The displayed text hides those markers while the Session log retains them. Missing or invalid acknowledgements leave the record unprocessed; a successful transport alone is not a model acknowledgement.
 
