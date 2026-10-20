@@ -4,6 +4,27 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-10-20
+
+Target host: DeepSeek Harness `0.2.1-rc.2`; minimum Host `>=0.2.1-rc.2`.
+
+### Added
+
+- Automatically enable compatibility styling while dsh-codex-ui is active, and restore the default styling when it unloads.
+
+### Changed
+
+- Use the Host's buttons, selection menu, attachment preview, theme colors, and corner radii for consistent light and dark interfaces.
+- Shorten annotation instructions and omit redundant submission fields while preserving note order, meaningful whitespace, reply markers, and historical protocol readers.
+
+### Fixed
+
+- Keep annotation attachments and draft text after a page refresh with dsh-codex-ui.
+- Keep attachment previews inside narrow viewports, above the composer, with keyboard focus and Escape dismissal.
+- Wrap record actions below long notes on narrow screens and prevent crowded record rows from overlapping.
+
+Annotation protocol v5 and browser storage v6 retain their existing formats.
+
 ## [1.1.3] - 2026-10-20
 
 Target host: DeepSeek Harness `0.2.1-rc.2`; minimum Host `>=0.2.1-rc.2`.

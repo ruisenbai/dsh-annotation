@@ -521,50 +521,36 @@ function highlightOnlyLabel(protocolLocale: ProtocolLocale): string {
 const PROCESSING_INSTRUCTIONS_ZH: Readonly<Record<ProcessingMode, readonly string[]>> = {
   answer: [
     '交付方式：逐条回答',
-    '请按顺序逐条回答每一条注解：',
-    '- 每段必须以「注解 N：」开头，N 为该注解的编号。',
-    '- 不要合并不同注解；每个注解单独一段。',
-    '- 每段回答前先输出该注解的隐藏关联标记（HTML 注释，用户不可见）。',
+    '按编号逐条回答，不合并；每段以「注解 N：」开头，段前原样输出对应隐藏关联标记（HTML 注释）。',
   ],
   rewrite: [
     '交付方式：连贯重写',
-    '请把批注意见落实为一篇连贯的整合正文：',
-    '- 先输出重写后的完整正文，把相关注解自然融入内容；可以合并处理相互关联的注解。',
-    '- 不要把正文写成逐条问答，也不要为了对应注解而破坏正文连贯性。',
-    '- 正文后附上简短的批注处理说明；按注解顺序排列，每条以「注解 N：」开头，并在前面输出该注解的隐藏关联标记（HTML 注释，用户不可见）。',
+    '先输出完整、连贯的重写正文，融入意见，可合并相关注解；不要写成逐条问答。',
+    '正文后按注解顺序附简短处理说明，每条以「注解 N：」开头，前置对应隐藏关联标记（HTML 注释）。',
   ],
   modify: [
     '交付方式：实际修改',
-    '请围绕被批注对象实际执行修改并报告结果：',
-    '- 对可访问的被批注对象落实修改，保留未涉及部分；需要工具时使用可用工具。',
-    '- 不要只解释应该如何修改，也不要把建议当作已经完成的修改。',
-    '- 如果缺少工具、权限或必要材料而不能执行，明确说明未完成原因和所需条件。',
-    '- 修改结果后附上简短的批注处理说明；按注解顺序排列，每条以「注解 N：」开头，并在前面输出该注解的隐藏关联标记（HTML 注释，用户不可见）。',
+    '实际修改可访问的批注对象，保留未涉及部分，按需使用工具并报告结果；不要仅给建议或将建议当成已完成的修改。',
+    '缺少工具、权限或材料时，说明未完成原因和所需条件。',
+    '结果后按注解顺序附简短处理说明，每条以「注解 N：」开头，前置对应隐藏关联标记（HTML 注释）。',
   ],
 }
 
 const PROCESSING_INSTRUCTIONS_EN: Readonly<Record<ProcessingMode, readonly string[]>> = {
   answer: [
     'Delivery mode: answer',
-    'Answer every annotation in order:',
-    '- Start each section with "Annotation N:", where N is the annotation ordinal.',
-    '- Do not merge different annotations; use a separate section for each.',
-    '- Emit the annotation\u2019s hidden association marker (an HTML comment, invisible to the user) before each section.',
+    'Answer annotations in order without merging them. Start each section with "Annotation N:" and precede it with its exact hidden association marker (HTML comment).',
   ],
   rewrite: [
     'Delivery mode: rewrite',
-    'Produce a coherent integrated rewrite as the primary deliverable:',
-    '- Output the complete rewritten body first, naturally integrate the relevant annotations, and combine related annotations when useful.',
-    '- Do not turn the rewritten body into a per-annotation Q&A or break its flow to mirror the annotation list.',
-    '- After the body, add brief annotation-handling notes in annotation order. Start each note with "Annotation N:" and emit its hidden association marker (an HTML comment, invisible to the user) before it.',
+    'First produce a complete, coherent rewrite incorporating the annotations; combine related annotations where useful, without per-annotation Q&A.',
+    'After the body, add brief handling notes in annotation order, headed "Annotation N:" and preceded by their exact hidden association markers (HTML comments).',
   ],
   modify: [
     'Delivery mode: modify',
-    'Make actual changes to the annotated target and report the result:',
-    '- Apply changes to the accessible target, preserve unaffected parts, and use available tools when needed.',
-    '- Do not only explain what should change or present a suggestion as a completed change.',
-    '- If missing tools, permissions, or required materials prevent execution, state what remains undone and what is needed.',
-    '- After the modification result, add brief annotation-handling notes in annotation order. Start each note with "Annotation N:" and emit its hidden association marker (an HTML comment, invisible to the user) before it.',
+    'Modify the accessible annotated target, preserve unaffected parts, use tools as needed, and report results. Do not merely suggest changes or present suggestions as completed work.',
+    'If tools, permissions, or materials are missing, explain what remains undone and what is needed.',
+    'After the results, add brief handling notes in annotation order, headed "Annotation N:" and preceded by their exact hidden association markers (HTML comments).',
   ],
 }
 
@@ -647,33 +633,37 @@ export function formatSubmissionMessage(payload: AnnotationSubmissionPayload): s
 }
 
 function formatSubmissionMessageZh(payload: AnnotationSubmissionPayload): string {
+  const overallRequirement = payload.overallRequirement?.trim()
   const lines: string[] = [
     '[DSH 注解提交]',
     `Submission ID: ${payload.submissionId}`,
     `Reply annotations: ${payload.annotations.length}`,
-    `Processing mode: ${payload.processingMode}`,
     '',
-    '总体要求：',
-    payload.overallRequirement?.trim() || '（没有额外的用户目标或约束。）',
-    '总体要求用于指定目标、范围与约束；处理方式用于指定交付形式。如果二者直接冲突，请明确指出冲突并请求澄清，不要静默忽略其中一项。',
-    '',
+    ...(overallRequirement
+      ? [
+          '总体要求：',
+          overallRequirement,
+          '总体要求指定目标、范围与约束，交付方式指定输出形式；直接冲突时说明并请求澄清。',
+          '',
+        ]
+      : []),
     ...PROCESSING_INSTRUCTIONS_ZH[payload.processingMode],
-    '- 「仅标记原文」表示没有额外注解文字；仍须按当前交付方式处理对应原文，不能跳过。',
+    ...(payload.annotations.some((item) => item.kind === 'highlight-only')
+      ? ['「仅标记原文」没有额外意见，仍须按交付方式处理原文。']
+      : []),
     '',
   ]
   for (const item of payload.annotations) {
-    lines.push(replyMarkerFor(payload, item), `注解 ${item.ordinal} (${item.annotationId})`)
+    lines.push(replyMarkerFor(payload, item), replyHeading(item.ordinal, 'zh'))
     if (item.supplementalTo !== undefined) {
       lines.push(`补充关联注解 ID：${item.supplementalTo}`)
     }
     lines.push(
       ...annotationLocationLines(item),
-      '原文前文：',
-      item.quote.prefix,
+      ...(item.quote.prefix.length > 0 ? ['原文前文：', item.quote.prefix] : []),
       '被选中的原文：',
       item.quote.exact,
-      '原文后文：',
-      item.quote.suffix,
+      ...(item.quote.suffix.length > 0 ? ['原文后文：', item.quote.suffix] : []),
       '用户的注解：',
       item.kind === 'highlight-only' ? highlightOnlyLabel('zh') : item.annotation,
     )
@@ -683,45 +673,47 @@ function formatSubmissionMessageZh(payload: AnnotationSubmissionPayload): string
   }
   lines.push(
     '处理确认：',
-    '只把你在本次回复中按当前处理模式实际处理完成的注解 ID 写进 processed；不要自动写入本批次的全部 ID。',
-    '在回复结尾附加一个隐藏 HTML 注释：',
+    '在回复末尾输出以下隐藏 HTML 注释，processed 仅列本次按交付方式实际完成的注解 ID：',
     `<!-- ${MODEL_ACK_PREFIX}${JSON.stringify({
       submissionId: payload.submissionId,
       processed: ['annotation-id'],
     })} -->`,
-    '没有实际处理完成的注解 ID 不要放进 processed。',
   )
   return lines.join('\n')
 }
 
 function formatSubmissionMessageEn(payload: AnnotationSubmissionPayload): string {
+  const overallRequirement = payload.overallRequirement?.trim()
   const lines: string[] = [
     '[DSH annotation submission]',
     `Submission ID: ${payload.submissionId}`,
     `Reply annotations: ${payload.annotations.length}`,
-    `Processing mode: ${payload.processingMode}`,
     '',
-    'Overall requirement:',
-    payload.overallRequirement?.trim() || '(No additional user goal or constraint was provided.)',
-    'The overall requirement defines goals, scope, and constraints; the processing mode defines the deliverable. If they directly conflict, explain the conflict and ask for clarification instead of silently ignoring either one.',
-    '',
+    ...(overallRequirement
+      ? [
+          'Overall requirement:',
+          overallRequirement,
+          'The overall requirement defines goals, scope, and constraints; delivery mode defines output format. If they conflict, explain and ask for clarification.',
+          '',
+        ]
+      : []),
     ...PROCESSING_INSTRUCTIONS_EN[payload.processingMode],
-    '- "Highlight only" means there is no additional annotation text; still handle the selected text in the current delivery mode and never skip it.',
+    ...(payload.annotations.some((item) => item.kind === 'highlight-only')
+      ? ['"Highlight only" has no annotation text; still handle its quote in the current delivery mode.']
+      : []),
     '',
   ]
   for (const item of payload.annotations) {
-    lines.push(replyMarkerFor(payload, item), `Annotation ${item.ordinal} (${item.annotationId})`)
+    lines.push(replyMarkerFor(payload, item), replyHeading(item.ordinal, 'en'))
     if (item.supplementalTo !== undefined) {
       lines.push(`Supplemental to annotation ID: ${item.supplementalTo}`)
     }
     lines.push(
       ...annotationLocationLines(item),
-      'Quote prefix:',
-      item.quote.prefix,
+      ...(item.quote.prefix.length > 0 ? ['Quote prefix:', item.quote.prefix] : []),
       'Selected text:',
       item.quote.exact,
-      'Quote suffix:',
-      item.quote.suffix,
+      ...(item.quote.suffix.length > 0 ? ['Quote suffix:', item.quote.suffix] : []),
       'User annotation:',
       item.kind === 'highlight-only' ? highlightOnlyLabel('en') : item.annotation,
     )
@@ -731,13 +723,11 @@ function formatSubmissionMessageEn(payload: AnnotationSubmissionPayload): string
   }
   lines.push(
     'Processing acknowledgement:',
-    'Only include annotation ids actually completed in this reply under the selected processing mode; do not automatically include the full batch.',
-    'Append one hidden HTML comment at the end of the reply:',
+    'End the reply with this hidden HTML comment; processed lists only annotation IDs actually completed in this reply under the delivery mode:',
     `<!-- ${MODEL_ACK_PREFIX}${JSON.stringify({
       submissionId: payload.submissionId,
       processed: ['annotation-id'],
     })} -->`,
-    'Do not include an annotation id in processed unless its requested handling was actually completed.',
   )
   return lines.join('\n')
 }

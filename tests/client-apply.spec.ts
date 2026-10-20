@@ -843,6 +843,43 @@ describe('Client plugin composer attachment lifecycle', () => {
     await fixture.dispose()
   })
 
+  it.each(['\u200B', '\u200B\u2060'])(
+    'rearms legacy prefix %j without sending its marker',
+    async (prefix) => {
+      const command = vi.fn().mockResolvedValue(remoteSuccess())
+      const fixture = fixtureContext(command)
+      try {
+        apply(fixture.ctx)
+        const face = fixture.face()
+        saveAnnotation(face)
+        fixture.setPlainComposerText(`${prefix}Keep the restored text.`)
+        expect(fixture.inputSnapshot()).toMatchObject({
+          phase: 'claimed',
+          claim: { token: COMPOSER_ATTACHMENT_TOKEN },
+        })
+        await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
+        const payload = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload
+        expect(payload.overallRequirement).toBe('Keep the restored text.')
+      } finally {
+        await fixture.dispose()
+      }
+    },
+  )
+
+  it('activates Codex UI compatibility from a late dock registration and removes it on disposal', async () => {
+    const fixture = fixtureContext(vi.fn())
+    const attribute = 'data-dsh-annotation-compatibility'
+    try {
+      apply(fixture.ctx)
+      expect(document.documentElement.hasAttribute(attribute)).toBe(false)
+      fixture.addHostEntry({ name: 'conversation.input.dock', id: 'codex-ui-input-history' }, () => null)
+      expect(document.documentElement.getAttribute(attribute)).toBe('codex-ui')
+    } finally {
+      await fixture.dispose()
+    }
+    expect(document.documentElement.hasAttribute(attribute)).toBe(false)
+  })
+
   it('saves compact layout settings without changing attached drafts', async ({ onTestFinished }) => {
     const command = vi.fn()
     const fixture = fixtureContext(command)

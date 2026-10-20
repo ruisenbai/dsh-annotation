@@ -50,13 +50,13 @@ describe('official composer focus', () => {
     expect(root.textContent).toBe('draft text')
   })
 
-  it('preserves the visible caret when a claim token is inserted or removed', () => {
+  it.each([COMPOSER_ATTACHMENT_TOKEN, '\u200B'])('preserves the visible caret around token %j', (token) => {
     const { root, focus, select } = fixture()
     select(3)
     const attaching = focus.capture()!
-    root.textContent = COMPOSER_ATTACHMENT_TOKEN + 'draft text'
+    root.textContent = token + 'draft text'
     focus.restore(attaching)
-    expect(document.getSelection()?.focusOffset).toBe(4)
+    expect(document.getSelection()?.focusOffset).toBe(token.length + 3)
     const detaching = focus.capture()!
     root.textContent = 'draft text'
     focus.restore(detaching)
@@ -69,7 +69,9 @@ describe('official composer focus', () => {
     const request = focus.capture()!
     root.textContent = `${COMPOSER_ATTACHMENT_TOKEN}${COMPOSER_TEXT_SEAT}draft text`
     focus.restore(request)
-    expect(document.getSelection()?.focusOffset).toBe(5)
+    expect(document.getSelection()?.focusOffset).toBe(
+      COMPOSER_ATTACHMENT_TOKEN.length + COMPOSER_TEXT_SEAT.length + 3,
+    )
     const detaching = focus.capture()!
     root.textContent = 'draft text'
     focus.restore(detaching)
