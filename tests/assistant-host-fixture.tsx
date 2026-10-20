@@ -1,10 +1,13 @@
-import { Fragment, type ReactElement } from 'react'
+import { Fragment, type ReactElement, type ReactNode } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AnnotatedAssistantNode } from '../src/client/components/AnnotatedAssistantNode.tsx'
 import type { AssistantAnnotationProps } from '../src/client/contract.ts'
 import { stripMachineMarkersForDisplay } from '../src/shared/model-ack.ts'
 
-type Props = AssistantAnnotationProps & { readonly children?: ReactElement | undefined }
+type Props = AssistantAnnotationProps & {
+  readonly children?: ReactElement | undefined
+  readonly renderMessageImages?: (props: { images: readonly unknown[]; align: 'start' }) => ReactNode
+}
 
 /** A small Host-renderer stand-in for tests that exercise annotation DOM behavior directly. */
 export function TestAnnotatedAssistantNode({ children, ...props }: Props): ReactElement {
@@ -41,7 +44,7 @@ export function TestAnnotatedAssistantNode({ children, ...props }: Props): React
             }
             return (
               <Fragment key={`image:${index}`}>
-                {props.renderMessageImages({ images, align: 'start' })}
+                {props.renderMessageImages?.({ images, align: 'start' })}
               </Fragment>
             )
           }

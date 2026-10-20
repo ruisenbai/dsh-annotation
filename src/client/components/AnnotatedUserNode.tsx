@@ -1,11 +1,9 @@
 import { AnnotationSourceLabel, displayAnnotationQuote } from './AnnotationSourceLabel.tsx'
-import { Fragment, useId, useState } from 'react'
+import { useId, useState } from 'react'
+import type { UserContentAttachment } from '@deepseek-ai/dsh-client-ui-chat/client'
 import {
-  FileTypeIcon,
-  fileSizeText,
   IconChevronDownOutlineRegular,
   IconListPenOutlineRegular,
-  projectUserText,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { parseAnnotationSource } from '../../shared/protocol.ts'
@@ -115,62 +113,45 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
   )
 }
 
-/** Shadow renderer that upgrades annotation submissions while preserving ordinary user messages. */
+/** Render annotation metadata with the Host's user-content factory and reference actions. */
 export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
   node,
-  renderMessageImages,
-  openFile,
-  openSkill,
+  loadImage,
+  renderFactorySlot,
   navigate,
   t,
 }: UserAnnotationProps<Key>) {
   const payload = parseAnnotationSource(node.data.source)
-  const referenceLabels = node.data.referenceLabels ?? []
-  const skillNames = node.data.skillNames ?? []
-  const attachments = node.data.content.filter((block) => block.type === 'image' || block.type === 'file')
-  const attachmentRow =
-    attachments.length === 0 ? null : (
-      <div className="dia-message-attachments" data-message-attachments>
-        {attachments.map((block, index) =>
-          block.type === 'image' ? (
-            <Fragment key={`image:${index}`}>
-              {renderMessageImages({
-                images: [{ attachment: block.attachment }],
-                align: 'end',
-                compact: attachments.length > 1,
-              })}
-            </Fragment>
-          ) : (
-            <span key={`file:${index}`} className="dia-file-attachment" title={block.attachment.name}>
-              <FileTypeIcon path={block.attachment.name} className="dia-file-attachment__icon" />
-              <span className="dia-file-attachment__content">
-                <span className="dia-file-attachment__name">{block.attachment.name}</span>
-                <span className="dia-file-attachment__size">{fileSizeText(block.attachment.bytes)}</span>
-              </span>
-            </span>
-          ),
-        )}
-      </div>
-    )
-  if (payload !== null) {
-    const requirement = payload.overallRequirement?.trim() ?? ''
-    return (
-      <div className="dia-user-submission">
-        <AnnotationSubmissionRow payload={payload} navigate={navigate} t={t} />
-        {requirement !== '' && (
-          <article className="dia-user">
-            {projectUserText(requirement, referenceLabels, skillNames, 'skill', { openFile, openSkill })}
-          </article>
-        )}
-        {attachmentRow}
-      </div>
-    )
+  const attachments: UserContentAttachment[] = []
+  const texts: string[] = []
+  const extraBlocks: unknown[] = []
+  for (const block of node.data.content) {
+    if (block.type === 'text') texts.push(block.text)
+    else if (block.type === 'image')
+      attachments.push({ type: 'image', image: { attachment: block.attachment } })
+    else if (block.type === 'file') attachments.push({ type: 'file', file: block.attachment })
+    else extraBlocks.push(block)
   }
-  const texts = node.data.content.flatMap((block) => (block.type === 'text' ? [block.text] : []))
-  return (
-    <article className="dia-user">
-      {projectUserText(texts.join(''), referenceLabels, skillNames, 'skill', { openFile, openSkill })}
-      {attachmentRow}
-    </article>
+  const content = renderFactorySlot('conversation.chat.user.content', {
+    content: {
+      text: payload === null ? texts.join('') : (payload.overallRequirement?.trim() ?? ''),
+      attachments,
+      extraBlocks,
+      ...(node.data.referenceLabels === undefined ? {} : { referenceLabels: node.data.referenceLabels }),
+    },
+    facts: {
+      ...(node.data.referenceLabels === undefined ? {} : { sessionLabels: node.data.referenceLabels }),
+      ...(node.data.skillNames === undefined ? {} : { skillNames: node.data.skillNames }),
+    },
+    loadImage,
+    interactive: true,
+  })
+  return payload === null ? (
+    content
+  ) : (
+    <div className="dia-user-submission">
+      <AnnotationSubmissionRow payload={payload} navigate={navigate} t={t} />
+      {content}
+    </div>
   )
 }

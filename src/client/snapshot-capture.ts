@@ -187,21 +187,19 @@ function candidates(view: AnnotationView): Map<string, CaptureCandidate> {
   return entries
 }
 
-/** Capture retained records again when their original source becomes available. */
+/** Recover full sources in the background; unavailable copies remain visible in source details. */
 export function observeSourceSnapshots(
   controller: AnnotationController,
   snapshots: SourceSnapshotStore,
   load: (capture: SelectionCapture, signal: AbortSignal) => Promise<SourceSnapshotContent>,
   changed: () => void,
   cleanupFailed: () => void,
-  captureFailed: () => void,
 ): () => void {
   let active = true
   let retained = new Set<string>()
   const inFlight = new Set<string>()
   const completed = new Set<string>()
   const storageFailed = new Set<string>()
-  const reported = new Set<string>()
   const lastAttempt = new Map<string, { readonly phase: CapturePhase; readonly state: CaptureRetryState }>()
   let previousTrash = controller.getSnapshot().trash
   let previousMarks = controller.getSnapshot().deletionMarks
@@ -216,7 +214,6 @@ export function observeSourceSnapshots(
       if (!next.has(id)) {
         completed.delete(id)
         storageFailed.delete(id)
-        reported.delete(id)
         lastAttempt.delete(id)
         const key = snapshotOwner(controller.sessionId, id)
         // A permanently deleted record leaves a tombstone; every other removal just frees the copy.
@@ -248,18 +245,9 @@ export function observeSourceSnapshots(
           if (!active || !retained.has(id)) return
           if (saved.state === 'complete') {
             completed.add(id)
-            reported.delete(id)
           } else if (saved.error === 'storage') {
             storageFailed.add(id)
-            if (!reported.has(id)) {
-              reported.add(id)
-              captureFailed()
-            }
           } else if (saved.error === 'source') {
-            if (!reported.has(id)) {
-              reported.add(id)
-              captureFailed()
-            }
             if (active && retained.has(id))
               lastAttempt.set(id, { phase: candidate.phase, state: retryState(controller.getSnapshot()) })
           }
@@ -267,10 +255,6 @@ export function observeSourceSnapshots(
         .catch(() => {
           if (active && retained.has(id)) {
             storageFailed.add(id)
-            if (!reported.has(id)) {
-              reported.add(id)
-              captureFailed()
-            }
           }
         })
         .finally(() => {

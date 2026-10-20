@@ -9,26 +9,26 @@
   en: 62bc0950bddfc133
   zh: caf0f9ba673d1028
 /dsh-annotation/summary:
-  en: 6730d5813aa59e16
-  zh: ccf918dbf5214417
+  en: 4e208959a26f7dba
+  zh: eaadaf762fa1211a
 /dsh-annotation/contents:
   en: 393b3905da8e58f1
   zh: ca07301760ed272c
 /dsh-annotation/install-and-upgrade:
-  en: b8ef148cc0fbdb45
-  zh: f7efd90f95f6ddc9
+  en: bb0821e9844c22e3
+  zh: 083434c0a71f288b
 /dsh-annotation/install-and-upgrade/manual-installation:
-  en: f29adffeb7729b65
-  zh: e4bd4928b5c94356
+  en: 2d24fd0949995de0
+  zh: 681f539daa287692
 /dsh-annotation/install-and-upgrade/install-with-an-ai-agent:
   en: 21bb8ed5dc37727e
   zh: 4515e16837b0565e
-/dsh-annotation/install-and-upgrade/upgrading-from-1-1-1:
-  en: 63942fc6c6d97654
-  zh: f2ad40f889095adb
+/dsh-annotation/install-and-upgrade/upgrading-from-1-1-2:
+  en: 9befa2a522b03223
+  zh: 54dc2e99bb286005
 /dsh-annotation/supported-sources:
-  en: 4ada8422c1ab937b
-  zh: 7303c7cf4c623d85
+  en: dc9c7e2d3ae08ffa
+  zh: 9939c646f862aba8
 /dsh-annotation/create-and-edit-notes:
   en: 6c512f3e3369a803
   zh: 213332f907832f1f
@@ -39,8 +39,8 @@
   en: 5a27b1564277f72a
   zh: 55d5b7ddf22b0d6f
 /dsh-annotation/delete-and-recover:
-  en: 23bd6bba888b7490
-  zh: 422d0776c899cda0
+  en: b71f8adabdd8ffdd
+  zh: 381d162638b80ed1
 /dsh-annotation/settings:
   en: 78ddb4da805dcb88
   zh: 3966d0ecdb464546

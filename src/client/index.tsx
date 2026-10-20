@@ -419,10 +419,6 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         ),
       annotationTrash.refresh,
       () => controller.setNotice('error', 'trash.error.cleanup'),
-      () => {
-        if (controller.getSnapshot().notice === null)
-          controller.setNotice('error', 'trash.snapshotUnavailable')
-      },
     )
     const inboxFace = binding.session.projections.faceOf('inbox')
     let reconciledChat: ChatSnapshot | undefined
@@ -749,7 +745,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
 
   const claimFor = (sessionId: SessionId): CommandClaim =>
     Object.freeze({
-      name: config.commandName,
+      name: 'dsh-annotation-attachment',
       token: COMPOSER_ATTACHMENT_TOKEN,
       attachments: true,
       async submit(

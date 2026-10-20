@@ -2,23 +2,23 @@
 
 ## Host requirement
 
-Version 1.1.2 targets DSH `0.2.1-alpha.2` and declares Host `>=0.2.1-alpha.2`. Install the 1.1.2 GitHub Release archive. Keep plugin 1.1.1 on `0.2.1-alpha.1`, or 1.1.0 on the `0.2.0` family; see the [upgrade guide](upgrade-guide/v1.1.1/host-baseline/guide.md).
+Version 1.1.3 targets DSH `0.2.1-rc.2` and declares Host `>=0.2.1-rc.2`. Install the 1.1.3 GitHub Release archive. Keep plugin 1.1.2 on `0.2.1-alpha.2`, 1.1.1 on `0.2.1-alpha.1`, or 1.1.0 on the `0.2.0` family; see the [upgrade guide](upgrade-guide/v1.1.2/host-baseline/guide.md).
 
 | Component                | Supported baseline                                                                  |
 | ------------------------ | ----------------------------------------------------------------------------------- |
-| DeepSeek Harness host    | `>=0.2.1-alpha.2`                                                                   |
-| `engines.dsh`            | `>=0.2.1-alpha.2`                                                                   |
-| Development declarations | `0.2.1-alpha.2`                                                                     |
-| Cordis                   | `~4.0.5-alpha.1`                                                                    |
+| DeepSeek Harness host    | `>=0.2.1-rc.2`                                                                      |
+| `engines.dsh`            | `>=0.2.1-rc.2`                                                                      |
+| Development declarations | `0.2.1-rc.2`                                                                        |
+| Cordis                   | `~4.0.5`                                                                            |
 | Node.js                  | `^22.19.0` or `>=24`                                                                |
 | React                    | `^18.2.0`                                                                           |
 | Browser                  | Current Chromium-based DSH Web target; other modern browsers retain marker fallback |
 
-The checkout manifest declares `engines.dsh: ">=0.2.1-alpha.2"`, and its `@deepseek-ai/dsh-*` peers, development dependencies, lockfile, and CI checkout use that release. The strict-peer development environment includes `@deepseek-ai/dsh-llm-deepseek`, required by the official provider packages. Host source and frozen Session recordings are unchanged. New annotation submissions use protocol v5 and browser storage uses v6; protocol v1–v4 and storage v1–v5 remain readable compatibility generations.
+The checkout manifest declares `engines.dsh: ">=0.2.1-rc.2"`, and its `@deepseek-ai/dsh-*` peers, development dependencies, lockfile, and CI checkout use that release. The strict-peer development environment includes `@deepseek-ai/dsh-llm-deepseek`, required by the official provider packages. Host source and frozen Session recordings are unchanged. New annotation submissions use protocol v5 and browser storage uses v6; protocol v1–v4 and storage v1–v5 remain readable compatibility generations.
 
 ## Dependency source
 
-Every DSH dependency used for verification must identify the same `0.2.1-alpha.2` source generation. [source-baseline.json](../source-baseline.json) pins official tag `dsh-v0.2.1-alpha.2` at commit `d743267388641bc76f17c45ce8b4c231aed1d32c`. The npm family is available and the registry lockfile targets it; verify the complete peer closure with `pnpm install --frozen-lockfile --strict-peer-dependencies`. A matching version string or a regenerated lockfile is not a behavior-test result.
+Every DSH dependency used for verification must identify the same `0.2.1-rc.2` source generation. [source-baseline.json](../source-baseline.json) pins official tag `dsh-v0.2.1-rc.2` at commit `687f282e8625c6b8d11ff58211a90524be2e4317`. The npm family is available and the registry lockfile targets it; verify the complete peer closure with `pnpm install --frozen-lockfile --strict-peer-dependencies`. A matching version string or a regenerated lockfile is not a behavior-test result.
 
 For an unpublished family, use verifiable official source or official artifacts in a disposable directory. Confirm the repository, source commit or artifact URL, package names, and package versions before deriving integrity values. Include the DSH and vendored Cordis package families and the Landlock entry package, and enforce strict peers in the temporary install. Machine-local `file:` URLs, workspace links, and generated overlay lockfiles must never enter the released plugin manifest or checked-in lockfile. Record the actual source and commands in the release verification evidence; an old lockfile or a successful build against a different host does not verify this baseline.
 
@@ -26,31 +26,19 @@ The source verification helper provides independent source checks: it checks the
 
 ## Verification
 
-Current verification targets the published `0.2.1-alpha.2` DSH packages with Cordis `4.0.5-alpha.1`, the group plugin `1.0.5-alpha.1`, and Schemastery `3.18.5-alpha.1`. The removed `@deepseek-ai/dsh-invariants` package is not a development dependency. The plugin's existing no-op `./invariant` export remains available for callers and requires no Host registry.
+Current verification targets the published `0.2.1-rc.2` DSH packages with Cordis `4.0.5`, the group plugin `1.0.5`, and Schemastery `3.18.5`. The removed `@deepseek-ai/dsh-invariants` package is not a development dependency. The plugin's existing no-op `./invariant` export remains available for callers and requires no Host registry.
 
-The registry lockfile and CI source pin identify the same official generation. On 2026-10-10, Linux with Node.js `26.11.1` passed typechecking, lint, formatting, a frozen strict-peer install, the plugin build, and bundle verification against `0.2.1-alpha.2`. The frozen install disabled lifecycle scripts; `pnpm verify` ran the build and package checks explicitly. The unit/component coverage run passed **636 tests in 44 files**, with 89.25% line, 93.55% function, 81.07% branch, and 85.64% statement coverage in the configured coverage scope. The wide/light and narrow/dark Chromium fixture passed record ordering, focus/scroll preservation, frost/opaque bubble states, attachment, resend, and recycle-bin interactions.
+The registry lockfile and CI source pin identify the same official generation. Verification runs on Linux with Node.js `26.11.1`. Passed checks: frozen strict-peer installation, typechecking, lint, formatting, 636 unit/component tests across 44 files, coverage thresholds, built bundle validation, archive lint, Chromium interactions, and an isolated installed Web profile. Coverage is 89.25% lines, 93.55% functions, 81.07% branches, and 85.64% statements. The profile compares submissions with the durable Session log and deterministic model requests, and exercises source selection, file/Diff navigation, attachments, reattachment, settings, and refresh recovery.
 
-The complete isolated Web profile passed Settings persistence and archive recovery, frozen Session replay, source selection and ordering, file and official Diff creation/Locate, composer text and image submission, sent-note reattachment, and retry identity. The deterministic adapter emits official `read` and `write` calls through the AgentLoop; the file tool generates the filesystem intents and durable tool events used for workspace changes. Submission checks compare the user message with both the durable Session log and the model request. The fixture uses the Host's **显示代码工作视图** setting when opening official Diff views. Seven repository-owned Chinese release screenshots show plugin 1.1.2 on `0.2.1-alpha.2`.
+Eight Chinese README screenshots use the Host's dark theme and show selection, editing, source bubbles, records, sending, reattachment, file/Diff sources, and settings. Screenshot scenarios use a deterministic model adapter; they demonstrate the actual installed Web interface, not live-provider response quality. [Development](development.md) owns the executed commands and archive-install procedure. Node 22/24, macOS, Windows, and other browsers require separate CI or manual evidence.
 
-Executed commands:
-
-```bash
-pnpm install --frozen-lockfile --strict-peer-dependencies --ignore-scripts
-pnpm verify
-./node_modules/.bin/vitest run --coverage
-node scripts/browser-test.mjs
-DSH_RELEASE_SCREENSHOTS=1 node scripts/profile-smoke.mjs
-```
-
-[Development](development.md) owns archive checking and local installation. Verify the packed manifest and entry files, run `publint` on that archive, install through the matching Host CLI, and confirm `why dsh-annotation` and the installed Client bundle hash.
-
-The published Host primitives package references a missing `index.js.map`; Vitest reported that source-map warning while all tests passed. Browser and profile checks used isolated local state and a deterministic model adapter, not a live provider. macOS, Windows, other browsers, the Node 22/24 matrix, and independent source-build verification remain separate CI/manual evidence.
+The published Host primitives package references a missing `index.js.map`; the source-map warning does not prevent the tests from running.
 
 ## Marketplace placement
 
 The catalog submission uses **Sessions & Messages** (`session`). The plugin annotates assistant messages, persists drafts per Session, submits one user message through the official composer, and reconciles queue and durable message state; visual decoration supports that message workflow rather than acting as a theme or general appearance extension.
 
-The repository-owned `screenshots.json` lists seven screenshots from the Chinese Web profile. The catalog uses `https://github.com/ruisenbai/dsh-annotation/releases/latest/download/dsh-annotation.tgz`; every release publishes that stable filename together with its versioned archive.
+The repository-owned `screenshots.json` lists eight screenshots from the Chinese Web profile. The catalog uses `https://github.com/ruisenbai/dsh-annotation/releases/latest/download/dsh-annotation.tgz`; every release publishes that stable filename together with its versioned archive.
 
 ## Marketplace update API
 
@@ -96,11 +84,11 @@ Source navigation consumes the injected `TurnProcessOwnerProps` fields `foldable
 
 Reconciliation independently subscribes to Chat nodes from `ctx.uiConversation.binding(binding).target('chat')`, the Inbox projection from `binding.session.projections.faceOf('inbox')`, and the Session snapshot for older-history availability. `SessionSnapshot` does not carry queue membership. The Inbox adapter selects only `next-turn` items and maps their `id` to the controller's `messageId`; `next-step` items never authorize withdrawal. An `undefined` Inbox snapshot means not yet synchronized and must remain unknown rather than become an empty queue. A synchronized snapshot that omits a previously queued id returns the outbox to `accepted` until durable Chat history establishes `sent`. A projection update must reconcile even when the Session and Chat snapshot identities are unchanged.
 
-The user and steering renderers pass `openFile` and `openSkill` from their owner props to `projectUserText`, including the overall requirement on annotation submissions. File attachments use the official `FileTypeIcon`. Assistant selection capture and range restoration include Markdown file-link button labels but exclude action buttons, hidden icons, reasoning, and plugin controls. DSH exposes no semantic DOM hook for these links, so the adapter identifies a button by its `title` attribute and both CSS Module local names `fileMention` and `fileLink`, without depending on generated hashes. This is an exact-version DOM dependency that must be rechecked when the renderer changes.
+The user and steering renderers delegate text, ordered attachments, reference labels, and skill names to the Host’s `conversation.chat.user.content` factory. The Host owns file/skill reference actions and image/file presentation, including the overall requirement on annotation submissions. Assistant selection capture and range restoration include Markdown file-link button labels but exclude action buttons, hidden icons, reasoning, and plugin controls. DSH exposes no semantic DOM hook for these links, so the adapter identifies a button by its `title` attribute and both CSS Module local names `fileMention` and `fileLink`, without depending on generated hashes. This is an exact-version DOM dependency that must be rechecked when the renderer changes.
 
 A DSH upgrade must preserve the Slot entry fields, assistant owner props, Chat and Inbox projections, input-trigger claim semantics, and queue/session methods used above. The type check catches declaration drift; a real Web smoke catches rendering and lifecycle drift.
 
-Composer attachment relies on the `inputTriggers` service and its scoped `slash/input-begin-command` and `slash/input-consume-token` events, on `CommandClaim.name` and `CommandClaim.attachments`, and on the root `commands/execute(sessionId, line, attachments)` Remote. A newly saved annotation is selected for the next message; explicit paperclip selection can attach a previously sent annotation without creating another record or source bubble. Manual detachment stays detached until the user selects an annotation again. The token remains zero-width and non-whitespace. On an empty draft, an additional invisible word-joiner creates an editable Lexical leaf after the styled token; it is removed before serialization, detachment, focus offsets, and model input. Existing composer text and reference chips are not rewritten when the claim begins. `claim.submit()` captures one selected or retry snapshot; later selections do not rewrite that snapshot. Preparation aborts when a captured annotation is deleted, changed, or made ineligible before outbox creation. Slash-command release observes the input store and installs no global listeners.
+Composer attachment relies on the `inputTriggers` service and its scoped `slash/input-begin-command` and `slash/input-consume-token` events, on `CommandClaim.name` and `CommandClaim.attachments`, and on the root `commands/execute(sessionId, line, attachments)` Remote. A newly saved annotation is selected for the next message; explicit paperclip selection can attach a previously sent annotation without creating another record or source bubble. Manual detachment stays detached until the user selects an annotation again. The token remains zero-width and non-whitespace. The Host owns the atomic command chip and its editable text seat. Beginning a claim does not rewrite the draft; the internal command chip is hidden while the annotation count chip remains visible. Legacy invisible word-joiners remain readable and are removed before serialization and model input. Existing composer text and reference chips are preserved. `claim.submit()` captures one selected or retry snapshot; later selections do not rewrite that snapshot. Preparation aborts when a captured annotation is deleted, changed, or made ineligible before outbox creation. Slash-command release observes the input store and installs no global listeners.
 
 Focus restoration locates the Lexical contenteditable through DSH composer DOM markers and uses browser Selection offsets that exclude the annotation token. It restores only the same editable element with unchanged visible text and no subsequent user focus change; file-reference chips remain editor-owned. The plugin does not import Lexical internals or rewrite the editor document. [Decision 0004](decisions/0004-dsh-0.1.3-composer-and-attachments.md) records these obligations.
 
@@ -123,7 +111,7 @@ The internal command is registered through the public command registry. DSH curr
 
 ## Historical Diff compatibility and persistence acknowledgement
 
-DSH `0.2.1-alpha.2` writes Session format v4. Plugin protocol v5 and browser storage v6 are independent version domains. The profile smoke restores frozen Session v3 recordings through the official migration catalog, compares them with adjacent v4 fixtures, and verifies that reading preserves the migrated events. Existing v3 fixture generations remain unchanged.
+DSH `0.2.1-rc.2` writes Session format v4. Plugin protocol v5 and browser storage v6 are independent version domains. The profile smoke restores frozen Session v3 recordings through the official migration catalog, compares them with adjacent v4 fixtures, and verifies that reading preserves the migrated events. Existing v3 fixture generations remain unchanged.
 
 The current plugin emits v5 annotations from message, official file, and official turn-Diff sources. Protocol v1/v2 messages, code-block selections, tables, old source namespaces, acknowledgement/reply markers, and failed message-source retries remain readable. Historical protocol v3 Git Diff sources and complete snapshots in standard `user/message` metadata remain parseable and visible as read-only history. Browser-local official source drafts, suspended editors, and failed batches are preserved without automatic migration, retry, or deletion. Historical Git Diff remains excluded from new submission admission.
 

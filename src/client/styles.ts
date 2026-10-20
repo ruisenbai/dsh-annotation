@@ -2364,6 +2364,11 @@ body[data-ds-dark-theme] .dia-record-editor {
   cursor: pointer;
 }
 
+/* The annotation count chip presents this internal submission claim. */
+[data-composer-command="dsh-annotation-attachment"] {
+  display: none;
+}
+
 [data-composer-card]:has(.dia-composer-chip) {
   padding-top: 44px;
 }

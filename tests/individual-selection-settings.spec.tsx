@@ -72,7 +72,6 @@ function settingsForm({
         user,
         revision,
         writable: false,
-        mode: 'host',
       }
     }
     const value = {
@@ -91,7 +90,6 @@ function settingsForm({
       user,
       revision,
       writable,
-      mode: 'host',
     }
   }
   const scope: ConfigForm<AnnotationSettings> = {

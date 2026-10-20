@@ -249,7 +249,8 @@ async function cancelBlankNewEditor(page, editor, source) {
 async function openAnnotationSettings(page) {
   await page.locator('[data-composer-card]').waitFor()
   for (let attempt = 0; attempt < 3; attempt++) {
-    await page.getByRole('button', { name: '设置', exact: true }).click()
+    await page.getByRole('button', { name: '账号菜单', exact: true }).click()
+    await page.getByRole('menuitem', { name: '设置', exact: true }).click()
     const dialog = page.getByRole('dialog')
     try {
       await dialog.getByRole('button', { name: '注解', exact: true }).click({ timeout: 5_000 })
@@ -266,6 +267,9 @@ async function openAnnotationSettings(page) {
 
 /** Capture repository screenshots from the installed Chinese Web profile. */
 async function captureReleaseScreenshots(page, request) {
+  await page.setViewportSize({ width: 1440, height: 960 })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.locator('body[data-ds-dark-theme]').waitFor()
   const source = '这段说明可以帮助我们更清楚地定位问题。'
   const note = '请补充判断依据，并给出一个具体例子。'
   const settings = await openAnnotationSettings(page)
@@ -300,6 +304,13 @@ async function captureReleaseScreenshots(page, request) {
   await page.locator('.dia-record-editor--detail').waitFor()
   await page.screenshot({ path: join(artifacts, 'release-bubble.png'), fullPage: true })
   await page.keyboard.press('Escape')
+
+  await selectReadingSource(page, '先说明你期望的结果，再指出目前的差距。')
+  await page.getByRole('button', { name: '添加注解', exact: true }).click()
+  await editor.getByRole('textbox', { name: '你的注解', exact: true }).fill('请把验收标准写成可核对的清单。')
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await editor.waitFor({ state: 'hidden' })
+  await page.locator('[role="alert"][data-dsh-annotation-toast]').last().waitFor({ state: 'hidden' })
 
   await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
   await page.locator('.dia-record-row').getByText(note).waitFor()
@@ -444,7 +455,11 @@ try {
 
   await request('prepare')
   browser = await chromium.launch({ headless: true })
-  page = await browser.newPage({ viewport: { width: 1280, height: 900 }, locale: 'zh-CN' })
+  page = await browser.newPage({
+    viewport: { width: 1440, height: 960 },
+    locale: 'zh-CN',
+    colorScheme: 'dark',
+  })
   page.setDefaultTimeout(30_000)
   const pageErrors = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
@@ -613,7 +628,7 @@ try {
       await readFile(new URL('../tests/profile-fixtures/conversation.expected.txt', import.meta.url), 'utf8'),
     )
     assert.equal(
-      await page.locator('.dia-user').first().innerText(),
+      await page.getByText('Please review [local notes](./notes.md).', { exact: true }).last().innerText(),
       'Please review [local notes](./notes.md).',
     )
     await page.getByRole('button', { name: '显示注解记录', exact: true }).waitFor()
@@ -948,7 +963,7 @@ try {
       .locator('.dia-user-submission')
       .getByText('Attachment identity review.', { exact: true })
       .waitFor()
-    const admittedImage = page.locator('.dia-message-attachments img')
+    const admittedImage = page.locator('[data-message-attachments] img')
     await admittedImage.waitFor()
     await admittedImage.evaluate((image) => image.decode())
     await page.screenshot({ path: join(artifacts, 'attachment-identity-profile.png'), fullPage: true })
@@ -977,7 +992,8 @@ try {
     assert.ok(official.diff.hunks.some((hunk) => hunk.lines.includes('+A changed line.')))
     console.log('PASS official workspace/changes event, summary, and Diff come from the live Host Session')
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await page.getByRole('button', { name: '设置', exact: true }).click()
+    await page.getByRole('button', { name: '账号菜单', exact: true }).click()
+    await page.getByRole('menuitem', { name: '设置', exact: true }).click()
     const settings = page.getByRole('dialog', { name: '设置' })
     const codeTools = settings.getByRole('switch', { name: '显示代码工作视图', exact: true })
     if ((await codeTools.getAttribute('aria-checked')) === 'false') await codeTools.click()
@@ -1362,6 +1378,18 @@ try {
     assert.equal(await record.locator('.dia-record-row').count(), 1)
     await record.getByRole('tab', { name: '全部', exact: true }).click()
     assert.equal(await record.locator('.dia-record-row').count(), 4)
+    if (process.env.DSH_RELEASE_SCREENSHOTS === '1') {
+      await page.setViewportSize({ width: 1440, height: 960 })
+      await record
+        .locator('.dia-record-row')
+        .filter({ hasText: 'Check the changed line.' })
+        .getByRole('button', { name: '定位原文', exact: true })
+        .click()
+      await review.waitFor({ state: 'visible' })
+      await page.locator('.dia-source-flash').waitFor({ state: 'hidden' })
+      await page.locator('[role="alert"][data-dsh-annotation-toast]').last().waitFor({ state: 'hidden' })
+      await page.screenshot({ path: join(artifacts, 'release-sources.png'), fullPage: true })
+    }
     await page.evaluate(() => window.getSelection()?.removeAllRanges())
     const composer = page.locator('[data-composer-card] [contenteditable="true"]')
     await composer.click()
@@ -1434,7 +1462,7 @@ try {
   }
   if (process.env.DSH_RELEASE_SCREENSHOTS === '1') {
     await captureReleaseScreenshots(page, request)
-    console.log('PASS seven release screenshots captured from the Chinese Web profile')
+    console.log('PASS eight dark release screenshots captured from the Chinese Web profile')
   }
   await mkdir(artifacts, { recursive: true })
   await writeFile(
