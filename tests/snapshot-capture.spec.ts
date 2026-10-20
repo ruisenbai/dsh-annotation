@@ -171,7 +171,7 @@ describe('retained source snapshots', () => {
       .fn<(capture: SelectionCapture) => Promise<SourceSnapshotContent>>()
       .mockReturnValueOnce(first.promise)
       .mockResolvedValue({ kind: 'message', text: 'original source', mediaType: 'text/markdown' })
-    const stop = observeSourceSnapshots(owner, snapshots, load, vi.fn(), vi.fn(), vi.fn())
+    const stop = observeSourceSnapshots(owner, snapshots, load, vi.fn(), vi.fn())
     releases.push(stop)
 
     owner.beginSelection(messageCapture())
@@ -188,7 +188,7 @@ describe('retained source snapshots', () => {
     expect(owner.getSnapshot().annotations[0]?.annotation).toBe('opinion')
   })
 
-  it('retries a saved fragment when the original source becomes readable later', async () => {
+  it('retains a saved fragment without a notice and recovers when its source becomes readable', async () => {
     const owner = controller()
     owner.beginSelection(messageCapture())
     owner.updateEditorText('opinion')
@@ -215,23 +215,22 @@ describe('retained source snapshots', () => {
       if (!readable) throw new Error('snapshot-source-unavailable')
       return { kind: 'message', text: 'source', mediaType: 'text/markdown' }
     })
-    const reported = deferred<void>()
-    const captureFailed = vi.fn(() => {
-      owner.setNotice('error', 'trash.snapshotUnavailable')
-      reported.resolve(undefined)
-    })
-    const stop = observeSourceSnapshots(owner, snapshots, load, vi.fn(), vi.fn(), captureFailed)
+    const notice = owner.getSnapshot().notice
+    const stop = observeSourceSnapshots(owner, snapshots, load, vi.fn(), vi.fn())
     releases.push(stop)
     await first.promise
-    await reported.promise
     await Promise.resolve()
     expect(capture).toHaveBeenCalledOnce()
-    expect(captureFailed).toHaveBeenCalledOnce()
+    expect(owner.getSnapshot().notice).toBe(notice)
+    expect(owner.getSnapshot().annotations[0]).toMatchObject({
+      annotation: 'opinion',
+      quote: { exact: 'source' },
+    })
     owner.clearNotice()
     await Promise.resolve()
     await Promise.resolve()
     expect(capture).toHaveBeenCalledOnce()
-    expect(captureFailed).toHaveBeenCalledOnce()
+    expect(owner.getSnapshot().notice).toBeNull()
     readable = true
     owner.setPanelOpen(true)
     await complete.promise
@@ -267,7 +266,7 @@ describe('retained source snapshots', () => {
         expect(entry).toMatchObject({ messageId, quote: { exact: 'source' } })
         return { kind: 'message' as const, text: 'source', mediaType: 'text/markdown' }
       })
-      const stop = observeSourceSnapshots(restored, snapshots, load, vi.fn(), vi.fn(), vi.fn())
+      const stop = observeSourceSnapshots(restored, snapshots, load, vi.fn(), vi.fn())
       releases.push(stop)
       await captured.promise
       expect(capture).toHaveBeenCalledOnce()

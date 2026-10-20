@@ -131,7 +131,7 @@ After a failed send, submit through the composer again to retry the saved batch,
 
 Delete one record or the chip's attached batch to move the notes into the browser-local recycle bin. A successful deletion offers Undo. Sending or retry-locked notes must be released from that operation before deletion; the UI explains the lock. Deleting a sent record never edits the original Session message.
 
-Open **Settings → Annotations → Recycle bin** to filter by Session and source type, inspect saved quotes and opinions, and restore records. Session labels use project and title metadata when available. Available source snapshots can be previewed, and saved files can be downloaded; a fragment-only notice appears when the complete source was not captured. Permanent deletion and clearing the bin require confirmation. They remove local recycle-bin content, not sent Session messages.
+Open **Settings → Annotations → Recycle bin** to filter by Session and source type, inspect saved quotes and opinions, and restore records. Session labels use project and title metadata when available. Available source snapshots can be previewed, and saved files can be downloaded; when the complete source is unavailable, its status appears only in the recycle-bin details, and the saved quote remains usable. Permanent deletion and clearing the bin require confirmation. They remove local recycle-bin content, not sent Session messages.
 
 <a id="settings"></a>
 

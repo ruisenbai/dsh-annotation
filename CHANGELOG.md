@@ -18,6 +18,7 @@ Target host: DeepSeek Harness `0.2.1-rc.2`; minimum Host `>=0.2.1-rc.2`.
 
 - Preserve the Host's atomic composer command when attaching notes to an empty draft; keep typing, submission, and refresh recovery available.
 - Migrate legacy annotation settings using the current Host write permission.
+- Keep unavailable full-source copies in recycle-bin details instead of interrupting annotation editing with an error toast; retain saved quotes and background source recovery.
 
 Annotation protocol v5 and browser storage v6 retain their existing formats.
 
