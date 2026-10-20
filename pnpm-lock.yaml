@@ -4022,6 +4022,7 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [glibc]
+    deprecated: yuku-codegen is pure JavaScript since 0.14
 
   '@yuku-codegen/binding-linux-x64-musl@0.8.5':
     resolution: {integrity: sha512-E3tDaVRj9azS0GTzF2VpwkLLH1iqoadp2U1C2KDbUAtt1F4q5BBYzUv9/yI/4lmYzkrUSBG4e343tUwevm8u1w==}
@@ -4099,6 +4100,7 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [glibc]
+    deprecated: yuku-parser runs on yuku-core since 0.14
 
   '@yuku-parser/binding-linux-x64-musl@0.8.5':
     resolution: {integrity: sha512-27doVJjvYevPWcakDCpfgZfDAlyhfyY3BwHf5TKtponCrSYBMzrBpD8ChYB1M7B6YOm0M5U9kEA0k1sB6CD4Ow==}
@@ -5559,8 +5561,8 @@ packages:
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
-  undici@7.29.0:
-    resolution: {integrity: sha512-IDxfleLmmbSskfWSUATiN1nfn2rDuvnMOqb5CWR92iIfojA0Ud+ulOAAEQ57LPr9rWmsreUyf5lwyao+7GNNVw==}
+  undici@7.30.1:
+    resolution: {integrity: sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==}
     engines: {node: '>=20.18.1'}
 
   undici@8.11.2:
@@ -10761,7 +10763,7 @@ snapshots:
       saxes: 6.0.0
       symbol-tree: 3.2.4
       tough-cookie: 6.0.2
-      undici: 7.29.0
+      undici: 7.30.1
       w3c-xmlserializer: 5.0.0
       webidl-conversions: 8.0.1
       whatwg-mimetype: 5.0.0
@@ -11821,7 +11823,7 @@ snapshots:
 
   undici-types@7.18.2: {}
 
-  undici@7.29.0: {}
+  undici@7.30.1: {}
 
   undici@8.11.2: {}
 
