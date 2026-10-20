@@ -1002,7 +1002,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     saveAnnotation(face)
 
     expect(face.ensureComposerAttachment()).toBe(true)
-    expect(fixture.inputSnapshot().draft).toBe(`${COMPOSER_ATTACHMENT_TOKEN}${COMPOSER_TEXT_SEAT}`)
+    expect(fixture.inputSnapshot().draft).toBe(COMPOSER_ATTACHMENT_TOKEN)
     await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
     expect(
       expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload.overallRequirement,
@@ -1696,7 +1696,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(fixture.session.getSnapshot()).not.toHaveProperty('queue')
     saveAnnotation(face)
     face.ensureComposerAttachment()
-    expect(fixture.inputSnapshot().claim).toMatchObject({ name: DEFAULT_CONFIG.commandName })
+    expect(fixture.inputSnapshot().claim).toMatchObject({ name: 'dsh-annotation-attachment' })
     await fixture.submitComposer()
     const entry = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0])
     fixture.setInbox(inboxSnapshot([entry.messageId]))

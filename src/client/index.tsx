@@ -749,7 +749,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
 
   const claimFor = (sessionId: SessionId): CommandClaim =>
     Object.freeze({
-      name: config.commandName,
+      name: 'dsh-annotation-attachment',
       token: COMPOSER_ATTACHMENT_TOKEN,
       attachments: true,
       async submit(

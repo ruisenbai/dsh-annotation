@@ -64,7 +64,6 @@ function settingsForm(
     user,
     revision,
     writable,
-    mode: 'host',
   })
   const waitForRelease = async () => {
     if (!deferred) return

@@ -8,7 +8,7 @@ type InputState = ReturnType<SessionInput['state']['getSnapshot']>
 
 /** Invisible non-whitespace prefix that arms the official composer input machine. */
 export const COMPOSER_ATTACHMENT_TOKEN = '\u200B'
-/** Separate editable leaf after an empty claimed token in the rc1 Lexical composer. */
+/** Legacy invisible text seat, retained only to read drafts saved by older releases. */
 export const COMPOSER_TEXT_SEAT = '\u2060'
 
 /** Whether one input snapshot carries this plugin's armed attachment. */
@@ -46,12 +46,7 @@ export function attachComposer(actx: ClientContext, input: SessionInput, claim: 
     end: existingToken ? COMPOSER_ATTACHMENT_TOKEN.length : 0,
     draftRev: state.draftRev,
   }
-  const attached = actx.bail(actx, 'slash/input-begin-command', { claim, span }) === true
-  if (attached && state.draft === '') {
-    // The empty claimed token is one styled leaf; a separate unstyled leaf lets Lexical accept typing.
-    input.setDraft(`${COMPOSER_ATTACHMENT_TOKEN}${COMPOSER_TEXT_SEAT}`)
-  }
-  return attached
+  return actx.bail(actx, 'slash/input-begin-command', { claim, span }) === true
 }
 
 /** Remove this plugin's claim token while retaining the user's composer text and references. */

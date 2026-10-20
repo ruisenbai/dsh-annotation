@@ -550,7 +550,7 @@ export class AnnotationSettingsController {
       this.clearLegacyPreference()
       return
     }
-    if (!snapshot.writable || snapshot.mode !== 'host' || this.migrationTask !== undefined) return
+    if (!snapshot.writable || this.migrationTask !== undefined) return
     const task = this.migrateLegacyPreference(this.legacyEnabled)
     this.migrationTask = task
     const settle = () => {

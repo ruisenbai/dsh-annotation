@@ -4,12 +4,12 @@
 
 - Node.js `^22.19.0` or `>=24`;
 - Corepack;
-- pnpm `11.7.0`;
-- a DeepSeek Harness `0.2.1-alpha.2` checkout or installation for Web verification.
+- pnpm `11.28.5`;
+- a DeepSeek Harness `0.2.1-rc.2` checkout or installation for Web verification.
 
 ## Install and verify
 
-Use one exact DSH `0.2.1-alpha.2` family, including the complete `@deepseek-ai/dsh` development environment. [source-baseline.json](../source-baseline.json) pins the official source commit; [Dependency source](compatibility.md#dependency-source) records the tag and commit. The npm family is available and the checked-in lockfile targets it. Verify its peer closure before running behavior checks:
+Use one exact DSH `0.2.1-rc.2` family, including the complete `@deepseek-ai/dsh` development environment. [source-baseline.json](../source-baseline.json) pins the official source commit; [Dependency source](compatibility.md#dependency-source) records the tag and commit. The npm family is available and the checked-in lockfile targets it. Verify its peer closure before running behavior checks:
 
 ```bash
 pnpm install --frozen-lockfile --strict-peer-dependencies
@@ -60,7 +60,7 @@ pnpm test:profile
 pnpm test:coverage
 ```
 
-`tsc` emits declarations and intermediate JavaScript to `lib/types`. `tsdown` produces ESM Host entries and wraps the browser CJS artifact in `window.__ModuleLoader__.load(...)`. `client-platform.json` pins the exact modules supplied by the DSH `0.2.1-alpha.2` browser loader; ordinary third-party Client libraries are bundled instead of becoming loader requests. DSH requires the factory bundle at `lib/client.js` even though generic Node tooling classifies `.js` under `type: module`; `publint` therefore gates errors while the DSH-specific verifier owns this intentional format. `scripts/verify-bundle.mjs` asserts the required artifacts, module-loader registration, declared module closure, matching peer/development ranges, DSH manifest, and Cordis patch.
+`tsc` emits declarations and intermediate JavaScript to `lib/types`. `tsdown` produces ESM Host entries and wraps the browser CJS artifact in `window.__ModuleLoader__.load(...)`. `client-platform.json` pins the exact modules supplied by the DSH `0.2.1-rc.2` browser loader; ordinary third-party Client libraries are bundled instead of becoming loader requests. DSH requires the factory bundle at `lib/client.js` even though generic Node tooling classifies `.js` under `type: module`; `publint` therefore gates errors while the DSH-specific verifier owns this intentional format. `scripts/verify-bundle.mjs` asserts the required artifacts, module-loader registration, declared module closure, matching peer/development ranges, DSH manifest, and Cordis patch.
 
 ## Test layout
 
@@ -88,7 +88,7 @@ Record counts and source filters share one traversal; attachment lookups use a S
 After [Packaging](#packaging), install the local tarball into a disposable Web profile on the declared DSH release:
 
 ```bash
-dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.1.2.tgz
+dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.1.3.tgz
 dsh --profile annotation-dev
 ```
 
@@ -108,8 +108,8 @@ pnpm --config.ignoreScripts=true pack --pack-destination artifacts
 Inspect the resulting tarball rather than invoking pack again:
 
 ```bash
-tar -tzf artifacts/dsh-annotation-1.1.2.tgz
-tar -xOf artifacts/dsh-annotation-1.1.2.tgz package/package.json
+tar -tzf artifacts/dsh-annotation-1.1.3.tgz
+tar -xOf artifacts/dsh-annotation-1.1.3.tgz package/package.json
 ```
 
 The package must contain `lib/index.js`, `lib/invariant.js`, `lib/client.js`, declarations under `lib/types`, `cordis.patch.yml`, `source-baseline.json`, README files and images under `docs/assets`, the changelog, and the license. Compare its version, Host requirement, dependency declarations and exports with the source manifest; pnpm removes package-manager metadata and development lifecycle hooks when packing.

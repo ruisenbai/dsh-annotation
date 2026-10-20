@@ -1,4 +1,10 @@
-import type { PropsLocale, PropsRuntime, InjectFace, HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
+import type {
+  PropsLocale,
+  PropsRuntime,
+  PropsRenderFactories,
+  InjectFace,
+  HostObservable,
+} from '@deepseek-ai/dsh-client-ui-slots'
 import type { AnnotationEndpoint, AnnotationPresentation, AnnotationView } from './controller.ts'
 import type { SelectionCapture } from './selection.ts'
 import type { AnnotationId, MessageIdentity, ProcessingMode, SubmissionId } from '../shared/types.ts'
@@ -68,6 +74,7 @@ export type UserAnnotationProps<Key extends 'user' | 'steering'> = PropsRuntime<
   Key
 > &
   PropsLocale<'dshAnnotation'> &
+  PropsRenderFactories &
   AnnotationBoundProps
 export type AssistantActionAnnotationProps = PropsRuntime<'conversation.chat.assistant-actions'> &
   PropsLocale<'dshAnnotation'> &

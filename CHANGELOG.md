@@ -4,6 +4,23 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-10-20
+
+Target host: DeepSeek Harness `0.2.1-rc.2`; minimum Host `>=0.2.1-rc.2`.
+
+### Changed
+
+- Align the dependency family, official source pin, and CI with DSH `0.2.1-rc.2`.
+- Render user and steering message contents through the Host's public content factory, preserving ordered attachments and interactive file, skill, and Session references.
+- Replace every README screenshot with a Chinese dark-theme capture and add a combined file/Diff annotation view.
+
+### Fixed
+
+- Preserve the Host's atomic composer command when attaching notes to an empty draft; keep typing, submission, and refresh recovery available.
+- Migrate legacy annotation settings using the current Host write permission.
+
+Annotation protocol v5 and browser storage v6 retain their existing formats.
+
 ## [1.1.2] - 2026-10-10
 
 ### Changed
@@ -304,7 +321,8 @@ Target host: DeepSeek Harness `0.1.6-alpha.2`, source tag `dsh-v0.1.6-alpha.2` a
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ruisenbai/dsh-annotation/compare/v1.0.0...v1.1.0

@@ -6,7 +6,7 @@ import {
   AnnotationExperience,
   AnnotationRecordToggle,
 } from '../../src/client/components/AnnotationExperience.tsx'
-import { AnnotatedUserNode } from '../../src/client/components/AnnotatedUserNode.tsx'
+import { TestAnnotatedUserNode as AnnotatedUserNode } from '../user-host-fixture.tsx'
 import { AnnotationTrashPanel } from '../../src/client/components/AnnotationTrashPanel.tsx'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'

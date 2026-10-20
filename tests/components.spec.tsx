@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TestAnnotatedAssistantNode as AnnotatedAssistantNode } from './assistant-host-fixture.tsx'
-import { AnnotatedUserNode } from '../src/client/components/AnnotatedUserNode.tsx'
+import { TestAnnotatedUserNode as AnnotatedUserNode, userContentFactory } from './user-host-fixture.tsx'
 import { AnnotationDetails } from '../src/client/components/AnnotationDetails.tsx'
 import {
   AnnotationPluginCard,
@@ -554,8 +554,9 @@ describe('inline comment presentation', () => {
   })
 
   it.each(['user', 'steering'] as const)(
-    'preserves official reference chips in ordinary %s messages',
+    'delegates ordinary %s text and reference facts to the Host factory',
     (kind) => {
+      const renderFactorySlot = vi.fn(userContentFactory())
       const props = {
         node: {
           kind,
@@ -569,53 +570,51 @@ describe('inline comment presentation', () => {
             skillNames: ['review'],
           },
         },
-        renderMessageImages: () => null,
-        openFile: vi.fn(),
-        openSkill: vi.fn(),
+        renderFactorySlot,
+        loadImage: vi.fn(),
         t,
       } as unknown as UserAnnotationProps<typeof kind>
-      const { container } = render(<AnnotatedUserNode {...props} />)
-      expect(container).toHaveTextContent('Compare 会话一 /review note.md /unresolved')
-      expect(
-        Array.from(container.querySelectorAll('[data-ref-chip]')).map((chip) => [
-          chip.getAttribute('data-ref-chip'),
-          chip.textContent,
-        ]),
-      ).toEqual([
-        ['session', '会话一'],
-        ['skill', '/review'],
-        ['file', 'note.md'],
-      ])
-      fireEvent.click(screen.getByRole('button', { name: 'note.md' }))
-      fireEvent.click(screen.getByRole('button', { name: '/review' }))
-      expect(props.openFile).toHaveBeenCalledWith('src/note.md')
-      expect(props.openSkill).toHaveBeenCalledWith('review')
-      expect(screen.queryByRole('button', { name: '会话一' })).not.toBeInTheDocument()
+      render(<AnnotatedUserNode {...props} />)
+      expect(renderFactorySlot).toHaveBeenCalledWith('conversation.chat.user.content', {
+        content: {
+          text: 'Compare @会话一 /review @src/note.md /unresolved',
+          attachments: [],
+          extraBlocks: [],
+          referenceLabels: ['会话一'],
+        },
+        facts: { sessionLabels: ['会话一'], skillNames: ['review'] },
+        loadImage: props.loadImage,
+        interactive: true,
+      })
     },
   )
 
-  it('opens file and skill references in an annotation overall requirement', () => {
+  it('renders only the overall requirement while retaining Host reference actions', () => {
     const payload = { ...fixturePayload(), overallRequirement: 'Review @src/note.md with /review' }
+    const renderFactorySlot = vi.fn(userContentFactory())
     const props = {
       node: {
         data: {
           source: { kind: 'user', annotationSubmission: payload },
-          content: [],
+          content: [{ type: 'text', text: 'Encoded annotation payload' }],
           skillNames: ['review'],
         },
       },
-      useAnnotations: (selector: (state: AnnotationView) => unknown) => selector(baseView()),
       navigate: vi.fn(async () => true),
-      renderMessageImages: () => null,
-      openFile: vi.fn(),
-      openSkill: vi.fn(),
+      renderFactorySlot,
       t,
     } as unknown as UserAnnotationProps<'user'>
     render(<AnnotatedUserNode {...props} />)
-    fireEvent.click(screen.getByRole('button', { name: 'note.md' }))
-    fireEvent.click(screen.getByRole('button', { name: '/review' }))
-    expect(props.openFile).toHaveBeenCalledWith('src/note.md')
-    expect(props.openSkill).toHaveBeenCalledWith('review')
+    expect(screen.getByText(payload.overallRequirement)).toBeVisible()
+    expect(screen.queryByText('Encoded annotation payload')).not.toBeInTheDocument()
+    expect(renderFactorySlot).toHaveBeenCalledWith(
+      'conversation.chat.user.content',
+      expect.objectContaining({
+        content: expect.objectContaining({ text: payload.overallRequirement }),
+        facts: { skillNames: ['review'] },
+        interactive: true,
+      }),
+    )
   })
 
   it('preserves image and file order in an annotation submission', () => {

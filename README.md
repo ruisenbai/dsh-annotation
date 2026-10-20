@@ -11,7 +11,7 @@ English | [中文](README.zh.md)
 
 Select text in replies, diffs, or files → annotate → send with a message. Replies address each annotation in order, and source navigation makes notes easy to look up. A per-Session record keeps drafts, sent notes, and attachment state together. The plugin sends notes with the official composer's text, images, and files; unsent work stays in the current browser.
 
-**Version 1.1.2 requires DSH `>=0.2.1-alpha.2`; verification targets `0.2.1-alpha.2`.** See [upgrading](#upgrading) before updating an older Host.
+**Version 1.1.3 requires DSH `>=0.2.1-rc.2`; verification targets `0.2.1-rc.2`.** See [upgrading](#upgrading) before updating an older Host.
 
 ## Contents
 
@@ -30,7 +30,7 @@ Select text in replies, diffs, or files → annotate → send with a message. Re
 
 ## Install and upgrade
 
-The package is distributed through [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.2), not npm. In **dsh-market**, find `ruisenbai/dsh-annotation` under Sessions & Messages, then install or update it. The catalog uses the release's stable tarball alias; check the offered version and Host requirement before proceeding.
+The package is distributed through [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.3), not npm. In **dsh-market**, find `ruisenbai/dsh-annotation` under Sessions & Messages, then install or update it. The catalog uses the release's stable tarball alias; check the offered version and Host requirement before proceeding.
 
 ### Manual installation
 
@@ -38,25 +38,25 @@ Install the fixed release into your `web` profile:
 
 ```bash
 dsh --version
-dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.2/dsh-annotation.tgz
+dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.3/dsh-annotation.tgz
 dsh plugin --profile web why dsh-annotation
 ```
 
-The Host must satisfy `>=0.2.1-alpha.2`; the final command must resolve `dsh-annotation@1.1.2`. For a custom profile, replace both occurrences of `web` with its name. Restart that profile's running Web Host, refresh the page, and check **Settings → Annotations**. Build instructions and executed verification results are in [Development](docs/development.md) and [Compatibility](docs/compatibility.md).
+The Host must satisfy `>=0.2.1-rc.2`; the final command must resolve `dsh-annotation@1.1.3`. For a custom profile, replace both occurrences of `web` with its name. Restart that profile's running Web Host, refresh the page, and check **Settings → Annotations**. Build instructions and executed verification results are in [Development](docs/development.md) and [Compatibility](docs/compatibility.md).
 
 ### Install with an AI agent
 
 Give an agent with terminal access this prompt:
 
 ```text
-Install dsh-annotation 1.1.2 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.1-alpha.2 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.2/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.2. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
+Install dsh-annotation 1.1.3 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.1-rc.2 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.3/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.3. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
 ```
 
 <a id="upgrading"></a>
 
-### Upgrading from 1.1.1
+### Upgrading from 1.1.2
 
-Update the Host to `0.2.1-alpha.2` before installing 1.1.2. Keep plugin 1.1.1 while using `0.2.1-alpha.1`, or 1.1.0 while using a `0.2.0` Host. Drafts, source bubbles, recycle-bin records, and frozen retries retain their existing data formats; do not clear browser storage as an upgrade step. The [upgrade guide](docs/upgrade-guide/v1.1.1/host-baseline/guide.md) ([中文](docs/upgrade-guide/v1.1.1/host-baseline/guide.zh.md)) gives the version checks.
+Update the Host to `0.2.1-rc.2` before installing 1.1.3. Keep plugin 1.1.2 while using `0.2.1-alpha.2`, 1.1.1 on `0.2.1-alpha.1`, or 1.1.0 on the `0.2.0` family. Drafts, source bubbles, recycle-bin records, and frozen retries retain their existing data formats; do not clear browser storage as an upgrade step. The [upgrade guide](docs/upgrade-guide/v1.1.2/host-baseline/guide.md) ([中文](docs/upgrade-guide/v1.1.2/host-baseline/guide.zh.md)) gives the version checks.
 
 <a id="sources"></a>
 
@@ -71,6 +71,8 @@ Use the official preview or sidebar for the source you want to review:
 | Official HTML, image, PDF, Office, Excel, CSV, or TSV preview | Use the whole-file action; rendered text selection is available only in text/code/Markdown previews | Retains the official resource identity and preview revision |
 | Official turn Diff                                            | Open the Diff sidebar from the turn's changed-file card; select a range or annotate the whole file  | Opens the same official Diff review and saved annotation    |
 | Historical Git Diff                                           | Read existing records and saved context                                                             | Read-only; no new annotation, editing, attachment, or retry |
+
+![File and Diff annotations](docs/assets/annotation-sources.png)
 
 Whole-file notes require written feedback. Official Diff hover previews have no creation entry; use the sidebar. Source filters appear when the Session contains at least two types. File and Diff notes retain source identity, range coordinates, and quote context; temporary loading or navigation failures keep the saved record available.
 

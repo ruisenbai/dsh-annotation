@@ -50,12 +50,7 @@ function mount(
                 labels={labels}
               />
             )
-          if (block.kind === 'image')
-            return (
-              <div key={index}>
-                {props.renderMessageImages({ images: [{ attachment: block.attachment }], align: 'start' })}
-              </div>
-            )
+          if (block.kind === 'image') return <div key={index}>{renderMessageImages()}</div>
           if (block.kind === 'tool-call') return <span key={index}>Host tool: {block.name}</span>
           if (block.kind === 'other')
             return <span key={index}>Host other: {JSON.stringify(block.block)}</span>

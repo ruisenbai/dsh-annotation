@@ -6,4 +6,4 @@
 
 # Annotation submission
 - button "1 条注释，双击定位原文": 1 条注释
-- article: Clarify the local document.
+- text: Clarify the local document.

@@ -11,7 +11,7 @@ description: 选中正文、diff、文件的文字 → 批注 → 随消息发�
 
 选中正文、diff、文件的文字 → 批注 → 随消息发送，回复按批注逐条对照，并支持注解定位方便查询。每个会话都有自己的记录框，集中显示草稿、已发送注解及本次附加状态。插件通过官方输入框一起发送注解、文字、图片和文件；未发送内容保存在当前浏览器中。
 
-**1.1.2 要求 DSH `>=0.2.1-alpha.2`，验证基线为 `0.2.1-alpha.2`。** 旧宿主更新前请先看[升级说明](#upgrading)。
+**1.1.3 要求 DSH `>=0.2.1-rc.2`，验证基线为 `0.2.1-rc.2`。** 旧宿主更新前请先看[升级说明](#upgrading)。
 
 ## 目录
 
@@ -30,7 +30,7 @@ description: 选中正文、diff、文件的文字 → 批注 → 随消息发�
 
 ## 安装与升级
 
-发行包通过 [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.2) 分发，不发布到 npm。在 **dsh-market** 的会话与消息分类中找到 `ruisenbai/dsh-annotation`，即可安装或更新。市场使用发行版的固定文件名下载地址；操作前请确认显示的插件版本及宿主要求。
+发行包通过 [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.3) 分发，不发布到 npm。在 **dsh-market** 的会话与消息分类中找到 `ruisenbai/dsh-annotation`，即可安装或更新。市场使用发行版的固定文件名下载地址；操作前请确认显示的插件版本及宿主要求。
 
 ### 手动安装
 
@@ -38,25 +38,25 @@ description: 选中正文、diff、文件的文字 → 批注 → 随消息发�
 
 ```bash
 dsh --version
-dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.2/dsh-annotation.tgz
+dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.3/dsh-annotation.tgz
 dsh plugin --profile web why dsh-annotation
 ```
 
-宿主必须满足 `>=0.2.1-alpha.2`，最后一条命令应解析到 `dsh-annotation@1.1.2`。使用自定义 profile 时，将两处 `web` 改为实际名称。安装后重启该 profile 正在运行的 Web 宿主、刷新页面，并在 **设置 → 注解** 中确认插件可用。构建方法和实际验证结果见[开发说明](docs/development.md)及[兼容性说明](docs/compatibility.md)。
+宿主必须满足 `>=0.2.1-rc.2`，最后一条命令应解析到 `dsh-annotation@1.1.3`。使用自定义 profile 时，将两处 `web` 改为实际名称。安装后重启该 profile 正在运行的 Web 宿主、刷新页面，并在 **设置 → 注解** 中确认插件可用。构建方法和实际验证结果见[开发说明](docs/development.md)及[兼容性说明](docs/compatibility.md)。
 
 ### 交给 AI agent 安装
 
 将下面的提示词交给能够操作本机终端的 agent：
 
 ```text
-Install dsh-annotation 1.1.2 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.1-alpha.2 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.2/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.2. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
+Install dsh-annotation 1.1.3 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.1-rc.2 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.3/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.3. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
 ```
 
 <a id="upgrading"></a>
 
-### 从 1.1.1 升级
+### 从 1.1.2 升级
 
-先将宿主更新到 `0.2.1-alpha.2`，再安装 1.1.2。仍使用 `0.2.1-alpha.1` 时，请保留插件 1.1.1；使用 `0.2.0` 系列宿主时，请保留 1.1.0。草稿、来源气泡、回收站记录和已固定的重试内容沿用现有数据格式，升级无需清理浏览器存储。[升级指南](docs/upgrade-guide/v1.1.1/host-baseline/guide.md)（[中文](docs/upgrade-guide/v1.1.1/host-baseline/guide.zh.md)）列出了版本检查方法。
+先将宿主更新到 `0.2.1-rc.2`，再安装 1.1.3。仍使用 `0.2.1-alpha.2` 时，请保留插件 1.1.2；使用 `0.2.1-alpha.1` 时保留 1.1.1，使用 `0.2.0` 系列宿主时保留 1.1.0。草稿、来源气泡、回收站记录和已固定的重试内容沿用现有数据格式，升级无需清理浏览器存储。[升级指南](docs/upgrade-guide/v1.1.2/host-baseline/guide.md)（[中文](docs/upgrade-guide/v1.1.2/host-baseline/guide.zh.md)）列出了版本检查方法。
 
 <a id="sources"></a>
 
@@ -71,6 +71,8 @@ Install dsh-annotation 1.1.2 into my DeepSeek Harness Web profile. Use web unles
 | 官方 HTML、图片、PDF、Office、Excel、CSV 或 TSV 预览 | 使用整文件批注；渲染文本选区仅在文本、代码和 Markdown 预览中提供 | 保留官方资源标识及预览版本           |
 | 官方 turn Diff                                       | 从本轮变更文件卡片打开 Diff 侧栏，选中片段或批注整个文件         | 打开对应的官方 Diff 审阅及保存的注解 |
 | 历史 Git Diff                                        | 查看已有记录和保存的上下文                                       | 只读，不支持新增、编辑、附加或重试   |
+
+![文件与 Diff 注解](docs/assets/annotation-sources.png)
 
 整文件批注必须填写意见。官方 Diff 的悬浮预览不提供新增入口，请使用侧栏。当前会话包含至少两种来源时，记录框会显示来源筛选。文件和 Diff 注解保留来源标识、选区坐标和引用上下文；暂时加载失败或定位失败不会删除已保存的记录。
 
