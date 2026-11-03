@@ -67,6 +67,7 @@ import type { StorageCoordination, StorageLike } from './storage.ts'
 import { styles } from './styles.ts'
 import { en, zh } from './locales.ts'
 import { decorateAssistantRenderers } from './assistant-renderer-decorator.tsx'
+import { MessageSelectionActions } from './components/MessageSelectionActions.tsx'
 import { AnnotatedUserNode } from './components/AnnotatedUserNode.tsx'
 import {
   AnnotationExperience,
@@ -903,15 +904,16 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     }
   }
 
+  const canEditAnnotations = (sessionId: SessionId): boolean => {
+    const binding = sessions.binding(sessionId)
+    if (binding === undefined) return false
+    const { phase } = conversation.input.for(binding.ctx).state.getSnapshot()
+    return phase === 'plain' || phase === 'claimed'
+  }
+
   const faceFor = (sessionId: SessionId): AnnotationInjected => {
     const controller = controllerFor(sessionId)
-    const canEdit = (): boolean => {
-      const binding = sessions.binding(sessionId)
-      return (
-        binding !== undefined &&
-        conversation.input.for(binding.ctx).state.getSnapshot().phase !== 'submitting'
-      )
-    }
+    const canEdit = (): boolean => canEditAnnotations(sessionId)
     const changeSendIntent = (change: () => void): void => {
       if (!canEdit()) return
       change()
@@ -1062,6 +1064,8 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   }
 
   const installConversationIntegrations = (): (() => void) => {
+    // Older released Hosts have no text-interaction service or shared toolbar.
+    const sharedSelection = ctx.uiConversation.interactions !== undefined
     const readFilePage: import('./components/FileWholeAnnotationAction.tsx').ReadFilePage = (
       sessionId,
       path,
@@ -1079,6 +1083,29 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       }
     }
     const disposers = [
+      ...(sharedSelection
+        ? [
+            ctx.slots.inject('conversation.chat.text-interaction', () =>
+              ctx.slots.register(
+                {
+                  name: 'conversation.chat.text-interaction',
+                  key: 'quote',
+                  priority: -100,
+                  locale: NS,
+                  inject: (sessionId) => ({
+                    readAnnotationSelection: () => controllerFor(sessionId).readMessageSelection(),
+                    beginAnnotation: (capture: import('./selection.ts').SelectionCapture) => {
+                      if (!canEditAnnotations(sessionId)) return false
+                      faceFor(sessionId).beginSelection(capture)
+                      return true
+                    },
+                  }),
+                },
+                MessageSelectionActions,
+              ),
+            ),
+          ]
+        : []),
       ctx.slots.inject('deliverables.review.file.actions', () =>
         ctx.slots.register(
           {
@@ -1162,7 +1189,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         officialFileEnabled,
       ),
       ctx.slots.inject('conversation.chat.node', () => {
-        const restoreAssistantRenderers = decorateAssistantRenderers(ctx, faceFor)
+        const restoreAssistantRenderers = decorateAssistantRenderers(ctx, faceFor, sharedSelection)
         const removeUser = ctx.slots.register(
           {
             name: 'conversation.chat.node',
@@ -1292,7 +1319,8 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         cancel()
         return
       }
-      if (input.state.getSnapshot().phase === 'submitting') return
+      const { phase } = input.state.getSnapshot()
+      if (phase !== 'plain' && phase !== 'claimed') return
       cancel()
       if (hasComposerAttachment(input.state.getSnapshot())) detachComposer(binding.ctx, input)
     })

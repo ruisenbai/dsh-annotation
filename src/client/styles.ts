@@ -412,6 +412,44 @@ export const styles: string = `
   padding: 4px;
   border: 0;
   box-shadow: var(--dsw-elevation-panel);
+  font-size: calc(var(--dsh-content-font-size, 14px) - 1px);
+  line-height: calc(var(--dsh-content-font-size, 14px) + 6px);
+}
+
+.dia-selection-bar__action {
+  height: auto;
+  min-height: 24px;
+  font: inherit;
+}
+
+.dia-message-selection {
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  width: max-content;
+  max-width: 100%;
+  padding: 2px;
+  font-size: calc(var(--dsh-content-font-size, 14px) - 1px);
+  overflow: auto;
+}
+
+.dia-message-selection > button {
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-height: 24px;
+  height: auto;
+  padding: 2px 5px;
+  font-size: inherit;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+@media (pointer: coarse) {
+  .dia-message-selection > button {
+    min-height: 44px;
+  }
 }
 
 .dia-marker-popover {
@@ -2091,6 +2129,9 @@ button.dia-group__heading:focus-visible {
 .dia-record__chevron {
   width: 24px;
   height: 24px;
+  padding: 0;
+  /* Center the 24px click target on the Host's 14px chevron. */
+  margin-inline-end: -5px;
   border: 0;
   border-radius: 50%;
   corner-shape: round;
@@ -2192,9 +2233,18 @@ button.dia-group__heading:focus-visible {
   max-height: min(480px, 65vh);
   overflow: auto;
   color: var(--dsw-alias-label-primary);
-  font: 13px/20px var(--dsw-font-family);
+  font: calc(var(--dsh-content-font-size, 14px) - 1px)/calc(var(--dsh-content-font-size, 14px) + 6px) var(--dsw-font-family);
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+.dia-record-preview {
+  z-index: 100;
+  width: 300px;
+  padding: 8px;
+  box-shadow: var(--dsw-elevation-panel);
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 .dia-annotation-details > strong { font-weight: 500; }
@@ -2211,7 +2261,7 @@ button.dia-group__heading:focus-visible {
   background: var(--dsw-alias-state-business-tertiary);
   color: inherit;
 }
-.dia-annotation-details .dia-source-label { white-space: normal; }
+.dia-annotation-details .dia-source-label { font: inherit; white-space: normal; }
 .dia-annotation-details dl {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -2422,7 +2472,7 @@ button.dia-group__heading:focus-visible {
   overflow-y: auto;
   color: var(--dsw-alias-label-primary);
   padding: 2px 4px;
-  font: 13px/20px var(--dsw-font-family);
+  font: calc(var(--dsh-content-font-size, 14px) - 1px)/calc(var(--dsh-content-font-size, 14px) + 6px) var(--dsw-font-family);
 }
 
 .dia-composer-chip__preview strong {
@@ -2462,6 +2512,7 @@ button.dia-group__heading:focus-visible {
   background: var(--dsw-specific-input-major);
   color: var(--dsw-alias-label-primary);
   box-shadow: var(--dsw-elevation-panel);
+  font: calc(var(--dsh-content-font-size, 14px) - 1px)/calc(var(--dsh-content-font-size, 14px) + 6px) var(--dsw-font-family);
 }
 
 .dia-record-editor--quick {
@@ -2469,7 +2520,7 @@ button.dia-group__heading:focus-visible {
   grid-template-columns: minmax(0, 1fr) 34px;
   align-items: end;
   gap: 8px;
-  padding: 8px 9px 8px 22px;
+  padding: 10px 11px 10px 24px;
   border-radius: 999px;
   corner-shape: round;
 }
@@ -2479,7 +2530,8 @@ button.dia-group__heading:focus-visible {
 }
 
 .dia-record-editor--quick:not([data-single-line='true']) {
-  padding-inline: 28px 20px;
+  padding-inline: 30px 22px;
+  border-radius: var(--dsw-radius-panel);
 }
 
 .dia-record-editor--quick .dia-record-editor__error,
@@ -2500,10 +2552,10 @@ button.dia-group__heading:focus-visible {
   box-sizing: border-box;
   display: block;
   width: 100%;
-  height: 32px;
+  height: calc(var(--dsh-content-font-size, 14px) + 18px);
   min-width: 0;
-  min-height: 32px;
-  max-height: 152px;
+  min-height: calc(var(--dsh-content-font-size, 14px) + 18px);
+  max-height: calc((var(--dsh-content-font-size, 14px) + 6px) * 7 + 12px);
   flex: none;
   resize: none;
   overflow-y: hidden;
@@ -2514,7 +2566,7 @@ button.dia-group__heading:focus-visible {
   background: transparent;
   color: var(--dsw-alias-label-primary);
   padding: 6px 6px 6px 2px;
-  font: 14px/20px var(--dsw-font-family);
+  font: inherit;
 }
 
 .dia-record-editor .dia-record-editor__check {
@@ -2574,19 +2626,23 @@ button.dia-group__heading:focus-visible {
 
 .dia-record-editor__footer-right button {
   flex: none;
+  height: auto;
+  min-height: 28px;
+  font: inherit;
   white-space: nowrap;
 }
 
 .dia-record-editor__confirm {
   height: auto;
   min-height: 28px;
+  font: inherit;
   white-space: normal;
 }
 
 .dia-record-editor__error {
   margin: 8px 0 0;
   color: var(--dsw-alias-state-error-primary);
-  font-size: 12px;
+  font: inherit;
 }
 
 .dia-record-editor--shake {
@@ -2896,6 +2952,16 @@ button.dia-group__heading:focus-visible {
   max-width: min(560px, calc(100vw - 48px));
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.dia-detail-value__full,
+.dia-marker-menu[role='menu'] {
+  font: calc(var(--dsh-content-font-size, 14px) - 1px)/calc(var(--dsh-content-font-size, 14px) + 6px) var(--dsw-font-family);
+}
+
+.dia-marker-menu [role^='menuitem'] {
+  height: auto;
+  font: inherit;
 }
 
 .dia-trash__source {

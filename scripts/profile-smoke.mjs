@@ -219,13 +219,25 @@ async function selectReadingSource(page, source) {
       range.setStart(node, start)
       range.setEnd(node, start + exact.length)
       const selection = window.getSelection()
+      node.parentElement.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
       selection.removeAllRanges()
       selection.addRange(range)
-      node.parentElement.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+      document.dispatchEvent(new Event('selectionchange'))
+      node.parentElement.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0 }))
       return
     }
     throw new Error(`Recorded source is not rendered: ${exact}`)
   }, source)
+  const toolbar = page.locator('[data-text-interaction-surface] [role="toolbar"]')
+  await toolbar.waitFor({ state: 'visible' })
+  assert.equal(await toolbar.count(), 1, 'A reply selection must have exactly one Host toolbar')
+  assert.equal(
+    await page.locator('.dia-selection-bar').count(),
+    0,
+    'The legacy message toolbar must stay absent',
+  )
+  await toolbar.getByRole('button', { name: '引用文本', exact: true }).waitFor()
+  await toolbar.getByRole('button', { name: '添加注解', exact: true }).waitFor()
 }
 
 async function cancelBlankNewEditor(page, editor, source) {
@@ -345,6 +357,118 @@ async function captureReleaseScreenshots(page, request) {
   await page.locator('.dia-composer-chip').waitFor()
   await page.locator('[role="alert"][data-dsh-annotation-toast]').last().waitFor({ state: 'hidden' })
   await page.screenshot({ path: join(artifacts, 'release-reattach.png'), fullPage: true })
+}
+
+/** Click saved records out of display order without pre-focusing or forcing the action. */
+async function exerciseRecordAttachments(page, openSession, source) {
+  const annotations = Array.from({ length: 24 }, (_, index) => ({
+    annotationId: `attachment-click-${index}`,
+    ordinal: index + 1,
+    messageId: 'annotation-reading-first-assistant',
+    messageSeq: 20,
+    responseVersion: 'annotation-reading-first-assistant',
+    quote: { exact: source, prefix: '', suffix: '', start: 0, end: source.length },
+    annotation: `任意附加 ${String(index + 1).padStart(2, '0')}`,
+    kind: 'note',
+    status: 'draft',
+    createdAt: 1_700_000_000_000 + index,
+    updatedAt: 1_700_000_000_000 + index,
+  }))
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width: 1440, height: 960 })
+    await page.evaluate((annotations) => {
+      localStorage.setItem(
+        'dsh-annotation:v1:annotation-reading-first',
+        JSON.stringify({
+          storageVersion: 6,
+          annotations,
+          selectedAnnotationIds: [],
+          selectionMode: 'individual',
+          outbox: [],
+          overallRequirementDraft: '',
+        }),
+      )
+    }, annotations)
+    await openSession()
+    await page.setViewportSize({ width, height: 960 })
+    await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
+    const list = page.locator('.dia-record__list')
+    const order = () =>
+      list.locator('.dia-record-row').evaluateAll((rows) => rows.map((row) => row.dataset.annotationId))
+    const initialOrder = await order()
+    const selected = new Set()
+    for (const index of [21, 23, 20, 22, 2, 14, 8, 21, 0, 14, 23, 8]) {
+      const id = annotations[index].annotationId
+      const action = list.locator(`[data-annotation-id="${id}"] .dia-record-action`).first()
+      await action.scrollIntoViewIfNeeded()
+      const rect = await action.boundingBox()
+      assert.ok(rect)
+      const beforeOffset = await action.evaluate(
+        (element) =>
+          element.getBoundingClientRect().top -
+          element.closest('.dia-record__list').getBoundingClientRect().top,
+      )
+      await page.mouse.click(rect.x + rect.width / 2, rect.y + rect.height / 2)
+      if (selected.has(id)) selected.delete(id)
+      else selected.add(id)
+      await page.waitForFunction(
+        (expected) => {
+          const actual = Array.from(document.querySelectorAll('.dia-record-row'))
+            .filter((row) => row.querySelector('.dia-record-action').getAttribute('aria-pressed') === 'true')
+            .map((row) => row.dataset.annotationId)
+            .sort()
+          return JSON.stringify(actual) === JSON.stringify(expected)
+        },
+        [...selected].sort(),
+        { timeout: 5_000 },
+      )
+      assert.deepEqual(await order(), initialOrder, 'Attachment toggles must not reorder an open record')
+      const afterOffset = await action.evaluate(
+        (element) =>
+          element.getBoundingClientRect().top -
+          element.closest('.dia-record__list').getBoundingClientRect().top,
+      )
+      assert.ok(
+        Math.abs(afterOffset - beforeOffset) <= 1,
+        'Attachment toggles must not scroll the selected row',
+      )
+    }
+    await list.evaluate((element) => {
+      element.scrollTop = 0
+    })
+    await list.locator('.dia-record-row__preview-anchor').first().hover()
+    await page.locator('.dia-annotation-details').waitFor({ state: 'visible' })
+    const previewAction = list.locator('.dia-record-row').nth(2).locator('.dia-record-action').first()
+    const previewHit = await previewAction.evaluate((element) => {
+      const rect = element.getBoundingClientRect()
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+      return { reachable: element.contains(hit), hit: hit?.outerHTML.slice(0, 500) }
+    })
+    assert.ok(previewHit.reachable, `Preview blocks another attachment: ${JSON.stringify(previewHit)}`)
+    const previewBounds = await page.locator('.dia-record-preview').boundingBox()
+    const recordBounds = await page.locator('.dia-record').boundingBox()
+    assert.ok(previewBounds && recordBounds)
+    assert.ok(
+      previewBounds.y + previewBounds.height <= recordBounds.y,
+      'Record preview must stay above every row',
+    )
+    await page.screenshot({ path: join(artifacts, `record-attachments-${width}.png`), fullPage: false })
+    const previewTargetId = await previewAction.evaluate(
+      (element) => element.closest('.dia-record-row').dataset.annotationId,
+    )
+    await previewAction.click()
+    if (selected.has(previewTargetId)) selected.delete(previewTargetId)
+    else selected.add(previewTargetId)
+    await page.locator('.dia-record-preview').waitFor({ state: 'hidden' })
+    const actualSelected = await list.locator('.dia-record-row').evaluateAll((rows) =>
+      rows
+        .filter((row) => row.querySelector('.dia-record-action').getAttribute('aria-pressed') === 'true')
+        .map((row) => row.dataset.annotationId)
+        .sort(),
+    )
+    assert.deepEqual(actualSelected, [...selected].sort())
+    console.log(`PASS ${width}px: direct out-of-order attachment clicks and scroll`)
+  }
 }
 
 try {
@@ -516,7 +640,20 @@ try {
   }
   const continueFromPreviewNotice = page.getByRole('button', { name: '继续', exact: true })
   if (await continueFromPreviewNotice.isVisible()) await continueFromPreviewNotice.click()
-  if (codexUiPath !== undefined) {
+  if (process.argv.includes('--record-attachments-only')) {
+    await request('submit')
+    const replay = await readingReplay(workspace)
+    assertRecordedSession(
+      await request('seed-session', { header: replay.header, events: replay.events }),
+      replay,
+    )
+    await exerciseRecordAttachments(
+      page,
+      () => openReadingSession(page, replay.header.id, replay.source),
+      replay.source,
+    )
+    assertRecordedSession(await request('read-session', { sessionId: replay.header.id }), replay)
+  } else if (codexUiPath !== undefined) {
     await exerciseCodexUi(page, { request, url: initial.url, artifacts })
   } else if (process.argv.includes('--record-perf-only')) {
     await request('submit')
@@ -682,6 +819,139 @@ try {
     assert.equal(await page.locator('.dia-record, .dia-composer-chip').count(), 0)
     const composerCard = page.locator('[data-composer-card]').first()
     const composerInput = composerCard.locator('[contenteditable="true"]')
+    await selectReadingSource(page, replay.source)
+    const sharedToolbar = page.locator('[data-text-interaction-surface] [role="toolbar"]')
+    await page.keyboard.press('Escape')
+    await sharedToolbar.waitFor({ state: 'hidden' })
+    await selectReadingSource(page, replay.source)
+    await sharedToolbar.getByRole('button', { name: '引用文本', exact: true }).click()
+    await sharedToolbar.waitFor({ state: 'hidden' })
+    const draftQuote = composerInput.locator('[data-quote-preview][data-removable]')
+    await draftQuote.waitFor()
+    assert.equal(await draftQuote.locator('[data-quote-preview-text]').innerText(), replay.source)
+    assert.equal(await page.locator('.dia-record-editor').count(), 0)
+    await draftQuote.getByRole('button').click()
+    await draftQuote.waitFor({ state: 'detached' })
+    const originalContentFontSize = await page.evaluate(() =>
+      document.body.style.getPropertyValue('--dsh-content-font-size'),
+    )
+    const selectionGeometry = {}
+    for (const variant of [
+      { name: 'wide-light', width: 1440, height: 960, colorScheme: 'light', fontSize: 14 },
+      { name: 'wide-light-large', width: 1440, height: 960, colorScheme: 'light', fontSize: 22 },
+      { name: 'narrow-dark-small', width: 390, height: 850, colorScheme: 'dark', fontSize: 10 },
+      { name: 'narrow-dark', width: 390, height: 850, colorScheme: 'dark', fontSize: 14 },
+      { name: 'narrow-dark-large', width: 390, height: 850, colorScheme: 'dark', fontSize: 22 },
+    ]) {
+      await page.setViewportSize({ width: variant.width, height: variant.height })
+      await page.emulateMedia({ colorScheme: variant.colorScheme })
+      await page.waitForFunction(
+        (dark) => document.body.hasAttribute('data-ds-dark-theme') === dark,
+        variant.colorScheme === 'dark',
+      )
+      await page.evaluate((size) => {
+        document.body.style.setProperty('--dsh-content-font-size', `${size}px`)
+      }, variant.fontSize)
+      await page
+        .locator('.dia-assistant__body')
+        .getByText(replay.source, { exact: true })
+        .scrollIntoViewIfNeeded()
+      await selectReadingSource(page, replay.source)
+      const bounds = rectEdges(await sharedToolbar.boundingBox())
+      const inputBounds = rectEdges(await composerCard.boundingBox())
+      assert.ok(
+        bounds.left >= 0 &&
+          bounds.right <= variant.width &&
+          bounds.top >= 0 &&
+          bounds.bottom <= inputBounds.top,
+        `Shared toolbar must fit above the composer: ${JSON.stringify(bounds)}`,
+      )
+      const bodyFontSize = await page
+        .locator('.dia-assistant__body')
+        .getByText(replay.source, { exact: true })
+        .evaluate((element) => getComputedStyle(element).fontSize)
+      const typography = await sharedToolbar.evaluate((element) => ({
+        fontSize: getComputedStyle(element).fontSize,
+        buttons: Array.from(element.querySelectorAll('button'), (button) => {
+          const rect = button.getBoundingClientRect()
+          return {
+            label: button.textContent,
+            fontSize: getComputedStyle(button).fontSize,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+            width: rect.width,
+            height: rect.height,
+            clipped:
+              button.scrollWidth > button.clientWidth + 1 || button.scrollHeight > button.clientHeight + 1,
+          }
+        }),
+      }))
+      assert.equal(bodyFontSize, `${variant.fontSize}px`)
+      assert.equal(typography.fontSize, `${variant.fontSize - 1}px`)
+      assert.equal(typography.buttons.length, 2)
+      for (const button of typography.buttons) {
+        assert.equal(
+          button.fontSize,
+          `${variant.fontSize - 1}px`,
+          `${button.label} must be one pixel smaller than the reply text`,
+        )
+        assert.equal(button.clipped, false, `${button.label} must remain fully visible`)
+        assert.ok(
+          button.left >= bounds.left &&
+            button.right <= bounds.right &&
+            button.top >= bounds.top &&
+            button.bottom <= bounds.bottom,
+          `${button.label} must fit inside the shared toolbar`,
+        )
+      }
+      selectionGeometry[variant.name] = { ...bounds, ...typography }
+      await page.screenshot({
+        path: join(artifacts, `message-selection-${variant.name}.png`),
+        fullPage: true,
+      })
+      await page.keyboard.press('Escape')
+      await sharedToolbar.waitFor({ state: 'hidden' })
+    }
+    assert.ok(
+      selectionGeometry['narrow-dark-large'].height > selectionGeometry['narrow-dark'].height,
+      'The shared toolbar must grow with larger reply text',
+    )
+    acceptanceGeometry.selectionToolbar = selectionGeometry
+    await page.evaluate((size) => {
+      if (size === '') document.body.style.removeProperty('--dsh-content-font-size')
+      else document.body.style.setProperty('--dsh-content-font-size', size)
+    }, originalContentFontSize)
+    await page.setViewportSize({ width: 1440, height: 960 })
+    await page.emulateMedia({ colorScheme: 'dark' })
+    const sourceText = page.locator('.dia-assistant__body').getByText(replay.source, { exact: true })
+    await sourceText.scrollIntoViewIfNeeded()
+    // Collapse the retained selection before dragging, so Chromium does not drag its selected text.
+    await sourceText.click()
+    const drag = await sourceText.evaluate((element) => {
+      const text = document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode()
+      if (text === null) throw new Error('The reply selection source has no text')
+      const range = document.createRange()
+      range.setStart(text, 0)
+      range.setEnd(text, Math.min(12, text.textContent.length))
+      const rect = range.getBoundingClientRect()
+      return { left: rect.left, right: rect.right, y: (rect.top + rect.bottom) / 2 }
+    })
+    await page.mouse.move(drag.left + 1, drag.y)
+    await page.mouse.down()
+    await page.mouse.move(drag.right - 1, drag.y, { steps: 8 })
+    await page.mouse.up()
+    await sharedToolbar.waitFor({ state: 'visible' })
+    await sharedToolbar.getByRole('button', { name: '引用文本', exact: true }).waitFor()
+    await sharedToolbar.getByRole('button', { name: '添加注解', exact: true }).waitFor()
+    assert.equal(await page.locator('.dia-selection-bar').count(), 0)
+    await page.keyboard.press('Escape')
+    await sharedToolbar.waitFor({ state: 'hidden' })
+    console.log('PASS one Host selection toolbar supports quotation, dismissal, and annotation')
+    console.log(
+      'PASS shared toolbar matches 10/14/22px reply text, fits wide/narrow layouts, and responds to native pointer selection',
+    )
     const composerBeforeEditor = rectEdges(await composerCard.boundingBox())
     const composerDraftBeforeEditor = await composerInput.innerText()
     await selectReadingSource(page, replay.source)
@@ -869,7 +1139,7 @@ try {
     )
     assert.equal(`${(await recordOrder()).join('\n')}\n`, expectedRecordOrder)
     await newerRow.getByRole('button', { name: '取消随消息发送', exact: true }).click()
-    assert.deepEqual(await recordOrder(), [note, newerNote])
+    assert.deepEqual(await recordOrder(), [newerNote, note])
     await newerRow.getByRole('button', { name: '随消息发送', exact: true }).click()
     assert.equal(`${(await recordOrder()).join('\n')}\n`, expectedRecordOrder)
     await newerRow.getByRole('button', { name: '删除', exact: true }).click()
@@ -1009,7 +1279,8 @@ try {
   if (
     codexUiPath === undefined &&
     !process.argv.includes('--official-only') &&
-    !process.argv.includes('--record-perf-only')
+    !process.argv.includes('--record-perf-only') &&
+    !process.argv.includes('--record-attachments-only')
   ) {
     await exerciseLegacyDiffHistory(page, {
       request,
@@ -1023,7 +1294,8 @@ try {
   if (
     codexUiPath === undefined &&
     !process.argv.includes('--legacy-diff-only') &&
-    !process.argv.includes('--record-perf-only')
+    !process.argv.includes('--record-perf-only') &&
+    !process.argv.includes('--record-attachments-only')
   ) {
     await mkdir(artifacts, { recursive: true })
     if (process.argv.includes('--official-only')) await request('submit')
@@ -1402,7 +1674,7 @@ try {
     console.log('PASS native multiline code selection shows the shared action and blank cancellation')
     await page.evaluate(() => window.getSelection()?.removeAllRanges())
     await selectReadingSource(page, 'Review the changed ')
-    await page.locator('.dia-selection-bar').getByRole('button', { name: '添加注解' }).click()
+    await page.locator('.dia-message-selection').getByRole('button', { name: '添加注解' }).click()
     await fileEditor.getByRole('textbox', { name: '你的注解' }).fill('Review this reply.')
     await fileEditor.getByRole('button', { name: '保存', exact: true }).click()
     await fileEditor.waitFor({ state: 'hidden' })

@@ -11,7 +11,7 @@ description: 选中正文、diff、文件的文字 → 批注 → 随消息发�
 
 选中正文、diff、文件的文字 → 批注 → 随消息发送，回复按批注逐条对照，并支持注解定位方便查询。每个会话都有自己的记录框，集中显示草稿、已发送注解及本次附加状态。插件通过官方输入框一起发送注解、文字、图片和文件；未发送内容保存在当前浏览器中。
 
-**1.1.5 要求 DSH `>=0.2.1-rc.2`，验证基线为 `0.2.1-rc.2`。** 旧宿主更新前请先看[升级说明](#upgrading)。
+**1.1.6 要求 DSH `>=0.2.2-alpha.2`，验证基线为 master 提交 `f3803c9697`。** 旧宿主更新前请先看[升级说明](#upgrading)。
 
 ## 目录
 
@@ -30,7 +30,7 @@ description: 选中正文、diff、文件的文字 → 批注 → 随消息发�
 
 ## 安装与升级
 
-发行包通过 [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.5) 分发，不发布到 npm。在 **dsh-market** 的会话与消息分类中找到 `ruisenbai/dsh-annotation`，即可安装或更新。市场使用发行版的固定文件名下载地址；操作前请确认显示的插件版本及宿主要求。
+发行包通过 [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.6) 分发，不发布到 npm。在 **dsh-market** 的会话与消息分类中找到 `ruisenbai/dsh-annotation`，即可安装或更新。市场使用发行版的固定文件名下载地址；操作前请确认显示的插件版本及宿主要求。
 
 ### 手动安装
 
@@ -38,29 +38,29 @@ description: 选中正文、diff、文件的文字 → 批注 → 随消息发�
 
 ```bash
 dsh --version
-dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.5/dsh-annotation.tgz
+dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.6/dsh-annotation.tgz
 dsh plugin --profile web why dsh-annotation
 ```
 
-宿主必须满足 `>=0.2.1-rc.2`，最后一条命令应解析到 `dsh-annotation@1.1.5`。使用自定义 profile 时，将两处 `web` 改为实际名称。安装后重启该 profile 正在运行的 Web 宿主、刷新页面，并在 **设置 → 注解** 中确认插件可用。构建方法和实际验证结果见[开发说明](docs/development.md)及[兼容性说明](docs/compatibility.md)。
+宿主必须满足 `>=0.2.2-alpha.2`，最后一条命令应解析到 `dsh-annotation@1.1.6`。使用自定义 profile 时，将两处 `web` 改为实际名称。安装后重启该 profile 正在运行的 Web 宿主、刷新页面，并在 **设置 → 注解** 中确认插件可用。构建方法和实际验证结果见[开发说明](docs/development.md)及[兼容性说明](docs/compatibility.md)。
 
 启用 [Codex UI](https://github.com/MichengAI/dsh-codex-ui) 时，注解插件会自动开启兼容模式，避免已附加的注解遮挡输入文字。无需手动设置；停用 Codex UI 后恢复标准布局。详见 [Codex UI 兼容说明](docs/compatibility.md#codex-ui)。
 
-注解控件跟随宿主的主题、圆角和面板样式。附加注解的预览保持在窗口内；记录面板较窄时，操作按钮会排到注解文字下方。
+注解控件跟随宿主的主题、圆角和面板样式。选区操作栏、注解编辑窗、详情和附件预览以及分组注解菜单的字体比对话正文小 1px；普通文字提示保持原字号。新注解编辑窗上下留白为 10px，文本框随字号和内容增高，最多显示七行。附加注解的预览保持在窗口内；记录面板较窄时，操作按钮会排到注解文字下方。
 
 ### 交给 AI agent 安装
 
 将下面的提示词交给能够操作本机终端的 agent：
 
 ```text
-Install dsh-annotation 1.1.5 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.1-rc.2 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.5/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.5. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
+Install dsh-annotation 1.1.6 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.2-alpha.2 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.6/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.6. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
 ```
 
 <a id="upgrading"></a>
 
-### 从 1.1.2 升级
+### 从旧宿主升级
 
-先将宿主更新到 `0.2.1-rc.2`，再安装 1.1.5。仍使用 `0.2.1-alpha.2` 时，请保留插件 1.1.2；使用 `0.2.1-alpha.1` 时保留 1.1.1，使用 `0.2.0` 系列宿主时保留 1.1.0。草稿、来源气泡、回收站记录和已固定的重试内容沿用现有数据格式，升级无需清理浏览器存储。[升级指南](docs/upgrade-guide/v1.1.2/host-baseline/guide.md)（[中文](docs/upgrade-guide/v1.1.2/host-baseline/guide.zh.md)）列出了版本检查方法。
+先将宿主更新到 `0.2.2-alpha.2` 或更新版本，再安装 1.1.6。受支持的宿主版本提供统一的“引用文本 / 添加注解”操作栏。使用 `0.2.1-rc.2` 时保留 1.1.5；仍使用 `0.2.1-alpha.2` 时，请保留插件 1.1.2；使用 `0.2.1-alpha.1` 时保留 1.1.1，使用 `0.2.0` 系列宿主时保留 1.1.0。草稿、来源气泡、回收站记录和已固定的重试内容沿用现有数据格式，升级无需清理浏览器存储。[升级指南](docs/upgrade-guide/v1.1.6/host-baseline/guide.md)（[中文](docs/upgrade-guide/v1.1.6/host-baseline/guide.zh.md)）列出了版本检查方法。
 
 <a id="sources"></a>
 
@@ -84,7 +84,7 @@ Install dsh-annotation 1.1.5 into my DeepSeek Harness Web profile. Use web unles
 
 ## 新建与编辑
 
-1. 选中原文并点击 **添加注解**。重叠选区会创建独立注解。
+1. 选中原文并点击 **添加注解**。在回复正文中，宿主只显示一个操作栏，包含 **引用文本** 和 **添加注解**：引用会将片段插入主输入框，添加注解会打开注解编辑器。重叠选区会创建独立注解。
 2. 在选区下方输入意见。按 Enter 或点击对号保存，Shift+Enter 换行；中文输入法组词期间不会提前保存。输入区从一行自动增高，最多显示七行，超过后在内部滚动。
 3. 主动保存空的选区注解，可以只标记原文。新建编辑框为空时，前两次点击外部会轻微晃动，第三次取消；在主输入框开始输入也会取消空白新注解。取消不会产生记录、气泡、附加项或回收站内容。新建内容非空时，第三次点击外部会保存。
 4. 点击数字气泡打开注解。草稿可以编辑；已发送注解显示保存的内容，并可再次附加。取消编辑会保留原先保存的注解，暂存的未完成修改不会随消息发送。
@@ -103,15 +103,15 @@ Install dsh-annotation 1.1.5 into my DeepSeek Harness Web profile. Use web unles
 
 新注解默认附加到下一条消息，不会自动展开记录框。输入框左上角显示附加数量，悬浮可预览原文和意见，点击可展开或折叠记录。模型选择按钮左侧的注解按钮也能打开或关闭记录框。没有注解的新会话不会显示空记录框。
 
-每条记录提供回形针附加或取消附加、定位图标跳转来源、草稿编辑，以及发送状态未锁定时的删除操作。悬浮记录文字可查看引用、来源类型、创建入口和保存的上下文。附加数量提示在悬浮或键盘聚焦时还会显示批量取消附加和删除操作。取消附加会保留注解，删除则移入回收站。
+每条记录提供回形针附加或取消附加、定位图标跳转来源、草稿编辑，以及发送状态未锁定时的删除操作。悬浮记录文字可在记录框上方查看引用、来源类型、创建入口和保存的上下文，不会遮挡各行操作。附加数量提示在悬浮或键盘聚焦时还会显示批量取消附加和删除操作。取消附加会保留注解，删除则移入回收站。
 
-记录分为三组排序：
+打开记录框或切换来源筛选时，记录分为三组排序：
 
 1. 已附加的注解和未完成的发送，包括排队中、可重试的批次。
 2. 其他尚未发送的草稿。
 3. 已发送历史和旧版只读记录。
 
-每组按创建时间从新到旧排列。编辑不会改变创建顺序；重新附加已发送注解会将其移到第一组，同时保留已发送状态。**全部 / 正文 / Diff / 文件** 筛选沿用相同排序。重排会保持键盘焦点，并在空间允许时保持滚动阅读位置。显示顺序不会改变来源气泡编号、实际提交顺序或已固定的重试内容。
+每组按创建时间从新到旧排列。附加或取消任意一条注解时，展开列表中的行位置保持不变；重新打开或切换筛选时才应用新的分组顺序。新增或删除记录会更新分组，并在空间允许时保持滚动阅读位置。编辑不会改变创建顺序，重新附加已发送注解也会保留已发送状态。**全部 / 正文 / Diff / 文件** 筛选沿用相同排序。显示顺序不会改变来源气泡编号、实际提交顺序或已固定的重试内容。
 
 ![注解记录与输入框附加提示](docs/assets/annotation-record.png)
 
@@ -119,7 +119,7 @@ Install dsh-annotation 1.1.5 into my DeepSeek Harness Web profile. Use web unles
 
 ## 发送、重发与重试
 
-通过官方输入框，将已附加注解与可选的文字、图片和文件一起发送。普通斜杠命令仍按原有方式执行。发送后的用户消息正文上方显示注释数量：单条可悬浮预览、双击定位；多条可展开后逐条查看和定位。全部注解已发送且没有附加项时，记录框自动关闭。
+通过官方输入框，将已附加注解与可选的文字、图片和文件一起发送。普通斜杠命令仍按原有方式执行。宿主检查或发送消息期间，附加和编辑操作保持锁定，直到本次处理结束。发送后的用户消息正文上方显示注释数量：单条可悬浮预览、双击定位；多条可展开后逐条查看和定位。全部注解已发送且没有附加项时，记录框自动关闭。
 
 点击已发送注解的回形针，可以再次附加。注解 ID 和来源气泡保持不变，即使选中准备再次发送，仍保留已发送状态。草稿、排队发送、会话中已持久化的消息和模型确认是不同状态；只有收到有效的模型确认标记，记录才会显示为已处理。
 

@@ -179,44 +179,47 @@ describe('annotation record and composer interactions', () => {
     ).toEqual([['record.off']])
   })
 
-  it('keeps saved rows unchanged while typing and refreshes edited text, locale, and submission controls', () => {
-    const h = harness()
-    onTestFinished(() => h.controller.dispose())
-    const first = h.save(0, 'First note')
-    h.save(20, 'Second note')
-    h.controller.openAnnotation(first, 'summary')
-    h.controller.setPanelOpen(true)
-    const translate = vi.fn(t)
-    const { rerender } = render(<AnnotationExperience {...h.props} t={translate} />)
-    translate.mockClear()
+  it.each(['adjudicating', 'submitting', 'sending'] as const)(
+    'keeps saved rows unchanged while typing and disables editing while %s',
+    (phase) => {
+      const h = harness()
+      onTestFinished(() => h.controller.dispose())
+      const first = h.save(0, 'First note')
+      h.save(20, 'Second note')
+      h.controller.openAnnotation(first, 'summary')
+      h.controller.setPanelOpen(true)
+      const translate = vi.fn(t)
+      const { rerender } = render(<AnnotationExperience {...h.props} t={translate} />)
+      translate.mockClear()
 
-    fireEvent.change(screen.getByRole('textbox', { name: 'Your annotation' }), {
-      target: { value: 'Edited note' },
-    })
-    expect(screen.getByRole('listitem', { name: /First note/ })).toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: 'Your annotation' })).toHaveValue('Edited note')
-    expect(
-      translate.mock.calls.filter(([key]) => ['record.pending', 'record.sent', 'record.off'].includes(key)),
-    ).toEqual([])
+      fireEvent.change(screen.getByRole('textbox', { name: 'Your annotation' }), {
+        target: { value: 'Edited note' },
+      })
+      expect(screen.getByRole('listitem', { name: /First note/ })).toBeInTheDocument()
+      expect(screen.getByRole('textbox', { name: 'Your annotation' })).toHaveValue('Edited note')
+      expect(
+        translate.mock.calls.filter(([key]) => ['record.pending', 'record.sent', 'record.off'].includes(key)),
+      ).toEqual([])
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    expect(screen.getByRole('listitem', { name: /Edited note/ })).toBeInTheDocument()
-    const localized: InputAnnotationProps['t'] = (key, params) => `Localized ${t(key, params)}`
-    const navigate = vi.fn(async () => true)
-    rerender(
-      <AnnotationExperience
-        {...h.props}
-        t={localized}
-        navigate={navigate}
-        input={{ ...h.props.input, phase: 'submitting' }}
-      />,
-    )
-    const row = screen.getByRole('listitem', { name: /Edited note/ })
-    expect(row).toHaveAccessibleName(/Localized Pending/)
-    expect(within(row).getByRole('button', { name: 'Localized Remove from message' })).toBeDisabled()
-    fireEvent.click(within(row).getByRole('button', { name: 'Localized Locate source' }))
-    expect(navigate).toHaveBeenCalledWith(first)
-  })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      expect(screen.getByRole('listitem', { name: /Edited note/ })).toBeInTheDocument()
+      const localized: InputAnnotationProps['t'] = (key, params) => `Localized ${t(key, params)}`
+      const navigate = vi.fn(async () => true)
+      rerender(
+        <AnnotationExperience
+          {...h.props}
+          t={localized}
+          navigate={navigate}
+          input={{ ...h.props.input, phase }}
+        />,
+      )
+      const row = screen.getByRole('listitem', { name: /Edited note/ })
+      expect(row).toHaveAccessibleName(/Localized Pending/)
+      expect(within(row).getByRole('button', { name: 'Localized Remove from message' })).toBeDisabled()
+      fireEvent.click(within(row).getByRole('button', { name: 'Localized Locate source' }))
+      expect(navigate).toHaveBeenCalledWith(first)
+    },
+  )
 
   it('shows recent attached notes across sources first while preserving source ordinals and submission order', () => {
     let time = 1_700_000_000_000
@@ -290,26 +293,32 @@ describe('annotation record and composer interactions', () => {
     expect(pending?.payload.annotations.map((item) => item.ordinal)).toEqual([1, 2, 3])
   })
 
-  it('moves a detached row below current attachments and restores its position on reattachment', () => {
+  it('keeps arbitrary attachment toggles in place until the record is reopened', () => {
     let time = 1_700_000_000_000
     const h = harness(new Map(), () => time++)
     onTestFinished(() => h.controller.dispose())
-    h.save(0, 'Older note')
-    h.save(20, 'Newer note')
+    const older = h.save(0, 'Older note')
+    const middle = h.save(20, 'Middle note')
+    h.save(40, 'Newer note')
     h.controller.setPanelOpen(true)
     render(<AnnotationExperience {...h.props} />)
-    const action = within(screen.getByRole('listitem', { name: /Newer note/u })).getByRole('button', {
-      name: 'Remove from message',
-    })
-    fireEvent.click(action)
-    expect(
+    const order = () =>
       screen
         .getAllByRole('listitem')
-        .map((row) => row.querySelector('.dia-record-row__preview-anchor')?.textContent),
-    ).toEqual(['Older note', 'Newer note'])
-    expect(action).toHaveAccessibleName('Send with message')
-    fireEvent.click(action)
-    expect(screen.getAllByRole('listitem')[0]).toHaveAccessibleName(/Newer note/u)
+        .map((row) => row.querySelector('.dia-record-row__preview-anchor')?.textContent)
+    const action = (note: string) =>
+      within(screen.getByRole('listitem', { name: new RegExp(note) })).getByRole('button', {
+        name: /message$/,
+      })
+
+    for (const note of ['Middle note', 'Newer note', 'Middle note']) {
+      fireEvent.click(action(note))
+      expect(order()).toEqual(['Newer note', 'Middle note', 'Older note'])
+    }
+    expect(h.controller.getSnapshot().selectedAnnotationIds).toEqual([older, middle])
+    act(() => h.controller.setPanelOpen(false))
+    act(() => h.controller.setPanelOpen(true))
+    expect(order()).toEqual(['Middle note', 'Older note', 'Newer note'])
   })
 
   it('derives source filters from all records and adds the file label only in the view', () => {
@@ -718,6 +727,15 @@ describe('annotation record and composer interactions', () => {
     expect(within(details).getByText(note.trim())).toBeInTheDocument()
     expect(details.querySelector('q')?.textContent).toBe(quote)
     expect(within(details).getByText('[Body]')).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('region', { name: 'Annotation details' })).toBeNull()
+    fireEvent.pointerEnter(anchor.parentElement!)
+    act(() => vi.advanceTimersByTime(500))
+    const attach = within(row).getByRole('button', { name: 'Remove from message' })
+    fireEvent.pointerDown(attach)
+    fireEvent.click(attach)
+    expect(screen.queryByRole('region', { name: 'Annotation details' })).toBeNull()
+    expect(attach).toHaveAccessibleName('Send with message')
     h.controller.dispose()
   })
 

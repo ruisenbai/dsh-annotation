@@ -68,6 +68,36 @@ function saveDraft(controller: AnnotationController): AnnotationId {
 }
 
 describe('annotation controller', () => {
+  it('reads selections only from its mounted message sources and releases them on unload', ({
+    onTestFinished,
+  }) => {
+    const { controller } = harness()
+    onTestFinished(() => controller.dispose())
+    const other = harness(new MemoryStorage(), 'other-session' as SessionIdentity).controller
+    onTestFinished(() => other.dispose())
+    const selected = capture()
+    const disposeEmpty = controller.registerEndpoint('empty' as MessageIdentity, {
+      reveal: vi.fn(),
+      annotateAll: vi.fn(),
+    })
+    const disposeOutside = controller.registerEndpoint('outside' as MessageIdentity, {
+      reveal: vi.fn(),
+      annotateAll: vi.fn(),
+      captureSelection: () => null,
+    })
+    const disposeSelected = controller.registerEndpoint(selected.messageId!, {
+      reveal: vi.fn(),
+      annotateAll: vi.fn(),
+      captureSelection: () => selected,
+    })
+    expect(controller.readMessageSelection()).toEqual(selected)
+    expect(other.readMessageSelection()).toBeNull()
+    disposeSelected()
+    expect(controller.readMessageSelection()).toBeNull()
+    disposeOutside()
+    disposeEmpty()
+  })
+
   it('keeps damaged session data and the storage warning through reconciliation and flush', () => {
     const memory = new MemoryStorage()
     const original = harness(memory).controller

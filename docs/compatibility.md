@@ -2,37 +2,21 @@
 
 ## Host requirement
 
-Version 1.1.5 targets DSH `0.2.1-rc.2` and declares Host `>=0.2.1-rc.2`. Install the 1.1.5 GitHub Release archive. Keep plugin 1.1.2 on `0.2.1-alpha.2`, 1.1.1 on `0.2.1-alpha.1`, or 1.1.0 on the `0.2.0` family; see the [upgrade guide](upgrade-guide/v1.1.2/host-baseline/guide.md).
+Version 1.1.6 requires DSH `>=0.2.2-alpha.2` and Node.js `>=24.9.0`. Verification targets official master commit `f3803c96974ad4a94195fb97e5c637e9c2a3afe3`. Keep plugin 1.1.5 on `0.2.1-rc.2`; the [upgrade guide](upgrade-guide/v1.1.6/host-baseline/guide.md) describes the Host checks. Annotation protocol v5 and browser storage v6 retain their formats.
 
-| Component                | Supported baseline                                                                  |
-| ------------------------ | ----------------------------------------------------------------------------------- |
-| DeepSeek Harness host    | `>=0.2.1-rc.2`                                                                      |
-| `engines.dsh`            | `>=0.2.1-rc.2`                                                                      |
-| Development declarations | `0.2.1-rc.2`                                                                        |
-| Cordis                   | `~4.0.5`                                                                            |
-| Node.js                  | `^22.19.0` or `>=24`                                                                |
-| React                    | `^18.2.0`                                                                           |
-| Browser                  | Current Chromium-based DSH Web target; other modern browsers retain marker fallback |
-
-The checkout manifest declares `engines.dsh: ">=0.2.1-rc.2"`, and its `@deepseek-ai/dsh-*` peers, development dependencies, lockfile, and CI checkout use that release. The strict-peer development environment includes `@deepseek-ai/dsh-llm-deepseek`, required by the official provider packages. Host source and frozen Session recordings are unchanged. New annotation submissions use protocol v5 and browser storage uses v6; protocol v1–v4 and storage v1–v5 remain readable compatibility generations.
+The `0.2.2-alpha.2` Host family includes the text-interaction API. On the supported Host, selecting completed reply text opens one toolbar with **Quote text** and **Add annotation**. Quote text uses the Host's `inputActions.insertQuote`; annotation opens the existing editor with the selected source identity. Text outside an annotatable reply keeps Quote text alone. The Host owns placement, scrolling, Escape, outside-click dismissal, and source invalidation. Disabling annotations restores the Host's Quote renderer. Hosts without `uiConversation.interactions` retain the plugin's standalone annotation toolbar.
 
 ## Dependency source
 
-Every DSH dependency used for verification must identify the same `0.2.1-rc.2` source generation. [source-baseline.json](../source-baseline.json) pins official tag `dsh-v0.2.1-rc.2` at commit `687f282e8625c6b8d11ff58211a90524be2e4317`. The npm family is available and the registry lockfile targets it; verify the complete peer closure with `pnpm install --frozen-lockfile --strict-peer-dependencies`. A matching version string or a regenerated lockfile is not a behavior-test result.
+[source-baseline.json](../source-baseline.json) pins the official master commit and its `0.2.2-alpha.2` package family. Cordis is `4.0.6-alpha.1`, the group plugin is `1.0.6-alpha.1`, and Schemastery is `3.18.6-alpha.1`. The registry lockfile supplies the required API declarations and built Web profile. CI additionally builds the pinned source family in an isolated checkout.
 
-For an unpublished family, use verifiable official source or official artifacts in a disposable directory. Confirm the repository, source commit or artifact URL, package names, and package versions before deriving integrity values. Include the DSH and vendored Cordis package families and the Landlock entry package, and enforce strict peers in the temporary install. Machine-local `file:` URLs, workspace links, and generated overlay lockfiles must never enter the released plugin manifest or checked-in lockfile. Record the actual source and commands in the release verification evidence; an old lockfile or a successful build against a different host does not verify this baseline.
-
-The source verification helper provides independent source checks: it checks the pinned checkout commit, clean tracked files, DSH tarball versions, and required direct official packages before preparing a separate plugin directory. It omits the registry lockfile, supplies all provided official packages as temporary development dependencies, and adds tarball overrides. Restore the source manifest after verification and before packaging so those temporary dependency entries do not enter the release. [Development](development.md#official-source-verification) owns the complete procedure.
+The source verification helper requires that commit, clean tracked files, matching DSH tarball versions, and the complete official dependency family. It prepares a disposable plugin directory with tarball overrides and a separate generated lockfile. Include the DSH and vendored Cordis families and the native system entry package. Never commit the temporary overrides or package manifest; [Development](development.md#official-source-verification) owns the procedure.
 
 ## Verification
 
-Current verification targets the published `0.2.1-rc.2` DSH packages with Cordis `4.0.5`, the group plugin `1.0.5`, and Schemastery `3.18.5`. The removed `@deepseek-ai/dsh-invariants` package is not a development dependency. The plugin's existing no-op `./invariant` export remains available for callers and requires no Host registry.
+Local verification uses the published dependency family; CI builds the pinned Host separately from the developer's working tree. Focused component checks cover the shared toolbar, stale selections, source disposal, and old Hosts without text interactions. The installed Web profile checks both selection actions, annotation submission, and official file/Diff sources. Exact results are recorded after the corresponding commands complete.
 
-The registry lockfile and CI source pin identify the same official generation. Verification runs on Linux with Node.js `26.11.1`. Passed checks: frozen strict-peer installation, typechecking, lint, formatting, 673 unit/component tests across 46 files, coverage thresholds, built bundle validation, archive lint, Chromium interactions, and an isolated installed Web profile. Coverage is 89.31% lines, 93.76% functions, 81.29% branches, and 85.70% statements. The profile compares submissions with the durable Session log and deterministic model requests, and exercises source selection, file/Diff navigation, attachments, reattachment, settings, and refresh recovery.
-
-Eight Chinese README screenshots use the Host's dark theme and show selection, editing, source bubbles, records, sending, reattachment, file/Diff sources, and settings. Screenshot scenarios use a deterministic model adapter; they demonstrate the actual installed Web interface, not live-provider response quality. [Development](development.md) owns the executed commands and archive-install procedure. Node 22/24, macOS, Windows, and other browsers require separate CI or manual evidence.
-
-The published Host primitives package references a missing `index.js.map`; the source-map warning does not prevent the tests from running.
+README screenshots use the Host's dark theme. The selection image shows the combined toolbar. Deterministic profile scenarios exercise the installed UI; they do not measure live-provider response quality.
 
 ## Marketplace placement
 
@@ -111,7 +95,7 @@ The internal command is registered through the public command registry. DSH curr
 
 ## Historical Diff compatibility and persistence acknowledgement
 
-DSH `0.2.1-rc.2` writes Session format v4. Plugin protocol v5 and browser storage v6 are independent version domains. The profile smoke restores frozen Session v3 recordings through the official migration catalog, compares them with adjacent v4 fixtures, and verifies that reading preserves the migrated events. Existing v3 fixture generations remain unchanged.
+The retained compatibility fixtures include Session format v4 and its v3 predecessor. Plugin protocol v5 and browser storage v6 are independent version domains. The profile smoke restores frozen Session v3 recordings through the official migration catalog, compares them with adjacent v4 fixtures, and verifies that reading preserves the migrated events. Existing v3 fixture generations remain unchanged.
 
 The current plugin emits v5 annotations from message, official file, and official turn-Diff sources. Protocol v1/v2 messages, code-block selections, tables, old source namespaces, acknowledgement/reply markers, and failed message-source retries remain readable. Historical protocol v3 Git Diff sources and complete snapshots in standard `user/message` metadata remain parseable and visible as read-only history. Browser-local official source drafts, suspended editors, and failed batches are preserved without automatic migration, retry, or deletion. Historical Git Diff remains excluded from new submission admission.
 
@@ -125,6 +109,8 @@ The optional [Codex UI](https://github.com/MichengAI/dsh-codex-ui) plugin is det
 
 The combined profile scenario is verified with Codex UI `1.1.43` on DSH `0.2.1-rc.2`, using the actual installed package and a deterministic model adapter. It checks source selection, automatic compatibility, attachment, preview, editor, settings, and record geometry at 1440px and 390px in both themes, draft recovery after reload, and submission through the official composer with matching Session log and model input. Run it after building with `node scripts/profile-smoke.mjs --codex-ui /absolute/path/to/node_modules/@michengai/dsh-codex-ui`. The package is linked only into a temporary profile; the installed package and user profile are not modified.
 
+Codex UI `1.1.45` does not declare support for DSH `0.2.2-alpha.2`, so the Host skips it. Verification on this Host uses the official UI; the combined scenario requires a compatible Codex UI release.
+
 ### Storage and source markers
 
 The source text has no permanent underline or background for annotations. Hovering or opening its numbered bubble highlights the selected text; navigation renders a separate transient quote-range overlay. The bubble follows its source during scrolling and disappears when the selected text leaves the visible scroll area.
@@ -133,4 +119,4 @@ The source text has no permanent underline or background for annotations. Hoveri
 
 ## Forward compatibility goal
 
-When DSH exposes an additive assistant-body decoration or selection Slot, replace the in-place assistant decorator with that Slot. A future typed annotation node or private Client-to-Host transport can retain protocol v5 while fields are additive and old records have defined defaults; an incompatible semantic or structural change requires an explicit successor version.
+Message selection uses the Host text-interaction Slot. An additive assistant-body decoration Slot would also replace the remaining in-place assistant decorator. A future typed annotation node or private Client-to-Host transport can retain protocol v5 while fields are additive and old records have defined defaults; an incompatible semantic or structural change requires an explicit successor version.

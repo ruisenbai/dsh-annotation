@@ -90,6 +90,7 @@ export function AnnotationMarkerButton({
       open={groupOpen && !editorOpen}
       portal
       dense
+      listClassName="dia-marker-menu"
       autoFocus
       anchor={button}
       getAnchorRect={() => buttonRef.current?.getBoundingClientRect() ?? null}

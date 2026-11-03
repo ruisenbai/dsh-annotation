@@ -10,9 +10,11 @@ import {
   IconTrashOutlineRegular,
   Button,
   HoverCard,
+  MenuSurface,
   SegmentedControl,
   StateDot,
   Tooltip,
+  useDismissOnOutsidePointer,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import {
@@ -230,27 +232,24 @@ function sourceAnchor(item: AnnotationDraft) {
   )
 }
 
-const annotationTextLineHeight = 20
-const annotationTextMinimumHeight = annotationTextLineHeight + 12
-const annotationTextMaximumHeight = annotationTextLineHeight * 7 + 12
-
-function fitAnnotationTextarea(
-  element: HTMLTextAreaElement,
-  cardHeight: number | undefined,
-  quick: boolean,
-): void {
+function fitAnnotationTextarea(element: HTMLTextAreaElement, cardHeight: number | undefined): void {
+  const style = element.ownerDocument.defaultView!.getComputedStyle(element)
+  const lineHeight = Number.parseFloat(style.lineHeight) || 20
+  const padding = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0)
+  const minimumHeight = lineHeight + padding
+  const maximumHeight = lineHeight * 7 + padding
+  const controlsHeight = Math.max(0, element.parentElement!.scrollHeight - element.offsetHeight)
   const scrollTop = element.scrollTop
-  const availableHeight =
-    cardHeight === undefined ? annotationTextMaximumHeight : cardHeight - (quick ? 16 : 58)
-  const cap = Math.min(annotationTextMaximumHeight, Math.max(annotationTextMinimumHeight, availableHeight))
+  const availableHeight = cardHeight === undefined ? maximumHeight : cardHeight - controlsHeight
+  const cap = Math.min(maximumHeight, Math.max(minimumHeight, availableHeight))
   element.style.maxHeight = `${cap}px`
-  element.style.height = `${annotationTextMinimumHeight}px`
+  element.style.height = `${minimumHeight}px`
   const requiredHeight = element.scrollHeight
-  element.style.height = `${Math.min(cap, Math.max(annotationTextMinimumHeight, requiredHeight))}px`
+  element.style.height = `${Math.min(cap, Math.max(minimumHeight, requiredHeight))}px`
   element.style.overflowY = requiredHeight > cap ? 'auto' : 'hidden'
   element
     .closest('.dia-record-editor--quick')
-    ?.setAttribute('data-single-line', String(requiredHeight <= annotationTextMinimumHeight))
+    ?.setAttribute('data-single-line', String(requiredHeight <= minimumHeight))
   element.scrollTop = scrollTop
 }
 
@@ -259,12 +258,11 @@ function useAnnotationTextareaHeight(
   value: string,
   enabled: boolean,
   cardHeight: number | undefined,
-  quick: boolean,
 ): void {
   useLayoutEffect(() => {
     const element = textarea.current
     if (!enabled || element === null) return undefined
-    fitAnnotationTextarea(element, cardHeight, quick)
+    fitAnnotationTextarea(element, cardHeight)
     let width = element.getBoundingClientRect().width
     const resize =
       typeof ResizeObserver === 'undefined'
@@ -273,11 +271,17 @@ function useAnnotationTextareaHeight(
             const nextWidth = element.getBoundingClientRect().width
             if (nextWidth === width) return
             width = nextWidth
-            fitAnnotationTextarea(element, cardHeight, quick)
+            fitAnnotationTextarea(element, cardHeight)
           })
     resize?.observe(element)
     const view = element.ownerDocument.defaultView!
-    const fit = () => fitAnnotationTextarea(element, cardHeight, quick)
+    const fit = () => fitAnnotationTextarea(element, cardHeight)
+    const preference = new MutationObserver(fit)
+    preference.observe(element.ownerDocument.body, { attributes: true, attributeFilter: ['style'] })
+    preference.observe(element.ownerDocument.documentElement, {
+      attributes: true,
+      attributeFilter: ['style'],
+    })
     view.addEventListener('resize', fit)
     let disposed = false
     void element.ownerDocument.fonts?.ready.then(() => {
@@ -286,9 +290,10 @@ function useAnnotationTextareaHeight(
     return () => {
       disposed = true
       resize?.disconnect()
+      preference.disconnect()
       view.removeEventListener('resize', fit)
     }
-  }, [textarea, value, enabled, cardHeight, quick])
+  }, [textarea, value, enabled, cardHeight])
 }
 
 function AnnotationEditor({
@@ -333,7 +338,6 @@ function AnnotationEditor({
     editor?.text ?? '',
     editor !== null,
     typeof floating.style.maxHeight === 'number' ? floating.style.maxHeight : undefined,
-    editor?.kind === 'new',
   )
   const save = (): boolean => {
     if (submitting) return false
@@ -563,7 +567,6 @@ function SentAnnotationCard({
     item?.annotation ?? '',
     item !== undefined && view.editor === null,
     typeof floating.style.maxHeight === 'number' ? floating.style.maxHeight : undefined,
-    false,
   )
   useEffect(() => {
     if (item === undefined || view.editor !== null) return undefined
@@ -623,6 +626,118 @@ function SentAnnotationCard({
   )
 }
 
+/** Keep readable previews outside the whole record so other rows remain clickable. */
+function RecordPreview({
+  item,
+  disabled,
+  t,
+}: {
+  item: AnnotationDraft
+  disabled: boolean
+  t: InputAnnotationProps['t']
+}) {
+  const anchor = useRef<HTMLSpanElement>(null)
+  const panel = useRef<HTMLDivElement>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [open, setOpen] = useState(false)
+  const visible = open && !disabled
+  const clearTimer = () => {
+    if (timer.current !== null) clearTimeout(timer.current)
+    timer.current = null
+  }
+  const close = () => {
+    clearTimer()
+    setOpen(false)
+  }
+  const schedule = (next: boolean, delay: number) => {
+    clearTimer()
+    timer.current = setTimeout(() => {
+      timer.current = null
+      setOpen(next)
+    }, delay)
+  }
+  const record = () => anchor.current?.closest<HTMLElement>('.dia-record') ?? null
+  const floating = useAnnotationFloating({
+    enabled: visible,
+    floatingRef: panel,
+    anchor: record,
+    composer: record,
+  })
+  useDismissOnOutsidePointer(anchor, visible, close, panel)
+  useEffect(() => {
+    if (disabled) setOpen(false)
+    return clearTimer
+  }, [disabled])
+  useEffect(() => {
+    if (!visible) return undefined
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      close()
+    }
+    document.addEventListener('keydown', dismiss, true)
+    return () => document.removeEventListener('keydown', dismiss, true)
+  }, [visible])
+  return (
+    <>
+      <span
+        ref={anchor}
+        className="dia-record-row__text"
+        onPointerEnter={(event) => {
+          if (
+            disabled ||
+            event.pointerType === 'touch' ||
+            (event.pointerType === 'mouse' && !window.matchMedia('(any-hover: hover)').matches)
+          )
+            return
+          if (visible) clearTimer()
+          else schedule(true, 500)
+        }}
+        onPointerLeave={() => schedule(false, 200)}
+        onPointerDown={close}
+        onFocus={(event) => {
+          if (!disabled && event.target.matches(':focus-visible')) {
+            clearTimer()
+            setOpen(true)
+          }
+        }}
+        onBlur={(event) => {
+          if (!(event.relatedTarget instanceof Node) || !panel.current?.contains(event.relatedTarget)) close()
+        }}
+      >
+        <span
+          tabIndex={0}
+          className="dia-record-row__preview-anchor"
+          aria-label={item.annotation || t('highlightOnly')}
+        >
+          {item.annotation}
+        </span>
+      </span>
+      {visible &&
+        createPortal(
+          <MenuSurface
+            ref={panel}
+            className="dia-record-preview"
+            style={floating.style}
+            onPointerEnter={clearTimer}
+            onPointerLeave={() => schedule(false, 200)}
+            onBlur={(event) => {
+              if (
+                !(event.relatedTarget instanceof Node) ||
+                (!panel.current?.contains(event.relatedTarget) &&
+                  !anchor.current?.contains(event.relatedTarget))
+              )
+                close()
+            }}
+          >
+            <AnnotationDetails item={item} t={t} />
+          </MenuSurface>,
+          document.body,
+        )}
+    </>
+  )
+}
+
 const RecordRow = memo(function RecordRow({
   item,
   selected,
@@ -655,22 +770,7 @@ const RecordRow = memo(function RecordRow({
       <span className="dia-record-row__glyph" aria-hidden="true">
         <StateDot state={state === 'sent' ? 'done' : state === 'pending' ? 'warning' : 'idle'} />
       </span>
-      <span className="dia-record-row__text">
-        <HoverCard
-          inline
-          disabled={editorOpen}
-          anchor={
-            <span
-              tabIndex={0}
-              className="dia-record-row__preview-anchor"
-              aria-label={item.annotation || t('highlightOnly')}
-            >
-              {item.annotation}
-            </span>
-          }
-          content={<AnnotationDetails item={item} t={t} />}
-        />
-      </span>
+      <RecordPreview item={item} disabled={editorOpen} t={t} />
       <div className="dia-record-row__actions">
         {legacyDiff ? <span className="dia-record-row__legacy">{t('source.readOnly')}</span> : null}
         {!legacyDiff && (
@@ -729,18 +829,33 @@ interface RecordListSnapshot {
   readonly focus: HTMLElement | null
 }
 
-/** Capture row geometry before React moves keyed children so reordering preserves the reading position. */
-class RecordList extends PureComponent<RecordListProps, Record<string, never>, RecordListSnapshot | null> {
-  private readonly list = createRef<HTMLDivElement>()
+interface RecordListState {
+  readonly scope: string
+  readonly ids: readonly AnnotationId[]
+}
 
-  getSnapshotBeforeUpdate(previous: RecordListProps): RecordListSnapshot | null {
-    const list = this.list.current
+/** Keep attachment toggles in place; membership and filter changes retain the visible reading anchor. */
+class RecordList extends PureComponent<RecordListProps, RecordListState, RecordListSnapshot | null> {
+  private readonly list = createRef<HTMLDivElement>()
+  state: RecordListState = { scope: this.props.scope, ids: this.props.items.map((item) => item.annotationId) }
+
+  static getDerivedStateFromProps(next: RecordListProps, previous: RecordListState): RecordListState | null {
+    const ids = new Set(previous.ids)
     if (
-      list === null ||
-      previous.scope !== this.props.scope ||
-      (previous.items.length === this.props.items.length &&
-        previous.items.every((item, index) => item.annotationId === this.props.items[index]?.annotationId))
+      next.scope === previous.scope &&
+      next.items.length === ids.size &&
+      next.items.every((item) => ids.has(item.annotationId))
     )
+      return null
+    return { scope: next.scope, ids: next.items.map((item) => item.annotationId) }
+  }
+
+  getSnapshotBeforeUpdate(
+    previous: RecordListProps,
+    previousState: RecordListState,
+  ): RecordListSnapshot | null {
+    const list = this.list.current
+    if (list === null || previous.scope !== this.props.scope || previousState.ids === this.state.ids)
       return null
     const retainedIds = new Set<string>(this.props.items.map((item) => item.annotationId))
     const bounds = list.getBoundingClientRect()
@@ -769,7 +884,7 @@ class RecordList extends PureComponent<RecordListProps, Record<string, never>, R
 
   componentDidUpdate(
     previous: RecordListProps,
-    _state: Record<string, never>,
+    _state: RecordListState,
     snapshot: RecordListSnapshot | null,
   ): void {
     const list = this.list.current
@@ -791,19 +906,22 @@ class RecordList extends PureComponent<RecordListProps, Record<string, never>, R
 
   render(): ReactNode {
     const { id, items, selectedIds, editorOpen, t, actions, submitting } = this.props
+    const byId = new Map(items.map((item) => [item.annotationId, item]))
     return (
       <div ref={this.list} id={id} className="dia-record__list" role="list">
-        {items.map((item) => (
-          <RecordRow
-            key={item.annotationId}
-            item={item}
-            selected={selectedIds.has(item.annotationId) || item.status === 'queued'}
-            editorOpen={editorOpen}
-            t={t}
-            actions={actions}
-            submitting={submitting}
-          />
-        ))}
+        {this.state.ids
+          .map((annotationId) => byId.get(annotationId)!)
+          .map((item) => (
+            <RecordRow
+              key={item.annotationId}
+              item={item}
+              selected={selectedIds.has(item.annotationId) || item.status === 'queued'}
+              editorOpen={editorOpen}
+              t={t}
+              actions={actions}
+              submitting={submitting}
+            />
+          ))}
       </div>
     )
   }
@@ -823,6 +941,7 @@ export function AnnotationExperience({
   ...actions
 }: InputAnnotationProps) {
   const view = useAnnotations((state) => state)
+  const submitting = input.phase !== 'plain' && input.phase !== 'claimed'
   const archived = useWorkspaces((state) => state.archivedSessionIds.includes(sessionId))
   const listId = useId()
   const [filter, setFilter] = useState<'all' | 'message' | 'diff' | 'file'>('all')
@@ -982,7 +1101,7 @@ export function AnnotationExperience({
                   editorOpen={view.editor !== null}
                   t={t}
                   actions={recordActions}
-                  submitting={input.phase === 'submitting'}
+                  submitting={submitting}
                 />
               </div>
             )}
@@ -1003,13 +1122,7 @@ export function AnnotationExperience({
           </div>
         </section>
       )}
-      <AnnotationEditor
-        view={view}
-        t={t}
-        actions={actions}
-        saveEditor={saveEditor}
-        submitting={input.phase === 'submitting'}
-      />
+      <AnnotationEditor view={view} t={t} actions={actions} saveEditor={saveEditor} submitting={submitting} />
       <SentAnnotationCard view={view} t={t} actions={actions} />
     </>
   )

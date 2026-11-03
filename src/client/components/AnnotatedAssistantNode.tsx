@@ -329,6 +329,8 @@ function sameReplyChips(left: readonly ReplyChipState[], right: readonly ReplyCh
 type AnnotatedAssistantNodeProps = AssistantAnnotationProps & {
   /** Rendered output from the selected Host assistant renderer. */
   readonly children: ReactElement
+  /** Hosts with text interactions own selection placement and dismissal. */
+  readonly sharedSelection?: boolean
 }
 
 /** 给已有助手消息渲染器套一层注解界面，不接管其正文渲染。 */
@@ -345,6 +347,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   removeHighlights,
   t,
   children,
+  sharedSelection = false,
 }: AnnotatedAssistantNodeProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -626,10 +629,37 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     }
   }, [beginSelection, data.blocks, messageId, messageSeq])
 
+  const captureSelectedText = useCallback(() => {
+    const body = bodyRef.current
+    const selected = body?.ownerDocument.getSelection()
+    if (
+      body === null ||
+      messageId === undefined ||
+      messageSeq === undefined ||
+      selected === undefined ||
+      selected === null ||
+      selected.rangeCount !== 1 ||
+      selected.isCollapsed
+    )
+      return null
+    const range = selected.getRangeAt(0)
+    if (!body.contains(range.startContainer) || !body.contains(range.endContainer)) return null
+    let capture: ReturnType<typeof captureSelection>
+    try {
+      capture = captureSelection(body, range, messageId, messageSeq)
+    } catch (error) {
+      // An excluded or non-text selection has no annotation target.
+      void error
+      return null
+    }
+    const blockIndex = textBlockIndexOf(data.blocks, capture.quote.start)
+    return blockIndex === undefined ? capture : { ...capture, blockIndex }
+  }, [data.blocks, messageId, messageSeq])
+
   useEffect(() => {
     if (messageId === undefined) return undefined
-    return registerEndpoint(messageId, { reveal, annotateAll })
-  }, [annotateAll, messageId, registerEndpoint, reveal])
+    return registerEndpoint(messageId, { reveal, annotateAll, captureSelection: captureSelectedText })
+  }, [annotateAll, captureSelectedText, messageId, registerEndpoint, reveal])
 
   useEffect(() => {
     if (messageId === undefined) return undefined
@@ -819,21 +849,11 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
 
   useEffect(() => {
     const body = bodyRef.current
-    if (body === null || messageId === undefined || messageSeq === undefined) return undefined
+    if (sharedSelection || body === null || messageId === undefined || messageSeq === undefined)
+      return undefined
     const capture = () => {
-      const selected = window.getSelection()
-      if (selected === null || selected.rangeCount === 0 || selected.isCollapsed) return
-      const range = selected.getRangeAt(0)
-      if (!body.contains(range.startContainer) || !body.contains(range.endContainer)) return
-      try {
-        const capture = captureSelection(body, range, messageId, messageSeq)
-        const blockIndex = textBlockIndexOf(data.blocks, capture.quote.start)
-        setSelectionBar({
-          capture: blockIndex === undefined ? capture : { ...capture, blockIndex },
-        })
-      } catch {
-        // Selections crossing ignored or non-text content do not offer the selection bar.
-      }
+      const selected = captureSelectedText()
+      if (selected !== null) setSelectionBar({ capture: selected })
     }
     // A selection drag can be released anywhere in the page, so pointerup is observed on the
     // document in the capture phase; the range checks below keep the bar per-message. keyup
@@ -844,7 +864,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       document.removeEventListener('pointerup', capture, true)
       body.removeEventListener('keyup', capture)
     }
-  }, [messageId, messageSeq])
+  }, [captureSelectedText, messageId, messageSeq, sharedSelection])
 
   const selectionBarActive = selectionBar !== null
   useEffect(() => {
@@ -1045,7 +1065,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
           </aside>,
           document.body,
         )}
-      {selectionBar !== null && (
+      {!sharedSelection && selectionBar !== null && (
         <SelectionAction
           elementRef={selectionBarRef}
           rect={selectionBar.capture.rect}

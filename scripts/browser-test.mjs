@@ -149,6 +149,8 @@ async function inspectVariant(browser, base, variant) {
         checkCenter: check.top + check.height / 2,
         fieldCenter: field.top + field.height / 2,
         fieldHeight: field.height,
+        paddingTop: getComputedStyle(element).paddingTop,
+        paddingBottom: getComputedStyle(element).paddingBottom,
         resize: getComputedStyle(element.querySelector('textarea')).resize,
       }
     })
@@ -158,6 +160,8 @@ async function inspectVariant(browser, base, variant) {
         quickShape.checkRadius === '50%' &&
         quickShape.checkWidth === quickShape.checkHeight &&
         quickShape.resize === 'none' &&
+        quickShape.paddingTop === '10px' &&
+        quickShape.paddingBottom === '10px' &&
         quickShape.fieldHeight <= 33 &&
         Math.abs(quickShape.checkCenter - quickShape.fieldCenter) <= 2,
       `A one-line quick editor must use the approved compact layout: ${JSON.stringify(quickShape)}`,
@@ -166,6 +170,52 @@ async function inspectVariant(browser, base, variant) {
       quickShape.placement === 'bottom',
       `The quick editor must start below the selected character: ${JSON.stringify(quickShape)}`,
     )
+    const originalContentSize = await page.evaluate(() =>
+      document.body.style.getPropertyValue('--dsh-content-font-size'),
+    )
+    for (const size of [10, 16, 22, 14]) {
+      await page.evaluate(
+        (value) => document.body.style.setProperty('--dsh-content-font-size', `${value}px`),
+        size,
+      )
+      await quickInput.fill(Array.from({ length: 11 }, (_, index) => `Font sample ${index + 1}`).join('\n'))
+      await page.waitForFunction((value) => {
+        const field = document.querySelector('.dia-record-editor--quick textarea')
+        return (
+          field !== null &&
+          getComputedStyle(field).fontSize === `${value - 1}px` &&
+          getComputedStyle(field).overflowY === 'auto' &&
+          field.getBoundingClientRect().height <= (value + 6) * 7 + 13
+        )
+      }, size)
+      const geometry = await quick.evaluate((card) => {
+        const field = card.querySelector('textarea')
+        const button = card.querySelector('.dia-record-editor__check')
+        const rect = card.getBoundingClientRect()
+        const action = button.getBoundingClientRect()
+        return {
+          fontSize: getComputedStyle(field).fontSize,
+          lineHeight: getComputedStyle(field).lineHeight,
+          height: field.getBoundingClientRect().height,
+          buttonInside: action.top >= rect.top && action.bottom <= rect.bottom + 1,
+          buttonVisible: button.contains(
+            document.elementFromPoint(action.x + action.width / 2, action.y + action.height / 2),
+          ),
+          inViewport:
+            rect.left >= 0 && rect.right <= innerWidth + 1 && rect.top >= 0 && rect.bottom <= innerHeight + 1,
+        }
+      })
+      assert(geometry.fontSize === `${size - 1}px`, JSON.stringify(geometry))
+      assert(geometry.lineHeight === `${size + 6}px`, JSON.stringify(geometry))
+      assert(geometry.height >= size + 18 && geometry.height <= (size + 6) * 7 + 13, JSON.stringify(geometry))
+      assert(geometry.buttonInside && geometry.buttonVisible && geometry.inViewport, JSON.stringify(geometry))
+      if (size === 22)
+        await page.screenshot({ path: join(artifacts, `editor-${variant.name}-22px-body.png`) })
+    }
+    await page.evaluate((value) => {
+      if (value === '') document.body.style.removeProperty('--dsh-content-font-size')
+      else document.body.style.setProperty('--dsh-content-font-size', value)
+    }, originalContentSize)
     await quickInput.fill(' \n\t ')
     for (let outside = 0; outside < 2; outside += 1) {
       await page.mouse.click(2, 2)

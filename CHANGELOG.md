@@ -4,6 +4,23 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-10-28
+
+Target host: DeepSeek Harness master `f3803c9697` (`0.2.2-alpha.2`); minimum Host `>=0.2.2-alpha.2`, Node.js `>=24.9.0`.
+
+### Fixed
+
+- Keep open record rows stationary when attaching or detaching any annotation, and place readable previews above the whole record so they cannot cover other row actions.
+- Freeze annotation editing and attachment changes during Host command checking and message admission.
+
+- Combine Quote text and Add annotation in the Host message-selection toolbar, with shared placement and dismissal. Hosts without text interactions retain their annotation entry.
+
+- Match the selection toolbar's font size to conversation text and keep its padding compact across font sizes and narrow layouts.
+
+- Align the annotation record's expand/collapse chevron with the Host task summary while preserving its click target.
+
+Annotation protocol v5 and browser storage v6 retain their existing formats.
+
 ## [1.1.5] - 2026-10-20
 
 Target host: DeepSeek Harness `0.2.1-rc.2`; minimum Host `>=0.2.1-rc.2`.

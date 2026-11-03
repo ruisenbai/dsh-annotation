@@ -2,18 +2,16 @@
 
 ## Prerequisites
 
-- Node.js `^22.19.0` or `>=24`;
+- Node.js `>=24.9.0`;
 - Corepack;
 - pnpm `11.28.5`;
-- a DeepSeek Harness `0.2.1-rc.2` checkout or installation for Web verification.
+- the clean DeepSeek Harness master commit pinned in `source-baseline.json` for verification.
 
 ## Install and verify
 
-Use one exact DSH `0.2.1-rc.2` family, including the complete `@deepseek-ai/dsh` development environment. [source-baseline.json](../source-baseline.json) pins the official source commit; [Dependency source](compatibility.md#dependency-source) records the tag and commit. The npm family is available and the checked-in lockfile targets it. Verify its peer closure before running behavior checks:
+The registry lockfile supplies the `0.2.2-alpha.2` family and its shared selection and input-state APIs. Run `pnpm install --frozen-lockfile --strict-peer-dependencies`, then `pnpm verify` and the browser/profile checks. [Official source verification](#official-source-verification) checks the exact master commit in [source-baseline.json](../source-baseline.json) independently of the registry distribution.
 
-```bash
-pnpm install --frozen-lockfile --strict-peer-dependencies
-```
+`pnpm run test:profile --record-attachments-only` replays a recorded Session and checks arbitrary attachment clicks, stable row positions, scrolling, and unobstructed previews in wide and narrow windows.
 
 ## Historical Diff verification
 
@@ -21,7 +19,7 @@ pnpm install --frozen-lockfile --strict-peer-dependencies
 
 ## Official source verification
 
-The release also supports an independent verification against the pinned official source tree. Use this path to confirm artifact origin or when registry artifacts are unavailable. Never commit its `file:` overrides or generated lockfile.
+Source verification uses the pinned official source tree so the selection interfaces and the built Web profile come from the same master commit. Never commit its `file:` overrides or generated lockfile.
 
 Start in the plugin repository. Set `ANNOTATION_HOST` to a clean official checkout at the pinned commit, then build and pack its runtime families into a temporary directory:
 
@@ -46,7 +44,7 @@ pnpm install --no-frozen-lockfile --strict-peer-dependencies
 pnpm exec prettier --write pnpm-workspace.yaml package.json
 ```
 
-The helper requires a new output directory, checks the pinned Host commit and DSH package versions, and copies plugin sources without the registry lockfile. It adds every provided official package to the temporary development dependencies and pins resolution to local tarballs through workspace overrides. Explicit development entries satisfy peers that would otherwise query npm. Only the two generated configuration files are formatted after installation. pnpm settings, including strict peer enforcement and disabled automatic peer installation, live in `pnpm-workspace.yaml`. The source repository's manifest and lockfile remain unchanged. The [CI workflow](https://github.com/ruisenbai/dsh-annotation/blob/main/.github/workflows/ci.yml) builds the same pinned Host and checks the isolated plugin on Node 22.19 and 24.
+The helper requires a new output directory, checks the pinned Host commit and DSH package versions, and copies plugin sources without the registry lockfile. It adds every provided official package to the temporary development dependencies and pins resolution to local tarballs through workspace overrides. Explicit development entries satisfy peers that would otherwise query npm. Only the two generated configuration files are formatted after installation. pnpm settings, including strict peer enforcement and disabled automatic peer installation, live in `pnpm-workspace.yaml`. The source repository's manifest and lockfile remain unchanged. The [CI workflow](https://github.com/ruisenbai/dsh-annotation/blob/main/.github/workflows/ci.yml) builds the same pinned Host and checks the isolated plugin on Node 24.9 and 24.
 
 The temporary install skips optional platform binaries in the `@anthropic-ai/claude-agent-sdk-*` and `@openai/codex-*` families; it does not verify those Claude or Codex CLI backends. All official DSH packages, strict peer checks, and other native and browser dependencies remain included. Real-model verification requires a configured DSH provider and credentials; when it cannot run, report that limit separately from build, unit, and browser results.
 
@@ -60,7 +58,7 @@ pnpm test:profile
 pnpm test:coverage
 ```
 
-`tsc` emits declarations and intermediate JavaScript to `lib/types`. `tsdown` produces ESM Host entries and wraps the browser CJS artifact in `window.__ModuleLoader__.load(...)`. `client-platform.json` pins the exact modules supplied by the DSH `0.2.1-rc.2` browser loader; ordinary third-party Client libraries are bundled instead of becoming loader requests. DSH requires the factory bundle at `lib/client.js` even though generic Node tooling classifies `.js` under `type: module`; `publint` therefore gates errors while the DSH-specific verifier owns this intentional format. `scripts/verify-bundle.mjs` asserts the required artifacts, module-loader registration, declared module closure, matching peer/development ranges, DSH manifest, and Cordis patch.
+`tsc` emits declarations and intermediate JavaScript to `lib/types`. `tsdown` produces ESM Host entries and wraps the browser CJS artifact in `window.__ModuleLoader__.load(...)`. `client-platform.json` pins the exact modules supplied by the DSH `0.2.2-alpha.2` browser loader; ordinary third-party Client libraries are bundled instead of becoming loader requests. DSH requires the factory bundle at `lib/client.js` even though generic Node tooling classifies `.js` under `type: module`; `publint` therefore gates errors while the DSH-specific verifier owns this intentional format. `scripts/verify-bundle.mjs` asserts the required artifacts, module-loader registration, declared module closure, matching peer/development ranges, DSH manifest, and Cordis patch.
 
 ## Test layout
 
@@ -88,7 +86,7 @@ Record counts and source filters share one traversal; attachment lookups use a S
 After [Packaging](#packaging), install the local tarball into a disposable Web profile on the declared DSH release:
 
 ```bash
-dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.1.3.tgz
+dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.1.6.tgz
 dsh --profile annotation-dev
 ```
 
@@ -108,14 +106,14 @@ pnpm --config.ignoreScripts=true pack --pack-destination artifacts
 Inspect the resulting tarball rather than invoking pack again:
 
 ```bash
-tar -tzf artifacts/dsh-annotation-1.1.3.tgz
-tar -xOf artifacts/dsh-annotation-1.1.3.tgz package/package.json
+tar -tzf artifacts/dsh-annotation-1.1.6.tgz
+tar -xOf artifacts/dsh-annotation-1.1.6.tgz package/package.json
 ```
 
 The package must contain `lib/index.js`, `lib/invariant.js`, `lib/client.js`, declarations under `lib/types`, `cordis.patch.yml`, `source-baseline.json`, README files and images under `docs/assets`, the changelog, and the license. Compare its version, Host requirement, dependency declarations and exports with the source manifest; pnpm removes package-manager metadata and development lifecycle hooks when packing.
 
 ## Release checklist
 
-Follow [Releasing](../RELEASING.md) for versioning, dependency provenance, verification, and GitHub Release assets. This project publishes versioned tarballs and a stable `dsh-annotation.tgz` alias through GitHub Releases; it does not publish to the npm registry.
+Follow [Releasing](../RELEASING.md) for versioning, dependency sources, verification, and GitHub Release assets. This project publishes versioned tarballs and a stable `dsh-annotation.tgz` alias through GitHub Releases; it does not publish to the npm registry.
 
 Never commit `.env`, DSH credentials, Session logs, or real annotation drafts.

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentType } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
@@ -9,13 +9,14 @@ import type { AssistantBlock } from '@deepseek-ai/dsh-client-ui-conversation/cli
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { decorateAssistantRenderers } from '../src/client/assistant-renderer-decorator.tsx'
 import type { AnnotationInjected, AssistantAnnotationProps } from '../src/client/contract.ts'
-import type { AnnotationView } from '../src/client/controller.ts'
+import type { AnnotationEndpoint, AnnotationView } from '../src/client/controller.ts'
 import { parseModelAcknowledgements, parseReplyMarkers } from '../src/shared/model-ack.ts'
 import type { AnnotationDraft, AnnotationId, MessageIdentity, SubmissionId } from '../src/shared/types.ts'
 
 const decorators: Array<() => void> = []
 
 afterEach(() => {
+  window.getSelection()?.removeAllRanges()
   cleanup()
   for (const dispose of decorators.splice(0).reverse()) dispose()
 })
@@ -32,6 +33,7 @@ function mount(
   options: {
     blocks?: readonly AssistantBlock[]
     annotations?: readonly AnnotationDraft[]
+    sharedSelection?: boolean
   } = {},
 ) {
   const received = vi.fn()
@@ -74,7 +76,7 @@ function mount(
       }
     },
   } as unknown as Context
-  decorators.push(decorateAssistantRenderers(ctx, () => ({}) as AnnotationInjected))
+  decorators.push(decorateAssistantRenderers(ctx, () => ({}) as AnnotationInjected, options.sharedSelection))
   const node = {
     key: 'assistant-test',
     kind: 'assistant-step',
@@ -94,7 +96,7 @@ function mount(
     markerAnnotationId: null,
   } as unknown as AnnotationView
   const useAnnotations = vi.fn((selector: (value: AnnotationView) => unknown) => selector(view))
-  const registerEndpoint = vi.fn(() => () => undefined)
+  const registerEndpoint = vi.fn((_id: MessageIdentity, _endpoint: AnnotationEndpoint) => () => undefined)
   const t = (key: string) => key
   const hostT = (key: string) => `host:${key}`
   const props = {
@@ -130,6 +132,29 @@ function mount(
 }
 
 describe('decorated assistant protocol presentation', () => {
+  it('exposes the selected source to the shared Host toolbar without opening a second toolbar', () => {
+    const result = mount('Alpha selected text omega', 'settled', { sharedSelection: true })
+    const paragraph = screen.getByText('Alpha selected text omega')
+    const range = document.createRange()
+    range.getBoundingClientRect = () => new DOMRect(20, 40, 110, 20)
+    range.setStart(paragraph.firstChild!, 6)
+    range.setEnd(paragraph.firstChild!, 19)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    fireEvent.pointerUp(paragraph)
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument()
+    const endpoint = result.registerEndpoint.mock.calls.at(-1)![1]
+    expect(endpoint.captureSelection?.()).toMatchObject({
+      messageId: 'reply-test',
+      messageSeq: 42,
+      blockIndex: 0,
+      quote: { exact: 'selected text' },
+    })
+    selection.removeAllRanges()
+    expect(endpoint.captureSelection?.()).toBeNull()
+  })
+
   it.each(['settled', 'running'] as const)(
     'renders a known reply label as actual strong text in %s Markdown',
     (status) => {

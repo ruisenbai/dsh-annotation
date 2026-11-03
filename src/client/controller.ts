@@ -127,6 +127,8 @@ export interface AnnotationNavigationSession {
 export interface AnnotationEndpoint {
   reveal(annotationId: AnnotationId, navigationEpoch: number): void
   annotateAll(): void
+  /** Capture a browser selection contained in this mounted message. */
+  captureSelection?(): SelectionCapture | null
   /** Official file/Diff views may reveal an anchor without a message identity. */
   revealSource?(
     annotationId: AnnotationId,
@@ -1907,6 +1909,18 @@ export class AnnotationController {
     if (endpoint === undefined) return false
     endpoint.annotateAll()
     return true
+  }
+
+  /**
+   * Read the selected range from this Session's mounted message endpoints.
+   * @returns A message capture, or null when no mounted message contains the selection.
+   */
+  readMessageSelection(): SelectionCapture | null {
+    for (const endpoint of this.endpoints.values()) {
+      const capture = endpoint.captureSelection?.()
+      if (capture !== undefined && capture !== null) return capture
+    }
+    return null
   }
 
   /** Register a mounted official file/Diff view by its immutable source key. */
