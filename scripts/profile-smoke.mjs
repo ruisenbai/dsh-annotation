@@ -3,16 +3,26 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import { createSessionFormatCatalogWithChildren } from '@deepseek-ai/dsh-session-format-catalog'
 import { exerciseLegacyDiffHistory } from './profile-legacy-diff.mjs'
 import { measureRecordPerformance } from './profile-record-performance.mjs'
 import { assertMarkerMaterial, captureMarker } from './marker-material.mjs'
+import { exerciseCodexUi } from './profile-codex-ui.mjs'
+import { assertUserMessageAlignment } from './profile-user-alignment.mjs'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
-const artifacts = join(project, 'artifacts/browser')
+const codexUiArgument = process.argv.indexOf('--codex-ui')
+const codexUiPath = codexUiArgument === -1 ? undefined : process.argv[codexUiArgument + 1]
+if (codexUiArgument !== -1) {
+  assert.ok(
+    codexUiPath && isAbsolute(codexUiPath),
+    '--codex-ui requires an absolute installed package directory',
+  )
+}
+const artifacts = join(project, 'artifacts/browser', codexUiPath === undefined ? '' : 'codex-ui')
 const cliManifestPath = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh/package.json'))
 const cliManifest = JSON.parse(await readFile(cliManifestPath, 'utf8'))
 const baseline = JSON.parse(await readFile(join(project, 'source-baseline.json'), 'utf8'))
@@ -209,13 +219,25 @@ async function selectReadingSource(page, source) {
       range.setStart(node, start)
       range.setEnd(node, start + exact.length)
       const selection = window.getSelection()
+      node.parentElement.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
       selection.removeAllRanges()
       selection.addRange(range)
-      node.parentElement.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+      document.dispatchEvent(new Event('selectionchange'))
+      node.parentElement.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0 }))
       return
     }
     throw new Error(`Recorded source is not rendered: ${exact}`)
   }, source)
+  const toolbar = page.locator('[data-text-interaction-surface] [role="toolbar"]')
+  await toolbar.waitFor({ state: 'visible' })
+  assert.equal(await toolbar.count(), 1, 'A reply selection must have exactly one Host toolbar')
+  assert.equal(
+    await page.locator('.dia-selection-bar').count(),
+    0,
+    'The legacy message toolbar must stay absent',
+  )
+  await toolbar.getByRole('button', { name: '引用文本', exact: true }).waitFor()
+  await toolbar.getByRole('button', { name: '添加注解', exact: true }).waitFor()
 }
 
 async function cancelBlankNewEditor(page, editor, source) {
@@ -328,13 +350,166 @@ async function captureReleaseScreenshots(page, request) {
   await page.getByText('已补充判断依据和一个具体例子。', { exact: false }).last().waitFor()
   await page.locator('[role="alert"][data-dsh-annotation-toast]').last().waitFor({ state: 'hidden' })
   await page.screenshot({ path: join(artifacts, 'release-sent.png'), fullPage: true })
+  const replyLink = page.locator('.dia-reply-chip').last()
+  await replyLink.waitFor()
+  for (const dark of [false, true]) {
+    await page.emulateMedia({ colorScheme: dark ? 'dark' : 'light' })
+    await page.waitForFunction(
+      (enabled) => document.body.hasAttribute('data-ds-dark-theme') === enabled,
+      dark,
+    )
+    const paint = await replyLink.evaluate((button) => {
+      const owner = button.closest('.dia-assistant')
+      const style = owner.querySelector('style')?.textContent ?? ''
+      const name = /::highlight\(([^)]+)\)/u.exec(style)?.[1]
+      const ranges = name ? Array.from(CSS.highlights.get(name) ?? []) : []
+      const range = ranges.find((item) => /^注解 \d+$/u.test(item.toString()))
+      const text = range?.startContainer.parentElement
+      const strong = text?.closest('strong')
+      const color = text && name ? getComputedStyle(text, `::highlight(${name})`).color : ''
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--dia-accent)'
+      owner.append(probe)
+      const expectedColor = getComputedStyle(probe).color
+      probe.remove()
+      return {
+        expectedColor,
+        text: range?.toString(),
+        color,
+        weight: strong && getComputedStyle(strong).fontWeight,
+        border: getComputedStyle(button).borderBottomStyle,
+        accent: getComputedStyle(owner).getPropertyValue('--dia-accent').trim(),
+      }
+    })
+    assert.match(paint.text ?? '', /^注解 \d+$/u)
+    assert.ok(Number(paint.weight) >= 500, JSON.stringify(paint))
+    assert.equal(paint.color, paint.expectedColor)
+    assert.equal(paint.border, 'none')
+    console.log(`PASS ${dark ? 'dark' : 'light'} reply label: ${JSON.stringify(paint)}`)
+  }
+  await replyLink.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: join(artifacts, 'reply-label-blue-bold.png'), fullPage: false })
+  await replyLink.focus()
+  await page.keyboard.press('Enter')
 
   await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
   const sent = page.locator('.dia-record-row').filter({ hasText: note })
-  await sent.getByRole('button', { name: '重新随消息发送', exact: true }).click()
+  await sent.getByRole('button', { name: '随消息发送', exact: true }).click()
   await page.locator('.dia-composer-chip').waitFor()
   await page.locator('[role="alert"][data-dsh-annotation-toast]').last().waitFor({ state: 'hidden' })
   await page.screenshot({ path: join(artifacts, 'release-reattach.png'), fullPage: true })
+}
+
+/** Click saved records out of display order without pre-focusing or forcing the action. */
+async function exerciseRecordAttachments(page, openSession, source) {
+  const annotations = Array.from({ length: 24 }, (_, index) => ({
+    annotationId: `attachment-click-${index}`,
+    ordinal: index + 1,
+    messageId: 'annotation-reading-first-assistant',
+    messageSeq: 20,
+    responseVersion: 'annotation-reading-first-assistant',
+    quote: { exact: source, prefix: '', suffix: '', start: 0, end: source.length },
+    annotation: `任意附加 ${String(index + 1).padStart(2, '0')}`,
+    kind: 'note',
+    status: 'draft',
+    createdAt: 1_700_000_000_000 + index,
+    updatedAt: 1_700_000_000_000 + index,
+  }))
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width: 1440, height: 960 })
+    await page.evaluate((annotations) => {
+      localStorage.setItem(
+        'dsh-annotation:v1:annotation-reading-first',
+        JSON.stringify({
+          storageVersion: 6,
+          annotations,
+          selectedAnnotationIds: [],
+          selectionMode: 'individual',
+          outbox: [],
+          overallRequirementDraft: '',
+        }),
+      )
+    }, annotations)
+    await openSession()
+    await page.setViewportSize({ width, height: 960 })
+    await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
+    const list = page.locator('.dia-record__list')
+    const order = () =>
+      list.locator('.dia-record-row').evaluateAll((rows) => rows.map((row) => row.dataset.annotationId))
+    const initialOrder = await order()
+    const selected = new Set()
+    for (const index of [21, 23, 20, 22, 2, 14, 8, 21, 0, 14, 23, 8]) {
+      const id = annotations[index].annotationId
+      const action = list.locator(`[data-annotation-id="${id}"] .dia-record-action`).first()
+      await action.scrollIntoViewIfNeeded()
+      const rect = await action.boundingBox()
+      assert.ok(rect)
+      const beforeOffset = await action.evaluate(
+        (element) =>
+          element.getBoundingClientRect().top -
+          element.closest('.dia-record__list').getBoundingClientRect().top,
+      )
+      await page.mouse.click(rect.x + rect.width / 2, rect.y + rect.height / 2)
+      if (selected.has(id)) selected.delete(id)
+      else selected.add(id)
+      await page.waitForFunction(
+        (expected) => {
+          const actual = Array.from(document.querySelectorAll('.dia-record-row'))
+            .filter((row) => row.querySelector('.dia-record-action').getAttribute('aria-pressed') === 'true')
+            .map((row) => row.dataset.annotationId)
+            .sort()
+          return JSON.stringify(actual) === JSON.stringify(expected)
+        },
+        [...selected].sort(),
+        { timeout: 5_000 },
+      )
+      assert.deepEqual(await order(), initialOrder, 'Attachment toggles must not reorder an open record')
+      const afterOffset = await action.evaluate(
+        (element) =>
+          element.getBoundingClientRect().top -
+          element.closest('.dia-record__list').getBoundingClientRect().top,
+      )
+      assert.ok(
+        Math.abs(afterOffset - beforeOffset) <= 1,
+        'Attachment toggles must not scroll the selected row',
+      )
+    }
+    await list.evaluate((element) => {
+      element.scrollTop = 0
+    })
+    await list.locator('.dia-record-row__preview-anchor').first().hover()
+    await page.locator('.dia-annotation-details').waitFor({ state: 'visible' })
+    const previewAction = list.locator('.dia-record-row').nth(2).locator('.dia-record-action').first()
+    const previewHit = await previewAction.evaluate((element) => {
+      const rect = element.getBoundingClientRect()
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+      return { reachable: element.contains(hit), hit: hit?.outerHTML.slice(0, 500) }
+    })
+    assert.ok(previewHit.reachable, `Preview blocks another attachment: ${JSON.stringify(previewHit)}`)
+    const previewBounds = await page.locator('.dia-record-preview').boundingBox()
+    const recordBounds = await page.locator('.dia-record').boundingBox()
+    assert.ok(previewBounds && recordBounds)
+    assert.ok(
+      previewBounds.y + previewBounds.height <= recordBounds.y,
+      'Record preview must stay above every row',
+    )
+    await page.screenshot({ path: join(artifacts, `record-attachments-${width}.png`), fullPage: false })
+    const previewTargetId = await previewAction.evaluate(
+      (element) => element.closest('.dia-record-row').dataset.annotationId,
+    )
+    await previewAction.click()
+    if (selected.has(previewTargetId)) selected.delete(previewTargetId)
+    else selected.add(previewTargetId)
+    await page.locator('.dia-record-preview').waitFor({ state: 'hidden' })
+    const actualSelected = await list.locator('.dia-record-row').evaluateAll((rows) =>
+      rows
+        .filter((row) => row.querySelector('.dia-record-action').getAttribute('aria-pressed') === 'true')
+        .map((row) => row.dataset.annotationId)
+        .sort(),
+    )
+    assert.deepEqual(actualSelected, [...selected].sort())
+    console.log(`PASS ${width}px: direct out-of-order attachment clicks and scroll`)
+  }
 }
 
 try {
@@ -349,13 +524,33 @@ try {
   await writeFile(archivePath, archivedPreferences)
   // A local linked bundle exercises the published manifest/patch and built dual-face entries.
   await symlink(project, join(profile, 'node_modules/dsh-annotation'), 'junction')
+  if (codexUiPath !== undefined) {
+    const manifest = JSON.parse(await readFile(join(codexUiPath, 'package.json'), 'utf8'))
+    assert.equal(manifest.name, '@michengai/dsh-codex-ui')
+    await access(join(codexUiPath, 'lib/client.js'))
+    await mkdir(join(profile, 'node_modules/@michengai'), { recursive: true })
+    await symlink(codexUiPath, join(profile, 'node_modules/@michengai/dsh-codex-ui'), 'junction')
+    console.log(`Testing installed Codex UI ${manifest.version}`)
+  }
   await writeFile(
     join(profile, 'package.json'),
     JSON.stringify({
       name: 'dsh-profile-web',
       private: true,
-      dependencies: { 'dsh-annotation': `link:${project}` },
-      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-annotation'] } },
+      dependencies: {
+        'dsh-annotation': `link:${project}`,
+        ...(codexUiPath === undefined ? {} : { '@michengai/dsh-codex-ui': `link:${codexUiPath}` }),
+      },
+      dsh: {
+        profile: {
+          bundles: [
+            '@deepseek-ai/dsh-base',
+            '@deepseek-ai/dsh-web-app',
+            'dsh-annotation',
+            ...(codexUiPath === undefined ? [] : ['@michengai/dsh-codex-ui']),
+          ],
+        },
+      },
     }),
   )
   const patch = join(root, 'observer.patch.yml')
@@ -369,6 +564,7 @@ try {
         }),
       ),
       { id: 'agent-default-model', config: { provider: 'annotation-fixture', model: 'fixture' } },
+      ...(codexUiPath === undefined ? [] : [{ id: 'michengai-codex-ui-session-title', disabled: true }]),
       {
         insert: [
           { id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' },
@@ -480,9 +676,27 @@ try {
     throw error
   }
   console.log('PASS built Client plugin activates in the real Web GUI')
+  if (codexUiPath === undefined) {
+    assert.equal(await page.locator('html').getAttribute('data-dsh-annotation-compatibility'), null)
+  }
   const continueFromPreviewNotice = page.getByRole('button', { name: '继续', exact: true })
   if (await continueFromPreviewNotice.isVisible()) await continueFromPreviewNotice.click()
-  if (process.argv.includes('--record-perf-only')) {
+  if (process.argv.includes('--record-attachments-only')) {
+    await request('submit')
+    const replay = await readingReplay(workspace)
+    assertRecordedSession(
+      await request('seed-session', { header: replay.header, events: replay.events }),
+      replay,
+    )
+    await exerciseRecordAttachments(
+      page,
+      () => openReadingSession(page, replay.header.id, replay.source),
+      replay.source,
+    )
+    assertRecordedSession(await request('read-session', { sessionId: replay.header.id }), replay)
+  } else if (codexUiPath !== undefined) {
+    await exerciseCodexUi(page, { request, url: initial.url, artifacts })
+  } else if (process.argv.includes('--record-perf-only')) {
     await request('submit')
     const replay = await readingReplay(workspace)
     assertRecordedSession(
@@ -618,6 +832,7 @@ try {
       .getByText('Selected source needs clarification.', { exact: false })
       .waitFor()
     const submissionCard = page.locator('.dia-user-submission')
+    await assertUserMessageAlignment(page, 'Host plain and annotated messages')
     await submissionCard.getByRole('button', { name: '1 条注释，双击定位原文', exact: true }).waitFor()
     const conversation = `# Assistant\n${await page.locator('.dia-assistant__body').first().ariaSnapshot()}\n\n# Annotation submission\n${await submissionCard.ariaSnapshot()}\n`
     await mkdir(artifacts, { recursive: true })
@@ -645,6 +860,139 @@ try {
     assert.equal(await page.locator('.dia-record, .dia-composer-chip').count(), 0)
     const composerCard = page.locator('[data-composer-card]').first()
     const composerInput = composerCard.locator('[contenteditable="true"]')
+    await selectReadingSource(page, replay.source)
+    const sharedToolbar = page.locator('[data-text-interaction-surface] [role="toolbar"]')
+    await page.keyboard.press('Escape')
+    await sharedToolbar.waitFor({ state: 'hidden' })
+    await selectReadingSource(page, replay.source)
+    await sharedToolbar.getByRole('button', { name: '引用文本', exact: true }).click()
+    await sharedToolbar.waitFor({ state: 'hidden' })
+    const draftQuote = composerInput.locator('[data-quote-preview][data-removable]')
+    await draftQuote.waitFor()
+    assert.equal(await draftQuote.locator('[data-quote-preview-text]').innerText(), replay.source)
+    assert.equal(await page.locator('.dia-record-editor').count(), 0)
+    await draftQuote.getByRole('button').click()
+    await draftQuote.waitFor({ state: 'detached' })
+    const originalContentFontSize = await page.evaluate(() =>
+      document.body.style.getPropertyValue('--dsh-content-font-size'),
+    )
+    const selectionGeometry = {}
+    for (const variant of [
+      { name: 'wide-light', width: 1440, height: 960, colorScheme: 'light', fontSize: 14 },
+      { name: 'wide-light-large', width: 1440, height: 960, colorScheme: 'light', fontSize: 22 },
+      { name: 'narrow-dark-small', width: 390, height: 850, colorScheme: 'dark', fontSize: 10 },
+      { name: 'narrow-dark', width: 390, height: 850, colorScheme: 'dark', fontSize: 14 },
+      { name: 'narrow-dark-large', width: 390, height: 850, colorScheme: 'dark', fontSize: 22 },
+    ]) {
+      await page.setViewportSize({ width: variant.width, height: variant.height })
+      await page.emulateMedia({ colorScheme: variant.colorScheme })
+      await page.waitForFunction(
+        (dark) => document.body.hasAttribute('data-ds-dark-theme') === dark,
+        variant.colorScheme === 'dark',
+      )
+      await page.evaluate((size) => {
+        document.body.style.setProperty('--dsh-content-font-size', `${size}px`)
+      }, variant.fontSize)
+      await page
+        .locator('.dia-assistant__body')
+        .getByText(replay.source, { exact: true })
+        .scrollIntoViewIfNeeded()
+      await selectReadingSource(page, replay.source)
+      const bounds = rectEdges(await sharedToolbar.boundingBox())
+      const inputBounds = rectEdges(await composerCard.boundingBox())
+      assert.ok(
+        bounds.left >= 0 &&
+          bounds.right <= variant.width &&
+          bounds.top >= 0 &&
+          bounds.bottom <= inputBounds.top,
+        `Shared toolbar must fit above the composer: ${JSON.stringify(bounds)}`,
+      )
+      const bodyFontSize = await page
+        .locator('.dia-assistant__body')
+        .getByText(replay.source, { exact: true })
+        .evaluate((element) => getComputedStyle(element).fontSize)
+      const typography = await sharedToolbar.evaluate((element) => ({
+        fontSize: getComputedStyle(element).fontSize,
+        buttons: Array.from(element.querySelectorAll('button'), (button) => {
+          const rect = button.getBoundingClientRect()
+          return {
+            label: button.textContent,
+            fontSize: getComputedStyle(button).fontSize,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+            width: rect.width,
+            height: rect.height,
+            clipped:
+              button.scrollWidth > button.clientWidth + 1 || button.scrollHeight > button.clientHeight + 1,
+          }
+        }),
+      }))
+      assert.equal(bodyFontSize, `${variant.fontSize}px`)
+      assert.equal(typography.fontSize, `${variant.fontSize - 1}px`)
+      assert.equal(typography.buttons.length, 2)
+      for (const button of typography.buttons) {
+        assert.equal(
+          button.fontSize,
+          `${variant.fontSize - 1}px`,
+          `${button.label} must be one pixel smaller than the reply text`,
+        )
+        assert.equal(button.clipped, false, `${button.label} must remain fully visible`)
+        assert.ok(
+          button.left >= bounds.left &&
+            button.right <= bounds.right &&
+            button.top >= bounds.top &&
+            button.bottom <= bounds.bottom,
+          `${button.label} must fit inside the shared toolbar`,
+        )
+      }
+      selectionGeometry[variant.name] = { ...bounds, ...typography }
+      await page.screenshot({
+        path: join(artifacts, `message-selection-${variant.name}.png`),
+        fullPage: true,
+      })
+      await page.keyboard.press('Escape')
+      await sharedToolbar.waitFor({ state: 'hidden' })
+    }
+    assert.ok(
+      selectionGeometry['narrow-dark-large'].height > selectionGeometry['narrow-dark'].height,
+      'The shared toolbar must grow with larger reply text',
+    )
+    acceptanceGeometry.selectionToolbar = selectionGeometry
+    await page.evaluate((size) => {
+      if (size === '') document.body.style.removeProperty('--dsh-content-font-size')
+      else document.body.style.setProperty('--dsh-content-font-size', size)
+    }, originalContentFontSize)
+    await page.setViewportSize({ width: 1440, height: 960 })
+    await page.emulateMedia({ colorScheme: 'dark' })
+    const sourceText = page.locator('.dia-assistant__body').getByText(replay.source, { exact: true })
+    await sourceText.scrollIntoViewIfNeeded()
+    // Collapse the retained selection before dragging, so Chromium does not drag its selected text.
+    await sourceText.click()
+    const drag = await sourceText.evaluate((element) => {
+      const text = document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode()
+      if (text === null) throw new Error('The reply selection source has no text')
+      const range = document.createRange()
+      range.setStart(text, 0)
+      range.setEnd(text, Math.min(12, text.textContent.length))
+      const rect = range.getBoundingClientRect()
+      return { left: rect.left, right: rect.right, y: (rect.top + rect.bottom) / 2 }
+    })
+    await page.mouse.move(drag.left + 1, drag.y)
+    await page.mouse.down()
+    await page.mouse.move(drag.right - 1, drag.y, { steps: 8 })
+    await page.mouse.up()
+    await sharedToolbar.waitFor({ state: 'visible' })
+    await sharedToolbar.getByRole('button', { name: '引用文本', exact: true }).waitFor()
+    await sharedToolbar.getByRole('button', { name: '添加注解', exact: true }).waitFor()
+    assert.equal(await page.locator('.dia-selection-bar').count(), 0)
+    await page.keyboard.press('Escape')
+    await sharedToolbar.waitFor({ state: 'hidden' })
+    console.log('PASS one Host selection toolbar supports quotation, dismissal, and annotation')
+    console.log(
+      'PASS shared toolbar matches 10/14/22px reply text, fits wide/narrow layouts, and responds to native pointer selection',
+    )
     const composerBeforeEditor = rectEdges(await composerCard.boundingBox())
     const composerDraftBeforeEditor = await composerInput.innerText()
     await selectReadingSource(page, replay.source)
@@ -826,15 +1174,17 @@ try {
     await page.getByRole('menu').waitFor({ state: 'hidden' })
     await assertMarkerMaterial(groupedMarker, false)
     const recordOrder = () => record.locator('.dia-record-row__preview-anchor').allTextContents()
+    const recordPresentation = async () =>
+      `${[await record.locator('.dia-record__progress').textContent(), ...(await recordOrder())].join('\n')}\n`
     const expectedRecordOrder = await readFile(
       join(project, 'tests/profile-fixtures/annotation-record-order.expected.txt'),
       'utf8',
     )
-    assert.equal(`${(await recordOrder()).join('\n')}\n`, expectedRecordOrder)
+    assert.equal(await recordPresentation(), expectedRecordOrder)
     await newerRow.getByRole('button', { name: '取消随消息发送', exact: true }).click()
-    assert.deepEqual(await recordOrder(), [note, newerNote])
+    assert.deepEqual(await recordOrder(), [newerNote, note])
     await newerRow.getByRole('button', { name: '随消息发送', exact: true }).click()
-    assert.equal(`${(await recordOrder()).join('\n')}\n`, expectedRecordOrder)
+    assert.equal(await recordPresentation(), expectedRecordOrder)
     await newerRow.getByRole('button', { name: '删除', exact: true }).click()
     assert.deepEqual(await recordOrder(), [note])
     assert.equal(await record.locator('.dia-local-data, .dia-local-status').count(), 0)
@@ -866,7 +1216,7 @@ try {
     await page.locator('.dia-user-submission').waitFor()
     await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
     const sentRow = record.locator('.dia-record-row').filter({ hasText: 'Explain this claim.' })
-    await sentRow.getByRole('button', { name: '重新随消息发送', exact: true }).click()
+    await sentRow.getByRole('button', { name: '随消息发送', exact: true }).click()
     await chip.waitFor()
     const composer = page.locator('[data-composer-card] [contenteditable="true"]')
     await composer.click()
@@ -890,7 +1240,7 @@ try {
     assert.equal(firstPayload.annotations[0].quote.exact, reference.quote.exact)
     assert.equal(firstPayload.annotations[0].annotationId, reference.annotationId)
     await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
-    await sentRow.getByRole('button', { name: '重新随消息发送', exact: true }).click()
+    await sentRow.getByRole('button', { name: '随消息发送', exact: true }).click()
     await chip.waitFor()
     await composer.click()
     await composer.press('Enter')
@@ -969,7 +1319,12 @@ try {
     await page.screenshot({ path: join(artifacts, 'attachment-identity-profile.png'), fullPage: true })
     console.log('PASS the real Web conversation displays the identity-verified image submission')
   }
-  if (!process.argv.includes('--official-only') && !process.argv.includes('--record-perf-only')) {
+  if (
+    codexUiPath === undefined &&
+    !process.argv.includes('--official-only') &&
+    !process.argv.includes('--record-perf-only') &&
+    !process.argv.includes('--record-attachments-only')
+  ) {
     await exerciseLegacyDiffHistory(page, {
       request,
       readRecordedReplay,
@@ -979,7 +1334,12 @@ try {
       artifacts,
     })
   }
-  if (!process.argv.includes('--legacy-diff-only') && !process.argv.includes('--record-perf-only')) {
+  if (
+    codexUiPath === undefined &&
+    !process.argv.includes('--legacy-diff-only') &&
+    !process.argv.includes('--record-perf-only') &&
+    !process.argv.includes('--record-attachments-only')
+  ) {
     await mkdir(artifacts, { recursive: true })
     if (process.argv.includes('--official-only')) await request('submit')
     const official = await request('official-source-session')
@@ -1357,7 +1717,7 @@ try {
     console.log('PASS native multiline code selection shows the shared action and blank cancellation')
     await page.evaluate(() => window.getSelection()?.removeAllRanges())
     await selectReadingSource(page, 'Review the changed ')
-    await page.locator('.dia-selection-bar').getByRole('button', { name: '添加注解' }).click()
+    await page.locator('.dia-message-selection').getByRole('button', { name: '添加注解' }).click()
     await fileEditor.getByRole('textbox', { name: '你的注解' }).fill('Review this reply.')
     await fileEditor.getByRole('button', { name: '保存', exact: true }).click()
     await fileEditor.waitFor({ state: 'hidden' })
@@ -1418,7 +1778,7 @@ try {
       await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
     try {
       await page.waitForFunction(
-        () => document.querySelector('.dia-record__progress')?.textContent?.includes('4 已发送'),
+        () => document.querySelector('.dia-record__progress')?.textContent?.includes('4 条注解'),
         null,
         { timeout: 5_000 },
       )
@@ -1426,7 +1786,7 @@ try {
       const rows = await record
         .locator('.dia-record-row')
         .evaluateAll((items) => items.map((item) => item.getAttribute('aria-label')))
-      throw new Error(`Sent official annotations still show pending: ${JSON.stringify(rows)}`)
+      throw new Error(`Official annotation count did not settle: ${JSON.stringify(rows)}`)
     }
     await page.reload({ waitUntil: 'domcontentloaded' })
     const sentWorkspace = page.getByRole('treeitem', { name: /Annotation smoke/ }).first()
@@ -1439,13 +1799,13 @@ try {
     if (!(await record.isVisible()))
       await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
     await page.waitForFunction(() =>
-      document.querySelector('.dia-record__progress')?.textContent?.includes('4 已发送'),
+      document.querySelector('.dia-record__progress')?.textContent?.includes('4 条注解'),
     )
     for (const opinion of ['Review this reply.', 'Review the entire file.', 'Check the changed line.']) {
       const sentRow = record.locator('.dia-record-row').filter({ hasText: opinion })
-      await sentRow.getByRole('button', { name: '重新随消息发送', exact: true }).click()
-      assert.match(await sentRow.getAttribute('aria-label'), /已发送$/u)
-      assert.match(await record.locator('.dia-record__progress').innerText(), /4 已发送/u)
+      await sentRow.getByRole('button', { name: '随消息发送', exact: true }).click()
+      assert.doesNotMatch(await sentRow.getAttribute('aria-label'), /已发送|未发送|待发送|已处理/u)
+      assert.match(await record.locator('.dia-record__progress').innerText(), /4 条注解/u)
       await sentRow.getByRole('button', { name: '取消随消息发送', exact: true }).click()
     }
     const modelRequests = await request('model-requests')

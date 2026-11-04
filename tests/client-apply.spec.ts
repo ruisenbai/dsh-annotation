@@ -95,7 +95,7 @@ function remoteSuccess() {
   return { ok: true, value: { result: { kind: 'success' as const } } }
 }
 
-function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true) {
+function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true, sharedSelection = false) {
   type HostSettings = Partial<AnnotationSettings>
   let referenceSerializer = async (_source: string, ref: string): Promise<string> =>
     `<reference>${ref}</reference>`
@@ -178,7 +178,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
     draft: '',
     attachmentIds: [] as string[],
     draftRev: 0,
-    phase: 'plain' as 'plain' | 'claimed' | 'submitting',
+    phase: 'plain' as 'plain' | 'claimed' | 'adjudicating' | 'submitting' | 'sending',
     claim: null as CommandClaim | null,
     occurrences: [] as readonly {
       occurrenceId: number
@@ -340,6 +340,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       scopeOf: (candidate: unknown) => (candidate === actx ? ('session-test' as SessionId) : undefined),
     },
     uiConversation: {
+      ...(sharedSelection ? { interactions: {} } : {}),
       binding: () => ({
         target: () => ({
           getSnapshot: () => chatSnapshot,
@@ -492,6 +493,9 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
     },
     inputNotice,
     inputSnapshot: () => inputState,
+    setComposerPhase(phase: typeof inputState.phase) {
+      publishInput({ ...inputState, phase })
+    },
     setPlainComposerText(text: string) {
       input.setDraft(text)
     },
@@ -675,6 +679,29 @@ function persistedAnnotationValues(sessionId = 'session-test'): string {
 }
 
 describe('Client plugin composer attachment lifecycle', () => {
+  it('replaces only the shared quote cell and releases it when annotations are disabled or unloaded', async () => {
+    const fixture = fixtureContext(vi.fn(), true, true)
+    apply(fixture.ctx)
+    expect(fixture.registrationOptions('conversation.chat.text-interaction')).toMatchObject({
+      key: 'quote',
+      priority: -100,
+    })
+    await fixture.setPluginEnabled(false)
+    expect(fixture.hasRegistration('conversation.chat.text-interaction')).toBe(false)
+    await fixture.setPluginEnabled(true)
+    expect(fixture.countRegistrationKey('conversation.chat.text-interaction', 'quote')).toBe(1)
+    await fixture.dispose()
+    expect(fixture.hasRegistration('conversation.chat.text-interaction')).toBe(false)
+  })
+
+  it('keeps legacy selection support when the Host has no shared text interactions', async () => {
+    const fixture = fixtureContext(vi.fn())
+    apply(fixture.ctx)
+    expect(fixture.hasRegistration('conversation.chat.text-interaction')).toBe(false)
+    expect(fixture.hasRegistration('conversation.input.dock')).toBe(true)
+    await fixture.dispose()
+  })
+
   it("reloads another page's journal event and removes its listener on unload", async () => {
     const add = vi.spyOn(window, 'addEventListener')
     const remove = vi.spyOn(window, 'removeEventListener')
@@ -824,6 +851,34 @@ describe('Client plugin composer attachment lifecycle', () => {
     },
   )
 
+  it.each(['adjudicating', 'sending'] as const)(
+    'keeps annotation send intent frozen while %s',
+    async (phase) => {
+      const fixture = fixtureContext(vi.fn())
+      try {
+        apply(fixture.ctx)
+        const face = fixture.face()
+        saveAnnotation(face)
+        const before = face.hooks.annotations.getSnapshot()
+        const id = before.annotations[0]!.annotationId
+        fixture.setComposerPhase(phase)
+
+        face.toggleSelected(id)
+        face.openAnnotation(id, 'summary')
+        face.beginSelection(capture(20, 'second'))
+        face.detachAnnotations([id])
+        expect(face.hooks.annotations.getSnapshot()).toBe(before)
+        expect(face.ensureComposerAttachment()).toBe(false)
+
+        fixture.setComposerPhase('plain')
+        face.toggleSelected(id)
+        expect(face.hooks.annotations.getSnapshot().selectedAnnotationIds).toEqual([])
+      } finally {
+        await fixture.dispose()
+      }
+    },
+  )
+
   it('projects the auto-attach switch and keeps attach-only arming idempotent', async () => {
     const fixture = fixtureContext(vi.fn())
     apply(fixture.ctx)
@@ -841,6 +896,43 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(face.autoAttachEnabled()).toBe(false)
     expect(fixture.settingsUser()).toEqual({ autoAttach: false })
     await fixture.dispose()
+  })
+
+  it.each(['\u200B', '\u200B\u2060'])(
+    'rearms legacy prefix %j without sending its marker',
+    async (prefix) => {
+      const command = vi.fn().mockResolvedValue(remoteSuccess())
+      const fixture = fixtureContext(command)
+      try {
+        apply(fixture.ctx)
+        const face = fixture.face()
+        saveAnnotation(face)
+        fixture.setPlainComposerText(`${prefix}Keep the restored text.`)
+        expect(fixture.inputSnapshot()).toMatchObject({
+          phase: 'claimed',
+          claim: { token: COMPOSER_ATTACHMENT_TOKEN },
+        })
+        await expect(fixture.submitComposer()).resolves.toEqual({ kind: 'success' })
+        const payload = expectOutboxPayload(face.hooks.annotations.getSnapshot().outbox[0]).payload
+        expect(payload.overallRequirement).toBe('Keep the restored text.')
+      } finally {
+        await fixture.dispose()
+      }
+    },
+  )
+
+  it('activates Codex UI compatibility from a late dock registration and removes it on disposal', async () => {
+    const fixture = fixtureContext(vi.fn())
+    const attribute = 'data-dsh-annotation-compatibility'
+    try {
+      apply(fixture.ctx)
+      expect(document.documentElement.hasAttribute(attribute)).toBe(false)
+      fixture.addHostEntry({ name: 'conversation.input.dock', id: 'codex-ui-input-history' }, () => null)
+      expect(document.documentElement.getAttribute(attribute)).toBe('codex-ui')
+    } finally {
+      await fixture.dispose()
+    }
+    expect(document.documentElement.hasAttribute(attribute)).toBe(false)
   })
 
   it('saves compact layout settings without changing attached drafts', async ({ onTestFinished }) => {

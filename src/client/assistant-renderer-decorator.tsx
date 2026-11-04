@@ -37,7 +37,7 @@ function mergeInjected(
   }
 }
 
-function wrapAssistantRenderer(inner: ComponentType<BaseAssistantProps>) {
+function wrapAssistantRenderer(inner: ComponentType<BaseAssistantProps>, sharedSelection: boolean) {
   const DecoratedAssistantRenderer = memo(function DecoratedAssistantRenderer(
     props: DecoratedAssistantProps,
   ) {
@@ -69,6 +69,7 @@ function wrapAssistantRenderer(inner: ComponentType<BaseAssistantProps>) {
     return createElement(AnnotatedAssistantNode, {
       ...props,
       t: props.annotationT,
+      sharedSelection,
       children: content,
     } as AssistantAnnotationProps & { readonly children: ReactElement })
   })
@@ -80,11 +81,13 @@ function wrapAssistantRenderer(inner: ComponentType<BaseAssistantProps>) {
  * Decorate assistant renderers without replacing their text or tool presentation.
  * @param ctx Plugin context owning the slot listener.
  * @param faceFor Annotation actions for the current Session.
+ * @param sharedSelection Whether the Host owns the message selection toolbar.
  * @returns A disposer restoring the original renderer and injection.
  */
 export function decorateAssistantRenderers(
   ctx: ClientContext,
   faceFor: (sessionId: SessionId) => AnnotationInjected,
+  sharedSelection = false,
 ): () => void {
   const decorated = new WeakSet<object>()
   const restores: Array<() => void> = []
@@ -95,7 +98,7 @@ export function decorateAssistantRenderers(
       const current = entry.component
       if (!isComponent(current) || decorated.has(current)) continue
       const originalInject = entry.inject
-      const next = wrapAssistantRenderer(current)
+      const next = wrapAssistantRenderer(current, sharedSelection)
       const nextInject = (...args: unknown[]): Record<string, unknown> => {
         const original = originalInject?.(...args) ?? {}
         return mergeInjected(original, faceFor(args[0] as SessionId))

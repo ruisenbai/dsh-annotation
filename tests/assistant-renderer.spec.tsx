@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, render } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { ComponentType } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ChatNodeViewProps, ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client'
@@ -9,13 +9,14 @@ import type { AssistantBlock } from '@deepseek-ai/dsh-client-ui-conversation/cli
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { decorateAssistantRenderers } from '../src/client/assistant-renderer-decorator.tsx'
 import type { AnnotationInjected, AssistantAnnotationProps } from '../src/client/contract.ts'
-import type { AnnotationView } from '../src/client/controller.ts'
+import type { AnnotationEndpoint, AnnotationView } from '../src/client/controller.ts'
 import { parseModelAcknowledgements, parseReplyMarkers } from '../src/shared/model-ack.ts'
 import type { AnnotationDraft, AnnotationId, MessageIdentity, SubmissionId } from '../src/shared/types.ts'
 
 const decorators: Array<() => void> = []
 
 afterEach(() => {
+  window.getSelection()?.removeAllRanges()
   cleanup()
   for (const dispose of decorators.splice(0).reverse()) dispose()
 })
@@ -32,6 +33,7 @@ function mount(
   options: {
     blocks?: readonly AssistantBlock[]
     annotations?: readonly AnnotationDraft[]
+    sharedSelection?: boolean
   } = {},
 ) {
   const received = vi.fn()
@@ -74,7 +76,7 @@ function mount(
       }
     },
   } as unknown as Context
-  decorators.push(decorateAssistantRenderers(ctx, () => ({}) as AnnotationInjected))
+  decorators.push(decorateAssistantRenderers(ctx, () => ({}) as AnnotationInjected, options.sharedSelection))
   const node = {
     key: 'assistant-test',
     kind: 'assistant-step',
@@ -94,7 +96,7 @@ function mount(
     markerAnnotationId: null,
   } as unknown as AnnotationView
   const useAnnotations = vi.fn((selector: (value: AnnotationView) => unknown) => selector(view))
-  const registerEndpoint = vi.fn(() => () => undefined)
+  const registerEndpoint = vi.fn((_id: MessageIdentity, _endpoint: AnnotationEndpoint) => () => undefined)
   const t = (key: string) => key
   const hostT = (key: string) => `host:${key}`
   const props = {
@@ -130,6 +132,75 @@ function mount(
 }
 
 describe('decorated assistant protocol presentation', () => {
+  it('exposes the selected source to the shared Host toolbar without opening a second toolbar', () => {
+    const result = mount('Alpha selected text omega', 'settled', { sharedSelection: true })
+    const paragraph = screen.getByText('Alpha selected text omega')
+    const range = document.createRange()
+    range.getBoundingClientRect = () => new DOMRect(20, 40, 110, 20)
+    range.setStart(paragraph.firstChild!, 6)
+    range.setEnd(paragraph.firstChild!, 19)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    fireEvent.pointerUp(paragraph)
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument()
+    const endpoint = result.registerEndpoint.mock.calls.at(-1)![1]
+    expect(endpoint.captureSelection?.()).toMatchObject({
+      messageId: 'reply-test',
+      messageSeq: 42,
+      blockIndex: 0,
+      quote: { exact: 'selected text' },
+    })
+    selection.removeAllRanges()
+    expect(endpoint.captureSelection?.()).toBeNull()
+  })
+
+  it('owns reply text colors per mounted message and removes them on unmount', () => {
+    const highlights = new Map<string, Set<Range>>()
+    vi.stubGlobal('CSS', { ...globalThis.CSS, highlights })
+    vi.stubGlobal('Highlight', class extends Set<Range> {})
+    onTestFinished(() => {
+      vi.unstubAllGlobals()
+    })
+    const geometry = Object.getOwnPropertyDescriptor(Range.prototype, 'getBoundingClientRect')
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => new DOMRect(10, 20, 60, 20),
+    })
+    onTestFinished(() => {
+      if (geometry) Object.defineProperty(Range.prototype, 'getBoundingClientRect', geometry)
+      else Reflect.deleteProperty(Range.prototype, 'getBoundingClientRect')
+    })
+    const annotation: AnnotationDraft = {
+      annotationId: 'ann-y' as AnnotationId,
+      submissionId: 'sub-x' as SubmissionId,
+      messageId: 'source-1' as MessageIdentity,
+      responseVersion: 'source-1' as MessageIdentity,
+      messageSeq: 1,
+      quote: { exact: 'original', prefix: '', suffix: '', start: 0, end: 8 },
+      annotation: 'Explain this',
+      ordinal: 1,
+      kind: 'note',
+      status: 'sent',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const text =
+      '<!-- dsh-annotation-reply:{"submissionId":"sub-x","annotationId":"ann-y","ordinal":1} -->\n注解 1：说明'
+    const first = mount(text, 'settled', { annotations: [annotation] })
+    const second = mount(text, 'settled', { annotations: [annotation] })
+    expect(highlights.size).toBe(2)
+    expect([...highlights.values()].map((ranges) => [...ranges].map(String))).toEqual([
+      ['注解 1'],
+      ['注解 1'],
+    ])
+    expect(first.container.querySelector('style')).toHaveTextContent('color: var(--dia-accent)')
+    first.unmount()
+    expect(highlights.size).toBe(1)
+    second.unmount()
+    expect(highlights.size).toBe(0)
+  })
+
   it.each(['settled', 'running'] as const)(
     'renders a known reply label as actual strong text in %s Markdown',
     (status) => {

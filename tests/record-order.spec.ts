@@ -34,7 +34,7 @@ function submission(status: OutboxStatus, annotations: readonly AnnotationDraft[
 }
 
 describe('annotation record display order', () => {
-  it('puts current attachments before drafts and keeps read-only legacy Diff in history', () => {
+  it('sorts all records by creation time regardless of selection, delivery or source', () => {
     const attached = record('attached', 20)
     const reattached = record('reattached', 10, 'processed')
     const detached = record('detached', 30)
@@ -53,14 +53,14 @@ describe('annotation record display order', () => {
       outbox: [],
     }
     const result = orderedRecords(view)
-    expect(result).toEqual([attached, reattached, detached, legacy, history])
+    expect(result).toEqual([legacy, history, detached, attached, reattached])
     expect(view.annotations).toBe(annotations)
     expect(result.every((item) => annotations.includes(item))).toBe(true)
     expect(reattached.status).toBe('processed')
   })
 
   it.each(['ready', 'sending', 'accepted', 'queued', 'failed'] as const)(
-    'keeps a historical resend with a %s submission ahead of newer unselected drafts',
+    'keeps creation order during a %s submission',
     (status) => {
       const resent = record('resent', 10, 'sent')
       const draft = record('draft', 20)
@@ -68,14 +68,14 @@ describe('annotation record display order', () => {
       const entry = submission(status, [resent])
       const payloadBefore = JSON.stringify(entry.payload)
       expect(
-        orderedRecords({ annotations: [draft, history, resent], selectedAnnotationIds: [], outbox: [entry] }),
-      ).toEqual([resent, draft, history])
+        orderedRecords({ annotations: [history, draft, resent], selectedAnnotationIds: [], outbox: [entry] }),
+      ).toEqual([history, draft, resent])
       expect(JSON.stringify(entry.payload)).toBe(payloadBefore)
     },
   )
 
   it.each(['sent', 'withdrawn'] as const)(
-    'returns a %s resend to history and accepts content-free receipts',
+    'preserves creation order after a %s submission and accepts content-free receipts',
     (status) => {
       const resent = record('resent', 10, 'sent')
       const draft = record('draft', 20)
@@ -92,17 +92,17 @@ describe('annotation record display order', () => {
       for (const outbox of [[entry], [receipt]]) {
         expect(
           orderedRecords({ annotations: [resent, history, draft], selectedAnnotationIds: [], outbox }),
-        ).toEqual([draft, history, resent])
+        ).toEqual([history, draft, resent])
       }
     },
   )
 
-  it('keeps frozen queued records first without a selected attachment', () => {
+  it('does not move frozen queued records ahead of newer annotations', () => {
     const queued = record('queued', 10, 'queued')
     const draft = record('draft', 20)
     expect(orderedRecords({ annotations: [draft, queued], selectedAnnotationIds: [], outbox: [] })).toEqual([
-      queued,
       draft,
+      queued,
     ])
   })
 

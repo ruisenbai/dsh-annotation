@@ -173,52 +173,55 @@ describe('annotation record and composer interactions', () => {
     fireEvent.click(within(row).getByRole('button', { name: 'Remove from message' }))
 
     expect(within(row).getByRole('button', { name: 'Send with message' })).toBeInTheDocument()
-    expect(screen.getByText('1 pending · 1 not sending')).toBeInTheDocument()
-    expect(
-      translate.mock.calls.filter(([key]) => ['record.pending', 'record.sent', 'record.off'].includes(key)),
-    ).toEqual([['record.off']])
+    expect(screen.getByText('2 annotations')).toBeInTheDocument()
+    expect(translate.mock.calls.filter(([key]) => ['record.attach', 'record.detach'].includes(key))).toEqual([
+      ['record.attach'],
+    ])
   })
 
-  it('keeps saved rows unchanged while typing and refreshes edited text, locale, and submission controls', () => {
-    const h = harness()
-    onTestFinished(() => h.controller.dispose())
-    const first = h.save(0, 'First note')
-    h.save(20, 'Second note')
-    h.controller.openAnnotation(first, 'summary')
-    h.controller.setPanelOpen(true)
-    const translate = vi.fn(t)
-    const { rerender } = render(<AnnotationExperience {...h.props} t={translate} />)
-    translate.mockClear()
+  it.each(['adjudicating', 'submitting', 'sending'] as const)(
+    'keeps saved rows unchanged while typing and disables editing while %s',
+    (phase) => {
+      const h = harness()
+      onTestFinished(() => h.controller.dispose())
+      const first = h.save(0, 'First note')
+      h.save(20, 'Second note')
+      h.controller.openAnnotation(first, 'summary')
+      h.controller.setPanelOpen(true)
+      const translate = vi.fn(t)
+      const { rerender } = render(<AnnotationExperience {...h.props} t={translate} />)
+      translate.mockClear()
 
-    fireEvent.change(screen.getByRole('textbox', { name: 'Your annotation' }), {
-      target: { value: 'Edited note' },
-    })
-    expect(screen.getByRole('listitem', { name: /First note/ })).toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: 'Your annotation' })).toHaveValue('Edited note')
-    expect(
-      translate.mock.calls.filter(([key]) => ['record.pending', 'record.sent', 'record.off'].includes(key)),
-    ).toEqual([])
+      fireEvent.change(screen.getByRole('textbox', { name: 'Your annotation' }), {
+        target: { value: 'Edited note' },
+      })
+      expect(screen.getByRole('listitem', { name: /First note/ })).toBeInTheDocument()
+      expect(screen.getByRole('textbox', { name: 'Your annotation' })).toHaveValue('Edited note')
+      expect(
+        translate.mock.calls.filter(([key]) => ['record.attach', 'record.detach'].includes(key)),
+      ).toEqual([])
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    expect(screen.getByRole('listitem', { name: /Edited note/ })).toBeInTheDocument()
-    const localized: InputAnnotationProps['t'] = (key, params) => `Localized ${t(key, params)}`
-    const navigate = vi.fn(async () => true)
-    rerender(
-      <AnnotationExperience
-        {...h.props}
-        t={localized}
-        navigate={navigate}
-        input={{ ...h.props.input, phase: 'submitting' }}
-      />,
-    )
-    const row = screen.getByRole('listitem', { name: /Edited note/ })
-    expect(row).toHaveAccessibleName(/Localized Pending/)
-    expect(within(row).getByRole('button', { name: 'Localized Remove from message' })).toBeDisabled()
-    fireEvent.click(within(row).getByRole('button', { name: 'Localized Locate source' }))
-    expect(navigate).toHaveBeenCalledWith(first)
-  })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      expect(screen.getByRole('listitem', { name: /Edited note/ })).toBeInTheDocument()
+      const localized: InputAnnotationProps['t'] = (key, params) => `Localized ${t(key, params)}`
+      const navigate = vi.fn(async () => true)
+      rerender(
+        <AnnotationExperience
+          {...h.props}
+          t={localized}
+          navigate={navigate}
+          input={{ ...h.props.input, phase }}
+        />,
+      )
+      const row = screen.getByRole('listitem', { name: /Edited note/ })
+      expect(row).toHaveAccessibleName(/Edited note/)
+      expect(within(row).getByRole('button', { name: 'Localized Remove from message' })).toBeDisabled()
+      fireEvent.click(within(row).getByRole('button', { name: 'Localized Locate source' }))
+      expect(navigate).toHaveBeenCalledWith(first)
+    },
+  )
 
-  it('shows recent attached notes across sources first while preserving source ordinals and submission order', () => {
+  it('shows newest records across sources while preserving source ordinals and submission order', () => {
     let time = 1_700_000_000_000
     const h = harness(new Map(), () => time++)
     onTestFinished(() => h.controller.dispose())
@@ -290,29 +293,36 @@ describe('annotation record and composer interactions', () => {
     expect(pending?.payload.annotations.map((item) => item.ordinal)).toEqual([1, 2, 3])
   })
 
-  it('moves a detached row below current attachments and restores its position on reattachment', () => {
+  it('keeps arbitrary attachment toggles in place even after the record is reopened', () => {
     let time = 1_700_000_000_000
     const h = harness(new Map(), () => time++)
     onTestFinished(() => h.controller.dispose())
-    h.save(0, 'Older note')
-    h.save(20, 'Newer note')
+    const older = h.save(0, 'Older note')
+    const middle = h.save(20, 'Middle note')
+    h.save(40, 'Newer note')
     h.controller.setPanelOpen(true)
     render(<AnnotationExperience {...h.props} />)
-    const action = within(screen.getByRole('listitem', { name: /Newer note/u })).getByRole('button', {
-      name: 'Remove from message',
-    })
-    fireEvent.click(action)
-    expect(
+    const order = () =>
       screen
         .getAllByRole('listitem')
-        .map((row) => row.querySelector('.dia-record-row__preview-anchor')?.textContent),
-    ).toEqual(['Older note', 'Newer note'])
-    expect(action).toHaveAccessibleName('Send with message')
-    fireEvent.click(action)
-    expect(screen.getAllByRole('listitem')[0]).toHaveAccessibleName(/Newer note/u)
+        .map((row) => row.querySelector('.dia-record-row__preview-anchor')?.textContent)
+    const action = (note: string) =>
+      within(screen.getByRole('listitem', { name: new RegExp(note) })).getByRole('button', {
+        name: /message$/,
+      })
+
+    for (const note of ['Middle note', 'Newer note', 'Middle note']) {
+      fireEvent.click(action(note))
+      expect(order()).toEqual(['Newer note', 'Middle note', 'Older note'])
+    }
+    expect(h.controller.getSnapshot().selectedAnnotationIds).toEqual([older, middle])
+    act(() => h.controller.setPanelOpen(false))
+    act(() => h.controller.setPanelOpen(true))
+    expect(order()).toEqual(['Newer note', 'Middle note', 'Older note'])
   })
 
   it('derives source filters from all records and adds the file label only in the view', () => {
+    vi.useFakeTimers()
     const h = harness()
     const bodyId = h.save(0, 'Body note')
     act(() => {
@@ -354,7 +364,8 @@ describe('annotation record and composer interactions', () => {
       'true',
     )
     expect(within(record).getAllByRole('listitem')).toHaveLength(1)
-    fireEvent.pointerEnter(document.querySelector('.dia-composer-chip')!)
+    fireEvent.pointerEnter(screen.getByRole('button', { name: /Open annotation records/ }))
+    act(() => vi.advanceTimersByTime(1))
     expect(screen.getByRole('tooltip')).toHaveTextContent('File:hello')
     expect(h.controller.getSnapshot().annotations[1]?.quote.exact).toBe('hello')
     const selected = h.controller.getSnapshot().selectedAnnotationIds
@@ -423,6 +434,7 @@ describe('annotation record and composer interactions', () => {
   })
 
   it('previews the selected quote and note on the composer chip and opens the expanded record', () => {
+    vi.useFakeTimers()
     const h = harness()
     h.save(0, 'Clarify this point.')
     render(
@@ -432,7 +444,8 @@ describe('annotation record and composer interactions', () => {
       </>,
     )
     const chip = screen.getByRole('button', { name: /Open annotation records/ })
-    fireEvent.pointerEnter(chip.closest('.dia-composer-chip')!)
+    fireEvent.pointerEnter(chip)
+    act(() => vi.advanceTimersByTime(1))
     const preview = screen.getByRole('tooltip')
     expect(within(preview).getByText('source')).toBeInTheDocument()
     expect(within(preview).getByText('Clarify this point.')).toBeInTheDocument()
@@ -452,13 +465,18 @@ describe('annotation record and composer interactions', () => {
   it.each(['pointer', 'focus'] as const)(
     'closes the %s preview when the last note is detached before reattachment',
     (trigger) => {
+      vi.useFakeTimers()
       const h = harness()
       onTestFinished(() => h.controller.dispose())
       const id = h.save(0, 'Reattach this note.')
       render(<AnnotationComposerChip {...h.props} />)
       const chip = screen.getByRole('button', { name: /Open annotation records/ })
-      if (trigger === 'pointer') fireEvent.pointerEnter(chip.closest('.dia-composer-chip')!)
-      else fireEvent.focus(chip)
+      if (trigger === 'pointer') fireEvent.pointerEnter(chip)
+      else {
+        fireEvent.keyDown(document.body, { key: 'Tab' })
+        act(() => chip.focus())
+      }
+      act(() => vi.advanceTimersByTime(1))
       expect(screen.getByRole('tooltip')).toHaveTextContent('Reattach this note.')
 
       fireEvent.click(screen.getByRole('button', { name: 'Remove annotations from this message' }))
@@ -468,6 +486,7 @@ describe('annotation record and composer interactions', () => {
       expect(screen.queryByRole('tooltip')).toBeNull()
 
       fireEvent.pointerEnter(screen.getByRole('button', { name: /Open annotation records/ }).parentElement!)
+      act(() => vi.advanceTimersByTime(1))
       expect(screen.getByRole('tooltip')).toHaveTextContent('Reattach this note.')
     },
   )
@@ -630,13 +649,14 @@ describe('annotation record and composer interactions', () => {
     expect(within(card).getByRole('textbox')).toHaveValue('Clarify this point.')
     expect(within(card).queryByText('source')).toBeNull()
     expect(within(card).queryByRole('button', { name: 'Close' })).toBeNull()
-    fireEvent.click(within(card).getByRole('button', { name: 'Send again with message' }))
+    fireEvent.click(within(card).getByRole('button', { name: 'Send with message' }))
     expect(h.controller.getSnapshot().selectedAnnotationIds).toEqual([id])
     expect(h.controller.getSnapshot().annotations).toHaveLength(1)
     act(() => h.controller.setPanelOpen(true))
-    expect(screen.getByRole('listitem')).toHaveAccessibleName(/Clarify this point\. · Sent/u)
-    expect(screen.getByText('1 sent')).toBeInTheDocument()
-    expect(screen.queryByText('1 pending')).toBeNull()
+    expect(screen.getByRole('listitem')).toHaveAccessibleName(/Clarify this point\.$/u)
+    expect(screen.getByText('1 annotations')).toBeInTheDocument()
+    expect(screen.queryByText(/pending|not sending|1 sent/u)).toBeNull()
+    expect(document.querySelector('.dia-record-row__glyph')).toBeNull()
     h.controller.dispose()
   })
 
@@ -646,13 +666,6 @@ describe('annotation record and composer interactions', () => {
     const second = h.save(20, 'Second note')
     render(<AnnotationComposerChip {...h.props} />)
     expect(screen.getByText('2 annotations')).toBeInTheDocument()
-    const chip = document.querySelector('.dia-composer-chip')!
-    const actions = chip.querySelector('.dia-composer-chip__actions')!
-    expect(actions).toHaveAttribute('data-expanded', 'false')
-    fireEvent.pointerEnter(chip)
-    expect(actions).toHaveAttribute('data-expanded', 'true')
-    fireEvent.pointerLeave(chip)
-    expect(actions).toHaveAttribute('data-expanded', 'false')
     fireEvent.click(screen.getByRole('button', { name: 'Remove annotations from this message' }))
     expect(h.actions.detachAnnotations).toHaveBeenCalledExactlyOnceWith([first, second])
     expect(h.controller.getSnapshot().annotations).toHaveLength(2)
@@ -715,6 +728,15 @@ describe('annotation record and composer interactions', () => {
     expect(within(details).getByText(note.trim())).toBeInTheDocument()
     expect(details.querySelector('q')?.textContent).toBe(quote)
     expect(within(details).getByText('[Body]')).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('region', { name: 'Annotation details' })).toBeNull()
+    fireEvent.pointerEnter(anchor.parentElement!)
+    act(() => vi.advanceTimersByTime(500))
+    const attach = within(row).getByRole('button', { name: 'Remove from message' })
+    fireEvent.pointerDown(attach)
+    fireEvent.click(attach)
+    expect(screen.queryByRole('region', { name: 'Annotation details' })).toBeNull()
+    expect(attach).toHaveAccessibleName('Send with message')
     h.controller.dispose()
   })
 
@@ -906,7 +928,7 @@ describe('annotation record and composer interactions', () => {
     h.controller.dispose()
   })
 
-  it('keeps a sent record labelled sent when its paperclip is selected for another message', () => {
+  it('reattaches a delivered record with the same controls and no delivery label', () => {
     const h = harness()
     const id = h.save(0, 'Clarify this point.')
     const first = h.controller.createOutbox('queue', h.controller.sessionId)
@@ -931,8 +953,8 @@ describe('annotation record and composer interactions', () => {
       </>,
     )
     const record = screen.getByRole('region', { name: 'Annotations' })
-    expect(within(record).getByRole('listitem', { name: /Sent$/u })).toBeInTheDocument()
-    expect(within(record).getByText('1 sent')).toBeInTheDocument()
+    expect(within(record).getByRole('listitem')).toBeInTheDocument()
+    expect(within(record).getByText('1 annotations')).toBeInTheDocument()
     expect(within(record).getByRole('button', { name: 'Remove from message' })).toHaveAttribute(
       'data-active',
       'true',

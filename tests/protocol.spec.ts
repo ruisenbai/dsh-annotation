@@ -140,7 +140,9 @@ describe('annotation wire protocol', () => {
     expect(text).toContain('Explain this claim.')
     expect(text).toContain('ann-test-1')
     expect(text).toContain('注解 1')
-    expect(text).toContain('请按顺序逐条回答每一条注解')
+    expect(text).toContain('按编号逐条回答，不合并')
+    expect(text).toContain('\n注解 1\n')
+    expect(text).not.toContain('注解 1 (ann-test-1)')
     expect(text).toContain(
       '<!-- dsh-annotation-reply:{"submissionId":"sub-test","annotationId":"ann-test-1","ordinal":1} -->',
     )
@@ -160,22 +162,83 @@ describe('annotation wire protocol', () => {
   it('uses the English protocol template when the payload locale is en', () => {
     const text = formatSubmissionMessage(fixturePayload({ protocolLocale: 'en' }))
     expect(text).toContain('[DSH annotation submission]')
-    expect(text).toContain('Answer every annotation in order:')
+    expect(text).toContain('Answer annotations in order without merging them')
     expect(text).toContain('Start each section with "Annotation N:"')
-    expect(text).toContain('"Highlight only" means there is no additional annotation text')
+    expect(text).not.toContain('"Highlight only"')
     expect(text).not.toContain('注解')
   })
 
-  it('marks highlight-only items in the prompt so the model never skips them', () => {
-    const payload = fixturePayload({ protocolLocale: 'en' })
+  it.each([
+    ['zh', 'answer'],
+    ['zh', 'rewrite'],
+    ['zh', 'modify'],
+    ['en', 'answer'],
+    ['en', 'rewrite'],
+    ['en', 'modify'],
+  ] as const)('handles highlight-only items in %s %s mode', (protocolLocale, processingMode) => {
+    const payload = fixturePayload({ protocolLocale, processingMode })
     const highlight = {
       ...payload.annotations[0]!,
+      annotationId: 'ann-highlight' as (typeof payload.annotations)[number]['annotationId'],
+      ordinal: 2,
       annotation: '',
       kind: 'highlight-only' as const,
     }
-    const text = formatSubmissionMessage({ ...payload, annotations: [highlight] })
-    expect(text).toContain('(Highlight only)')
-    expect(text).toContain('still handle the selected text in the current delivery mode and never skip it')
+    const text = formatSubmissionMessage({ ...payload, annotations: [...payload.annotations, highlight] })
+    expect(text).toContain(protocolLocale === 'zh' ? '（仅标记原文）' : '(Highlight only)')
+    const instruction =
+      protocolLocale === 'zh'
+        ? '「仅标记原文」没有额外意见，仍须按交付方式处理原文。'
+        : '"Highlight only" has no annotation text; still handle its quote in the current delivery mode.'
+    expect(text.split(instruction)).toHaveLength(2)
+    expect(text).toContain('"annotationId":"ann-highlight","ordinal":2')
+    expect(text).toContain(highlight.quote.exact)
+  })
+
+  it.each([
+    ['zh', ''],
+    ['zh', ' \n '],
+    ['en', ''],
+    ['en', ' \n '],
+  ] as const)('omits a blank overall requirement in %s: %j', (protocolLocale, overallRequirement) => {
+    const text = formatSubmissionMessage(fixturePayload({ protocolLocale, overallRequirement }))
+    expect(text).not.toContain(protocolLocale === 'zh' ? '总体要求' : 'Overall requirement')
+    expect(text).not.toContain(protocolLocale === 'zh' ? '请求澄清' : 'ask for clarification')
+    expect(text).toContain(protocolLocale === 'zh' ? '交付方式：逐条回答' : 'Delivery mode: answer')
+  })
+
+  it.each([
+    ['zh', '', ''],
+    ['zh', ' \n', ''],
+    ['zh', '', '\n '],
+    ['zh', ' \n', '\n '],
+    ['en', '', ''],
+    ['en', ' \n', ''],
+    ['en', '', '\n '],
+    ['en', ' \n', '\n '],
+  ] as const)('preserves nonempty %s quote context %j / %j', (protocolLocale, prefix, suffix) => {
+    const payload = fixturePayload({ protocolLocale })
+    const item = payload.annotations[0]!
+    const text = formatSubmissionMessage({
+      ...payload,
+      annotations: [{ ...item, quote: { ...item.quote, prefix, suffix } }],
+    })
+    const contexts =
+      protocolLocale === 'zh'
+        ? ([
+            ['原文前文：', prefix],
+            ['原文后文：', suffix],
+          ] as const)
+        : ([
+            ['Quote prefix:', prefix],
+            ['Quote suffix:', suffix],
+          ] as const)
+    for (const [label, value] of contexts) {
+      if (value.length === 0) expect(text).not.toContain(label)
+      else expect(text).toContain(`${label}\n${value}\n`)
+    }
+    expect(text).toContain(item.quote.exact)
+    expect(text).toContain(item.annotation)
   })
 
   it('infers the annotation kind from content when kind is missing or inconsistent', () => {

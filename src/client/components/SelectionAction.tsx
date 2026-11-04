@@ -1,4 +1,5 @@
 import type { Ref } from 'react'
+import { Button, MenuSurface } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { FloatingRect } from '../floating.ts'
 
 /** The same selection action is used for reply, file, and official Diff text. */
@@ -16,7 +17,8 @@ export function SelectionAction({
   readonly elementRef?: Ref<HTMLDivElement>
 }) {
   return (
-    <div
+    <MenuSurface
+      compact
       ref={elementRef}
       className="dia-selection-bar"
       role="toolbar"
@@ -27,9 +29,9 @@ export function SelectionAction({
       }}
       onPointerDown={(event) => event.preventDefault()}
     >
-      <button type="button" className="dia-selection-bar__action" onClick={onAnnotate}>
+      <Button size="sm" type="button" className="dia-selection-bar__action" onClick={onAnnotate}>
         {label}
-      </button>
-    </div>
+      </Button>
+    </MenuSurface>
   )
 }

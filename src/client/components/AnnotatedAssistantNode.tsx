@@ -5,6 +5,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useId,
   useState,
   type ReactElement,
 } from 'react'
@@ -329,6 +330,8 @@ function sameReplyChips(left: readonly ReplyChipState[], right: readonly ReplyCh
 type AnnotatedAssistantNodeProps = AssistantAnnotationProps & {
   /** Rendered output from the selected Host assistant renderer. */
   readonly children: ReactElement
+  /** Hosts with text interactions own selection placement and dismissal. */
+  readonly sharedSelection?: boolean
 }
 
 /** 给已有助手消息渲染器套一层注解界面，不接管其正文渲染。 */
@@ -345,6 +348,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   removeHighlights,
   t,
   children,
+  sharedSelection = false,
 }: AnnotatedAssistantNodeProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -399,6 +403,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   const [selectionBar, setSelectionBar] = useState<{
     readonly capture: ReturnType<typeof captureSelection>
   } | null>(null)
+  const replyHighlightName = `dia-reply-${useId().replace(/[^a-zA-Z0-9-]/gu, '-')}`
   const [domRevision, setDomRevision] = useState(0)
   const [focusDuplicated, setFocusDuplicated] = useState(false)
   const selectionBarRef = useRef<HTMLDivElement>(null)
@@ -626,10 +631,37 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     }
   }, [beginSelection, data.blocks, messageId, messageSeq])
 
+  const captureSelectedText = useCallback(() => {
+    const body = bodyRef.current
+    const selected = body?.ownerDocument.getSelection()
+    if (
+      body === null ||
+      messageId === undefined ||
+      messageSeq === undefined ||
+      selected === undefined ||
+      selected === null ||
+      selected.rangeCount !== 1 ||
+      selected.isCollapsed
+    )
+      return null
+    const range = selected.getRangeAt(0)
+    if (!body.contains(range.startContainer) || !body.contains(range.endContainer)) return null
+    let capture: ReturnType<typeof captureSelection>
+    try {
+      capture = captureSelection(body, range, messageId, messageSeq)
+    } catch (error) {
+      // An excluded or non-text selection has no annotation target.
+      void error
+      return null
+    }
+    const blockIndex = textBlockIndexOf(data.blocks, capture.quote.start)
+    return blockIndex === undefined ? capture : { ...capture, blockIndex }
+  }, [data.blocks, messageId, messageSeq])
+
   useEffect(() => {
     if (messageId === undefined) return undefined
-    return registerEndpoint(messageId, { reveal, annotateAll })
-  }, [annotateAll, messageId, registerEndpoint, reveal])
+    return registerEndpoint(messageId, { reveal, annotateAll, captureSelection: captureSelectedText })
+  }, [annotateAll, captureSelectedText, messageId, registerEndpoint, reveal])
 
   useEffect(() => {
     if (messageId === undefined) return undefined
@@ -732,7 +764,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     }
   }, [currentTextIndex, data.blocks, domRevision, geometryKey])
 
-  /** A single-line heading gets an exact-sized keyboard target; wrapped or unmeasurable headings stay plain text. */
+  /** Color only associated reply labels; measured fragments retain navigation and keyboard targets. */
   useLayoutEffect(() => {
     const root = rootRef.current
     const body = bodyRef.current
@@ -749,6 +781,9 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       setReplyChips((current) => (current.length === 0 ? current : []))
       return undefined
     }
+    const registry = globalThis.CSS?.highlights
+    const highlight = typeof Highlight === 'undefined' ? null : new Highlight()
+    if (highlight !== null) registry?.set(replyHighlightName, highlight)
     let frame: number | null = null
     const measure = () => {
       const textIndex = currentTextIndex(body)
@@ -756,6 +791,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       const scaleX = root.offsetWidth > 0 && rootRect.width > 0 ? rootRect.width / root.offsetWidth : 1
       const scaleY = root.offsetHeight > 0 && rootRect.height > 0 ? rootRect.height / root.offsetHeight : 1
       const next: ReplyChipState[] = []
+      highlight?.clear()
       const renderedText = textIndex.rendered
       for (const target of replyTargets) {
         const start = completeHeadingStarts(renderedText, target.text)[target.occurrence]
@@ -773,6 +809,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         const first = rects[0]
         const rect = typeof range.getBoundingClientRect === 'function' ? range.getBoundingClientRect() : first
         if (rect === undefined || rect.width <= 0 || rect.height <= 0) continue
+        highlight?.add(range)
         const fragments = (rects.length === 0 ? [rect] : rects).map((fragment) => ({
           top: (fragment.top - rootRect.top) / scaleY,
           left: (fragment.left - rootRect.left) / scaleX,
@@ -808,6 +845,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     document.addEventListener('toggle', scheduleMeasure, true)
     document.fonts?.addEventListener('loadingdone', scheduleMeasure)
     return () => {
+      if (highlight !== null) registry?.delete(replyHighlightName)
       if (frame !== null) cancelAnimationFrame(frame)
       resizeObserver?.disconnect()
       window.removeEventListener('resize', scheduleMeasure)
@@ -815,25 +853,15 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       document.removeEventListener('toggle', scheduleMeasure, true)
       document.fonts?.removeEventListener('loadingdone', scheduleMeasure)
     }
-  }, [currentTextIndex, data.status, domRevision, messageId, replyTargets])
+  }, [currentTextIndex, data.status, domRevision, messageId, replyTargets, replyHighlightName])
 
   useEffect(() => {
     const body = bodyRef.current
-    if (body === null || messageId === undefined || messageSeq === undefined) return undefined
+    if (sharedSelection || body === null || messageId === undefined || messageSeq === undefined)
+      return undefined
     const capture = () => {
-      const selected = window.getSelection()
-      if (selected === null || selected.rangeCount === 0 || selected.isCollapsed) return
-      const range = selected.getRangeAt(0)
-      if (!body.contains(range.startContainer) || !body.contains(range.endContainer)) return
-      try {
-        const capture = captureSelection(body, range, messageId, messageSeq)
-        const blockIndex = textBlockIndexOf(data.blocks, capture.quote.start)
-        setSelectionBar({
-          capture: blockIndex === undefined ? capture : { ...capture, blockIndex },
-        })
-      } catch {
-        // Selections crossing ignored or non-text content do not offer the selection bar.
-      }
+      const selected = captureSelectedText()
+      if (selected !== null) setSelectionBar({ capture: selected })
     }
     // A selection drag can be released anywhere in the page, so pointerup is observed on the
     // document in the capture phase; the range checks below keep the bar per-message. keyup
@@ -844,7 +872,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       document.removeEventListener('pointerup', capture, true)
       body.removeEventListener('keyup', capture)
     }
-  }, [messageId, messageSeq])
+  }, [captureSelectedText, messageId, messageSeq, sharedSelection])
 
   const selectionBarActive = selectionBar !== null
   useEffect(() => {
@@ -914,6 +942,9 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       tabIndex={-1}
       data-dsh-annotation-message-id={messageId}
     >
+      {replyTargets.length > 0 && (
+        <style>{`::highlight(${replyHighlightName}) { color: var(--dia-accent); }`}</style>
+      )}
       <div
         ref={bodyRef}
         className="dia-assistant__body"
@@ -1045,7 +1076,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
           </aside>,
           document.body,
         )}
-      {selectionBar !== null && (
+      {!sharedSelection && selectionBar !== null && (
         <SelectionAction
           elementRef={selectionBarRef}
           rect={selectionBar.capture.rect}

@@ -113,7 +113,7 @@ function AnnotationSubmissionRow<Key extends 'user' | 'steering'>({
   )
 }
 
-/** Render annotation metadata with the Host's user-content factory and reference actions. */
+/** Keep Host user content right-aligned with optional annotation metadata and reference actions. */
 export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
   node,
   loadImage,
@@ -146,11 +146,9 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
     loadImage,
     interactive: true,
   })
-  return payload === null ? (
-    content
-  ) : (
-    <div className="dia-user-submission">
-      <AnnotationSubmissionRow payload={payload} navigate={navigate} t={t} />
+  return (
+    <div className={payload === null ? 'dia-user-row' : 'dia-user-row dia-user-submission'}>
+      {payload !== null && <AnnotationSubmissionRow payload={payload} navigate={navigate} t={t} />}
       {content}
     </div>
   )

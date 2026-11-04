@@ -10,6 +10,7 @@ import type { AnnotationDraft, AnnotationId, MessageIdentity, SessionIdentity } 
 
 const releases: (() => void)[] = []
 beforeEach(() => {
+  vi.stubGlobal('CSS', { ...globalThis.CSS, supports: () => false })
   vi.stubGlobal(
     'ResizeObserver',
     class {

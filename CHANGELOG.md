@@ -4,6 +4,66 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 ## [Unreleased]
 
+## [1.1.7] - 2026-11-04
+
+Target host: DeepSeek Harness master `8bd073392e` (`0.2.2-alpha.3`); minimum Host `>=0.2.2-alpha.3`, Node.js `>=24.9.0`.
+
+### Changed
+
+- Align the dependency family and CI source baseline with current master. Quote text and Add annotation remain available in continuable child Sessions without the removed parent-availability field. One-shot, unknown, and removed Sessions keep their Host restrictions.
+- Present annotations in one newest-first list with a total count and shared attachment controls, without delivery labels, status dots, or delivery groups. Existing annotations can be attached again after sending.
+- Show associated reply labels in blue bold text without dotted underlines, preserving previews, source navigation, text selection, and copy.
+
+Annotation protocol v5 and browser storage v6 retain their formats; internal delivery tracking continues to protect retries and history.
+
+## [1.1.6] - 2026-10-28
+
+Target host: DeepSeek Harness master `f3803c9697` (`0.2.2-alpha.2`); minimum Host `>=0.2.2-alpha.2`, Node.js `>=24.9.0`.
+
+### Fixed
+
+- Keep open record rows stationary when attaching or detaching any annotation, and place readable previews above the whole record so they cannot cover other row actions.
+- Freeze annotation editing and attachment changes during Host command checking and message admission.
+
+- Combine Quote text and Add annotation in the Host message-selection toolbar, with shared placement and dismissal. Hosts without text interactions retain their annotation entry.
+
+- Match the selection toolbar's font size to conversation text and keep its padding compact across font sizes and narrow layouts.
+
+- Align the annotation record's expand/collapse chevron with the Host task summary while preserving its click target.
+
+Annotation protocol v5 and browser storage v6 retain their existing formats.
+
+## [1.1.5] - 2026-10-20
+
+Target host: DeepSeek Harness `0.2.1-rc.2`; minimum Host `>=0.2.1-rc.2`.
+
+### Fixed
+
+- Keep user and steering messages right-aligned when a submitted message replaces its temporary echo, including ordinary messages and annotation submissions with Codex UI enabled.
+
+Annotation protocol v5 and browser storage v6 retain their existing formats.
+
+## [1.1.4] - 2026-10-20
+
+Target host: DeepSeek Harness `0.2.1-rc.2`; minimum Host `>=0.2.1-rc.2`.
+
+### Added
+
+- Automatically enable compatibility styling while dsh-codex-ui is active, and restore the default styling when it unloads.
+
+### Changed
+
+- Use the Host's buttons, selection menu, attachment preview, theme colors, and corner radii for consistent light and dark interfaces.
+- Shorten annotation instructions and omit redundant submission fields while preserving note order, meaningful whitespace, reply markers, and historical protocol readers.
+
+### Fixed
+
+- Keep annotation attachments and draft text after a page refresh with dsh-codex-ui.
+- Keep attachment previews inside narrow viewports, above the composer, with keyboard focus and Escape dismissal.
+- Wrap record actions below long notes on narrow screens and prevent crowded record rows from overlapping.
+
+Annotation protocol v5 and browser storage v6 retain their existing formats.
+
 ## [1.1.3] - 2026-10-20
 
 Target host: DeepSeek Harness `0.2.1-rc.2`; minimum Host `>=0.2.1-rc.2`.

@@ -149,6 +149,8 @@ async function inspectVariant(browser, base, variant) {
         checkCenter: check.top + check.height / 2,
         fieldCenter: field.top + field.height / 2,
         fieldHeight: field.height,
+        paddingTop: getComputedStyle(element).paddingTop,
+        paddingBottom: getComputedStyle(element).paddingBottom,
         resize: getComputedStyle(element.querySelector('textarea')).resize,
       }
     })
@@ -158,6 +160,8 @@ async function inspectVariant(browser, base, variant) {
         quickShape.checkRadius === '50%' &&
         quickShape.checkWidth === quickShape.checkHeight &&
         quickShape.resize === 'none' &&
+        quickShape.paddingTop === '10px' &&
+        quickShape.paddingBottom === '10px' &&
         quickShape.fieldHeight <= 33 &&
         Math.abs(quickShape.checkCenter - quickShape.fieldCenter) <= 2,
       `A one-line quick editor must use the approved compact layout: ${JSON.stringify(quickShape)}`,
@@ -166,6 +170,52 @@ async function inspectVariant(browser, base, variant) {
       quickShape.placement === 'bottom',
       `The quick editor must start below the selected character: ${JSON.stringify(quickShape)}`,
     )
+    const originalContentSize = await page.evaluate(() =>
+      document.body.style.getPropertyValue('--dsh-content-font-size'),
+    )
+    for (const size of [10, 16, 22, 14]) {
+      await page.evaluate(
+        (value) => document.body.style.setProperty('--dsh-content-font-size', `${value}px`),
+        size,
+      )
+      await quickInput.fill(Array.from({ length: 11 }, (_, index) => `Font sample ${index + 1}`).join('\n'))
+      await page.waitForFunction((value) => {
+        const field = document.querySelector('.dia-record-editor--quick textarea')
+        return (
+          field !== null &&
+          getComputedStyle(field).fontSize === `${value - 1}px` &&
+          getComputedStyle(field).overflowY === 'auto' &&
+          field.getBoundingClientRect().height <= (value + 6) * 7 + 13
+        )
+      }, size)
+      const geometry = await quick.evaluate((card) => {
+        const field = card.querySelector('textarea')
+        const button = card.querySelector('.dia-record-editor__check')
+        const rect = card.getBoundingClientRect()
+        const action = button.getBoundingClientRect()
+        return {
+          fontSize: getComputedStyle(field).fontSize,
+          lineHeight: getComputedStyle(field).lineHeight,
+          height: field.getBoundingClientRect().height,
+          buttonInside: action.top >= rect.top && action.bottom <= rect.bottom + 1,
+          buttonVisible: button.contains(
+            document.elementFromPoint(action.x + action.width / 2, action.y + action.height / 2),
+          ),
+          inViewport:
+            rect.left >= 0 && rect.right <= innerWidth + 1 && rect.top >= 0 && rect.bottom <= innerHeight + 1,
+        }
+      })
+      assert(geometry.fontSize === `${size - 1}px`, JSON.stringify(geometry))
+      assert(geometry.lineHeight === `${size + 6}px`, JSON.stringify(geometry))
+      assert(geometry.height >= size + 18 && geometry.height <= (size + 6) * 7 + 13, JSON.stringify(geometry))
+      assert(geometry.buttonInside && geometry.buttonVisible && geometry.inViewport, JSON.stringify(geometry))
+      if (size === 22)
+        await page.screenshot({ path: join(artifacts, `editor-${variant.name}-22px-body.png`) })
+    }
+    await page.evaluate((value) => {
+      if (value === '') document.body.style.removeProperty('--dsh-content-font-size')
+      else document.body.style.setProperty('--dsh-content-font-size', value)
+    }, originalContentSize)
     await quickInput.fill(' \n\t ')
     for (let outside = 0; outside < 2; outside += 1) {
       await page.mouse.click(2, 2)
@@ -491,7 +541,7 @@ async function inspectVariant(browser, base, variant) {
         chipLayout.clearOfInput,
       `The count chip must align with official composer buttons without covering text: ${JSON.stringify(chipLayout)}`,
     )
-    await chip.hover()
+    await chip.locator('.dia-composer-chip__main').hover()
     await page.waitForFunction(
       () => parseFloat(getComputedStyle(document.querySelector('.dia-composer-chip__actions')).opacity) === 1,
     )
@@ -501,8 +551,17 @@ async function inspectVariant(browser, base, variant) {
       openChip && chipCard && openChip.x + openChip.width <= chipCard.x + chipCard.width - 7,
       'Revealing the detach control must remain inside the composer',
     )
-    await chip.locator('.dia-composer-chip__preview').waitFor()
-    assert((await chip.textContent()).includes('First saved note'), 'Hover must preview attached notes')
+    const chipPreview = page.locator('.dia-composer-chip__preview')
+    await chipPreview.waitFor()
+    assert(
+      (await chipPreview.textContent()).includes('First saved note'),
+      'Hover must preview attached notes',
+    )
+    const previewBounds = await chipPreview.locator('..').boundingBox()
+    assert(
+      previewBounds && previewBounds.x >= 0 && previewBounds.x + previewBounds.width <= variant.width,
+      `The attached-note preview must fit the viewport: ${JSON.stringify(previewBounds)}`,
+    )
     await page.screenshot({ path: join(artifacts, `chip-${variant.name}.png`), fullPage: true })
     await page.mouse.move(0, 0)
     await page.waitForFunction(
@@ -529,7 +588,7 @@ async function inspectVariant(browser, base, variant) {
     await toggle.click()
     for (let index = 0; index < 3; index += 1) {
       await page.mouse.move(0, 0)
-      await chip.locator('.dia-composer-chip__preview').waitFor({ state: 'hidden' })
+      await chipPreview.waitFor({ state: 'hidden' })
       await page
         .locator('.dia-record')
         .getByRole('button', { name: 'Send with message', exact: true })
@@ -598,13 +657,14 @@ async function inspectVariant(browser, base, variant) {
         blur: style.backdropFilter,
         shadow: style.boxShadow,
         radius: style.borderRadius,
+        taskRadius: style.getPropertyValue('--dsw-radius-lg').trim(),
       }
     })
     assert(
       material.background === material.officialMenu &&
         material.backgroundImage === 'none' &&
         material.blur.includes('blur(40px)') &&
-        material.radius === '12px' &&
+        material.radius === material.taskRadius &&
         material.shadow !== 'none',
       `The record must match the official task panel material: ${JSON.stringify(material)}`,
     )
@@ -631,11 +691,7 @@ async function inspectVariant(browser, base, variant) {
       'Clicking the record header text must expand the record',
     )
     const firstRow = record.locator('.dia-record-row').filter({ hasText: 'First saved note' })
-    const firstGlyph = firstRow.locator('.dia-record-row__glyph [data-state]')
-    assert(
-      (await firstGlyph.getAttribute('data-state')) === 'warning',
-      'An attached note must use a static pending dot',
-    )
+    assert((await firstRow.locator('[data-state]').count()) === 0, 'Records have no delivery state dots')
     await firstRow.getByRole('button', { name: 'Locate source' }).click()
     assert((await record.count()) === 1, 'Locating source must keep the record visible')
     assert(
@@ -649,11 +705,14 @@ async function inspectVariant(browser, base, variant) {
       'Paperclip must detach the existing record without deleting it',
     )
     assert(
-      (await firstGlyph.getAttribute('data-state')) === 'idle',
-      'Detached notes must use a static idle dot',
+      (await firstPaperclip.getAttribute('aria-label')) === 'Send with message',
+      'Detached note remains attachable',
     )
     await firstPaperclip.click()
-    assert((await firstGlyph.getAttribute('data-state')) === 'warning', 'Reattached notes must not spin')
+    assert(
+      (await firstPaperclip.getAttribute('aria-pressed')) === 'true',
+      'Paperclip reflects selection only',
+    )
     await page.locator('[data-composer-input]').fill('Review these annotations.')
     await page.getByRole('button', { name: 'Send fixture message' }).click()
     await page.getByTestId('interaction-history').waitFor()
@@ -831,7 +890,7 @@ async function inspectRecordOrder(browser, base, variant) {
       await target
         .getByRole('button', { name: 'Send with message' })
         .evaluate((element) => element === document.activeElement),
-      'Reordering must retain keyboard focus',
+      'Attachment changes must retain keyboard focus',
     )
     await target.getByRole('button', { name: 'Send with message' }).click()
     assert(Math.abs((await offset()) - before) <= 1, 'Reattaching a row must retain its visible offset')
@@ -857,7 +916,7 @@ async function inspectRecordOrder(browser, base, variant) {
       element.scrollTop = 0
     })
     await save('Newest at top')
-    assert((await order())[0] === 'Newest at top', 'The newest note must lead the attached group')
+    assert((await order())[0] === 'Newest at top', 'The newest note must lead the record list')
     assert(
       await list.evaluate((element) => element.scrollTop === 0),
       'Readers at the top must see the newly added record',
@@ -868,7 +927,7 @@ async function inspectRecordOrder(browser, base, variant) {
     assert(JSON.stringify(await order()) === JSON.stringify(beforeReload), 'Reload must retain record order')
     assert(errors.length === 0, `Record ordering browser errors: ${errors.join('\n')}`)
     console.log(
-      `PASS record-order-${variant.name}: newest first, attachment priority, focus, scroll anchors, and reload`,
+      `PASS record-order-${variant.name}: newest first, stable attachment selection, focus, scroll anchors, and reload`,
     )
   } catch (error) {
     await page.screenshot({
