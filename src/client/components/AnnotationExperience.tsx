@@ -12,7 +12,6 @@ import {
   HoverCard,
   MenuSurface,
   SegmentedControl,
-  StateDot,
   Tooltip,
   useDismissOnOutsidePointer,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -81,26 +80,6 @@ function IconAction({
       </button>
     </Tooltip>
   )
-}
-
-function recordStatus(item: AnnotationDraft, selected: boolean): 'pending' | 'sent' | 'off' {
-  if (item.status === 'sent' || item.status === 'processed') return 'sent'
-  if (item.source?.kind === 'diff') return 'off'
-  if (selected || item.status === 'queued') return 'pending'
-  return 'off'
-}
-
-function recordSummary(
-  { pending, sent, off }: Record<ReturnType<typeof recordStatus>, number>,
-  t: InputAnnotationProps['t'],
-): string {
-  return [
-    sent > 0 ? t('record.sentCount', { count: sent }) : '',
-    pending > 0 ? t('record.pendingCount', { count: pending }) : '',
-    off > 0 ? t('record.offCount', { count: off }) : '',
-  ]
-    .filter(Boolean)
-    .join(' · ')
 }
 
 /** Compact control immediately before the Host model selector. */
@@ -609,7 +588,7 @@ function SentAnnotationCard({
       />
       <div className="dia-record-editor__footer">
         <IconAction
-          label={selected ? t('record.detach') : t('record.resend')}
+          label={selected ? t('record.detach') : t('record.attach')}
           active={selected}
           onClick={() => actions.toggleSelected(item.annotationId)}
         >
@@ -754,22 +733,14 @@ const RecordRow = memo(function RecordRow({
   submitting: boolean
 }) {
   const legacyDiff = item.source?.kind === 'diff'
-  const state = recordStatus(item, selected)
-  const attachLabel = selected
-    ? t('record.detach')
-    : item.status === 'sent' || item.status === 'processed'
-      ? t('record.resend')
-      : t('record.attach')
+  const attachLabel = selected ? t('record.detach') : t('record.attach')
   return (
     <div
       className="dia-record-row"
       role="listitem"
       data-annotation-id={item.annotationId}
-      aria-label={`${item.ordinal} · ${item.annotation} · ${t(`record.${state}`)}`}
+      aria-label={`${item.ordinal} · ${item.annotation}`}
     >
-      <span className="dia-record-row__glyph" aria-hidden="true">
-        <StateDot state={state === 'sent' ? 'done' : state === 'pending' ? 'warning' : 'idle'} />
-      </span>
       <RecordPreview item={item} disabled={editorOpen} t={t} />
       <div className="dia-record-row__actions">
         {legacyDiff ? <span className="dia-record-row__legacy">{t('source.readOnly')}</span> : null}
@@ -972,25 +943,9 @@ export function AnnotationExperience({
     if (isNew && request) requestAnimationFrame(() => focus.current?.restore(request))
   }
   const retry = retryEntry(view)
-  const records = useMemo(
-    () =>
-      orderedRecords({
-        annotations: view.annotations,
-        selectedAnnotationIds: view.selectedAnnotationIds,
-        outbox: view.outbox,
-      }),
-    [view.annotations, view.selectedAnnotationIds, view.outbox],
-  )
+  const records = useMemo(() => orderedRecords(view), [view.annotations])
   const selectedIds = useMemo(() => new Set(view.selectedAnnotationIds), [view.selectedAnnotationIds])
-  const { counts, sourceTypes } = useMemo(() => {
-    const counts = { pending: 0, sent: 0, off: 0 }
-    const sourceTypes = new Set<ReturnType<typeof sourceType>>()
-    for (const item of view.annotations) {
-      counts[recordStatus(item, selectedIds.has(item.annotationId))]++
-      sourceTypes.add(sourceType(item))
-    }
-    return { counts, sourceTypes }
-  }, [view.annotations, selectedIds])
+  const sourceTypes = useMemo(() => new Set(view.annotations.map(sourceType)), [view.annotations])
   const recordActions = useMemo(
     () => ({
       toggleSelected: actions.toggleSelected,
@@ -1056,7 +1011,9 @@ export function AnnotationExperience({
                   <span className="dia-record__title">{t('record.title')}</span>
                 </button>
               </Tooltip>
-              <span className="dia-record__progress">{recordSummary(counts, t)}</span>
+              <span className="dia-record__progress">
+                {t('record.totalCount', { count: view.annotations.length })}
+              </span>
               {showFilters && (
                 <Tooltip label={t('details.sourceFilter')} side="top" delayMs={350}>
                   <span className="dia-record__filters">

@@ -691,11 +691,7 @@ async function inspectVariant(browser, base, variant) {
       'Clicking the record header text must expand the record',
     )
     const firstRow = record.locator('.dia-record-row').filter({ hasText: 'First saved note' })
-    const firstGlyph = firstRow.locator('.dia-record-row__glyph [data-state]')
-    assert(
-      (await firstGlyph.getAttribute('data-state')) === 'warning',
-      'An attached note must use a static pending dot',
-    )
+    assert((await firstRow.locator('[data-state]').count()) === 0, 'Records have no delivery state dots')
     await firstRow.getByRole('button', { name: 'Locate source' }).click()
     assert((await record.count()) === 1, 'Locating source must keep the record visible')
     assert(
@@ -709,11 +705,14 @@ async function inspectVariant(browser, base, variant) {
       'Paperclip must detach the existing record without deleting it',
     )
     assert(
-      (await firstGlyph.getAttribute('data-state')) === 'idle',
-      'Detached notes must use a static idle dot',
+      (await firstPaperclip.getAttribute('aria-label')) === 'Send with message',
+      'Detached note remains attachable',
     )
     await firstPaperclip.click()
-    assert((await firstGlyph.getAttribute('data-state')) === 'warning', 'Reattached notes must not spin')
+    assert(
+      (await firstPaperclip.getAttribute('aria-pressed')) === 'true',
+      'Paperclip reflects selection only',
+    )
     await page.locator('[data-composer-input]').fill('Review these annotations.')
     await page.getByRole('button', { name: 'Send fixture message' }).click()
     await page.getByTestId('interaction-history').waitFor()
@@ -891,7 +890,7 @@ async function inspectRecordOrder(browser, base, variant) {
       await target
         .getByRole('button', { name: 'Send with message' })
         .evaluate((element) => element === document.activeElement),
-      'Reordering must retain keyboard focus',
+      'Attachment changes must retain keyboard focus',
     )
     await target.getByRole('button', { name: 'Send with message' }).click()
     assert(Math.abs((await offset()) - before) <= 1, 'Reattaching a row must retain its visible offset')
@@ -917,7 +916,7 @@ async function inspectRecordOrder(browser, base, variant) {
       element.scrollTop = 0
     })
     await save('Newest at top')
-    assert((await order())[0] === 'Newest at top', 'The newest note must lead the attached group')
+    assert((await order())[0] === 'Newest at top', 'The newest note must lead the record list')
     assert(
       await list.evaluate((element) => element.scrollTop === 0),
       'Readers at the top must see the newly added record',
@@ -928,7 +927,7 @@ async function inspectRecordOrder(browser, base, variant) {
     assert(JSON.stringify(await order()) === JSON.stringify(beforeReload), 'Reload must retain record order')
     assert(errors.length === 0, `Record ordering browser errors: ${errors.join('\n')}`)
     console.log(
-      `PASS record-order-${variant.name}: newest first, attachment priority, focus, scroll anchors, and reload`,
+      `PASS record-order-${variant.name}: newest first, stable attachment selection, focus, scroll anchors, and reload`,
     )
   } catch (error) {
     await page.screenshot({

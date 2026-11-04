@@ -9,9 +9,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Select text in replies, diffs, or files → annotate → send with a message. Replies address each annotation in order, and source navigation makes notes easy to look up. A per-Session record keeps drafts, sent notes, and attachment state together. The plugin sends notes with the official composer's text, images, and files; unsent work stays in the current browser.
+Select text in replies, diffs, or files → annotate → send with a message. Replies address each annotation in order, and source navigation makes notes easy to look up. A per-Session record keeps annotations and the current attachment selection together. The plugin sends notes with the official composer's text, images, and files; unsent work stays in the current browser.
 
-**Version 1.1.6 requires DSH `>=0.2.2-alpha.2`; verification targets master commit `f3803c9697`.** See [upgrading](#upgrading) before updating an older Host.
+**Version 1.1.7 requires DSH `>=0.2.2-alpha.3`; verification targets master commit `8bd073392e`.** See [upgrading](#upgrading) before updating an older Host.
 
 ## Contents
 
@@ -30,7 +30,7 @@ Select text in replies, diffs, or files → annotate → send with a message. Re
 
 ## Install and upgrade
 
-The package is distributed through [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.6), not npm. In **dsh-market**, find `ruisenbai/dsh-annotation` under Sessions & Messages, then install or update it. The catalog uses the release's stable tarball alias; check the offered version and Host requirement before proceeding.
+The package is distributed through [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.7), not npm. In **dsh-market**, find `ruisenbai/dsh-annotation` under Sessions & Messages, then install or update it. The catalog uses the release's stable tarball alias; check the offered version and Host requirement before proceeding.
 
 ### Manual installation
 
@@ -38,11 +38,11 @@ Install the fixed release into your `web` profile:
 
 ```bash
 dsh --version
-dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.6/dsh-annotation.tgz
+dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.7/dsh-annotation.tgz
 dsh plugin --profile web why dsh-annotation
 ```
 
-The Host must satisfy `>=0.2.2-alpha.2`; the final command must resolve `dsh-annotation@1.1.6`. For a custom profile, replace both occurrences of `web` with its name. Restart that profile's running Web Host, refresh the page, and check **Settings → Annotations**. Build instructions and executed verification results are in [Development](docs/development.md) and [Compatibility](docs/compatibility.md).
+The Host must satisfy `>=0.2.2-alpha.3`; the final command must resolve `dsh-annotation@1.1.7`. For a custom profile, replace both occurrences of `web` with its name. Restart that profile's running Web Host, refresh the page, and check **Settings → Annotations**. Build instructions and executed verification results are in [Development](docs/development.md) and [Compatibility](docs/compatibility.md).
 
 When [Codex UI](https://github.com/MichengAI/dsh-codex-ui) is enabled, annotation compatibility activates automatically to keep attached notes clear of the input text. No setting is required; disabling Codex UI restores the standard layout. See [Codex UI compatibility](docs/compatibility.md#codex-ui).
 
@@ -53,14 +53,14 @@ Annotation controls follow the Host's theme, rounded corners, and panel material
 Give an agent with terminal access this prompt:
 
 ```text
-Install dsh-annotation 1.1.6 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.2-alpha.2 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.6/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.6. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
+Install dsh-annotation 1.1.7 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.2-alpha.3 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.7/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.7. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
 ```
 
 <a id="upgrading"></a>
 
 ### Upgrading from an older Host
 
-Update the Host to `0.2.2-alpha.2` or newer before installing 1.1.6. The supported Host family supplies the unified Quote text / Add annotation toolbar. Keep 1.1.5 on `0.2.1-rc.2`, and plugin 1.1.2 while using `0.2.1-alpha.2`, 1.1.1 on `0.2.1-alpha.1`, or 1.1.0 on the `0.2.0` family. Drafts, source bubbles, recycle-bin records, and frozen retries retain their existing data formats; do not clear browser storage as an upgrade step. The [upgrade guide](docs/upgrade-guide/v1.1.6/host-baseline/guide.md) ([中文](docs/upgrade-guide/v1.1.6/host-baseline/guide.zh.md)) gives the version checks.
+Update the Host to `0.2.2-alpha.3` or newer before installing 1.1.7. The supported Host family supplies the unified Quote text / Add annotation toolbar. Keep 1.1.6 on `0.2.2-alpha.2`, 1.1.5 on `0.2.1-rc.2`, and plugin 1.1.2 while using `0.2.1-alpha.2`, 1.1.1 on `0.2.1-alpha.1`, or 1.1.0 on the `0.2.0` family. Drafts, source bubbles, recycle-bin records, and frozen retries retain their existing data formats; do not clear browser storage as an upgrade step. The [upgrade guide](docs/upgrade-guide/v1.1.7/host-baseline/guide.md) ([中文](docs/upgrade-guide/v1.1.7/host-baseline/guide.zh.md)) gives the version checks.
 
 <a id="sources"></a>
 
@@ -105,13 +105,7 @@ New notes attach to the next message by default without opening the record. The 
 
 Each record row offers a paperclip to attach or detach, a pin to locate its source, editing for drafts, and deletion when the record is not locked by sending. Hover its text to inspect the quote, source type, creation entry, and saved context above the record, clear of its row actions. The chip also provides batch detachment and deletion controls on hover or keyboard focus. Detachment keeps the note; deletion moves it to the recycle bin.
 
-Opening the list or changing its source filter orders records in three groups:
-
-1. Attached notes and unfinished sends, including queued and retryable batches.
-2. Other unsent drafts.
-3. Sent history and legacy read-only records.
-
-Each group is newest-created first. Attaching or detaching any row keeps the open list in place; the new group order applies when the list is reopened or filtered. Adding or deleting records refreshes the groups while preserving the reading position where space permits. Editing leaves creation order unchanged, and reattaching a sent note retains its sent status. The **All / Body / Diff / File** filters use the same ordering. Display order does not renumber source bubbles, change submission order, or alter frozen retry contents.
+Records show a total count and use the same attachment controls throughout. Delivery labels and status dots are hidden. All records are ordered newest-created first, including after reopening or changing the **All / Body / Diff / File** filter. Attaching or detaching a note keeps its row in place. Editing leaves creation order unchanged; source bubble numbers, submission order, and frozen retries are independent of display order.
 
 ![Annotation record and composer chip](docs/assets/annotation-record.png)
 
@@ -121,7 +115,7 @@ Each group is newest-created first. Attaching or detaching any row keeps the ope
 
 Use the official composer to send attached notes with optional text, images, and files. Regular slash commands keep their own behavior. Attachment and editing controls stay locked while the Host checks or sends the message. The sent user message shows an annotation count above its body: hover a single note to preview it and double-click to locate its source, or expand a multi-note count to inspect and locate individual notes. The record closes when all annotations are sent and none remains attached.
 
-Use a sent note's paperclip to attach it again. Its annotation ID and source bubble stay the same; it remains marked as sent even while selected for another message. A draft, a queued send, a durable sent message, and a model acknowledgement are separate states; only a valid model acknowledgement marks a record as processed.
+Use any available note's paperclip to attach it again after sending. Its annotation ID and source bubble stay the same, and no duplicate record is created. Reply labels such as **Annotation 1** appear in blue bold text without an underline; hover to preview the note and click to locate its source.
 
 After a failed send, submit through the composer again to retry the saved batch, or choose **Discard** in the record to abandon that retry. A retry keeps the original notes, overall requirement, locale, target Session, and attachment order. After a refresh, reselect the same attachments if requested; the plugin refuses changed attachment identities. New edits and selections do not silently replace the saved batch. Queued or already accepted submissions are not sent again by stale retry actions.
 

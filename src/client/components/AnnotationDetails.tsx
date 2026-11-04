@@ -169,8 +169,6 @@ export function AnnotationDetails({
             )}
           </>
         )}
-        <dt>{t('details.status')}</dt>
-        <dd>{t(`status.${item.status}`)}</dd>
       </dl>
       {children}
     </section>

@@ -295,7 +295,6 @@ export const styles: string = `
   box-sizing: border-box;
   display: block;
   border: 0;
-  border-bottom: 1px dotted color-mix(in srgb, var(--dia-accent) 55%, transparent);
   border-radius: 0;
   background: transparent;
   color: inherit;
@@ -306,8 +305,6 @@ export const styles: string = `
 
 .dia-reply-chip[data-active='true'],
 .dia-reply-chip:focus-visible {
-  border-bottom-style: solid;
-  border-bottom-color: var(--dia-accent);
   background: color-mix(in srgb, var(--dia-accent) 8%, transparent);
 }
 
@@ -319,13 +316,10 @@ export const styles: string = `
 .dia-reply-chip__fragment {
   position: absolute;
   box-sizing: border-box;
-  border-bottom: 1px dotted color-mix(in srgb, var(--dia-accent) 55%, transparent);
 }
 
 .dia-reply-chip[data-active='true'] .dia-reply-chip__fragment,
 .dia-reply-chip:focus-visible .dia-reply-chip__fragment {
-  border-bottom-style: solid;
-  border-bottom-color: var(--dia-accent);
   background: color-mix(in srgb, var(--dia-accent) 8%, transparent);
 }
 
@@ -2191,14 +2185,6 @@ button.dia-group__heading:focus-visible {
   font-size: 13px;
   line-height: 20px;
   color: var(--dsw-alias-label-secondary);
-}
-
-.dia-record-row__glyph {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 16px;
-  height: 16px;
 }
 
 .dia-record-row__text {

@@ -30,10 +30,7 @@ export function MessageSelectionActions({
   beginAnnotation,
 }: MessageSelectionProps) {
   const enabled = useSession(
-    (s) =>
-      !s.removed &&
-      (s.subagent === null ||
-        (s.subagent.address.mode === 'continuable' && s.subagent.parentAvailable === true)),
+    (s) => !s.removed && (s.subagent === null || s.subagent.address.mode === 'continuable'),
   )
   useEffect(() => {
     if (!enabled) dismiss()

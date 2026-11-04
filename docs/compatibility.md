@@ -2,19 +2,19 @@
 
 ## Host requirement
 
-Version 1.1.6 requires DSH `>=0.2.2-alpha.2` and Node.js `>=24.9.0`. Verification targets official master commit `f3803c96974ad4a94195fb97e5c637e9c2a3afe3`. Keep plugin 1.1.5 on `0.2.1-rc.2`; the [upgrade guide](upgrade-guide/v1.1.6/host-baseline/guide.md) describes the Host checks. Annotation protocol v5 and browser storage v6 retain their formats.
+Version 1.1.7 requires DSH `>=0.2.2-alpha.3` and Node.js `>=24.9.0`. Verification targets official master commit `8bd073392eef6f54e921a093b95076248eb08cbb`. Keep plugin 1.1.6 on `0.2.2-alpha.2` and 1.1.5 on `0.2.1-rc.2`; the [upgrade guide](upgrade-guide/v1.1.7/host-baseline/guide.md) describes the Host checks. Annotation protocol v5 and browser storage v6 retain their formats.
 
-The `0.2.2-alpha.2` Host family includes the text-interaction API. On the supported Host, selecting completed reply text opens one toolbar with **Quote text** and **Add annotation**. Quote text uses the Host's `inputActions.insertQuote`; annotation opens the existing editor with the selected source identity. Text outside an annotatable reply keeps Quote text alone. The Host owns placement, scrolling, Escape, outside-click dismissal, and source invalidation. Disabling annotations restores the Host's Quote renderer. Hosts without `uiConversation.interactions` retain the plugin's standalone annotation toolbar.
+The `0.2.2-alpha.3` Host family includes the text-interaction API. On the supported Host, selecting completed reply text opens one toolbar with **Quote text** and **Add annotation**. Quote text uses the Host's `inputActions.insertQuote`; annotation opens the existing editor with the selected source identity. Text outside an annotatable reply keeps Quote text alone. The Host owns placement, scrolling, Escape, outside-click dismissal, and source invalidation. Disabling annotations restores the Host's Quote renderer. Hosts without `uiConversation.interactions` retain the plugin's standalone annotation toolbar.
 
 ## Dependency source
 
-[source-baseline.json](../source-baseline.json) pins the official master commit and its `0.2.2-alpha.2` package family. Cordis is `4.0.6-alpha.1`, the group plugin is `1.0.6-alpha.1`, and Schemastery is `3.18.6-alpha.1`. The registry lockfile supplies the required API declarations and built Web profile. CI additionally builds the pinned source family in an isolated checkout.
+[source-baseline.json](../source-baseline.json) pins the official master commit and its `0.2.2-alpha.3` package family. Cordis is `4.0.6-alpha.2`, the group plugin is `1.0.6-alpha.2`, and Schemastery is `3.18.6-alpha.2`. The registry lockfile supplies the published package family. Verification also builds the pinned master source: its continuable-child selection policy removes the parent-availability field still present in the published `0.2.2-alpha.3` declarations.
 
 The source verification helper requires that commit, clean tracked files, matching DSH tarball versions, and the complete official dependency family. It prepares a disposable plugin directory with tarball overrides and a separate generated lockfile. Include the DSH and vendored Cordis families and the native system entry package. Never commit the temporary overrides or package manifest; [Development](development.md#official-source-verification) owns the procedure.
 
 ## Verification
 
-Local verification uses the published dependency family; CI builds the pinned Host separately from the developer's working tree. Focused component checks cover the shared toolbar, stale selections, source disposal, and old Hosts without text interactions. The installed Web profile checks both selection actions, annotation submission, and official file/Diff sources. Exact results are recorded after the corresponding commands complete.
+Release verification and CI use the pinned Host source separately from the developer's working tree; the registry family provides an additional compatibility check. Focused component checks cover the shared toolbar, stale selections, source disposal, and old Hosts without text interactions. The installed Web profile checks both selection actions, annotation submission, and official file/Diff sources. Exact results are recorded after the corresponding commands complete.
 
 README screenshots use the Host's dark theme. The selection image shows the combined toolbar. Deterministic profile scenarios exercise the installed UI; they do not measure live-provider response quality.
 
@@ -103,13 +103,15 @@ Use matching Host and Client plugin builds. Old plugins cannot consume v5 submis
 
 ## Browser behavior
 
+Annotation records expose a total count and attachment selection, without delivery labels or status dots. Delivery and acknowledgement fields remain internal to retry handling and history reconstruction; no storage migration is required. Reply labels use the Host Markdown bold typography and blue CSS Custom Highlight ranges. Modern Web and Desktop Chromium provide this API; browsers without it retain bold labels and source navigation.
+
 ### Codex UI
 
 The optional [Codex UI](https://github.com/MichengAI/dsh-codex-ui) plugin is detected from its live Client registrations. Compatibility activates automatically when it loads, including after annotation activation, and clears when it unloads. An installed but disabled plugin does not enable the mode. The annotation attachment chip retains its own row above input text regardless of stylesheet loading order; the official editor, attachment claims, and message submission remain in use.
 
 The combined profile scenario is verified with Codex UI `1.1.43` on DSH `0.2.1-rc.2`, using the actual installed package and a deterministic model adapter. It checks source selection, automatic compatibility, attachment, preview, editor, settings, and record geometry at 1440px and 390px in both themes, draft recovery after reload, and submission through the official composer with matching Session log and model input. Run it after building with `node scripts/profile-smoke.mjs --codex-ui /absolute/path/to/node_modules/@michengai/dsh-codex-ui`. The package is linked only into a temporary profile; the installed package and user profile are not modified.
 
-Codex UI `1.1.45` does not declare support for DSH `0.2.2-alpha.2`, so the Host skips it. Verification on this Host uses the official UI; the combined scenario requires a compatible Codex UI release.
+Codex UI `1.1.45` does not declare support for DSH `0.2.2-alpha.3`, so the Host skips it. Verification on this Host uses the official UI; the combined scenario requires a compatible Codex UI release.
 
 ### Storage and source markers
 

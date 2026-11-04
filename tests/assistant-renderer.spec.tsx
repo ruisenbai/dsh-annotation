@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { ComponentType } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ChatNodeViewProps, ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client'
@@ -153,6 +153,52 @@ describe('decorated assistant protocol presentation', () => {
     })
     selection.removeAllRanges()
     expect(endpoint.captureSelection?.()).toBeNull()
+  })
+
+  it('owns reply text colors per mounted message and removes them on unmount', () => {
+    const highlights = new Map<string, Set<Range>>()
+    vi.stubGlobal('CSS', { ...globalThis.CSS, highlights })
+    vi.stubGlobal('Highlight', class extends Set<Range> {})
+    onTestFinished(() => {
+      vi.unstubAllGlobals()
+    })
+    const geometry = Object.getOwnPropertyDescriptor(Range.prototype, 'getBoundingClientRect')
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => new DOMRect(10, 20, 60, 20),
+    })
+    onTestFinished(() => {
+      if (geometry) Object.defineProperty(Range.prototype, 'getBoundingClientRect', geometry)
+      else Reflect.deleteProperty(Range.prototype, 'getBoundingClientRect')
+    })
+    const annotation: AnnotationDraft = {
+      annotationId: 'ann-y' as AnnotationId,
+      submissionId: 'sub-x' as SubmissionId,
+      messageId: 'source-1' as MessageIdentity,
+      responseVersion: 'source-1' as MessageIdentity,
+      messageSeq: 1,
+      quote: { exact: 'original', prefix: '', suffix: '', start: 0, end: 8 },
+      annotation: 'Explain this',
+      ordinal: 1,
+      kind: 'note',
+      status: 'sent',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const text =
+      '<!-- dsh-annotation-reply:{"submissionId":"sub-x","annotationId":"ann-y","ordinal":1} -->\n注解 1：说明'
+    const first = mount(text, 'settled', { annotations: [annotation] })
+    const second = mount(text, 'settled', { annotations: [annotation] })
+    expect(highlights.size).toBe(2)
+    expect([...highlights.values()].map((ranges) => [...ranges].map(String))).toEqual([
+      ['注解 1'],
+      ['注解 1'],
+    ])
+    expect(first.container.querySelector('style')).toHaveTextContent('color: var(--dia-accent)')
+    first.unmount()
+    expect(highlights.size).toBe(1)
+    second.unmount()
+    expect(highlights.size).toBe(0)
   })
 
   it.each(['settled', 'running'] as const)(

@@ -3,6 +3,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import { MessageSelectionActions } from '../src/client/components/MessageSelectionActions.tsx'
 import type { SelectionCapture } from '../src/client/selection.ts'
@@ -18,8 +19,11 @@ const capture: SelectionCapture = {
   rect: { left: 10, right: 120, top: 20, bottom: 40 },
 }
 
-function fixture(selected: SelectionCapture | null = capture) {
-  const session = { removed: false, subagent: null } as SessionSnapshot
+function fixture(
+  selected: SelectionCapture | null = capture,
+  overrides: Partial<Pick<SessionSnapshot, 'removed' | 'subagent'>> = {},
+) {
+  const session = { removed: false, subagent: null, ...overrides } as SessionSnapshot
   const props = {
     trigger: 'selection' as const,
     dismiss: vi.fn(),
@@ -108,6 +112,32 @@ describe('shared message selection actions', () => {
     expect(props.dismiss).toHaveBeenCalledOnce()
     expect(props.beginAnnotation).not.toHaveBeenCalled()
   })
+
+  it.each(['continuable', 'one-shot', 'unknown'] as const)(
+    'matches Host selection availability for a %s child without parent availability metadata',
+    (mode) => {
+      const { props, mount } = fixture(capture, {
+        subagent: {
+          address: {
+            parentSessionId: 'parent-session' as SessionId,
+            childSessionId: 'child-session' as SessionId,
+            mode,
+          },
+        },
+      })
+      mount()
+      if (mode !== 'continuable') {
+        expect(screen.queryByRole('toolbar')).not.toBeInTheDocument()
+        expect(props.dismiss).toHaveBeenCalledOnce()
+        return
+      }
+      expect(screen.getAllByRole('toolbar')).toHaveLength(1)
+      fireEvent.click(screen.getByRole('button', { name: 'Quote text' }))
+      expect(props.inputActions.insertQuote).toHaveBeenCalledWith('selected text')
+      fireEvent.click(screen.getByRole('button', { name: 'Add annotation' }))
+      expect(props.beginAnnotation).toHaveBeenCalledWith(capture)
+    },
+  )
 
   it('removes the actions when the conversation becomes unavailable', () => {
     const { props, session, mount } = fixture()

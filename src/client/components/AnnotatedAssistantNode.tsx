@@ -5,6 +5,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useId,
   useState,
   type ReactElement,
 } from 'react'
@@ -402,6 +403,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   const [selectionBar, setSelectionBar] = useState<{
     readonly capture: ReturnType<typeof captureSelection>
   } | null>(null)
+  const replyHighlightName = `dia-reply-${useId().replace(/[^a-zA-Z0-9-]/gu, '-')}`
   const [domRevision, setDomRevision] = useState(0)
   const [focusDuplicated, setFocusDuplicated] = useState(false)
   const selectionBarRef = useRef<HTMLDivElement>(null)
@@ -762,7 +764,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     }
   }, [currentTextIndex, data.blocks, domRevision, geometryKey])
 
-  /** A single-line heading gets an exact-sized keyboard target; wrapped or unmeasurable headings stay plain text. */
+  /** Color only associated reply labels; measured fragments retain navigation and keyboard targets. */
   useLayoutEffect(() => {
     const root = rootRef.current
     const body = bodyRef.current
@@ -779,6 +781,9 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       setReplyChips((current) => (current.length === 0 ? current : []))
       return undefined
     }
+    const registry = globalThis.CSS?.highlights
+    const highlight = typeof Highlight === 'undefined' ? null : new Highlight()
+    if (highlight !== null) registry?.set(replyHighlightName, highlight)
     let frame: number | null = null
     const measure = () => {
       const textIndex = currentTextIndex(body)
@@ -786,6 +791,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       const scaleX = root.offsetWidth > 0 && rootRect.width > 0 ? rootRect.width / root.offsetWidth : 1
       const scaleY = root.offsetHeight > 0 && rootRect.height > 0 ? rootRect.height / root.offsetHeight : 1
       const next: ReplyChipState[] = []
+      highlight?.clear()
       const renderedText = textIndex.rendered
       for (const target of replyTargets) {
         const start = completeHeadingStarts(renderedText, target.text)[target.occurrence]
@@ -803,6 +809,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         const first = rects[0]
         const rect = typeof range.getBoundingClientRect === 'function' ? range.getBoundingClientRect() : first
         if (rect === undefined || rect.width <= 0 || rect.height <= 0) continue
+        highlight?.add(range)
         const fragments = (rects.length === 0 ? [rect] : rects).map((fragment) => ({
           top: (fragment.top - rootRect.top) / scaleY,
           left: (fragment.left - rootRect.left) / scaleX,
@@ -838,6 +845,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     document.addEventListener('toggle', scheduleMeasure, true)
     document.fonts?.addEventListener('loadingdone', scheduleMeasure)
     return () => {
+      if (highlight !== null) registry?.delete(replyHighlightName)
       if (frame !== null) cancelAnimationFrame(frame)
       resizeObserver?.disconnect()
       window.removeEventListener('resize', scheduleMeasure)
@@ -845,7 +853,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       document.removeEventListener('toggle', scheduleMeasure, true)
       document.fonts?.removeEventListener('loadingdone', scheduleMeasure)
     }
-  }, [currentTextIndex, data.status, domRevision, messageId, replyTargets])
+  }, [currentTextIndex, data.status, domRevision, messageId, replyTargets, replyHighlightName])
 
   useEffect(() => {
     const body = bodyRef.current
@@ -934,6 +942,9 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       tabIndex={-1}
       data-dsh-annotation-message-id={messageId}
     >
+      {replyTargets.length > 0 && (
+        <style>{`::highlight(${replyHighlightName}) { color: var(--dia-accent); }`}</style>
+      )}
       <div
         ref={bodyRef}
         className="dia-assistant__body"

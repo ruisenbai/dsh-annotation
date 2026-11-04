@@ -4,6 +4,18 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 ## [Unreleased]
 
+## [1.1.7] - 2026-11-04
+
+Target host: DeepSeek Harness master `8bd073392e` (`0.2.2-alpha.3`); minimum Host `>=0.2.2-alpha.3`, Node.js `>=24.9.0`.
+
+### Changed
+
+- Align the dependency family and CI source baseline with current master. Quote text and Add annotation remain available in continuable child Sessions without the removed parent-availability field. One-shot, unknown, and removed Sessions keep their Host restrictions.
+- Present annotations in one newest-first list with a total count and shared attachment controls, without delivery labels, status dots, or delivery groups. Existing annotations can be attached again after sending.
+- Show associated reply labels in blue bold text without dotted underlines, preserving previews, source navigation, text selection, and copy.
+
+Annotation protocol v5 and browser storage v6 retain their formats; internal delivery tracking continues to protect retries and history.
+
 ## [1.1.6] - 2026-10-28
 
 Target host: DeepSeek Harness master `f3803c9697` (`0.2.2-alpha.2`); minimum Host `>=0.2.2-alpha.2`, Node.js `>=24.9.0`.

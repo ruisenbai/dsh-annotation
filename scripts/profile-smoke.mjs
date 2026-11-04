@@ -350,10 +350,51 @@ async function captureReleaseScreenshots(page, request) {
   await page.getByText('已补充判断依据和一个具体例子。', { exact: false }).last().waitFor()
   await page.locator('[role="alert"][data-dsh-annotation-toast]').last().waitFor({ state: 'hidden' })
   await page.screenshot({ path: join(artifacts, 'release-sent.png'), fullPage: true })
+  const replyLink = page.locator('.dia-reply-chip').last()
+  await replyLink.waitFor()
+  for (const dark of [false, true]) {
+    await page.emulateMedia({ colorScheme: dark ? 'dark' : 'light' })
+    await page.waitForFunction(
+      (enabled) => document.body.hasAttribute('data-ds-dark-theme') === enabled,
+      dark,
+    )
+    const paint = await replyLink.evaluate((button) => {
+      const owner = button.closest('.dia-assistant')
+      const style = owner.querySelector('style')?.textContent ?? ''
+      const name = /::highlight\(([^)]+)\)/u.exec(style)?.[1]
+      const ranges = name ? Array.from(CSS.highlights.get(name) ?? []) : []
+      const range = ranges.find((item) => /^注解 \d+$/u.test(item.toString()))
+      const text = range?.startContainer.parentElement
+      const strong = text?.closest('strong')
+      const color = text && name ? getComputedStyle(text, `::highlight(${name})`).color : ''
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--dia-accent)'
+      owner.append(probe)
+      const expectedColor = getComputedStyle(probe).color
+      probe.remove()
+      return {
+        expectedColor,
+        text: range?.toString(),
+        color,
+        weight: strong && getComputedStyle(strong).fontWeight,
+        border: getComputedStyle(button).borderBottomStyle,
+        accent: getComputedStyle(owner).getPropertyValue('--dia-accent').trim(),
+      }
+    })
+    assert.match(paint.text ?? '', /^注解 \d+$/u)
+    assert.ok(Number(paint.weight) >= 500, JSON.stringify(paint))
+    assert.equal(paint.color, paint.expectedColor)
+    assert.equal(paint.border, 'none')
+    console.log(`PASS ${dark ? 'dark' : 'light'} reply label: ${JSON.stringify(paint)}`)
+  }
+  await replyLink.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: join(artifacts, 'reply-label-blue-bold.png'), fullPage: false })
+  await replyLink.focus()
+  await page.keyboard.press('Enter')
 
   await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
   const sent = page.locator('.dia-record-row').filter({ hasText: note })
-  await sent.getByRole('button', { name: '重新随消息发送', exact: true }).click()
+  await sent.getByRole('button', { name: '随消息发送', exact: true }).click()
   await page.locator('.dia-composer-chip').waitFor()
   await page.locator('[role="alert"][data-dsh-annotation-toast]').last().waitFor({ state: 'hidden' })
   await page.screenshot({ path: join(artifacts, 'release-reattach.png'), fullPage: true })
@@ -1133,15 +1174,17 @@ try {
     await page.getByRole('menu').waitFor({ state: 'hidden' })
     await assertMarkerMaterial(groupedMarker, false)
     const recordOrder = () => record.locator('.dia-record-row__preview-anchor').allTextContents()
+    const recordPresentation = async () =>
+      `${[await record.locator('.dia-record__progress').textContent(), ...(await recordOrder())].join('\n')}\n`
     const expectedRecordOrder = await readFile(
       join(project, 'tests/profile-fixtures/annotation-record-order.expected.txt'),
       'utf8',
     )
-    assert.equal(`${(await recordOrder()).join('\n')}\n`, expectedRecordOrder)
+    assert.equal(await recordPresentation(), expectedRecordOrder)
     await newerRow.getByRole('button', { name: '取消随消息发送', exact: true }).click()
     assert.deepEqual(await recordOrder(), [newerNote, note])
     await newerRow.getByRole('button', { name: '随消息发送', exact: true }).click()
-    assert.equal(`${(await recordOrder()).join('\n')}\n`, expectedRecordOrder)
+    assert.equal(await recordPresentation(), expectedRecordOrder)
     await newerRow.getByRole('button', { name: '删除', exact: true }).click()
     assert.deepEqual(await recordOrder(), [note])
     assert.equal(await record.locator('.dia-local-data, .dia-local-status').count(), 0)
@@ -1173,7 +1216,7 @@ try {
     await page.locator('.dia-user-submission').waitFor()
     await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
     const sentRow = record.locator('.dia-record-row').filter({ hasText: 'Explain this claim.' })
-    await sentRow.getByRole('button', { name: '重新随消息发送', exact: true }).click()
+    await sentRow.getByRole('button', { name: '随消息发送', exact: true }).click()
     await chip.waitFor()
     const composer = page.locator('[data-composer-card] [contenteditable="true"]')
     await composer.click()
@@ -1197,7 +1240,7 @@ try {
     assert.equal(firstPayload.annotations[0].quote.exact, reference.quote.exact)
     assert.equal(firstPayload.annotations[0].annotationId, reference.annotationId)
     await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
-    await sentRow.getByRole('button', { name: '重新随消息发送', exact: true }).click()
+    await sentRow.getByRole('button', { name: '随消息发送', exact: true }).click()
     await chip.waitFor()
     await composer.click()
     await composer.press('Enter')
@@ -1735,7 +1778,7 @@ try {
       await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
     try {
       await page.waitForFunction(
-        () => document.querySelector('.dia-record__progress')?.textContent?.includes('4 已发送'),
+        () => document.querySelector('.dia-record__progress')?.textContent?.includes('4 条注解'),
         null,
         { timeout: 5_000 },
       )
@@ -1743,7 +1786,7 @@ try {
       const rows = await record
         .locator('.dia-record-row')
         .evaluateAll((items) => items.map((item) => item.getAttribute('aria-label')))
-      throw new Error(`Sent official annotations still show pending: ${JSON.stringify(rows)}`)
+      throw new Error(`Official annotation count did not settle: ${JSON.stringify(rows)}`)
     }
     await page.reload({ waitUntil: 'domcontentloaded' })
     const sentWorkspace = page.getByRole('treeitem', { name: /Annotation smoke/ }).first()
@@ -1756,13 +1799,13 @@ try {
     if (!(await record.isVisible()))
       await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
     await page.waitForFunction(() =>
-      document.querySelector('.dia-record__progress')?.textContent?.includes('4 已发送'),
+      document.querySelector('.dia-record__progress')?.textContent?.includes('4 条注解'),
     )
     for (const opinion of ['Review this reply.', 'Review the entire file.', 'Check the changed line.']) {
       const sentRow = record.locator('.dia-record-row').filter({ hasText: opinion })
-      await sentRow.getByRole('button', { name: '重新随消息发送', exact: true }).click()
-      assert.match(await sentRow.getAttribute('aria-label'), /已发送$/u)
-      assert.match(await record.locator('.dia-record__progress').innerText(), /4 已发送/u)
+      await sentRow.getByRole('button', { name: '随消息发送', exact: true }).click()
+      assert.doesNotMatch(await sentRow.getAttribute('aria-label'), /已发送|未发送|待发送|已处理/u)
+      assert.match(await record.locator('.dia-record__progress').innerText(), /4 条注解/u)
       await sentRow.getByRole('button', { name: '取消随消息发送', exact: true }).click()
     }
     const modelRequests = await request('model-requests')

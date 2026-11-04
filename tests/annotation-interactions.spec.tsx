@@ -173,10 +173,10 @@ describe('annotation record and composer interactions', () => {
     fireEvent.click(within(row).getByRole('button', { name: 'Remove from message' }))
 
     expect(within(row).getByRole('button', { name: 'Send with message' })).toBeInTheDocument()
-    expect(screen.getByText('1 pending · 1 not sending')).toBeInTheDocument()
-    expect(
-      translate.mock.calls.filter(([key]) => ['record.pending', 'record.sent', 'record.off'].includes(key)),
-    ).toEqual([['record.off']])
+    expect(screen.getByText('2 annotations')).toBeInTheDocument()
+    expect(translate.mock.calls.filter(([key]) => ['record.attach', 'record.detach'].includes(key))).toEqual([
+      ['record.attach'],
+    ])
   })
 
   it.each(['adjudicating', 'submitting', 'sending'] as const)(
@@ -198,7 +198,7 @@ describe('annotation record and composer interactions', () => {
       expect(screen.getByRole('listitem', { name: /First note/ })).toBeInTheDocument()
       expect(screen.getByRole('textbox', { name: 'Your annotation' })).toHaveValue('Edited note')
       expect(
-        translate.mock.calls.filter(([key]) => ['record.pending', 'record.sent', 'record.off'].includes(key)),
+        translate.mock.calls.filter(([key]) => ['record.attach', 'record.detach'].includes(key)),
       ).toEqual([])
 
       fireEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -214,14 +214,14 @@ describe('annotation record and composer interactions', () => {
         />,
       )
       const row = screen.getByRole('listitem', { name: /Edited note/ })
-      expect(row).toHaveAccessibleName(/Localized Pending/)
+      expect(row).toHaveAccessibleName(/Edited note/)
       expect(within(row).getByRole('button', { name: 'Localized Remove from message' })).toBeDisabled()
       fireEvent.click(within(row).getByRole('button', { name: 'Localized Locate source' }))
       expect(navigate).toHaveBeenCalledWith(first)
     },
   )
 
-  it('shows recent attached notes across sources first while preserving source ordinals and submission order', () => {
+  it('shows newest records across sources while preserving source ordinals and submission order', () => {
     let time = 1_700_000_000_000
     const h = harness(new Map(), () => time++)
     onTestFinished(() => h.controller.dispose())
@@ -293,7 +293,7 @@ describe('annotation record and composer interactions', () => {
     expect(pending?.payload.annotations.map((item) => item.ordinal)).toEqual([1, 2, 3])
   })
 
-  it('keeps arbitrary attachment toggles in place until the record is reopened', () => {
+  it('keeps arbitrary attachment toggles in place even after the record is reopened', () => {
     let time = 1_700_000_000_000
     const h = harness(new Map(), () => time++)
     onTestFinished(() => h.controller.dispose())
@@ -318,7 +318,7 @@ describe('annotation record and composer interactions', () => {
     expect(h.controller.getSnapshot().selectedAnnotationIds).toEqual([older, middle])
     act(() => h.controller.setPanelOpen(false))
     act(() => h.controller.setPanelOpen(true))
-    expect(order()).toEqual(['Middle note', 'Older note', 'Newer note'])
+    expect(order()).toEqual(['Newer note', 'Middle note', 'Older note'])
   })
 
   it('derives source filters from all records and adds the file label only in the view', () => {
@@ -649,13 +649,14 @@ describe('annotation record and composer interactions', () => {
     expect(within(card).getByRole('textbox')).toHaveValue('Clarify this point.')
     expect(within(card).queryByText('source')).toBeNull()
     expect(within(card).queryByRole('button', { name: 'Close' })).toBeNull()
-    fireEvent.click(within(card).getByRole('button', { name: 'Send again with message' }))
+    fireEvent.click(within(card).getByRole('button', { name: 'Send with message' }))
     expect(h.controller.getSnapshot().selectedAnnotationIds).toEqual([id])
     expect(h.controller.getSnapshot().annotations).toHaveLength(1)
     act(() => h.controller.setPanelOpen(true))
-    expect(screen.getByRole('listitem')).toHaveAccessibleName(/Clarify this point\. · Sent/u)
-    expect(screen.getByText('1 sent')).toBeInTheDocument()
-    expect(screen.queryByText('1 pending')).toBeNull()
+    expect(screen.getByRole('listitem')).toHaveAccessibleName(/Clarify this point\.$/u)
+    expect(screen.getByText('1 annotations')).toBeInTheDocument()
+    expect(screen.queryByText(/pending|not sending|1 sent/u)).toBeNull()
+    expect(document.querySelector('.dia-record-row__glyph')).toBeNull()
     h.controller.dispose()
   })
 
@@ -927,7 +928,7 @@ describe('annotation record and composer interactions', () => {
     h.controller.dispose()
   })
 
-  it('keeps a sent record labelled sent when its paperclip is selected for another message', () => {
+  it('reattaches a delivered record with the same controls and no delivery label', () => {
     const h = harness()
     const id = h.save(0, 'Clarify this point.')
     const first = h.controller.createOutbox('queue', h.controller.sessionId)
@@ -952,8 +953,8 @@ describe('annotation record and composer interactions', () => {
       </>,
     )
     const record = screen.getByRole('region', { name: 'Annotations' })
-    expect(within(record).getByRole('listitem', { name: /Sent$/u })).toBeInTheDocument()
-    expect(within(record).getByText('1 sent')).toBeInTheDocument()
+    expect(within(record).getByRole('listitem')).toBeInTheDocument()
+    expect(within(record).getByText('1 annotations')).toBeInTheDocument()
     expect(within(record).getByRole('button', { name: 'Remove from message' })).toHaveAttribute(
       'data-active',
       'true',
