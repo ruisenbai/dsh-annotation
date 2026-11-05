@@ -11,7 +11,7 @@ description: 选中正文、diff、文件的文字 → 批注 → 随消息发�
 
 选中正文、diff、文件的文字 → 批注 → 随消息发送，回复按批注逐条对照，并支持注解定位方便查询。每个会话都有自己的记录框，集中显示注解及本次附加选择。插件通过官方输入框一起发送注解、文字、图片和文件；未发送内容保存在当前浏览器中。
 
-**1.1.7 要求 DSH `>=0.2.2-alpha.3`，验证基线为 master 提交 `8bd073392e`。** 旧宿主更新前请先看[升级说明](#upgrading)。
+**1.1.8 要求 DSH `>=0.2.2-rc.1`，验证基线为 master 提交 `fcc0ad4621`。** 旧宿主更新前请先看[升级说明](#upgrading)。
 
 ## 目录
 
@@ -30,7 +30,7 @@ description: 选中正文、diff、文件的文字 → 批注 → 随消息发�
 
 ## 安装与升级
 
-发行包通过 [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.7) 分发，不发布到 npm。在 **dsh-market** 的会话与消息分类中找到 `ruisenbai/dsh-annotation`，即可安装或更新。市场使用发行版的固定文件名下载地址；操作前请确认显示的插件版本及宿主要求。
+发行包通过 [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.8) 分发，不发布到 npm。在 **dsh-market** 的会话与消息分类中找到 `ruisenbai/dsh-annotation`，即可安装或更新。市场使用发行版的固定文件名下载地址；操作前请确认显示的插件版本及宿主要求。
 
 ### 手动安装
 
@@ -38,11 +38,11 @@ description: 选中正文、diff、文件的文字 → 批注 → 随消息发�
 
 ```bash
 dsh --version
-dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.7/dsh-annotation.tgz
+dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.8/dsh-annotation.tgz
 dsh plugin --profile web why dsh-annotation
 ```
 
-宿主必须满足 `>=0.2.2-alpha.3`，最后一条命令应解析到 `dsh-annotation@1.1.7`。使用自定义 profile 时，将两处 `web` 改为实际名称。安装后重启该 profile 正在运行的 Web 宿主、刷新页面，并在 **设置 → 注解** 中确认插件可用。构建方法和实际验证结果见[开发说明](docs/development.md)及[兼容性说明](docs/compatibility.md)。
+宿主必须满足 `>=0.2.2-rc.1`，最后一条命令应解析到 `dsh-annotation@1.1.8`。使用自定义 profile 时，将两处 `web` 改为实际名称。安装后重启该 profile 正在运行的 Web 宿主、刷新页面，并在 **设置 → 注解** 中确认插件可用。构建方法和实际验证结果见[开发说明](docs/development.md)及[兼容性说明](docs/compatibility.md)。
 
 启用 [Codex UI](https://github.com/MichengAI/dsh-codex-ui) 时，注解插件会自动开启兼容模式，避免已附加的注解遮挡输入文字。无需手动设置；停用 Codex UI 后恢复标准布局。详见 [Codex UI 兼容说明](docs/compatibility.md#codex-ui)。
 
@@ -53,14 +53,14 @@ dsh plugin --profile web why dsh-annotation
 将下面的提示词交给能够操作本机终端的 agent：
 
 ```text
-Install dsh-annotation 1.1.7 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.2-alpha.3 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.7/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.7. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
+Install dsh-annotation 1.1.8 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.2-rc.1 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.8/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.8. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
 ```
 
 <a id="upgrading"></a>
 
 ### 从旧宿主升级
 
-先将宿主更新到 `0.2.2-alpha.3` 或更新版本，再安装 1.1.7。受支持的宿主版本提供统一的“引用文本 / 添加注解”操作栏。使用 `0.2.2-alpha.2` 时保留 1.1.6；使用 `0.2.1-rc.2` 时保留 1.1.5；仍使用 `0.2.1-alpha.2` 时，请保留插件 1.1.2；使用 `0.2.1-alpha.1` 时保留 1.1.1，使用 `0.2.0` 系列宿主时保留 1.1.0。草稿、来源气泡、回收站记录和已固定的重试内容沿用现有数据格式，升级无需清理浏览器存储。[升级指南](docs/upgrade-guide/v1.1.7/host-baseline/guide.md)（[中文](docs/upgrade-guide/v1.1.7/host-baseline/guide.zh.md)）列出了版本检查方法。
+先将宿主更新到 `0.2.2-rc.1` 或更新版本，再安装 1.1.8。受支持的宿主版本提供统一的“引用文本 / 添加注解”操作栏。使用 `0.2.2-alpha.3` 时保留 1.1.7；使用 `0.2.2-alpha.2` 时保留 1.1.6；使用 `0.2.1-rc.2` 时保留 1.1.5；仍使用 `0.2.1-alpha.2` 时，请保留插件 1.1.2；使用 `0.2.1-alpha.1` 时保留 1.1.1，使用 `0.2.0` 系列宿主时保留 1.1.0。草稿、来源气泡、回收站记录和已固定的重试内容沿用现有数据格式，升级无需清理浏览器存储。[升级指南](docs/upgrade-guide/v1.1.8/host-baseline/guide.md)（[中文](docs/upgrade-guide/v1.1.8/host-baseline/guide.zh.md)）列出了版本检查方法。
 
 <a id="sources"></a>
 
@@ -84,7 +84,7 @@ Install dsh-annotation 1.1.7 into my DeepSeek Harness Web profile. Use web unles
 
 ## 新建与编辑
 
-1. 选中原文并点击 **添加注解**。在回复正文中，宿主只显示一个操作栏，包含 **引用文本** 和 **添加注解**：引用会将片段插入主输入框，添加注解会打开注解编辑器。重叠选区会创建独立注解。
+1. 选中原文并点击 **添加注解**。回复正文只显示一个操作栏，包含 **引用文本** 和 **添加注解**：引用会将片段插入主输入框，添加注解会打开注解编辑器。网页链接和本地文件链接的文字可以单独拖选，也可以连同前后的正文一起选中；普通单击仍会打开链接目标。重叠选区会创建独立注解。
 2. 在选区下方输入意见。按 Enter 或点击对号保存，Shift+Enter 换行；中文输入法组词期间不会提前保存。输入区从一行自动增高，最多显示七行，超过后在内部滚动。
 3. 主动保存空的选区注解，可以只标记原文。新建编辑框为空时，前两次点击外部会轻微晃动，第三次取消；在主输入框开始输入也会取消空白新注解。取消不会产生记录、气泡、附加项或回收站内容。新建内容非空时，第三次点击外部会保存。
 4. 点击数字气泡打开注解。草稿可以编辑；已发送注解显示保存的内容，并可再次附加。取消编辑会保留原先保存的注解，暂存的未完成修改不会随消息发送。

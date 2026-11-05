@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AnnotationMarkerButton } from '../src/client/components/AnnotationMarkerButton.tsx'
 import { installOfficialMarkers } from '../src/client/official-markers.tsx'
@@ -74,6 +74,45 @@ describe('official source markers', () => {
     fireEvent.click(screen.getByRole('button', { name: 'marker.groupLabel' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: '#1 Comment 1' }))
     expect(open).toHaveBeenLastCalledWith(annotations[0])
+  })
+
+  it('closes grouped choices with Escape or an outside press and removes the portal on unmount', async () => {
+    const annotations = [annotation(1), annotation(2)]
+    const open = vi.fn()
+    const { unmount } = render(
+      <AnnotationMarkerButton
+        group={{
+          annotationIds: annotations.map((item) => item.annotationId),
+          top: 40,
+          left: 80,
+          width: 26,
+          height: 26,
+        }}
+        annotations={annotations}
+        t={(key) => key}
+        activeId={null}
+        detailsOpen={false}
+        editorOpen={false}
+        onPreview={() => undefined}
+        onOpen={open}
+      />,
+    )
+    const marker = screen.getByRole('button', { name: 'marker.groupLabel' })
+    fireEvent.click(marker)
+    const menu = await screen.findByRole('menu')
+    fireEvent.keyDown(menu, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+    await waitFor(() => expect(marker).toHaveFocus())
+    fireEvent.click(marker)
+    await screen.findByRole('menu')
+    fireEvent.pointerDown(document.body)
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+    fireEvent.click(marker)
+    await screen.findByRole('menu')
+    unmount()
+    expect(document.querySelector('.dia-marker-menu')).toBeNull()
+    fireEvent.keyDown(document, { key: 'Enter' })
+    expect(open).not.toHaveBeenCalled()
   })
 
   it('clips bubbles to their source scrollport and never invents a nearer text endpoint', async () => {

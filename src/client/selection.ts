@@ -9,6 +9,20 @@ import type {
 
 export type SelectionCapture = AnnotationSelectionCapture
 
+/**
+ * Identify settled Markdown file links by their two Host CSS Module local names.
+ * @param element A possible file-link button; image-preview links may have no title.
+ * @returns Whether its label belongs to the reply text rather than operation chrome.
+ */
+export function isMarkdownFileLink(element: Element): element is HTMLButtonElement {
+  if (element.tagName !== 'BUTTON') return false
+  const classes = [...element.classList]
+  return (
+    classes.some((name) => /(?:^|_)fileMention(?:_|$)/.test(name)) &&
+    classes.some((name) => /(?:^|_)fileLink(?:_|$)/.test(name))
+  )
+}
+
 /** 文本块数组（data.blocks）中，位于指定渲染偏移之前的文本块下标（近似映射）。 */
 export function textBlockIndexOf(
   blocks: readonly { kind: string; text?: unknown }[],
@@ -46,14 +60,7 @@ function acceptedTextNode(node: Node, root: HTMLElement): node is Text {
     return false
   const button = parent.closest('button')
   if (button === null) return true
-  // Harness MarkdownFileLink uses both CSS Module locals; copy/action buttons use neither pair.
-  // Match local names, not generated hashes, so a production CSS rebuild preserves quote offsets.
-  const classes = [...button.classList]
-  return (
-    button.hasAttribute('title') &&
-    classes.some((name) => /(?:^|_)fileMention(?:_|$)/.test(name)) &&
-    classes.some((name) => /(?:^|_)fileLink(?:_|$)/.test(name))
-  )
+  return isMarkdownFileLink(button)
 }
 
 /** Text nodes that define persistent offsets; interactive chrome is deliberately excluded. */

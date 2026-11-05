@@ -399,6 +399,22 @@ export const styles: string = `
   color: var(--dsw-alias-label-secondary);
 }
 
+.dia-assistant__body :is(a[href], button[class*="fileMention"][class*="fileLink"]) {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-user-drag: none;
+}
+
+/* A file-link selection uses the shared actions through the plugin's range adapter. */
+[data-chat-flow]:has(.dia-assistant[data-dsh-annotation-link-selection]) > [data-text-interaction-surface] {
+  display: none;
+}
+
+.dia-link-selection {
+  position: fixed;
+  z-index: 110;
+}
+
 .dia-selection-bar {
   position: fixed;
   z-index: 110;

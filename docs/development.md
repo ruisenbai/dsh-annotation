@@ -9,7 +9,9 @@
 
 ## Install and verify
 
-The registry lockfile supplies the published `0.2.2-alpha.3` family. The pinned master also removes parent-availability gating from continuable-child selections, so release verification uses its source build. Run `pnpm install --frozen-lockfile --strict-peer-dependencies`, then `pnpm verify` and the browser/profile checks. [Official source verification](#official-source-verification) checks the exact master commit in [source-baseline.json](../source-baseline.json) independently of the registry distribution.
+The registry lockfile supplies the published `0.2.2-rc.1` family. The pinned master includes the current CSS-anchored Menu API; source verification builds its exact commit separately from the registry family. Run `pnpm install --frozen-lockfile --strict-peer-dependencies`, then `pnpm verify` and the browser/profile checks. [Official source verification](#official-source-verification) checks the exact master commit in [source-baseline.json](../source-baseline.json) independently of the registry distribution.
+
+`pnpm run test:profile --link-selection-only` checks native web/file link selection, quotation, annotation, reload, and source navigation at 1440px and 390px.
 
 `pnpm run test:profile --record-attachments-only` replays a recorded Session and checks arbitrary attachment clicks, stable row positions, scrolling, and unobstructed previews in wide and narrow windows.
 
@@ -58,7 +60,7 @@ pnpm test:profile
 pnpm test:coverage
 ```
 
-`tsc` emits declarations and intermediate JavaScript to `lib/types`. `tsdown` produces ESM Host entries and wraps the browser CJS artifact in `window.__ModuleLoader__.load(...)`. `client-platform.json` pins the exact modules supplied by the DSH `0.2.2-alpha.3` browser loader; ordinary third-party Client libraries are bundled instead of becoming loader requests. DSH requires the factory bundle at `lib/client.js` even though generic Node tooling classifies `.js` under `type: module`; `publint` therefore gates errors while the DSH-specific verifier owns this intentional format. `scripts/verify-bundle.mjs` asserts the required artifacts, module-loader registration, declared module closure, matching peer/development ranges, DSH manifest, and Cordis patch.
+`tsc` emits declarations and intermediate JavaScript to `lib/types`. `tsdown` produces ESM Host entries and wraps the browser CJS artifact in `window.__ModuleLoader__.load(...)`. `client-platform.json` pins the exact modules supplied by the DSH `0.2.2-rc.1` browser loader; ordinary third-party Client libraries are bundled instead of becoming loader requests. DSH requires the factory bundle at `lib/client.js` even though generic Node tooling classifies `.js` under `type: module`; `publint` therefore gates errors while the DSH-specific verifier owns this intentional format. `scripts/verify-bundle.mjs` asserts the required artifacts, module-loader registration, declared module closure, matching peer/development ranges, DSH manifest, and Cordis patch.
 
 ## Test layout
 
@@ -86,7 +88,7 @@ The record count reads the collection length; source filters traverse annotation
 After [Packaging](#packaging), install the local tarball into a disposable Web profile on the declared DSH release:
 
 ```bash
-dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.1.7.tgz
+dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.1.8.tgz
 dsh --profile annotation-dev
 ```
 
@@ -106,8 +108,8 @@ pnpm --config.ignoreScripts=true pack --pack-destination artifacts
 Inspect the resulting tarball rather than invoking pack again:
 
 ```bash
-tar -tzf artifacts/dsh-annotation-1.1.7.tgz
-tar -xOf artifacts/dsh-annotation-1.1.7.tgz package/package.json
+tar -tzf artifacts/dsh-annotation-1.1.8.tgz
+tar -xOf artifacts/dsh-annotation-1.1.8.tgz package/package.json
 ```
 
 The package must contain `lib/index.js`, `lib/invariant.js`, `lib/client.js`, declarations under `lib/types`, `cordis.patch.yml`, `source-baseline.json`, README files and images under `docs/assets`, the changelog, and the license. Compare its version, Host requirement, dependency declarations and exports with the source manifest; pnpm removes package-manager metadata and development lifecycle hooks when packing.

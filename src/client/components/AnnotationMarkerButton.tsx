@@ -34,6 +34,8 @@ export function AnnotationMarkerButton({
 }) {
   const [groupOpen, setGroupOpen] = useState(false)
   const buttonRef = useRef<HTMLButtonElement>(null)
+  // The published and master Menu declarations share the same placement/focus target.
+  const markerAnchor = { anchorRef: buttonRef }
   const members = group.annotationIds.flatMap((id) => {
     const item = annotations.find((candidate) => candidate.annotationId === id)
     return item === undefined ? [] : [item]
@@ -93,7 +95,8 @@ export function AnnotationMarkerButton({
       listClassName="dia-marker-menu"
       autoFocus
       anchor={button}
-      getAnchorRect={() => buttonRef.current?.getBoundingClientRect() ?? null}
+      {...markerAnchor}
+      returnFocus={() => buttonRef.current}
       onClose={() => setGroupOpen(false)}
       items={members.map((item) => ({
         id: item.annotationId,

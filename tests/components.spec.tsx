@@ -3,6 +3,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TestAnnotatedAssistantNode as AnnotatedAssistantNode } from './assistant-host-fixture.tsx'
+import { AnnotatedAssistantNode as AssistantDecoration } from '../src/client/components/AnnotatedAssistantNode.tsx'
+import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { InputState } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { TestAnnotatedUserNode as AnnotatedUserNode, userContentFactory } from './user-host-fixture.tsx'
 import { AnnotationDetails } from '../src/client/components/AnnotationDetails.tsx'
 import {
@@ -130,6 +133,7 @@ const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
     'processing.retryFrozen': 'Retry mode is frozen',
     'selection.toolbar': 'Selection actions',
     'selection.annotate': 'Add annotation',
+    'selection.quote': 'Quote text',
     'selection.copy': 'Copy',
     'error.attachmentsRequired': `Re-select the ${String(params?.count)} attachments or discard the record.`,
     'list.discard': 'Discard this pending record',
@@ -890,6 +894,140 @@ describe('inline comment presentation', () => {
     selection.removeAllRanges()
     unmount()
   })
+
+  function mountLinkSelection() {
+    const session = { removed: false, subagent: null } as SessionSnapshot
+    const input = { phase: 'plain' } as InputState
+    const view = baseView()
+    const beginSelection = vi.fn()
+    const insertQuote = vi.fn(() => true)
+    const openWeb = vi.fn()
+    const openFile = vi.fn()
+    const props: Partial<AssistantAnnotationProps> = {
+      node: {
+        key: 'links',
+        kind: 'assistant-step',
+        visibility: 'visible',
+        location: { kind: 'session' },
+        data: {
+          status: 'settled',
+          blocks: [{ kind: 'text', text: 'Before web label and file label after.' }],
+          finalNode: { messageId: 'assistant-link-test', seq: 9 },
+        },
+      } as AssistantAnnotationProps['node'],
+      useSession: (select) => select(session),
+      useInput: (select) => select(input),
+      inputActions: {
+        insertQuote,
+        captureInsertion: () => ({ start: 0, end: 0, draftRev: 0 }),
+        insertText: vi.fn(() => true),
+        setDraft: vi.fn(),
+        persistDraft: vi.fn(),
+        addAttachments: vi.fn(() => true),
+        removeAttachment: vi.fn(),
+        pruneAttachments: vi.fn(),
+        submit: vi.fn(),
+      },
+      useAnnotations: (select) => select(view),
+      beginSelection,
+      openAnnotation: vi.fn(),
+      registerEndpoint: vi.fn(() => () => undefined),
+      updateHighlightRanges: vi.fn(),
+      activateHighlight: vi.fn(),
+      removeHighlights: vi.fn(),
+      t: (key, params) => t(key as AnnotationLocaleKey, params),
+    }
+    const mounted = render(
+      <AssistantDecoration {...(props as AssistantAnnotationProps)} sharedSelection>
+        <p>
+          Before{' '}
+          <a
+            href="https://example.com/"
+            onClick={(event) => {
+              event.preventDefault()
+              openWeb()
+            }}
+          >
+            <strong>web label</strong>
+          </a>{' '}
+          and{' '}
+          <button className="host_fileMention host_fileLink" onClick={openFile}>
+            <strong>file label</strong>
+          </button>{' '}
+          after.
+        </p>
+      </AssistantDecoration>,
+    )
+    const select = (label: string) => {
+      const element = screen.getByText(label)
+      const range = document.createRange()
+      Object.defineProperty(range, 'getBoundingClientRect', {
+        value: () => new DOMRect(40, 20, 110, 22),
+      })
+      range.selectNodeContents(element)
+      const selection = document.getSelection()!
+      selection.removeAllRanges()
+      selection.addRange(range)
+      fireEvent.pointerUp(element)
+      return selection
+    }
+    return { ...mounted, beginSelection, insertQuote, openWeb, openFile, select }
+  }
+
+  it('shares both actions for file-link selections and preserves rejected composer insertions', () => {
+    const { select, insertQuote, beginSelection } = mountLinkSelection()
+    const selection = select('file label')
+    expect(screen.getAllByRole('toolbar')).toHaveLength(1)
+    expect(document.querySelector('[data-dsh-annotation-link-selection]')).not.toBeNull()
+    insertQuote.mockReturnValueOnce(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Quote text' }))
+    expect(selection.toString()).toBe('file label')
+    expect(screen.getByRole('toolbar')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Quote text' }))
+    expect(insertQuote).toHaveBeenLastCalledWith('file label')
+    expect(selection.isCollapsed).toBe(true)
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument()
+    expect(document.querySelector('[data-dsh-annotation-link-selection]')).toBeNull()
+    expect(beginSelection).not.toHaveBeenCalled()
+  })
+
+  it('annotates file-link labels and releases the fallback after Escape and unmount', () => {
+    const { select, beginSelection, unmount } = mountLinkSelection()
+    const selection = select('file label')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    fireEvent.keyUp(screen.getByText('file label'), { key: 'Escape' })
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument()
+    expect(document.querySelector('[data-dsh-annotation-link-selection]')).toBeNull()
+    select('file label')
+    fireEvent.click(screen.getByRole('button', { name: 'Add annotation' }))
+    expect(beginSelection).toHaveBeenCalledWith(
+      expect.objectContaining({ quote: expect.objectContaining({ exact: 'file label' }) }),
+    )
+    expect(selection.isCollapsed).toBe(true)
+    select('file label')
+    unmount()
+    fireEvent.pointerUp(document.body)
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument()
+    selection.removeAllRanges()
+  })
+
+  it.each(['web label', 'file label'])(
+    'prevents pointer selection from opening %s and preserves normal and keyboard activation',
+    (label) => {
+      const { select, openWeb, openFile } = mountLinkSelection()
+      const element = screen.getByText(label)
+      const open = label === 'web label' ? openWeb : openFile
+      const selection = select(label)
+      fireEvent.click(element, { detail: 1 })
+      expect(open).not.toHaveBeenCalled()
+      expect(selection.toString()).toBe(label)
+      fireEvent.click(element, { detail: 0 })
+      expect(open).toHaveBeenCalledOnce()
+      selection.removeAllRanges()
+      fireEvent.click(element, { detail: 1 })
+      expect(open).toHaveBeenCalledTimes(2)
+    },
+  )
 
   it('keeps mobile text width and hides markers when no safe whitespace remains', async () => {
     vi.stubGlobal('innerWidth', 320)

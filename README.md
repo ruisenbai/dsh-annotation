@@ -11,7 +11,7 @@ English | [中文](README.zh.md)
 
 Select text in replies, diffs, or files → annotate → send with a message. Replies address each annotation in order, and source navigation makes notes easy to look up. A per-Session record keeps annotations and the current attachment selection together. The plugin sends notes with the official composer's text, images, and files; unsent work stays in the current browser.
 
-**Version 1.1.7 requires DSH `>=0.2.2-alpha.3`; verification targets master commit `8bd073392e`.** See [upgrading](#upgrading) before updating an older Host.
+**Version 1.1.8 requires DSH `>=0.2.2-rc.1`; verification targets master commit `fcc0ad4621`.** See [upgrading](#upgrading) before updating an older Host.
 
 ## Contents
 
@@ -30,7 +30,7 @@ Select text in replies, diffs, or files → annotate → send with a message. Re
 
 ## Install and upgrade
 
-The package is distributed through [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.7), not npm. In **dsh-market**, find `ruisenbai/dsh-annotation` under Sessions & Messages, then install or update it. The catalog uses the release's stable tarball alias; check the offered version and Host requirement before proceeding.
+The package is distributed through [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.8), not npm. In **dsh-market**, find `ruisenbai/dsh-annotation` under Sessions & Messages, then install or update it. The catalog uses the release's stable tarball alias; check the offered version and Host requirement before proceeding.
 
 ### Manual installation
 
@@ -38,11 +38,11 @@ Install the fixed release into your `web` profile:
 
 ```bash
 dsh --version
-dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.7/dsh-annotation.tgz
+dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.8/dsh-annotation.tgz
 dsh plugin --profile web why dsh-annotation
 ```
 
-The Host must satisfy `>=0.2.2-alpha.3`; the final command must resolve `dsh-annotation@1.1.7`. For a custom profile, replace both occurrences of `web` with its name. Restart that profile's running Web Host, refresh the page, and check **Settings → Annotations**. Build instructions and executed verification results are in [Development](docs/development.md) and [Compatibility](docs/compatibility.md).
+The Host must satisfy `>=0.2.2-rc.1`; the final command must resolve `dsh-annotation@1.1.8`. For a custom profile, replace both occurrences of `web` with its name. Restart that profile's running Web Host, refresh the page, and check **Settings → Annotations**. Build instructions and executed verification results are in [Development](docs/development.md) and [Compatibility](docs/compatibility.md).
 
 When [Codex UI](https://github.com/MichengAI/dsh-codex-ui) is enabled, annotation compatibility activates automatically to keep attached notes clear of the input text. No setting is required; disabling Codex UI restores the standard layout. See [Codex UI compatibility](docs/compatibility.md#codex-ui).
 
@@ -53,14 +53,14 @@ Annotation controls follow the Host's theme, rounded corners, and panel material
 Give an agent with terminal access this prompt:
 
 ```text
-Install dsh-annotation 1.1.7 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.2-alpha.3 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.7/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.7. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
+Install dsh-annotation 1.1.8 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.2-rc.1 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.8/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.8. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
 ```
 
 <a id="upgrading"></a>
 
 ### Upgrading from an older Host
 
-Update the Host to `0.2.2-alpha.3` or newer before installing 1.1.7. The supported Host family supplies the unified Quote text / Add annotation toolbar. Keep 1.1.6 on `0.2.2-alpha.2`, 1.1.5 on `0.2.1-rc.2`, and plugin 1.1.2 while using `0.2.1-alpha.2`, 1.1.1 on `0.2.1-alpha.1`, or 1.1.0 on the `0.2.0` family. Drafts, source bubbles, recycle-bin records, and frozen retries retain their existing data formats; do not clear browser storage as an upgrade step. The [upgrade guide](docs/upgrade-guide/v1.1.7/host-baseline/guide.md) ([中文](docs/upgrade-guide/v1.1.7/host-baseline/guide.zh.md)) gives the version checks.
+Update the Host to `0.2.2-rc.1` or newer before installing 1.1.8. The supported Host family supplies the unified Quote text / Add annotation toolbar. Keep 1.1.7 on `0.2.2-alpha.3`, 1.1.6 on `0.2.2-alpha.2`, 1.1.5 on `0.2.1-rc.2`, and plugin 1.1.2 while using `0.2.1-alpha.2`, 1.1.1 on `0.2.1-alpha.1`, or 1.1.0 on the `0.2.0` family. Drafts, source bubbles, recycle-bin records, and frozen retries retain their existing data formats; do not clear browser storage as an upgrade step. The [upgrade guide](docs/upgrade-guide/v1.1.8/host-baseline/guide.md) ([中文](docs/upgrade-guide/v1.1.8/host-baseline/guide.zh.md)) gives the version checks.
 
 <a id="sources"></a>
 
@@ -84,7 +84,7 @@ Whole-file notes require written feedback. Official Diff hover previews have no 
 
 ## Create and edit notes
 
-1. Select source text and choose **Add annotation**. In a reply, the Host shows one toolbar with **Quote text** and **Add annotation**: Quote text inserts the passage into the composer; Add annotation opens the note editor. Overlapping selections create separate notes.
+1. Select source text and choose **Add annotation**. In a reply, one toolbar offers **Quote text** and **Add annotation**: Quote text inserts the passage into the composer; Add annotation opens the note editor. You can drag-select web and local file link labels alone or together with surrounding text; ordinary clicks still open their destinations. Overlapping selections create separate notes.
 2. Type in the editor below the selection. Enter or the check button saves; Shift+Enter adds a line break. Chinese input composition does not trigger an early save. The input grows from one to seven lines, then scrolls internally.
 3. Explicitly save an empty selection note to mark only the source. For a blank new editor, the first two outside clicks shake it; the third cancels it. Typing in the composer also cancels a blank new editor. Canceling creates no record, bubble, attachment, or trash item. A nonempty new note saves on the third outside click.
 4. Click a numbered bubble to open its note. Drafts can be edited; sent notes show their saved text and can be attached again. Canceling an edit keeps the saved note. A suspended unfinished edit is not sent.

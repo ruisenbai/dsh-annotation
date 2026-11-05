@@ -4,6 +4,18 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 ## [Unreleased]
 
+## [1.1.8] - 2026-11-05
+
+### Changed
+
+- Target DSH master `fcc0ad4621` (`0.2.2-rc.1`), with Cordis `4.1.0`, group `1.1.0`, and Schemastery `3.19.0`. The minimum Host is `>=0.2.2-rc.1`; Node.js remains `>=24.9.0`.
+- Anchor grouped annotation menus to their actual marker button through the Host CSS-anchor API.
+
+### Fixed
+
+- Allow assistant web and local file link labels to be selected alone or with surrounding text. Preserve the complete quote, one Quote text / Add annotation toolbar, ordinary link navigation, and saved annotation anchors after reload.
+- Prevent the click following a link-label selection drag from opening its destination. Include image-preview file-link labels whose Host button has no title attribute.
+
 ## [1.1.7] - 2026-11-04
 
 Target host: DeepSeek Harness master `8bd073392e` (`0.2.2-alpha.3`); minimum Host `>=0.2.2-alpha.3`, Node.js `>=24.9.0`.
