@@ -38,6 +38,32 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
+async function assertGroupedMenu(page, marker) {
+  const menu = page.locator('.dia-marker-menu[role="menu"]')
+  await menu.waitFor({ state: 'visible' })
+  const trigger = rectEdges(await marker.boundingBox())
+  const panel = rectEdges(await menu.boundingBox())
+  const viewport = page.viewportSize()
+  const gap = Math.min(Math.abs(panel.top - trigger.bottom), Math.abs(panel.bottom - trigger.top))
+  assert(gap <= 16, `Grouped menu must follow its bubble: ${JSON.stringify({ trigger, panel })}`)
+  assert(
+    panel.left >= 0 && panel.right <= viewport.width && panel.top >= 0 && panel.bottom <= viewport.height,
+    `Grouped menu must fit the layout viewport: ${JSON.stringify({ panel, viewport })}`,
+  )
+  const typography = await menu.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return {
+      actual: parseFloat(style.fontSize),
+      expected: (parseFloat(style.getPropertyValue('--dsh-content-font-size')) || 14) - 1,
+    }
+  })
+  assert(
+    Math.abs(typography.actual - typography.expected) < 0.1,
+    `Grouped menu must use annotation typography: ${JSON.stringify(typography)}`,
+  )
+  return menu
+}
+
 const server = await createServer({
   root,
   logLevel: 'error',
@@ -763,6 +789,27 @@ async function inspectVariant(browser, base, variant) {
     assert((await chip.count()) === 0, 'Composer chip must clear after sending')
     await marker.click()
     if ((await marker.getAttribute('aria-haspopup')) === 'menu') {
+      let menu = await assertGroupedMenu(page, marker)
+      await page.keyboard.press('Escape')
+      await menu.waitFor({ state: 'hidden' })
+      assert(
+        await marker.evaluate((element) => element === document.activeElement),
+        'Escape must return focus to the actual grouped marker',
+      )
+      await marker.click()
+      menu = await assertGroupedMenu(page, marker)
+      const offset = await scroller.evaluate((element) => element.scrollTop)
+      await scroller.evaluate((element) => {
+        element.scrollTop += 12
+      })
+      await assertGroupedMenu(page, marker)
+      await scroller.evaluate((element, top) => {
+        element.scrollTop = top
+      }, offset)
+      await page.mouse.click(2, 2)
+      await menu.waitFor({ state: 'hidden' })
+      await marker.click()
+      await assertGroupedMenu(page, marker)
       await page.getByRole('menuitem', { name: /#1 First saved note/ }).click()
     }
     const sentCard = page.locator('.dia-record-editor--detail')

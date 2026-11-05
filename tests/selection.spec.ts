@@ -187,6 +187,17 @@ describe('DOM selection capture', () => {
     expect(rangeFromSelector(container, quote)?.toString()).toBe('Before source after.')
   })
 
+  it('keeps file-link labels with image previews when the Host omits the title attribute', () => {
+    const root = document.querySelector('#root') as HTMLElement
+    root.innerHTML =
+      '<p>Before <button class="_fileMention_abc _fileLink_abc"><svg aria-hidden="true"><title>image</title></svg><strong>diagram</strong></button> after.</p>'
+    const range = withRect(document.createRange())
+    range.selectNodeContents(root.querySelector('strong')!)
+    const quote = captureSelection(root, range, 'message-1' as MessageIdentity, 7).quote
+    expect(quote).toMatchObject({ exact: 'diagram', start: 7, end: 14 })
+    expect(rangeFromSelector(root, quote)?.toString()).toBe('diagram')
+  })
+
   it('captures code language and line coordinates', () => {
     const root = document.querySelector('#root') as HTMLElement
     const code = document.querySelector('code')!.firstChild!

@@ -16,11 +16,18 @@ import { replyHeadingNeedles } from '../../shared/protocol.ts'
 import type { AnnotationDraft, AnnotationId, MessageIdentity, TextQuoteSelector } from '../../shared/types.ts'
 import type { AssistantAnnotationProps } from '../contract.ts'
 import { FOCUS_CHANGED_EVENT, isDuplicatedByFocusView, isFocusViewHidden } from '../focus-adapter.ts'
-import { markerElement, useAnnotationFloating } from '../floating.ts'
+import { markerElement, rangeAnchor, useAnnotationFloating } from '../floating.ts'
+import {
+  installLinkTextSelection,
+  selectedFileLinkRange,
+  selectedTextLink,
+  textLinkAtTarget,
+} from '../link-selection.ts'
 import { layoutMarkers, sameMarkerLayout, type MarkerLayout, type MarkerRect } from '../marker-layout.ts'
 import { buildTextIndex, captureSelection, rangeFromSelector, textBlockIndexOf } from '../selection.ts'
 import type { TextIndex } from '../selection.ts'
 import { SelectionAction } from './SelectionAction.tsx'
+import { MessageSelectionActions } from './MessageSelectionActions.tsx'
 import { AnnotationMarkerButton } from './AnnotationMarkerButton.tsx'
 
 function sameAnnotations(left: readonly AnnotationDraft[], right: readonly AnnotationDraft[]): boolean {
@@ -330,7 +337,7 @@ function sameReplyChips(left: readonly ReplyChipState[], right: readonly ReplyCh
 type AnnotatedAssistantNodeProps = AssistantAnnotationProps & {
   /** Rendered output from the selected Host assistant renderer. */
   readonly children: ReactElement
-  /** Hosts with text interactions own selection placement and dismissal. */
+  /** The Host owns selections except file-link labels omitted by its button filter. */
   readonly sharedSelection?: boolean
 }
 
@@ -339,6 +346,9 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   node,
   turnProcess,
   useAnnotations,
+  useSession,
+  useInput,
+  inputActions,
   beginSelection,
   openAnnotation,
   navigate,
@@ -352,6 +362,10 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
 }: AnnotatedAssistantNodeProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const body = bodyRef.current
+    return body === null ? undefined : installLinkTextSelection(body)
+  }, [])
   const textIndexRef = useRef<TextIndex | null>(null)
   const currentTextIndex = useCallback((body: HTMLElement): TextIndex => {
     const cached = textIndexRef.current
@@ -857,11 +871,16 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
 
   useEffect(() => {
     const body = bodyRef.current
-    if (sharedSelection || body === null || messageId === undefined || messageSeq === undefined)
-      return undefined
-    const capture = () => {
+    if (body === null || messageId === undefined || messageSeq === undefined) return undefined
+    const capture = (event: Event) => {
+      if (event instanceof KeyboardEvent && event.key === 'Escape') return
+      if (event.target instanceof Node && selectionBarRef.current?.contains(event.target)) return
+      if (sharedSelection && selectedFileLinkRange(body, body.ownerDocument.getSelection()) === null) {
+        setSelectionBar(null)
+        return
+      }
       const selected = captureSelectedText()
-      if (selected !== null) setSelectionBar({ capture: selected })
+      setSelectionBar(selected === null ? null : { capture: selected })
     }
     // A selection drag can be released anywhere in the page, so pointerup is observed on the
     // document in the capture phase; the range checks below keep the bar per-message. keyup
@@ -883,7 +902,14 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
     }
     const onSelectionChange = () => {
       const selected = window.getSelection()
-      if (selected === null || selected.rangeCount === 0 || selected.isCollapsed) setSelectionBar(null)
+      const body = bodyRef.current
+      if (
+        selected === null ||
+        selected.rangeCount === 0 ||
+        selected.isCollapsed ||
+        (sharedSelection && (body === null || selectedFileLinkRange(body, selected) === null))
+      )
+        setSelectionBar(null)
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setSelectionBar(null)
@@ -896,7 +922,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       document.removeEventListener('selectionchange', onSelectionChange)
       document.removeEventListener('keydown', onKeyDown, true)
     }
-  }, [selectionBarActive])
+  }, [selectionBarActive, sharedSelection])
 
   const replyAtPoint = (target: EventTarget, x: number, y: number): ReplyChipState | undefined => {
     if (
@@ -941,6 +967,7 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
       className="dia-assistant dia-assistant--decorator"
       tabIndex={-1}
       data-dsh-annotation-message-id={messageId}
+      data-dsh-annotation-link-selection={sharedSelection && selectionBar !== null ? '' : undefined}
     >
       {replyTargets.length > 0 && (
         <style>{`::highlight(${replyHighlightName}) { color: var(--dia-accent); }`}</style>
@@ -949,6 +976,22 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
         ref={bodyRef}
         className="dia-assistant__body"
         onPointerDown={clearReplyPreview}
+        onDragStartCapture={(event) => {
+          if (textLinkAtTarget(event.currentTarget, event.target) !== null) event.preventDefault()
+        }}
+        onClickCapture={(event) => {
+          if (
+            event.detail > 0 &&
+            selectedTextLink(
+              event.currentTarget,
+              event.target,
+              event.currentTarget.ownerDocument.getSelection(),
+            )
+          ) {
+            event.preventDefault()
+            event.stopPropagation()
+          }
+        }}
         onPointerMove={(event) => {
           const chip =
             !detailsOpen && event.buttons === 0 && window.getSelection()?.isCollapsed !== false
@@ -1088,6 +1131,38 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
           }}
         />
       )}
+      {sharedSelection &&
+        selectionBar !== null &&
+        createPortal(
+          <MessageSelectionActions
+            elementRef={selectionBarRef}
+            t={t}
+            useSession={useSession}
+            useInput={useInput}
+            inputActions={inputActions}
+            dismiss={() => setSelectionBar(null)}
+            clearSelection={() => bodyRef.current?.ownerDocument.getSelection()?.removeAllRanges()}
+            readText={() => {
+              const body = bodyRef.current
+              const selected = body?.ownerDocument.getSelection() ?? null
+              return body === null || selectedFileLinkRange(body, selected) === null
+                ? null
+                : selected?.toString().trim() || null
+            }}
+            readAnnotationSelection={captureSelectedText}
+            beginAnnotation={(capture) => {
+              beginSelection(capture)
+              return true
+            }}
+            floatingAnchor={() => {
+              const body = bodyRef.current
+              const range =
+                body === null ? null : selectedFileLinkRange(body, body.ownerDocument.getSelection())
+              return range === null ? null : rangeAnchor(range)
+            }}
+          />,
+          document.body,
+        )}
     </section>
   )
 })

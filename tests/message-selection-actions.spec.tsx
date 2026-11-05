@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { InputState } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { MessageSelectionActions } from '../src/client/components/MessageSelectionActions.tsx'
 import type { SelectionCapture } from '../src/client/selection.ts'
 import type { MessageIdentity } from '../src/shared/types.ts'
@@ -24,6 +25,7 @@ function fixture(
   overrides: Partial<Pick<SessionSnapshot, 'removed' | 'subagent'>> = {},
 ) {
   const session = { removed: false, subagent: null, ...overrides } as SessionSnapshot
+  const input = { phase: 'plain' } as InputState
   const props = {
     trigger: 'selection' as const,
     dismiss: vi.fn(),
@@ -33,6 +35,7 @@ function fixture(
     beginAnnotation: vi.fn(() => true),
     inputActions: { insertQuote: vi.fn(() => true) },
     useSession: (select: (state: SessionSnapshot) => unknown) => select(session),
+    useInput: (select: (state: InputState) => unknown) => select(input),
     t: (key: string) =>
       ({
         'selection.toolbar': 'Selection actions',
@@ -42,7 +45,7 @@ function fixture(
   }
   const mount = () =>
     render(<MessageSelectionActions {...(props as ComponentProps<typeof MessageSelectionActions>)} />)
-  return { props, session, mount }
+  return { props, session, input, mount }
 }
 
 describe('shared message selection actions', () => {
@@ -84,6 +87,19 @@ describe('shared message selection actions', () => {
     expect(props.dismiss).toHaveBeenCalledOnce()
     expect(props.inputActions.insertQuote).not.toHaveBeenCalled()
   })
+
+  it.each(['adjudicating', 'submitting', 'sending'] as const)(
+    'preserves the selection when annotation editing is locked during %s',
+    (phase) => {
+      const { props, input, mount } = fixture()
+      props.useInput = (select) => select({ ...input, phase })
+      mount()
+      fireEvent.click(screen.getByRole('button', { name: 'Add annotation' }))
+      expect(props.beginAnnotation).not.toHaveBeenCalled()
+      expect(props.dismiss).not.toHaveBeenCalled()
+      expect(props.clearSelection).not.toHaveBeenCalled()
+    },
+  )
 
   it('keeps quotation available for text outside an annotatable assistant message', () => {
     const { props, mount } = fixture(null)
