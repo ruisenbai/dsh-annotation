@@ -96,11 +96,13 @@ In the Web page, select a source range and explicitly save an empty note and a f
 
 ## Packaging
 
+The npm identity is `@bairuisen/dsh-annotation`; `cordis.patch.yml` retains the `dsh-annotation` row id and settings namespace. Pack with an explicit output filename so scoped npm naming does not change the GitHub and market download URLs. [Releasing](../RELEASING.md) owns npm publication and mirror verification.
+
 After `pnpm verify`, browser fixture regressions, the real-profile smoke, and coverage pass in the prepared directory, restore the source repository's release manifest before packing. Keep the same shell's `ANNOTATION_SOURCE` value from setup:
 
 ```bash
 cp "$ANNOTATION_SOURCE/package.json" package.json
-pnpm --config.ignoreScripts=true pack --pack-destination artifacts
+pnpm --config.ignoreScripts=true pack --out artifacts/dsh-annotation-%v.tgz
 ```
 
 `--config.ignoreScripts=true` avoids repeating the completed prepack checks after restoring the manifest. It does not replace verification. Do not reinstall dependencies in this restored temporary directory. The published package must contain the original dependency declarations, without the temporary complete-family development entries or machine-local paths.

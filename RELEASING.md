@@ -1,6 +1,6 @@
 # Releasing
 
-Version tags publish npm-format tarballs through GitHub Releases. This project does not publish to the npm registry.
+The public npm package is `@bairuisen/dsh-annotation`. Version tags also publish npm-format tarballs through GitHub Releases, retaining the stable `dsh-annotation.tgz` filename used by dsh-market. npmmirror is a read-only npm mirror; publish to npmjs first, then synchronize and verify the mirror.
 
 ## One-time repository setup
 
@@ -26,14 +26,15 @@ For `1.1.8`, the Host target is master commit `fcc0ad4621` (package version `0.2
    pnpm test:browser
    pnpm test:profile
    pnpm test:coverage
-   pnpm pack --pack-destination artifacts
+   pnpm pack --out artifacts/dsh-annotation-%v.tgz
    ```
 
    The `0.2.2-rc.1` registry family includes the required interfaces. To verify source artifacts as CI does, follow [Official source verification](docs/development.md#official-source-verification) and [Packaging](docs/development.md#packaging). Report the dependency source and commands actually used; source overrides and temporary lockfiles remain verification inputs only.
 
 4. Inspect the tarball file list, package version, and exact `engines.dsh` and peer declarations, then test-install it into a disposable DSH Web profile using the declared host version.
-5. Commit and push the release source. When the registry path is available, push an annotated `v<version>` tag and let the Release workflow build both the versioned tarball and the stable `dsh-annotation.tgz` alias used by plugin catalogs. For an unpublished baseline, create a draft GitHub Release with the locally verified versioned tarball, an identical `dsh-annotation.tgz` copy, and the pushed commit as its target; the workflow recognizes those prebuilt assets instead of attempting a registry install.
-6. Confirm the workflow accepts the tag and both assets, then publish the draft and verify the public downloads. Compare the downloaded assets byte for byte; the workflow only detects their filenames. The public Release body must state the exact `engines.dsh` host requirement and link `docs/compatibility.md`; generated notes alone are insufficient. Distinguish executed checks from manual checks that remain unverified.
-7. For a catalog update, confirm `engines.dsh` matches every lockstep DSH peer, keep `screenshots.json` at 1-8 repository-owned images, and update `data/plugins/ruisenbai__dsh-annotation.yml` in `awesome-dsh-plugin`. Set and keep its category at `session` and preserve its stable tarball alias. Submit the single YAML entry change; current catalog rules regenerate both READMEs on main after merge. Recheck the catalog contribution guide before later releases.
+5. After the verified source is committed and pushed, publish the same verified archive with `npm publish artifacts/dsh-annotation-<version>.tgz --access public --registry=https://registry.npmjs.org`. The first local publication uses the logged-in npm account and any required two-factor confirmation; it does not attach a CI build attestation. Future automated publication requires a separately configured trusted publisher. Check the exact version and integrity on npmjs, synchronize `@bairuisen/dsh-annotation` on npmmirror, then check and test-install from both registries.
+6. When the registry path is available, push an annotated `v<version>` tag and let the Release workflow build both the versioned tarball and the stable `dsh-annotation.tgz` alias used by plugin catalogs. For an unpublished baseline, create a draft GitHub Release with the locally verified versioned tarball, an identical `dsh-annotation.tgz` copy, and the pushed commit as its target; the workflow recognizes those prebuilt assets instead of attempting a registry install.
+7. Confirm the workflow accepts the tag and both assets, then publish the draft and verify the public downloads. Compare the downloaded assets byte for byte; the workflow only detects their filenames. The public Release body must state the exact `engines.dsh` host requirement and link `docs/compatibility.md`; generated notes alone are insufficient. Distinguish executed checks from manual checks that remain unverified.
+8. For a catalog update, confirm `engines.dsh` matches every lockstep DSH peer, keep `screenshots.json` at 1-8 repository-owned images, and update `data/plugins/ruisenbai__dsh-annotation.yml` in `awesome-dsh-plugin`. Set and keep its category at `session` and preserve its stable tarball alias. Submit the single YAML entry change; current catalog rules regenerate both READMEs on main after merge. Recheck the catalog contribution guide before later releases.
 
 The tag must exactly match `v` plus the package version. The workflow rejects a version mismatch. It uses the prebuilt path only when both the versioned filename and stable alias exist; otherwise it attempts the registry build.

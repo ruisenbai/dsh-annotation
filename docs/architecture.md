@@ -2,7 +2,7 @@
 
 ## Scope
 
-`dsh-annotation` is one installable Cordis row with two runtime halves:
+The `@bairuisen/dsh-annotation` package provides the `dsh-annotation` Cordis row with two runtime halves:
 
 - the **Host half** registers the `dsh-annotation` settings namespace and internal `annotation_submit` command (plus invisible legacy aliases), validates a base64url JSON payload and rejects historical Git Diff sources, admits official image and file attachments, creates one standard user message, deduplicates retries, and calls `Agent.followup()`;
 - the **Web Client half** owns message, official file, and official turn-Diff selection, independent annotation records, editor buffers, the selected send set, the official composer claim, immutable retries, status reconstruction, reply chips, queue withdrawal, and source navigation.
@@ -131,7 +131,7 @@ Disabling the feature removes an armed composer claim while retaining visible dr
 
 ## Marketplace update lifecycle
 
-The plugin owns a separate `MarketUpdateController` for its configuration form. A user-triggered check first requests `/dsh-market/api/v1/capabilities`, requires schema `dsh-market/update-api/v1`, and validates every advertised endpoint as a same-origin `/dsh-market/api/v1/*` path. No update control becomes active before discovery. The Client then checks only `dsh-annotation`, starts one operation, and polls its operation id until dsh-market reports a terminal state. Package source selection, release-age policy, installation, activation, rollback recovery, and process ownership remain dsh-market responsibilities.
+The plugin owns a separate `MarketUpdateController` for its configuration form. A user-triggered check first requests `/dsh-market/api/v1/capabilities`, requires schema `dsh-market/update-api/v1`, and validates every advertised endpoint as a same-origin `/dsh-market/api/v1/*` path. No update control becomes active before discovery. The Client then checks only `@bairuisen/dsh-annotation`, starts one operation, and polls its operation id until dsh-market reports a terminal state. Package source selection, release-age policy, installation, activation, rollback recovery, and process ownership remain dsh-market responsibilities.
 
 The controller projects installed and latest versions, progress, bounded failure text, rollback availability, refresh need, and restart need into an identity-stable snapshot store. Force becomes available only for `RELEASE_TOO_FRESH` and `VERSION_UNCHANGED`. Rollback is operation-scoped. Host restart is visible only when capability discovery reports both the restart feature and a supported restart owner; otherwise the card names the external lifecycle owner. When discovery fails, the card directs the user to Plugin Market and calls no legacy route. Plugin disposal aborts fetch and polling work before the Client fiber settles.
 

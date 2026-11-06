@@ -56,7 +56,7 @@ jobs:
       - if: steps.prebuilt.outputs.available != 'true'
         run: |
           mkdir -p artifacts
-          pnpm pack --pack-destination artifacts
+          pnpm pack --out artifacts/dsh-annotation-%v.tgz
           cp "artifacts/dsh-annotation-${{ steps.version.outputs.value }}.tgz" artifacts/dsh-annotation.tgz
       - name: Create GitHub release
         if: steps.prebuilt.outputs.available != 'true'

@@ -26,7 +26,7 @@ function check(updateAvailable = true) {
   return {
     schema,
     package: {
-      name: 'dsh-annotation',
+      name: '@bairuisen/dsh-annotation',
       source: 'github',
       installedVersion: '0.6.0',
       latestVersion: updateAvailable ? '0.7.0' : '0.6.0',
@@ -52,7 +52,7 @@ function operation(
       schema,
       operationId: 'boot-update-1',
       kind: 'update',
-      packageName: 'dsh-annotation',
+      packageName: '@bairuisen/dsh-annotation',
       state,
       createdAt: 1,
       startedAt: 2,
@@ -65,7 +65,7 @@ function operation(
         total: 100,
         percent: options.percent ?? null,
         currentPackage: null,
-        detail: state === 'running' ? 'installing dsh-annotation' : null,
+        detail: state === 'running' ? 'installing @bairuisen/dsh-annotation' : null,
         downloaded: null,
         size: null,
       },
@@ -123,7 +123,7 @@ describe('dsh-market update controller', () => {
     })
     expect(request.mock.calls.map(([url]) => url)).toEqual([
       '/dsh-market/api/v1/capabilities',
-      '/dsh-market/api/v1/updates?name=dsh-annotation',
+      '/dsh-market/api/v1/updates?name=%40bairuisen%2Fdsh-annotation',
     ])
     await controller.dispose()
   })

@@ -30,7 +30,7 @@ description: 选中正文、diff、文件的文字 → 批注 → 随消息发�
 
 ## 安装与升级
 
-发行包通过 [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.8) 分发，不发布到 npm。在 **dsh-market** 的会话与消息分类中找到 `ruisenbai/dsh-annotation`，即可安装或更新。市场使用发行版的固定文件名下载地址；操作前请确认显示的插件版本及宿主要求。
+公开 npm 包名为 [`@bairuisen/dsh-annotation`](https://www.npmjs.com/package/@bairuisen/dsh-annotation)，同时通过 [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.8) 和 **dsh-market** 分发；市场中仍位于会话与消息分类的 `ruisenbai/dsh-annotation` 条目。市场保留发行版的固定文件名下载地址；操作前请确认显示的插件版本及宿主要求。
 
 ### 手动安装
 
@@ -38,11 +38,17 @@ description: 选中正文、diff、文件的文字 → 批注 → 随消息发�
 
 ```bash
 dsh --version
-dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.8/dsh-annotation.tgz
-dsh plugin --profile web why dsh-annotation
+dsh plugin --profile web add @bairuisen/dsh-annotation@1.1.8 --registry=https://registry.npmjs.org
+dsh plugin --profile web why @bairuisen/dsh-annotation
 ```
 
-宿主必须满足 `>=0.2.2-rc.1`，最后一条命令应解析到 `dsh-annotation@1.1.8`。使用自定义 profile 时，将两处 `web` 改为实际名称。安装后重启该 profile 正在运行的 Web 宿主、刷新页面，并在 **设置 → 注解** 中确认插件可用。构建方法和实际验证结果见[开发说明](docs/development.md)及[兼容性说明](docs/compatibility.md)。
+宿主必须满足 `>=0.2.2-rc.1`，最后一条命令应解析到 `@bairuisen/dsh-annotation@1.1.8`。使用自定义 profile 时，将两处 `web` 改为实际名称。安装后重启该 profile 正在运行的 Web 宿主、刷新页面，并在 **设置 → 注解** 中确认插件可用。构建方法和实际验证结果见[开发说明](docs/development.md)及[兼容性说明](docs/compatibility.md)。
+
+使用只读的 npmmirror 镜像时，将安装命令替换为下方这一条；新版本可能需要先完成同步。如果已安装旧的不带账号前缀的包，请先按[迁移指南](docs/upgrade-guide/v1.1.8/host-baseline/guide.zh.md)处理，再安装新包；两个包不能同时启用。
+
+```sh
+dsh plugin --profile web add @bairuisen/dsh-annotation@1.1.8 --registry=https://registry.npmmirror.com
+```
 
 启用 [Codex UI](https://github.com/MichengAI/dsh-codex-ui) 时，注解插件会自动开启兼容模式，避免已附加的注解遮挡输入文字。无需手动设置；停用 Codex UI 后恢复标准布局。详见 [Codex UI 兼容说明](docs/compatibility.md#codex-ui)。
 
@@ -53,7 +59,7 @@ dsh plugin --profile web why dsh-annotation
 将下面的提示词交给能够操作本机终端的 agent：
 
 ```text
-Install dsh-annotation 1.1.8 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.2-rc.1 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.8/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.8. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
+Install dsh-annotation 1.1.8 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.2-rc.1 before continuing. Install @bairuisen/dsh-annotation@1.1.8 from https://registry.npmjs.org with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why @bairuisen/dsh-annotation resolves 1.1.8. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
 ```
 
 <a id="upgrading"></a>

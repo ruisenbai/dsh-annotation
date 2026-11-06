@@ -2,7 +2,7 @@
 
 ## Host requirement
 
-Version 1.1.8 requires DSH `>=0.2.2-rc.1` and Node.js `>=24.9.0`. Verification targets official master commit `fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159`. Keep plugin 1.1.7 on `0.2.2-alpha.3`, 1.1.6 on `0.2.2-alpha.2` and 1.1.5 on `0.2.1-rc.2`; the [upgrade guide](upgrade-guide/v1.1.8/host-baseline/guide.md) describes the Host checks. Annotation protocol v5 and browser storage v6 retain their formats.
+The public package `@bairuisen/dsh-annotation` version 1.1.8 requires DSH `>=0.2.2-rc.1` and Node.js `>=24.9.0`. Verification targets official master commit `fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159`. Keep plugin 1.1.7 on `0.2.2-alpha.3`, 1.1.6 on `0.2.2-alpha.2` and 1.1.5 on `0.2.1-rc.2`; the [upgrade guide](upgrade-guide/v1.1.8/host-baseline/guide.md) describes the Host checks. Annotation protocol v5 and browser storage v6 retain their formats.
 
 The `0.2.2-rc.1` Host family includes the text-interaction API. On the supported Host, selecting completed reply text opens one toolbar with **Quote text** and **Add annotation**. Quote text uses the Host's `inputActions.insertQuote`; annotation opens the existing editor with the selected source identity. Text outside an annotatable reply keeps Quote text alone. The Host owns placement, scrolling, Escape, outside-click dismissal, and source invalidation. Disabling annotations restores the Host's Quote renderer. Hosts without `uiConversation.interactions` retain the plugin's standalone annotation toolbar.
 
@@ -28,7 +28,7 @@ The repository-owned `screenshots.json` lists eight screenshots from the Chinese
 
 The plugin configuration card integrates with dsh-market `dsh-market/update-api/v1`, introduced by dsh-market `1.45.0`. This API is optional and currently reports beta stability. The Client discovers capabilities before every first use, validates the schema and all endpoint paths, and only accepts same-origin `/dsh-market/api/v1/*` endpoints. It never imports dsh-market code or calls its legacy private routes.
 
-The card checks only the installed `dsh-annotation` package. Update progress comes from the operation endpoint. Force is offered only after `RELEASE_TOO_FRESH` or `VERSION_UNCHANGED`; rollback remains tied to the originating operation; refresh follows `refreshRequired`; restart is visible only when both `features.restart` and `restart.supported` are true. When discovery is unavailable, users are directed to **Settings → Plugin Market**. Client disposal aborts the active request or polling delay and waits for settlement.
+The card checks only the installed `@bairuisen/dsh-annotation` package. Update progress comes from the operation endpoint. Force is offered only after `RELEASE_TOO_FRESH` or `VERSION_UNCHANGED`; rollback remains tied to the originating operation; refresh follows `refreshRequired`; restart is visible only when both `features.restart` and `restart.supported` are true. When discovery is unavailable, users are directed to **Settings → Plugin Market**. Client disposal aborts the active request or polling delay and waits for settlement.
 
 ## Main Settings integration
 

@@ -4,10 +4,11 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 ## [Unreleased]
 
-## [1.1.8] - 2026-11-05
+## [1.1.8] - 2026-11-06
 
 ### Changed
 
+- Publish the public npm package as `@bairuisen/dsh-annotation`. The old unscoped package belongs to a different npm maintainer. Keep the existing settings row, protocol identifiers, and browser data keys; replace the old installation before enabling the scoped package. GitHub asset filenames remain unchanged.
 - Target DSH master `fcc0ad4621` (`0.2.2-rc.1`), with Cordis `4.1.0`, group `1.1.0`, and Schemastery `3.19.0`. The minimum Host is `>=0.2.2-rc.1`; Node.js remains `>=24.9.0`.
 - Anchor grouped annotation menus to their actual marker button through the Host CSS-anchor API.
 

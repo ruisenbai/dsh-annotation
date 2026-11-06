@@ -8,7 +8,7 @@ dsh-market `1.45.0` exposes `dsh-market/update-api/v1` for plugin-owned update c
 
 ## Decision
 
-The Web Client adds update controls to the existing annotation settings card. It discovers `/dsh-market/api/v1/capabilities` on the first user request, validates the response schema and same-origin v1 endpoint paths, then checks only `dsh-annotation`. The Client starts one update operation and polls its public operation endpoint until a terminal state. It displays installed and latest versions, structured progress, and the bounded failure message returned by dsh-market.
+The Web Client adds update controls to the existing annotation settings card. It discovers `/dsh-market/api/v1/capabilities` on the first user request, validates the response schema and same-origin v1 endpoint paths, then checks only the installed `@bairuisen/dsh-annotation` package. The Client starts one update operation and polls its public operation endpoint until a terminal state. It displays installed and latest versions, structured progress, and the bounded failure message returned by dsh-market.
 
 Update installation is never reimplemented in this package. Force is exposed only after `RELEASE_TOO_FRESH` or `VERSION_UNCHANGED`. Rollback uses the completed operation id and appears only while dsh-market reports a retained recovery point. Refresh follows `refreshRequired`. Restart appears only when both the restart feature and `restart.supported` are true; desktop- and operator-owned Hosts keep their external restart path.
 

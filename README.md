@@ -30,7 +30,7 @@ Select text in replies, diffs, or files → annotate → send with a message. Re
 
 ## Install and upgrade
 
-The package is distributed through [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.8), not npm. In **dsh-market**, find `ruisenbai/dsh-annotation` under Sessions & Messages, then install or update it. The catalog uses the release's stable tarball alias; check the offered version and Host requirement before proceeding.
+The public npm package is [`@bairuisen/dsh-annotation`](https://www.npmjs.com/package/@bairuisen/dsh-annotation). It is also distributed through [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.1.8) and **dsh-market** under `ruisenbai/dsh-annotation` in Sessions & Messages. The market retains the release's stable tarball alias; check the offered version and Host requirement before proceeding.
 
 ### Manual installation
 
@@ -38,11 +38,17 @@ Install the fixed release into your `web` profile:
 
 ```bash
 dsh --version
-dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.8/dsh-annotation.tgz
-dsh plugin --profile web why dsh-annotation
+dsh plugin --profile web add @bairuisen/dsh-annotation@1.1.8 --registry=https://registry.npmjs.org
+dsh plugin --profile web why @bairuisen/dsh-annotation
 ```
 
-The Host must satisfy `>=0.2.2-rc.1`; the final command must resolve `dsh-annotation@1.1.8`. For a custom profile, replace both occurrences of `web` with its name. Restart that profile's running Web Host, refresh the page, and check **Settings → Annotations**. Build instructions and executed verification results are in [Development](docs/development.md) and [Compatibility](docs/compatibility.md).
+The Host must satisfy `>=0.2.2-rc.1`; the final command must resolve `@bairuisen/dsh-annotation@1.1.8`. For a custom profile, replace both occurrences of `web` with its name. Restart that profile's running Web Host, refresh the page, and check **Settings → Annotations**. Build instructions and executed verification results are in [Development](docs/development.md) and [Compatibility](docs/compatibility.md).
+
+To install through the read-only npmmirror mirror, replace the install command with the one below. A new release can require synchronization before it is available. If upgrading the old unscoped package, follow the [migration guide](docs/upgrade-guide/v1.1.8/host-baseline/guide.md) before installing; the two package names must not be enabled together.
+
+```sh
+dsh plugin --profile web add @bairuisen/dsh-annotation@1.1.8 --registry=https://registry.npmmirror.com
+```
 
 When [Codex UI](https://github.com/MichengAI/dsh-codex-ui) is enabled, annotation compatibility activates automatically to keep attached notes clear of the input text. No setting is required; disabling Codex UI restores the standard layout. See [Codex UI compatibility](docs/compatibility.md#codex-ui).
 
@@ -53,7 +59,7 @@ Annotation controls follow the Host's theme, rounded corners, and panel material
 Give an agent with terminal access this prompt:
 
 ```text
-Install dsh-annotation 1.1.8 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.2-rc.1 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.1.8/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.1.8. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
+Install dsh-annotation 1.1.8 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.2-rc.1 before continuing. Install @bairuisen/dsh-annotation@1.1.8 from https://registry.npmjs.org with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why @bairuisen/dsh-annotation resolves 1.1.8. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
 ```
 
 <a id="upgrading"></a>

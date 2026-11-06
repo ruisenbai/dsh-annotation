@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsdown'
 import platformModules from './client-platform.json' with { type: 'json' }
 
-const packageId = 'dsh-annotation'
+const packageId = '@bairuisen/dsh-annotation'
 const platformModuleSet = new Set(platformModules)
 const isClientExternal = (specifier: string): boolean =>
   platformModuleSet.has(specifier) || specifier.startsWith('@deepseek-ai/dsh-')

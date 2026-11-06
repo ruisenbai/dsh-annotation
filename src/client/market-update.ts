@@ -3,7 +3,7 @@
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 
 const API_SCHEMA = 'dsh-market/update-api/v1'
-const PACKAGE_NAME = 'dsh-annotation'
+const PACKAGE_NAME = '@bairuisen/dsh-annotation'
 const CAPABILITIES_ENDPOINT = '/dsh-market/api/v1/capabilities'
 const FORCE_FAILURES = new Set(['RELEASE_TOO_FRESH', 'VERSION_UNCHANGED'])
 

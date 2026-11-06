@@ -109,7 +109,7 @@ jobs:
         if: matrix.node == '24.x'
         run: |
           cp "${GITHUB_WORKSPACE}/package.json" package.json
-          pnpm --config.ignoreScripts=true pack --pack-destination artifacts
+          pnpm --config.ignoreScripts=true pack --out artifacts/dsh-annotation-%v.tgz
         working-directory: ${{ runner.temp }}/annotation-verification
       - uses: actions/upload-artifact@v7
         if: matrix.node == '24.x'

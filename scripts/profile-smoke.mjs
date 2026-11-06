@@ -14,6 +14,7 @@ import { exerciseCodexUi } from './profile-codex-ui.mjs'
 import { assertUserMessageAlignment } from './profile-user-alignment.mjs'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
+const packageName = JSON.parse(await readFile(join(project, 'package.json'), 'utf8')).name
 const codexUiArgument = process.argv.indexOf('--codex-ui')
 const codexUiPath = codexUiArgument === -1 ? undefined : process.argv[codexUiArgument + 1]
 if (codexUiArgument !== -1) {
@@ -701,14 +702,15 @@ try {
   const home = join(root, 'home')
   const profile = join(home, 'profiles/web')
   const workspace = join(root, 'workspace')
-  await mkdir(join(profile, 'node_modules'), { recursive: true })
+  const pluginLink = join(profile, 'node_modules', packageName)
+  await mkdir(dirname(pluginLink), { recursive: true })
   await mkdir(workspace)
   const archivedPreferences =
     'inline-comments:\n  autoAttach: true\ndsh-annotation:\n  compactSummary: true\n  hideReasoning: true\n  localTools: false\nother-plugin:\n  preserved: true\n'
   const archivePath = join(home, 'settings.yaml.imported')
   await writeFile(archivePath, archivedPreferences)
   // A local linked bundle exercises the published manifest/patch and built dual-face entries.
-  await symlink(project, join(profile, 'node_modules/dsh-annotation'), 'junction')
+  await symlink(project, pluginLink, 'junction')
   if (codexUiPath !== undefined) {
     const manifest = JSON.parse(await readFile(join(codexUiPath, 'package.json'), 'utf8'))
     assert.equal(manifest.name, '@michengai/dsh-codex-ui')
@@ -723,7 +725,7 @@ try {
       name: 'dsh-profile-web',
       private: true,
       dependencies: {
-        'dsh-annotation': `link:${project}`,
+        [packageName]: `link:${project}`,
         ...(codexUiPath === undefined ? {} : { '@michengai/dsh-codex-ui': `link:${codexUiPath}` }),
       },
       dsh: {
@@ -731,7 +733,7 @@ try {
           bundles: [
             '@deepseek-ai/dsh-base',
             '@deepseek-ai/dsh-web-app',
-            'dsh-annotation',
+            packageName,
             ...(codexUiPath === undefined ? [] : ['@michengai/dsh-codex-ui']),
           ],
         },
@@ -826,11 +828,11 @@ try {
   assert.equal(await readFile(archivePath, 'utf8'), archivedPreferences)
   console.log('PASS archived annotation preferences recover through official configuration forms')
   console.log(`Isolated profile URL: ${new URL(initial.url).origin}`)
-  const bundle = initial.bundles.find((item) => item.name === 'dsh-annotation')
+  const bundle = initial.bundles.find((item) => item.name === packageName)
   assert.equal(bundle?.enabled, true)
   assert.equal(bundle?.installed, true)
-  assert.equal(bundle?.rows[0]?.moduleName, 'dsh-annotation')
-  assert.equal(initial.plugins.find((item) => item.moduleName === 'dsh-annotation')?.fiberPhase, 'active')
+  assert.equal(bundle?.rows[0]?.moduleName, packageName)
+  assert.equal(initial.plugins.find((item) => item.moduleName === packageName)?.fiberPhase, 'active')
   assert.ok(initial.settings, 'Host must register annotation settings')
   console.log('PASS official profile + Loader discovers the installed annotation bundle')
 

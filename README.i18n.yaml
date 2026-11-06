@@ -1,13 +1,13 @@
 # Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write dsh-annotation/README.md
+#   pnpm run verify-translation-pairing --write README.md
 /:
   en: 2d6adcd9f45b5705
   zh: 5571926cbe5d2daf
 /dsh-annotation:
-  en: 62bc0950bddfc133
-  zh: caf0f9ba673d1028
+  en: 09cdd870f84b4f1f
+  zh: d5be3f7fe4579373
 /dsh-annotation/summary:
   en: dbe30add3a9c88f8
   zh: e2443c13d88f9e58
@@ -15,17 +15,17 @@
   en: 393b3905da8e58f1
   zh: ca07301760ed272c
 /dsh-annotation/install-and-upgrade:
-  en: 2b2455eeaa1c010d
-  zh: 4a9cbbd751928303
+  en: f67c04111237aa7a
+  zh: 0d2e812b1c74bed5
 /dsh-annotation/install-and-upgrade/manual-installation:
-  en: 5befa845d414810e
-  zh: 3cec347c246468c6
+  en: 2113f662f3918f82
+  zh: 12aba83592335870
 /dsh-annotation/install-and-upgrade/install-with-an-ai-agent:
   en: 21bb8ed5dc37727e
   zh: 4515e16837b0565e
 /dsh-annotation/install-and-upgrade/upgrading-from-an-older-host:
-  en: ad9e9817830cb33e
-  zh: fb0980d0474fc385
+  en: 1cd11244a4521179
+  zh: 0a496e3898e2a813
 /dsh-annotation/supported-sources:
   en: dc9c7e2d3ae08ffa
   zh: 9939c646f862aba8

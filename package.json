@@ -1,5 +1,5 @@
 {
-  "name": "dsh-annotation",
+  "name": "@bairuisen/dsh-annotation",
   "version": "1.1.8",
   "description": "Select text in replies, diffs, or files → annotate → send with a message; replies address each annotation in order, with source navigation for easy reference.",
   "keywords": [
@@ -233,6 +233,6 @@
   },
   "publishConfig": {
     "access": "public",
-    "provenance": true
+    "registry": "https://registry.npmjs.org"
   }
 }

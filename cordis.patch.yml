@@ -1,7 +1,7 @@
 # Install one dual-face row: Host command bridge plus Web Client UI.
 - insert:
     - id: dsh-annotation
-      name: dsh-annotation
+      name: '@bairuisen/dsh-annotation'
       config:
         commandName: annotation_submit
         maxPayloadBytes: 524288

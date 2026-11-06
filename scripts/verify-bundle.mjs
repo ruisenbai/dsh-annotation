@@ -1,4 +1,5 @@
 import { access, readFile } from 'node:fs/promises'
+import { parse } from 'yaml'
 
 const root = new URL('../', import.meta.url)
 const manifest = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
@@ -85,7 +86,13 @@ if (unusedExternals.length > 0) {
   throw new Error(`package.json declares unused client externals: ${unusedExternals.join(', ')}`)
 }
 const patch = await readFile(new URL('cordis.patch.yml', root), 'utf8')
-if (!patch.includes(`name: ${manifest.name}`)) {
+const patchEntries = parse(patch)
+if (
+  !Array.isArray(patchEntries) ||
+  !patchEntries.some(
+    (entry) => Array.isArray(entry?.insert) && entry.insert.some((plugin) => plugin?.name === manifest.name),
+  )
+) {
   throw new Error('cordis.patch.yml does not insert this package')
 }
 if (manifest.dsh?.bundle?.patch !== './cordis.patch.yml') {
