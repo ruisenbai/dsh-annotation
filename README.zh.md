@@ -39,7 +39,7 @@ description: 在主会话或侧栏选中文字即可添加注解，编辑框跟�
 
 ### 手动安装
 
-桌面版可在插件市场搜索 `ruisenbai/dsh-annotation` 并安装。手动安装时，下面的 `web` 代表网页版配置，桌面版请把命令中的两处 `web` 改成 `desktop`。两个配置独立，使用哪个就安装到哪个：
+**桌面版：** 在应用内打开插件市场，搜索 `ruisenbai/dsh-annotation` 并安装。桌面配置由应用专管，命令行不能替桌面应用安装。**Web 版：** 可使用同一个市场，也可以运行下面的命令：
 
 ```bash
 dsh --version
@@ -58,7 +58,7 @@ dsh plugin --profile web why dsh-annotation
 将下面的提示词交给能够操作本机终端的助手：
 
 ```text
-将 dsh-annotation 1.2.0 安装到我的 DeepSeek Harness。默认使用 web 配置；如果我指定桌面版就使用 desktop。先运行 dsh --version，确认宿主满足 >=0.2.2-rc.1，再用 dsh plugin --profile <配置名> add 安装 https://github.com/ruisenbai/dsh-annotation/releases/download/v1.2.0/dsh-annotation.tgz。用 dsh plugin --profile <配置名> why dsh-annotation 核对版本。保留现有会话、设置与浏览器数据，告诉我实际结果以及如何让更新生效。
+将 dsh-annotation 1.2.0 安装到我的 DeepSeek Harness。如果我指定桌面版，请引导我在桌面应用的插件市场安装并从已安装列表核对版本，不要运行 --profile desktop。仅在 Web 版使用下面的命令。先运行 dsh --version，确认宿主满足 >=0.2.2-rc.1，再用 dsh plugin --profile <配置名> add 安装 https://github.com/ruisenbai/dsh-annotation/releases/download/v1.2.0/dsh-annotation.tgz。用 dsh plugin --profile <配置名> why dsh-annotation 核对版本。保留现有会话、设置与浏览器数据，告诉我实际结果以及如何让更新生效。
 ```
 
 <a id="upgrading"></a>

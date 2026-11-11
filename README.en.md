@@ -39,7 +39,7 @@ The package is distributed through [GitHub Releases](https://github.com/ruisenba
 
 ### Manual installation
 
-Install into the `web` profile below. For Desktop, install through the plugin market or replace both occurrences of `web` with `desktop`:
+**Desktop:** find `ruisenbai/dsh-annotation` in the app’s plugin market and install it there. Desktop exclusively manages its own profile; the CLI cannot install into it. **Web:** use the market or run the following commands:
 
 ```bash
 dsh --version

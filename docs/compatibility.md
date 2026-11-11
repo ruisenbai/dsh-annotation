@@ -52,7 +52,7 @@ dsh-market 在“会话与消息”分类收录本插件，使用 GitHub Release
 
 ## 升级后这样核对
 
-1. 用 `dsh --version` 和 `dsh plugin --profile web why dsh-annotation` 核对版本，桌面版把 `web` 换为 `desktop`。
+1. Web 版用 `dsh --version` 和 `dsh plugin --profile web why dsh-annotation` 核对版本。桌面版在应用的插件管理页查看已安装版本，不能用 CLI 管理桌面配置。
 2. 在主聊天选中文字，点“在侧边添加注解”，直接保存，再点原文的气泡。确认编辑器在原文旁，侧栏记录中仍有选中的原文。
 3. 写一条带意见的注解，从侧栏发送。检查草稿、附加按钮、旧记录和文件或代码差异的定位；不要将结果未知的旧请求改作新的发送。
 4. 如果刚更新桌面端，重启桌面应用；Web 端重启服务并刷新。缺少某个标签操作时，先对照上面的宿主能力说明。
