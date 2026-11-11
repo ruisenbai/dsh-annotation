@@ -1,14 +1,14 @@
 # README.en.md（英文）与 README.zh.md（简体中文）的章节摘要；README.md 同步展示中文。
 # 使用 DeepSeek Harness 的 scripts/translation-pairing-record.ts 按上述路径记录。
 /:
-  en: 2d6adcd9f45b5705
-  zh: ff6abf1f018ac06d
+  en: a17ffed310f6c89b
+  zh: 5ab887b6da1e1374
 /dsh-annotation:
   en: 1942a75080fbe696
   zh: b935c82380f74499
 /dsh-annotation/summary:
-  en: ba0c780febc58ca9
-  zh: 8b8bad50da02c708
+  en: 5875390dfeb920b3
+  zh: e051e70b527e36f0
 /dsh-annotation/contents:
   en: fb5047d96b412d51
   zh: ff47a1d878c34d3b

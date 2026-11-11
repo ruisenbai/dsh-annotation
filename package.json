@@ -1,7 +1,7 @@
 {
   "name": "dsh-annotation",
   "version": "1.2.0",
-  "description": "在主会话或侧栏选中文字即可添加注解，编辑框跟随原文。也可以标注文件和代码差异，将多条注解随消息发送，再从注解记录跳回出处。",
+  "description": "在主会话或侧栏选中文字，直接在原文旁写注解。也可标注文件和代码差异，将多条注解随消息一起发送，并从注解记录跳回原文。",
   "keywords": [
     "deepseek",
     "deepseek-harness",

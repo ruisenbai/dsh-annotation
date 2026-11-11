@@ -1,6 +1,6 @@
 ---
 kind: package-bundle
-description: Select text in replies, diffs, or files → annotate → send with a message; replies address each annotation in order, with source navigation for easy reference.
+description: Annotate selected text beside its source in the main chat or sidebar. Mark up files and diffs, send several notes with one message, and jump back to the source from the annotation list.
 ---
 
 # DSH Annotation
@@ -9,13 +9,15 @@ description: Select text in replies, diffs, or files → annotate → send with 
 
 ## Summary
 
-Select text in replies, diffs, or files → annotate → send with a message. Replies address each annotation in order, and source navigation makes notes easy to look up. A per-Session record keeps annotations and the current attachment selection together. The plugin sends notes with the official composer's text, images, and files; unsent work stays in the current browser.
+Annotate selected text beside its source in the main chat or sidebar. Mark up files and diffs, send several notes with one message, and jump back to the source from the annotation list. Each chat has its own annotation list. Choose which notes to attach, then send them with text, images, or files.
+
+[Install or upgrade](#installation) · [Plugin market](https://awesome-dsh-plugin.com/p/ruisenbai/dsh-annotation/)
+
+![Sidebar annotation: the floating editor stays at the original selection](docs/assets/annotation-sidebar.png)
 
 **Version 1.2.0 requires DSH `>=0.2.2-rc.1`; verification targets master commit `fcc0ad4621`.** See [upgrading](#upgrading) before updating an older Host.
 
 [Download the interactive prototype](https://github.com/ruisenbai/dsh-annotation/releases/download/v1.2.0/dsh-annotation-ui.html) and open it in a browser to explore 5 scenes and 42 states using sample data.
-
-![Sidebar annotation: the floating editor stays at the original selection](docs/assets/annotation-sidebar.png)
 
 ## Contents
 
