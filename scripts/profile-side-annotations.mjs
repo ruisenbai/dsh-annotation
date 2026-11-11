@@ -180,11 +180,11 @@ export async function exerciseSideAnnotations(context) {
       const target = await editor().getAttribute('data-dia-annotation-target')
       const movement = await scrollport.evaluate((node) => {
         const top = node.scrollTop
-        // Move the source down so the selected line stays inside its visible scrolling band.
-        node.scrollTop = Math.max(0, top - 24)
+        // Scroll away from the nearest edge so the fixture works at either end of the transcript.
+        node.scrollTop = top >= 24 ? top - 24 : top + 24
         return { originalScroll: top, delta: top - node.scrollTop }
       })
-      assert.ok(movement.delta > 0, JSON.stringify(movement))
+      assert.notEqual(movement.delta, 0, JSON.stringify(movement))
       await page.waitForFunction(
         ({ target, top }) => {
           const card = document.querySelector(`.dia-record-editor[data-dia-annotation-target="${target}"]`)
@@ -312,6 +312,9 @@ export async function exerciseSideAnnotations(context) {
 
   const firstNote = (await readNotes(first.sideSessionId)).annotations[0]
   const secondNote = (await readNotes(second.sideSessionId)).annotations[0]
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.getByRole('button', { name: '收起右侧边栏', exact: true }).click()
+  await page.locator('[data-rightbar-collapsed]:not([data-animating])').waitFor({ state: 'attached' })
   await mainBody(scenario.mainSessionId)
     .locator('..')
     .locator(`[data-annotation-id="${secondNote.annotationId}"]`)

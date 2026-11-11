@@ -60,6 +60,7 @@ import type { AnnotationInjected, UserAnnotationProps } from './contract.ts'
 import { AnnotationSettingsController } from './feature-toggle.ts'
 import { MarketUpdateController } from './market-update.ts'
 import { createFocusChatAdapter } from './focus-adapter.ts'
+import { markerElement, selectionAnchor, visibleBoundary, type AnnotationFloatingAnchor } from './floating.ts'
 import { HighlightManager } from './highlight.ts'
 import { AnnotationStorage } from './storage.ts'
 import { AnnotationTrashController } from './annotation-trash.ts'
@@ -802,6 +803,46 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     })
   }
 
+  /** 侧栏展开时宿主会跟随会话底部；保留用户点击时可见的原文位置。 */
+  const keepSideAnnotationSource = (resolve: () => AnnotationFloatingAnchor | null) => {
+    if (typeof document === 'undefined' || typeof document.getAnimations !== 'function') return undefined
+    const original = resolve()
+    if (original === null) return undefined
+    const context = original instanceof HTMLElement ? original : original.contextElement
+    const scroller = context.closest<HTMLElement>('[data-conversation-scroll]')
+    if (scroller === null) return undefined
+    const before = original instanceof HTMLElement ? original.getBoundingClientRect() : original.rect
+    const band = visibleBoundary(context)
+    if (before.bottom <= band.top || before.top >= band.bottom) return undefined
+    const width = scroller.clientWidth
+    const nextFrame = () => new Promise<void>((done) => requestAnimationFrame(() => done()))
+    return async (signal: AbortSignal) => {
+      await nextFrame()
+      await nextFrame()
+      const tracks = document
+        .getAnimations()
+        .filter(
+          (animation) =>
+            'transitionProperty' in animation &&
+            animation.transitionProperty === 'grid-template-columns' &&
+            animation.effect instanceof KeyframeEffect &&
+            animation.effect.target instanceof Element &&
+            animation.effect.target.contains(scroller),
+        )
+      if (tracks.length > 0) await Promise.allSettled(tracks.map((track) => track.finished))
+      await nextFrame()
+      if (signal.aborted || !scroller.isConnected || scroller.clientWidth === width) return
+      const target = resolve()
+      if (target === null) return
+      const rect = target instanceof HTMLElement ? target.getBoundingClientRect() : target.rect
+      const bounds = visibleBoundary(target instanceof HTMLElement ? target : target.contextElement)
+      if (rect.top < bounds.top || rect.bottom > bounds.bottom) {
+        scroller.scrollTop += rect.bottom - before.bottom
+        await nextFrame()
+      }
+    }
+  }
+
   const beginSideAnnotation = (
     mainSessionId: SessionId,
     capture: import('./selection.ts').SelectionCapture,
@@ -823,12 +864,15 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       if (!owner.lastSaveSucceeded) throw new SideChatFailure('storage')
       const source = sideAnnotationCapture(capture, mainSessionId)
       const lifetime = integrationLifetime.signal
+      const restore = keepSideAnnotationSource(() => selectionAnchor(source, document, mainSessionId))
       owner.show()
       sideChatSidebar?.open(mainSessionId)
       // Capture the target before asynchronous preparation; switching tabs never retargets this editor.
       void owner
         .prepare(chat.sideChatId)
-        .then((binding) => {
+        .then(async (binding) => {
+          if (lifetime.aborted) return
+          await restore?.(lifetime)
           if (lifetime.aborted || disposed || !featureEnabled.getSnapshot()) return
           if (sideOwners.get(binding.sessionId) !== owner || unavailableMains.has(mainSessionId)) return
           if (!canEditAnnotations(binding.sessionId)) {
@@ -1496,19 +1540,38 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         const targetId = String(target) as SessionId
         const owner = sideOwners.get(targetId)
         const chat = owner?.chatForSideSession(targetId)
+        const targetController = controllerFor(targetId)
+        const reopen = () => {
+          const item = targetController
+            .getSnapshot()
+            .annotations.find((item) => item.annotationId === annotationId)
+          if (item !== undefined)
+            targetController.openAnnotation(annotationId, item.status === 'draft' ? 'marker-edit' : 'marker')
+        }
         if (owner === undefined || chat == null || chat.archived) {
           ctx.get('uiWorkspace')?.openSession(targetId)
         } else {
+          const lifetime = integrationLifetime.signal
+          const restore = keepSideAnnotationSource(() =>
+            markerElement(annotationId, document, owner.mainSessionId),
+          )
           owner.selectChat(chat.sideChatId)
           owner.show()
           sideChatSidebar?.open(owner.mainSessionId)
+          const layout = restore?.(lifetime)
+          if (layout !== undefined) {
+            void layout.then(() => {
+              if (
+                !lifetime.aborted &&
+                owner.getSnapshot().activeSideChatId === chat.sideChatId &&
+                controllers.get(targetId)?.controller === targetController
+              )
+                reopen()
+            })
+            return
+          }
         }
-        const targetController = controllerFor(targetId)
-        const item = targetController
-          .getSnapshot()
-          .annotations.find((item) => item.annotationId === annotationId)
-        if (item !== undefined)
-          targetController.openAnnotation(annotationId, item.status === 'draft' ? 'marker-edit' : 'marker')
+        reopen()
       },
       ...(sideOwner === undefined ? {} : { sideChatMainSessionId: sideOwner.mainSessionId }),
       beginSideAnnotation: (capture: import('./selection.ts').SelectionCapture) =>

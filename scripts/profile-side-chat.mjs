@@ -680,7 +680,8 @@ try {
   )
   browser = await chromium.launch({ headless: true })
   page = await browser.newPage({
-    viewport: { width: 1440, height: 960 },
+    // At this height, opening the sidebar can push the selected line above the scrolling band.
+    viewport: { width: 1440, height: 900 },
     locale: 'zh-CN',
     colorScheme: 'dark',
   })
