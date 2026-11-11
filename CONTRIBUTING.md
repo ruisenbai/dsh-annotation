@@ -1,50 +1,25 @@
-# Contributing
+# 贡献指南
 
-Thank you for improving `dsh-annotation`.
+遇到问题先搜索[现有问题](https://github.com/ruisenbai/dsh-annotation/issues)和[讨论](https://github.com/ruisenbai/dsh-annotation/discussions)，并在[支持的宿主](docs/compatibility.md)上复现。示例请用虚构的选区和会话，不要附真实工作目录、账号凭据或聊天记录。安全问题请[私下报告](SECURITY.md)。
 
-## Before opening an issue
-
-- Search existing issues and discussions.
-- Confirm the problem on a supported DSH version.
-- Remove prompts, selected text, credentials, paths, and Session logs from public examples.
-- Use the security process instead of an issue for vulnerabilities.
-
-## Development setup
+## 本地开发
 
 ```bash
 git clone https://github.com/ruisenbai/dsh-annotation.git
 cd dsh-annotation
+pnpm install --frozen-lockfile --strict-peer-dependencies
+pnpm verify
 ```
 
-Follow [Install and verify](docs/development.md#install-and-verify) to build the pinned official DSH baseline and prepare an isolated plugin environment. The checked-in lockfile records an older host and cannot verify this release with a direct `pnpm install`. Keep temporary dependency declarations, tarball overrides, and the generated lockfile outside the source repository. The same guide covers Web smoke testing and packaging with the original release manifest.
+需要检查实际界面时，请按[开发与验证](docs/development.md)运行浏览器和真实 Web 配置测试。
 
-## Change expectations
+## 提交改动
 
-- Keep model-visible text reconstructable from the standard Session log.
-- Preserve immutable sent history and stable annotation/submission ids.
-- Validate complete wire/file values at their parser boundary; do not truncate selected text silently.
-- Register every Slot, style, subscription, and other side effect under the Cordis fiber with a disposer.
-- Use DSH Slot framework hooks and injected callbacks; presentation components must not reach `ctx`.
-- Keep product UI copy in both Simplified Chinese and English dictionaries.
-- Update README or reference documentation whenever behavior, configuration, compatibility, privacy, or persisted fields change.
-- Add focused tests for each state transition and failure path. Product-visible changes also require the manual Web matrix before release.
+从 `main` 创建分支，一次合并请求解决一个问题。提交和合并请求优先用中文，说明用户看到的变化、兼容性和实际运行的检查。界面改动请附使用虚构数据的截图。
 
-## Pull requests
+- 发送给模型的内容要能从标准会话日志还原。已发送的历史不可改写，注解和提交标识应保持稳定。
+- 在读取文件或网络数据时完整校验，不静默截断所选文字。为状态转换、错误恢复和原文定位添加相应测试。
+- 插槽、样式与订阅均应由插件负责释放。界面组件通过宿主提供的回调读取状态，面向用户的文字同时维护简体中文和英文。
+- 行为、配置、数据格式或隐私有变化时，同步更新说明和升级指南。
 
-1. Create a focused branch from `main`.
-2. Use clear commits; Conventional Commit prefixes such as `feat:`, `fix:`, `docs:`, and `test:` are welcome.
-3. Run these checks in the prepared verification directory:
-
-   ```bash
-   pnpm typecheck
-   pnpm lint
-   pnpm format:check
-   pnpm test
-   pnpm build
-   pnpm verify:bundle
-   ```
-
-4. Explain user-visible behavior, compatibility impact, tests, and manual verification in the PR template.
-5. Keep unrelated refactors in a separate PR.
-
-By contributing, you agree that your contribution is licensed under the project's MIT License and to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+参与贡献即同意遵守[社区行为准则](CODE_OF_CONDUCT.md)，并按项目的 [MIT 许可证](LICENSE)授权你的贡献。

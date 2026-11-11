@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react'
-import { Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { AnnotationDraft, AnnotationId } from '../../shared/types.ts'
+/** One directly accessible numbered button per saved annotation. */
+import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { AnnotationDraft, AnnotationId, SessionIdentity } from '../../shared/types.ts'
 import type { MarkerGroup } from '../marker-layout.ts'
 import type { InputAnnotationProps } from '../contract.ts'
 
@@ -10,8 +10,9 @@ function previewText(value: string): string {
 }
 
 /**
- * Numbered marker shared by assistant replies and mounted official resources.
- * Active annotations and expanded groups use an opaque surface; hover alone retains the frosted fill.
+ * Open exactly this annotation without aggregating adjacent or identical selections.
+ * @param props - One marker's geometry, record and annotation actions.
+ * @returns Its independently focusable button and official preview.
  */
 export function AnnotationMarkerButton({
   group,
@@ -22,6 +23,8 @@ export function AnnotationMarkerButton({
   editorOpen,
   onPreview,
   onOpen,
+  ownerTitle,
+  targetSessionId,
 }: {
   readonly group: MarkerGroup
   readonly annotations: readonly AnnotationDraft[]
@@ -31,82 +34,61 @@ export function AnnotationMarkerButton({
   readonly editorOpen: boolean
   readonly onPreview: (id: AnnotationId | null) => void
   readonly onOpen: (item: AnnotationDraft) => void
+  readonly ownerTitle?: string | undefined
+  readonly targetSessionId?: SessionIdentity | undefined
 }) {
-  const [groupOpen, setGroupOpen] = useState(false)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const members = group.annotationIds.flatMap((id) => {
-    const item = annotations.find((candidate) => candidate.annotationId === id)
-    return item === undefined ? [] : [item]
-  })
-  const first = members[0]
-  if (first === undefined) return null
-  const annotation = members.find((item) => item.annotationId === activeId) ?? first
-  const grouped = members.length > 1
-  const label = grouped
-    ? t('marker.groupLabel', {
-        count: members.length,
-        ordinals: members.map((item) => item.ordinal).join(', '),
-      })
-    : `#${annotation.ordinal}: ${annotation.annotation === '' ? t('highlightOnly') : annotation.annotation}`
-  const button = (
+  const annotation = annotations.find((item) => item.annotationId === group.annotationIds[0])
+  if (annotation === undefined) return null
+  const opinion = annotation.annotation === '' ? t('highlightOnly') : annotation.annotation
+  const label = `${ownerTitle === undefined ? '' : `${ownerTitle} · `}#${annotation.ordinal}: ${opinion}`
+  return (
     <Tooltip
-      label={grouped ? label : previewText(annotation.annotation || t('highlightOnly'))}
+      label={previewText(ownerTitle === undefined ? opinion : `${ownerTitle} · ${opinion}`)}
+      portal
       side="top"
       delayMs={300}
       maxWidth={280}
-      disabled={detailsOpen || groupOpen}
+      disabled={detailsOpen}
     >
       <button
-        ref={buttonRef}
         type="button"
         className="dia-marker"
-        data-annotation-id={first.annotationId}
-        data-annotation-ids={group.annotationIds.join(' ')}
+        data-annotation-id={annotation.annotationId}
+        data-dia-annotation-target={targetSessionId}
+        data-annotation-ids={annotation.annotationId}
         data-status={annotation.status}
-        data-active={members.some((item) => item.annotationId === activeId)}
+        data-active={annotation.annotationId === activeId}
         style={{
           top: group.top,
           left: group.left,
           width: group.width,
           height: group.height,
+          fontSize: group.fontSize,
+          fontFamily: group.fontFamily,
           pointerEvents: 'auto',
         }}
         aria-label={label}
-        aria-haspopup={grouped ? 'menu' : 'dialog'}
-        aria-expanded={grouped ? groupOpen : undefined}
+        aria-haspopup="dialog"
+        aria-expanded={annotation.annotationId === activeId && detailsOpen}
         disabled={editorOpen}
-        onPointerEnter={() => onPreview(annotation.annotationId)}
+        onPointerEnter={(event) => {
+          if (event.pointerType !== 'touch') onPreview(annotation.annotationId)
+        }}
         onPointerLeave={() => onPreview(activeId)}
         onFocus={() => onPreview(annotation.annotationId)}
         onBlur={() => onPreview(activeId)}
-        onClick={() => (grouped ? setGroupOpen((open) => !open) : onOpen(annotation))}
+        onClick={() => onOpen(annotation)}
       >
-        <span>{grouped ? t('marker.groupCount', { count: members.length }) : annotation.ordinal}</span>
+        <span
+          style={{
+            left: group.labelLeft,
+            top: group.labelTop,
+            bottom: group.labelTop === undefined ? undefined : 'auto',
+          }}
+        >
+          {annotation.ordinal}
+        </span>
       </button>
     </Tooltip>
-  )
-  return grouped ? (
-    <Menu
-      open={groupOpen && !editorOpen}
-      portal
-      dense
-      listClassName="dia-marker-menu"
-      autoFocus
-      anchor={button}
-      getAnchorRect={() => buttonRef.current?.getBoundingClientRect() ?? null}
-      onClose={() => setGroupOpen(false)}
-      items={members.map((item) => ({
-        id: item.annotationId,
-        label: `#${item.ordinal} ${item.annotation || t('highlightOnly')}`,
-      }))}
-      selectedId={activeId ?? undefined}
-      onSelect={(id) => {
-        setGroupOpen(false)
-        const item = members.find((member) => member.annotationId === id)
-        if (item !== undefined) onOpen(item)
-      }}
-    />
-  ) : (
-    button
   )
 }

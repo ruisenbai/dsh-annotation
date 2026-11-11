@@ -1,224 +1,76 @@
-# dsh-annotation data model and state machine
+# 注解数据与状态
 
-## Identities
+[English](data-model.en.md) · [隐私说明](privacy.md)
 
-| Field                 | Owner               | Stability                                                       |
-| --------------------- | ------------------- | --------------------------------------------------------------- |
-| `annotationId`        | Browser             | Stable for one draft and every later status                     |
-| `submissionId`        | Browser             | Stable across every retry of one frozen batch                   |
-| `messageId`           | DSH assistant event | Message-source only; identifies the exact source reply/version  |
-| `messageSeq`          | DSH Session log     | Anchors source navigation and archived-session fork             |
-| submission message id | Plugin Host         | Durable retry namespace `dsh-inline-annotations:<submissionId>` |
-| `sessionId`           | DSH                 | Must equal the receiving Agent id                               |
+<a id="identities"></a>
 
-The submission message-id namespace is a protocol compatibility identifier rather than the npm package name. Current and migrated outbox records use the same value so an ambiguous retry cannot enqueue a duplicate under another id.
+## 一条注解对应哪个会话
 
-## Submitted annotation
+| 标识                                         | 含义                                                             |
+| -------------------------------------------- | ---------------------------------------------------------------- |
+| `annotationId`                               | 同一条注解从草稿到发送、再次附加都保留的身份。                   |
+| `submissionId`                               | 一次冻结提交的身份。重试用同一个，下一次主动发送使用新身份。     |
+| `sessionId`                                  | 接收注解、提交给模型的会话。必须与接收代理一致。                 |
+| 消息来源的 `source.sessionId`                | 原文所属会话，可以与接收会话不同。旧数据缺少此字段时取接收会话。 |
+| `messageId`、`messageSeq`、`responseVersion` | 原文消息、在日志中的位置及回复版本。                             |
 
-```json
-{
-  "annotationId": "ann-UUID",
-  "ordinal": 1,
-  "source": {
-    "kind": "message",
-    "messageId": "assistant-message-id",
-    "messageSeq": 42,
-    "responseVersion": "assistant-message-id"
-  },
-  "messageId": "assistant-message-id",
-  "messageSeq": 42,
-  "responseVersion": "assistant-message-id",
-  "quote": {
-    "exact": "selected text",
-    "prefix": "up to 32 characters before",
-    "suffix": "up to 32 characters after",
-    "start": 125,
-    "end": 138
-  },
-  "annotation": "Explain why this assumption holds.",
-  "structure": {
-    "kind": "code",
-    "language": "ts",
-    "startLine": 3,
-    "endLine": 5
-  },
-  "supplementalTo": "ann-older-UUID",
-  "createdAt": 1786716000000
-}
-```
+提交消息沿用 `dsh-inline-annotations:<submissionId>` 这一历史标识。仅改变包名或重试不能生成第二条消息。
 
-`AnnotationSource` distinguishes `message`, historical `diff`, official `file`, and official `official-diff`. New message sources include the explicit tag and retain the top-level message aliases; these values must agree. Legacy message records may omit the tag. Historical Diff records forbid these aliases and message-fragment `structure` coordinates. New official file and turn-Diff records use protocol v5 and carry their creation entry; current turn-Diff creation uses `sidebar`, while earlier `hover` entries remain readable. `responseVersion` equals `messageId` because finalized DSH assistant messages are immutable and have no separate mutable revision number. A table selector replaces `structure` with zero-based `startRow`, `startColumn`, `endRow`, and `endColumn`. `supplementalTo` is present only for a separately saved clarification of another annotation; its nonblank id is limited to 256 characters, cannot equal `annotationId`, and may refer to historical annotation outside the current batch. The v1 wire used `comment` instead of `annotation`; parsing converts it in memory and never rewrites history.
+<a id="side-chat-data"></a>
 
-## Historical Diff source
+## 侧栏数据与恢复
 
-`source.kind: "diff"` in old records contains a complete comparison plus a range on one side. New Diff annotations are not created or sent. [The shared schema](../src/shared/diff-source.ts) is the executable field definition.
+每个主会话保存一组侧边聊天、当前接收项、显示状态及旧的引用和重试。浏览器键为 `dsh-annotation:side-chat:v2:<main-session-id>`。关联不含官方输入框草稿或附件字节。各个侧栏的普通注解与主会话采用同一种格式，分别存放在接收会话中。多个标签页的写入通过独立日志合并；不相容的更改保留，用户可以重试保存或导出可恢复的旧侧栏数据。
 
-| Field                                                              | Meaning                                                                                                                                                                           |
-| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `snapshot.version`, `snapshot.id`                                  | Snapshot format 1; SHA-256 identity of its session/workspace/repository, paths, comparison and version contents, excluding capture time                                           |
-| `snapshot.sessionId`, `snapshot.workspace`, `snapshot.workspaceId` | Receiving Session, its exact header cwd, and a hash of the filesystem provider's canonical workspace URL                                                                          |
-| `snapshot.repository`, `snapshot.repositoryId`                     | Git root and a hash of its canonical URL plus Git directory; linked worktrees remain distinct                                                                                     |
-| `snapshot.oldPath`, `snapshot.newPath`                             | Literal repository-relative paths; both are retained for a Git-reported rename; an absent side has a null path                                                                    |
-| `snapshot.range`                                                   | `worktree`: index → captured working file, including untracked files; `staged`: captured HEAD → index, including an unborn HEAD                                                   |
-| `snapshot.head`                                                    | Captured immutable commit id, or null for an unborn HEAD; not a substitute for the two side identities                                                                            |
-| `snapshot.old`, `snapshot.new`                                     | Each side's kind, complete UTF-8 text, SHA-256 and Git blob oid when available; absent sides have null content/hash/oid, and a working side has a content hash rather than an oid |
-| `snapshot.capturedAt`, `snapshot.seal`                             | Capture time and HMAC-SHA-256 over snapshot identity plus time, using the Host-private persisted signing key                                                                      |
-| `side`, `startLine`, `endLine`                                     | `old` or `new`; independent one-based, inclusive file coordinates on that side                                                                                                    |
-| `fingerprint`, `contextBefore`, `contextAfter`                     | SHA-256 of the exact quote; separate before/after strings retain up to three complete lines on each side of the range                                                             |
-| `reboundFrom`                                                      | Optional complete earliest Diff origin, without another nested rebound; retained from earlier explicit rebinds                                                                    |
+没有冻结请求的旧引用转换为只标记原文的普通注解。先保存新注解，再移除旧引用；稳定的标识可避免中断后重复转换。冻结的、接收结果未知的、已经发送的引用继续使用原流水。旧发送记录按提交标识和内容指纹判重，不能用同一标识换一份内容。
 
-In historical captures, a side of kind `blob` held text read from an immutable Git object id, while a `working-tree` side stored exact text and its SHA-256. Identical captures used the same snapshot id, while each capture time had its own seal. Current reads validate the retained fields, quote, context, and line bounds without reactivating the former signing service or accessing Git.
+<a id="submitted-annotation"></a>
+<a id="annotation-kinds"></a>
 
-The outer `quote` is reconstructed from that complete side. Its character offsets count JavaScript UTF-16 code units; `startLine`/`endLine` count actual file lines, never displayed hunk or Markdown-fragment rows. Trailing newline terminators do not invent an extra line. A real blank line can have an empty exact quote; an empty file has no line to annotate. Deleted rows expose only old coordinates, added rows only new coordinates, and context rows can be annotated independently on either side.
+## 原文、意见和类型
 
-Historical messages display the embedded original snapshot as read-only source details. The previous locate, current-version check, and rebind actions are unavailable. Missing or malformed snapshots are rejected during parsing; the Client does not substitute a current file with the same name.
+消息选区保存精确原文、前后文和字符偏移。意见可以为空；显式保存时成为只标记原文的注解。整文件或整项代码差异没有选区文字，必须填写意见。重复选择同一段可以创建独立注解。已发送记录仍可再次附加，但不改写先前发送的副本。旧的补充意见关系和历史处理模式仍可读取。
 
-Historical source snapshots may occur in editor buffers, saved drafts, frozen outbox payloads and durable user-message metadata. Replay reads those copies without consulting the current DOM or Git state; Diff drafts and failed batches cannot be retried. The historical model text contains the file, actual comparison, both version identities, side, one-based range, selected code, context, opinion and processing mode. Historical mixed message and Diff batches retain their original submission ordinals and reply/acknowledgement ids. This Git source has no synthetic message association; a future tool-result adapter would need an explicit association field.
+<a id="historical-diff-source"></a>
+<a id="official-file-and-turn-diff-sources"></a>
 
-## Official file and turn-Diff sources
+## 文件和代码差异
 
-Official sources come from public Host-rendered data. A new file snapshot v2 stores `sessionId`, `resourceAddress`, path, format, resource version, byte count, a revision or byte digest, and for a range a digest of its quote and context. Raw text ranges retain one-based lines and zero-based UTF-16 columns; rendered Markdown ranges use rendered UTF-16 offsets without pretending they are raw file lines. The Client validates displayed pages against the same Host version before showing a selection action. A whole-file annotation uses an empty quote and requires a written opinion. Older v1 snapshots with complete text remain readable, including UTF-8 BOM byte semantics. A temporary Locate failure does not change the saved source or mark it permanently expired.
+官方文件来源保存工作区文件身份与版本；差异记录还标明轮次、文件、变更的一侧和行位置。当前快照保存定位和校验片段所需信息，完整文件或图像可另存于浏览器。跳转前校验原文；内容不符时报告无法定位。历史 Git 差异可能含旧路径、改名前后文件和完整变更片段，永久只读，不可再提交。
 
-A new `official-diff` snapshot v2 stores Session, changes sequence, turn, file index, path, side metadata, the verified full comparison digest, bounded context, and a selected-fragment digest; it does not copy served hunks into each record. A range keeps one-based line coordinates and zero-based UTF-16 columns at both ends, including multiline selections. A whole-file Diff uses an empty quote and requires a written opinion. The review sidebar owns new annotation actions and Locate; earlier hover-origin records remain readable and locate through that sidebar with their saved annotation IDs. Historical `diff` records and older v1 complete official snapshots remain readable.
+<a id="submission-payload"></a>
 
-New official file and turn-Diff records use snapshot v2 and protocol v5. Storage writes `storageVersion: 6`; it reads storage versions 1 through 6 and retains frozen older outbox payloads. The independent settings `officialFileAnnotations` and `officialDiffAnnotations` disable new entry points without deleting existing records.
+## 提交内容
 
-## Submission payload
+当前协议为 v6。每批含唯一 `submissionId`、目标 `sessionId`、语言、创建时间和按本次发送顺序从 1 编号的非空注解数组。`overallRequirement` 来自官方输入框，是可选的整体要求；新请求使用 `processingMode: answer`。同一注解不能在一个批次里出现两次。默认最多 100 条、编码载荷最多 512 KiB。
 
-```json
-{
-  "protocolVersion": 5,
-  "source": "dsh-annotation",
-  "submissionId": "sub-UUID",
-  "sessionId": "session-id",
-  "delivery": "queue",
-  "protocolLocale": "zh",
-  "processingMode": "answer",
-  "createdAt": 1786716000000,
-  "overallRequirement": "Reorganize the proposal using all annotations.",
-  "annotations": [],
-  "attachmentIdentities": []
-}
-```
+含附件时先由宿主核对顺序和身份。冻结记录保存内容标识、名称、字节数及适用的媒体类型，不保存原始字节。刷新后可重选相同文件；新格式会拒绝同名异内容、次序不同或缺失的附件。旧记录没有内容标识时只能校验数量与类型。
 
-`overallRequirement` carries the official composer text as user goals and constraints; it is omitted for annotation-only submissions. New submissions use `processingMode: answer`; `rewrite` and `modify` remain readable in historical payloads. `delivery` is `queue`. Only selected eligible annotations enter the array, and their ordinals are rewritten contiguously from 1 without changing browser-local ordering. Annotation ids must be unique and the array must not be empty. New submissions emit v5, including message-only batches and batches containing official file or official turn-Diff sources. Every v3-v5 annotation requires an explicit source; v3 and v4 remain readable compatibility generations. Legacy v1/v2 message payloads remain readable; v1 normalizes to v2 in memory, and v2 retries stay v2. Historical Git Diff remains readable only in the retained compatibility paths and is not admitted for new sends.
+<a id="browser-persistence"></a>
+<a id="host-preference-recovery"></a>
 
-`protocolLocale` and `processingMode` freeze when the pending record is created. Retry reuses the complete payload, including the selected annotation set and `supplementalTo` links. A legacy record without `protocolLocale` defaults to `en`; v1 or v2 without `processingMode` defaults to `answer`; an explicit unsupported mode is invalid. Sent history is never rewritten.
+## 浏览器保存与宿主设置
 
-New composer submissions include ordered `attachmentIdentities`, with an empty array meaning no attachments. Each entry contains `type` (`image` or `file`), the opaque branded `attachmentId` returned by DSH, a nonnegative safe-integer `bytes` count, and the display `name` (required for files, optional for images); image entries also carry a supported `mediaType`. Identity ids are nonblank and limited to 256 characters. Parsing freezes these fields and discards unrelated input fields. Equality includes identity, kind, byte count, name, image media type, and order. Absence is preserved for legacy records and is not converted to an empty array; those records retain their metadata-only retry guard.
+当前浏览器注解存储版本是 v7，键名仍是 `dsh-annotation:v1:<session-id>`。键名中的 v1 不是数据格式版本。保存的内容包括记录、编辑缓冲、附加选择、待发送和重试批次；多个页面用不可变日志协调写入。损坏或超前格式不以空状态覆盖，旧命名空间在验证和写入成功后才清理。
 
-## Annotation kinds
+文件和图像的完整来源在 IndexedDB 中独立保存，随记录进入回收站；永久删除会解除所有者关系，只删除没有其他引用的副本。四项用户开关保存在宿主配置；从旧配置恢复时只补缺失的设置。
 
-```json
-{
-  "annotationId": "ann-UUID",
-  "annotation": "这里需要补充异常处理",
-  "kind": "note"
-}
-```
+<a id="annotation-state-transitions"></a>
+<a id="outbox-state-transitions"></a>
 
-`kind` is `note` (content non-empty) or `highlight-only` (empty or whitespace-only content). Legacy records without `kind` infer from the content: non-empty becomes `note`, empty becomes `highlight-only`. Highlight-only means there is no extra note text; the selected source still participates in the chosen answer, rewrite, or modify mode and cannot be skipped.
+## 等待、发送与撤回
 
-Attachment bytes and temporary file-upload receipts never appear inside this JSON. Composer images and files travel as ordered `SubmitAttachment[]` values through `commands/execute(sessionId, line, attachments)`. The Host appends the admitted durable `ImageBlock` and `FileBlock` values after the annotation text without reordering them.
+| 观察到的事实             | 显示与可执行的操作                                               |
+| ------------------------ | ---------------------------------------------------------------- |
+| 本地已保存               | 可编辑、附加或移入回收站，尚未发送。                             |
+| 发送中或已接收回执       | 固定该批内容，等待宿主队列或历史。回执本身不能证明已排队或处理。 |
+| 在目标会话的下一轮队列中 | 可以请求撤回；下一步队列不属于这一类。                           |
+| 标准用户消息已写入会话   | 已发送，仍可重新附加。之后再删本地记录不影响历史。               |
+| 校验或发送失败           | 按冻结内容重试。旧侧栏请求结果未知时保留原请求，不能自动改发。   |
+| 模型返回有效完成标记     | 对应注解可标记为已处理，其他注解不受影响。                       |
 
-## Browser persistence
+<a id="processed-and-reply-markers"></a>
 
-The per-Session `localStorage` value is:
+## 回复标记
 
-```ts
-interface PersistedSessionState {
-  storageVersion: 6
-  trash?: readonly AnnotationTrashEntry[]
-  deletionMarks?: readonly AnnotationDeletionMark[]
-  annotations: readonly AnnotationDraft[]
-  outbox: readonly OutboxEntry[]
-  overallRequirementDraft: string
-  editorDraft?: PersistedEditorDraft
-  editorDrafts?: readonly PersistedEditorDraft[]
-  selectionMode?: 'all' | 'individual'
-  selectedAnnotationIds?: readonly AnnotationId[]
-  processingMode?: 'answer' | 'rewrite' | 'modify'
-  retrySubmissionId?: SubmissionId | null
-}
-```
-
-`editorDraft` is the active editor and `editorDrafts` contains suspended buffers. A new buffer receives a stable draft id before save and uses `new:<draftId>`; an edited annotation uses `edit:<annotationId>`, so multiple unfinished new and edited values can coexist. Each buffer retains its selection capture, text, long-selection decision, changed quote when applicable, and supplemental intent. Keystrokes persist after 400 ms. The first two outside clicks shake a new quick editor. A third outside click or composer input cancels it when its trimmed text is empty and saves it when nonempty. The check button and Enter can explicitly save an empty selection note; a whole-file note requires an opinion. Canceling discards the new buffer without creating an annotation, trash item, source bubble, or selection for the next send. Existing suspended buffers remain recoverable. Save consumes a buffer, while explicit discard removes only the buffer and never the previously saved annotation. An annotation with an unfinished edit and every suspended new editor are excluded from submission.
-
-`trash` retains each deleted annotation and its related unfinished edits; `deletionMarks` records the latest trashed, restored, or purged revision and prevents stale pages or durable history replay from reviving a deletion. A batch delete writes all entries before removing them from the active list. The most recent batch is undoable for 4.5 seconds in the current page; restore retains annotation IDs and historical send status but leaves the next-message selection empty. Permanent deletion removes the local annotation body and keeps only its minimal deletion mark. It does not change durable Session messages.
-
-The `dsh-annotation-source-snapshots` IndexedDB database stores optional full historical source content separately from this per-Session value. Owners use Session and annotation IDs, while content keys include its media type and SHA-256 digest so identical captures share bytes. A complete owner has committed all bytes of the verified source version; an interrupted, changed, or unavailable source leaves the saved quote and context as a fragment. Capture resumes for retained editor, saved, and recycle-bin records when their source becomes available. Purging the last owner removes the unreferenced content. No full copy is added to protocol v5 submissions by this archive.
-
-Absent optional fields preserve old `storageVersion: 2` records: `editorDrafts` and `selectedAnnotationIds` become empty, `selectionMode` becomes `all`, and `processingMode` becomes `answer`. Loaded state then uses explicit selected ids; eligible legacy aggregate drafts migrate to that selection. A missing legacy `retrySubmissionId` selects the first retryable outbox entry for compatibility; new snapshots write an id or explicit `null`, so no current retry is chosen implicitly. Selected ids are filtered to existing eligible annotations on every publish, including sent annotations explicitly reattached for another message.
-
-The v6 writer keeps `dsh-annotation:v1:<session-id>` and reads storage versions 1 through 6. A validated older value converts to v6 without upgrading frozen outbox payloads or changing their source values; v1 retains its existing normalization to v2. In a browser with Web Locks, the converted value is written under the same Session key while holding the Session lock, then old keys are removed. Without Web Locks, the old value remains readable and new changes stay in separate journal keys until a capable page completes the merge. The Host settings provider retains `enabled`, `autoAttach`, `individualSelection`, and `compactSummary` for profile compatibility and adds independent `officialFileAnnotations` and `officialDiffAnnotations` switches. The current UI exposes all four active annotation controls; legacy selection and summary settings remain readable without changing interaction. User values from the legacy namespace and the pre-0.1.3 enabled browser key retain their existing write-before-delete migration. A legacy plugin-owned `overallRequirementDraft` migrates once into the official composer after a successful claim.
-
-An outbox entry contains the immutable payload, target Session id, deterministic message id, attempt count, optional attachment metadata, and status. The payload fixes its selected annotations, contiguous ordinals, `processingMode`, `overallRequirement`, `protocolLocale`, supplemental links, and any `attachmentIdentities`. When identities are present, their count and ordered kinds must agree with the attachment metadata or recovery rejects the record. The `attachments` metadata stores `{ count, kinds, mediaTypes, names }`: `kinds` retains ordered `image`/`file` tags, while `mediaTypes` and `names` describe images only. It contains no attachment bytes or temporary upload receipts. Legacy `images: { count, mediaTypes, names }` remains readable and represents an image-only batch; when both fields exist, `attachments` owns the retry requirement. These fields are retained by the v6 storage migration without upgrading frozen older payloads.
-
-Storage recovery distinguishes a missing value, a fully validated value, and a failed read. With a supported storage version and valid JSON, each annotation, outbox entry, and editor buffer is validated separately: independent valid entries and the valid overall requirement remain visible, while damaged entries and duplicate identities are excluded from the working view. Invalid editor targets and duplicate buffer keys are excluded too. The original browser value and any legacy keys remain untouched, the storage warning remains visible, and automatic saves are blocked after any read failure. This preserves damaged batches and unfinished text for manual recovery from browser storage. Invalid JSON and unsupported storage versions cannot be partially decoded and open with an empty working view under the same write block. A later successful reload or explicit clearing of the browser value is required before normal saves resume. Valid v1/v2/v3/v4/v5/v6 data still follows the migrations above, including frozen retry payloads; a transient write failure after a successful read remains retryable. Selected ids are deduplicated and filtered to eligible saved annotations, including reattached sent annotations.
-
-Each browser page first writes its changed records to a unique `dsh-annotation:v1:<session-id>:journal:<id>` key. This synchronous write retains the latest page-hide editor state even when a lock request is pending. Web Locks serializes validation, merge, and replacement of the v6 Session value; processed journal keys are removed only after that write succeeds. Other pages reload on the browser `storage` event. Two pages adding different annotations keep both records. An unrelated stale save contains no deletion operation, so it cannot revive a deleted draft. Concurrent edits of one draft or unfinished buffer retain both versions by assigning the conflicting copy a new annotation or buffer id; a deletion paired with a concurrent unfinished edit retains the edited buffer and a draft copy. Live composer selection remains local to each page, while the stored selection and processing choice follow the last applied journal. Frozen payloads and submission ids remain unchanged; a conflicting payload with the same id, conflicting non-empty overall requirements, invalid journal data, or a failed canonical write keeps the journal keys and reports a storage error. For a shared outbox id, `sent` remains authoritative and otherwise the higher attempt and advanced status win. Without Web Locks, unique journal writes and cross-page reads still protect data, but entries are not compacted; browser storage quota can eventually stop further saves.
-
-The Client rereads submission and acknowledgement history when the Chat snapshot changes; an Inbox-only update reuses the last history result. A Session controller caches each unchanged immutable Chat node's parsed protocol data in a `WeakMap`, so node replacement and older-page loading parse new nodes while removed nodes can be collected. Unloading the controller releases the cache and derived history. Reconciliation reuses unchanged annotation, outbox, editor, and reply-association references. A view without visible changes does not notify subscribers, and unchanged persisted fields do not start another browser write. A changed Chat snapshot still visits its node list to detect replacements; this cache reduces parsing and writes, not the node-list scan.
-
-## Host preference recovery
-
-DSH `0.2.1-alpha.2` stores editable preferences in the `dsh-annotation` profile entry. `archivedPreferencesImported` is a volatile Config boolean, defaulting to `false`, outside browser annotation storage and submission protocols. A successful archive recovery writes supported missing preference fields and this marker in one revision-fenced mutation. Existing user overrides win; after completion, clearing a field inherits its profile/default value rather than restoring the archive. Protocol v5, storage v6 and frozen outbox entries retain their separate versions; the private Diff signing service is no longer installed.
-
-## Annotation state transitions
-
-```text
-             official composer submit
-       ┌────────────────────────────────┐
-       │                                ▼
-     draft ──────────────────────────> queued
-       ▲                                │
-       │ queue withdrawal or discard    │ standard user/message appears
-       └────────────────────────────────┘
-                                        ▼
-                                      sent
-                                        │ exact model acknowledgement id
-                                        ▼
-                                    processed
-```
-
-- `draft` content may be edited or deleted. The most recent deleted batch remains undoable in memory for 4.5 seconds. A changed edit buffer blocks that saved draft from eligibility until Save or Discard; discarding the buffer preserves the saved draft.
-- Batch creation includes only explicitly selected eligible annotations. A newly saved draft is selected by default; a sent annotation may be selected again and keeps its original id and source bubble. Unselected drafts remain `draft`, and payload ordinals become contiguous for that batch. Durable replay restores each submitted annotation's payload ordinal rather than browser-local numbering.
-- The record's sent status reflects durable delivery even while its paperclip is selected for another message; paperclip selection only controls the next submission.
-- Annotation records use `queued` as the frozen post-submit state. The UI labels them “confirming delivery outcome” or “retry available” until the matching outbox entry is authoritatively queued; successful withdrawal restores only that batch. Direct discard has the same effect only for a never-queued failed/ready record.
-- An overlapping message selection starts an independent new annotation. `queued`, `sent`, and `processed` records retain their submitted content; a sent or processed record can be reattached for a later message without creating another annotation. Historical linked supplements and old Diff rebinds retain `supplementalTo`; new Diff rebinds are unavailable.
-- State rank is monotonic except an explicit successful queued withdrawal. Late transport results, retry selection, and discard cannot demote queued, sent, or processed authority. If durable history arrives after an ambiguous failed record was discarded, it restores the frozen id, fields, status, and ordinal. A later saved change survives as an unselected linked draft with a new id; an unfinished change survives as an unselected independent supplemental editor buffer.
-
-## Outbox state transitions
-
-```text
-ready -> sending -> accepted ───────────────> sent
-            |          │ observed queue         ▲
-            |          ▼                        │
-            +----> failed -> sending           queued
-
-ready/failed -> withdrawn (direct discard before queue authority)
-queued -> withdrawn (only after successful queue removal)
-queued -> accepted (queue was claimed before durable history became visible)
-```
-
-`accepted` records a successful command response without claiming that the authoritative Inbox contains the batch. `queued` requires the stable message id to match a `next-turn` item's `id` in the target Session's `session.projections.faceOf('inbox')` snapshot; only this placement exposes withdrawal. `next-step` items do not qualify. An `undefined` projection is unsynchronized, not empty, and preserves the last known placement. When a synchronized snapshot stops listing the message before durable Chat history becomes visible, the target returns to `accepted`. A queue-removal response that reports an already claimed item forces the same reconciliation immediately. `sent` requires the durable annotation `user/message`, and neither a late transport success nor a late transport failure can demote either authoritative state.
-
-A client-side item-count or size rejection occurs before final submission and leaves new annotations as drafts; attachment identity preflight may already have completed. A recorded attachment batch requires the same count and ordered kinds before any Host call. New records then compare preflight identities, and the Host independently verifies admitted blocks before queueing or deduplication. Missing, added, reordered, renamed, or replaced attachments reject the attempt without changing its payload. A fresh upload receipt for the original content and name is valid. Legacy image-only metadata requires that count of images; legacy records without identities cannot detect same-kind substitutions. To send different attachments, discard the old record and create a new submission. A transport failure is ambiguous and remains retryable with the same id: the official composer draft and armed annotation claim stay in place. Only message-source `ready` or `failed` retries can send; a stale action against `queued`, `accepted`, or `sent` is a no-op, and `withdrawn` aborts. Loading a persisted `sending` or still-unobserved `accepted` entry converts it to `failed`, preserving the frozen payload after a refresh or tab crash and making the same id retryable. Host deduplication resolves a retry that arrived after an unseen successful admission.
-
-## Processed and reply markers
-
-Only this JSON-in-comment protocol has status authority:
-
-```html
-<!-- dsh-annotation:{"submissionId":"sub-UUID","processed":["ann-UUID"]} -->
-```
-
-The model is instructed to list only ids actually completed under the selected mode and never to acknowledge the full batch automatically. The parser accepts the current `dsh-annotation:` marker and the legacy `dsh-inline-comments:` and `dsh-inline-annotations:` markers, accepts string ids, removes duplicates, and ignores malformed values. A marker has status authority only when the durable submission message is also present; partial processing is valid.
-
-Reply association markers are display-only:
-
-```html
-<!-- dsh-annotation-reply:{"submissionId":"sub-UUID","annotationId":"ann-UUID","ordinal":1} -->
-```
-
-The Client accepts only markers whose submissionId + annotationId pair exists in the current Session. A reattached annotation keeps one record but can have several submitted pairs; the Client rebuilds those associations from durable user messages and confirmed local outbox entries so both earlier and later replies remain interactive after reload. Unknown, duplicate, forged, and malformed markers are ignored, and reply markers never change business status.
+`dsh-annotation:` 完成标记要引用本次提交及其有效注解标识，旧前缀仍可读取。`dsh-annotation-reply:` 标记只将回复关联到原文，不代表完成。客户端隐藏已识别的标记，但会话日志保留原内容；不识别或不完整的内容不会产生完成状态。

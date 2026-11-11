@@ -93,8 +93,8 @@ export async function loadOfficialDiff(
   const summaryUrl = `api/changes.summary?${new URLSearchParams({ sessionId: base.sessionId, seq: String(base.seq) })}`
   const diffUrl = officialDiffUrl(base.sessionId, base.seq, base.fileIndex)
   const [summaryValue, diffValue] = await Promise.all([
-    responseJson(await fetcher(summaryUrl, signal === undefined ? undefined : { signal })),
-    responseJson(await fetcher(diffUrl, signal === undefined ? undefined : { signal })),
+    fetcher(summaryUrl, signal === undefined ? undefined : { signal }).then(responseJson),
+    fetcher(diffUrl, signal === undefined ? undefined : { signal }).then(responseJson),
   ])
   if (!isRecord(summaryValue)) throw new Error('official changes summary is not an object')
   const turn = summaryValue.turn
@@ -346,6 +346,32 @@ function codeBoundary(
   return remaining === 0 && last !== null ? { node: last, offset: last.length } : null
 }
 
+/** Whole-file bubbles follow the final code character on their displayed Diff side. */
+function wholeDiffRanges(
+  root: HTMLElement,
+  source: OfficialDiffAnnotationSource,
+  snapshot: OfficialDiffSnapshot,
+): readonly Range[] {
+  const sides: readonly ('old' | 'new')[] = source.side === 'file' ? ['old', 'new'] : [source.side]
+  const ranges = sides.flatMap((side) =>
+    officialDiffLines(snapshot, side).flatMap((line) => {
+      const code = findReviewCode(root, side, line.line)
+      if (code === null) return []
+      const range = document.createRange()
+      range.selectNodeContents(code)
+      return [range]
+    }),
+  )
+  return ranges.sort((left, right) => {
+    const position = left.startContainer.compareDocumentPosition(right.startContainer)
+    return position & Node.DOCUMENT_POSITION_FOLLOWING
+      ? -1
+      : position & Node.DOCUMENT_POSITION_PRECEDING
+        ? 1
+        : 0
+  })
+}
+
 function diffRanges(
   root: HTMLElement,
   item: Pick<AnnotationDraft, 'source' | 'quote'>,
@@ -518,7 +544,7 @@ function registerDiffView(
             matches,
             (item) =>
               item.source?.kind === 'official-diff' && item.source.wholeFile
-                ? (root.querySelector<HTMLElement>('[data-official-diff-annotate]') ?? root)
+                ? wholeDiffRanges(root, item.source, snapshot)
                 : diffRanges(root, item, snapshot),
             labels.t ?? (((key: string) => key) as InputAnnotationProps['t']),
             highlights,

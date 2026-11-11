@@ -38,6 +38,32 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
+async function assertGroupedMenu(page, marker) {
+  const menu = page.locator('.dia-marker-menu[role="menu"]')
+  await menu.waitFor({ state: 'visible' })
+  const trigger = rectEdges(await marker.boundingBox())
+  const panel = rectEdges(await menu.boundingBox())
+  const viewport = page.viewportSize()
+  const gap = Math.min(Math.abs(panel.top - trigger.bottom), Math.abs(panel.bottom - trigger.top))
+  assert(gap <= 16, `Grouped menu must follow its bubble: ${JSON.stringify({ trigger, panel })}`)
+  assert(
+    panel.left >= 0 && panel.right <= viewport.width && panel.top >= 0 && panel.bottom <= viewport.height,
+    `Grouped menu must fit the layout viewport: ${JSON.stringify({ panel, viewport })}`,
+  )
+  const typography = await menu.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return {
+      actual: parseFloat(style.fontSize),
+      expected: (parseFloat(style.getPropertyValue('--dsh-content-font-size')) || 14) - 1,
+    }
+  })
+  assert(
+    Math.abs(typography.actual - typography.expected) < 0.1,
+    `Grouped menu must use annotation typography: ${JSON.stringify(typography)}`,
+  )
+  return menu
+}
+
 const server = await createServer({
   root,
   logLevel: 'error',
@@ -157,7 +183,9 @@ async function inspectVariant(browser, base, variant) {
     assert(
       quickShape.width <= 392 &&
         quickShape.radius === '999px' &&
-        quickShape.checkRadius === '50%' &&
+        (quickShape.checkRadius === '50%' ||
+          (quickShape.checkRadius.endsWith('px') &&
+            Number.parseFloat(quickShape.checkRadius) >= quickShape.checkWidth / 2)) &&
         quickShape.checkWidth === quickShape.checkHeight &&
         quickShape.resize === 'none' &&
         quickShape.paddingTop === '10px' &&
@@ -417,17 +445,20 @@ async function inspectVariant(browser, base, variant) {
       `The bubble must follow the selected word, not the message edge: ${JSON.stringify({ markerRect, lastCharacter })}`,
     )
     assert(markerRect.y < lastCharacter.top, 'The bubble must sit above the selected character')
-    const markerIdle = await assertMarkerMaterial(marker, false)
+    const markerIdle = await assertMarkerMaterial(marker)
     await marker.focus()
-    await assertMarkerMaterial(marker, false)
+    await assertMarkerMaterial(marker)
     await marker.hover()
-    const markerHover = await assertMarkerMaterial(marker, false)
-    assert(markerIdle.alpha === markerHover.alpha, 'Hover must retain the frosted fill')
+    const markerHover = await assertMarkerMaterial(marker)
+    assert(
+      markerHover.alpha > markerIdle.alpha && markerHover.alpha === 1,
+      'Hover replaces the translucent surface with an opaque fill',
+    )
     await captureMarker(page, marker, join(artifacts, `marker-hover-${variant.name}.png`))
     await marker.click()
     const card = page.locator('.dia-record-editor--detail')
     await card.waitFor()
-    await assertMarkerMaterial(marker, true)
+    await assertMarkerMaterial(marker)
     await captureMarker(page, marker, join(artifacts, `marker-open-${variant.name}.png`))
     const editInput = card.locator('textarea')
     const editShort = await editInput.evaluate((element) => ({
@@ -497,7 +528,7 @@ async function inspectVariant(browser, base, variant) {
       'Edit card action labels must stay on one line',
     )
     await card.getByRole('button', { name: 'Cancel' }).click()
-    await assertMarkerMaterial(marker, false)
+    await assertMarkerMaterial(marker)
     await page.getByTestId('seed-three').click()
     await page.locator('main[data-annotation-count="3"]').waitFor()
     assert((await page.locator('.dia-record').count()) === 0, 'Saving must leave the record closed')
@@ -517,7 +548,7 @@ async function inspectVariant(browser, base, variant) {
       const input = card.querySelector('[data-composer-input]').getBoundingClientRect()
       const style = getComputedStyle(element)
       const remove = getComputedStyle(element.querySelector('.dia-composer-chip__remove'))
-      const actions = getComputedStyle(element.querySelector('.dia-composer-chip__actions'))
+      const actions = getComputedStyle(element.querySelector('.dia-composer-chip__actions-inner'))
       return {
         left: chip.left - cardRect.left,
         top: chip.top - cardRect.top,
@@ -543,7 +574,9 @@ async function inspectVariant(browser, base, variant) {
     )
     await chip.locator('.dia-composer-chip__main').hover()
     await page.waitForFunction(
-      () => parseFloat(getComputedStyle(document.querySelector('.dia-composer-chip__actions')).opacity) === 1,
+      () =>
+        parseFloat(getComputedStyle(document.querySelector('.dia-composer-chip__actions-inner')).opacity) ===
+        1,
     )
     const openChip = await chip.boundingBox()
     const chipCard = await page.locator('[data-composer-card]').boundingBox()
@@ -565,11 +598,15 @@ async function inspectVariant(browser, base, variant) {
     await page.screenshot({ path: join(artifacts, `chip-${variant.name}.png`), fullPage: true })
     await page.mouse.move(0, 0)
     await page.waitForFunction(
-      () => parseFloat(getComputedStyle(document.querySelector('.dia-composer-chip__actions')).opacity) === 0,
+      () =>
+        parseFloat(getComputedStyle(document.querySelector('.dia-composer-chip__actions-inner')).opacity) ===
+        0,
     )
     await chip.locator('.dia-composer-chip__main').focus()
     await page.waitForFunction(
-      () => parseFloat(getComputedStyle(document.querySelector('.dia-composer-chip__actions')).opacity) === 1,
+      () =>
+        parseFloat(getComputedStyle(document.querySelector('.dia-composer-chip__actions-inner')).opacity) ===
+        1,
     )
     assert(
       (await chip.locator('.dia-composer-chip__main').innerText()).trim() === '3 annotations',
@@ -720,7 +757,7 @@ async function inspectVariant(browser, base, variant) {
     const timeline = history.locator('.dia-timeline')
     const timelineTrigger = timeline.locator('.dia-timeline__trigger')
     assert(
-      (await timelineTrigger.textContent()).includes('3 comments'),
+      (await timelineTrigger.textContent()).includes('3 annotations'),
       'Sent annotations need a compact count above the message',
     )
     assert(
@@ -763,6 +800,27 @@ async function inspectVariant(browser, base, variant) {
     assert((await chip.count()) === 0, 'Composer chip must clear after sending')
     await marker.click()
     if ((await marker.getAttribute('aria-haspopup')) === 'menu') {
+      let menu = await assertGroupedMenu(page, marker)
+      await page.keyboard.press('Escape')
+      await menu.waitFor({ state: 'hidden' })
+      assert(
+        await marker.evaluate((element) => element === document.activeElement),
+        'Escape must return focus to the actual grouped marker',
+      )
+      await marker.click()
+      menu = await assertGroupedMenu(page, marker)
+      const offset = await scroller.evaluate((element) => element.scrollTop)
+      await scroller.evaluate((element) => {
+        element.scrollTop += 12
+      })
+      await assertGroupedMenu(page, marker)
+      await scroller.evaluate((element, top) => {
+        element.scrollTop = top
+      }, offset)
+      await page.mouse.click(2, 2)
+      await menu.waitFor({ state: 'hidden' })
+      await marker.click()
+      await assertGroupedMenu(page, marker)
       await page.getByRole('menuitem', { name: /#1 First saved note/ }).click()
     }
     const sentCard = page.locator('.dia-record-editor--detail')
@@ -815,7 +873,7 @@ async function inspectVariant(browser, base, variant) {
     await page.getByRole('button', { name: 'Send fixture message' }).click()
     const singleTrigger = history.locator('.dia-timeline__trigger')
     assert(
-      (await singleTrigger.textContent()).includes('1 comment'),
+      (await singleTrigger.textContent()).includes('1 annotation'),
       'A resend must use the single-annotation label',
     )
     await singleTrigger.hover()

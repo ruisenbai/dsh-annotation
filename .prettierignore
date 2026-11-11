@@ -1,3 +1,6 @@
 lib/
 coverage/
 pnpm-lock.yaml
+# Recorded model prompts retain their exact whitespace.
+snapshots/web/side-chat-roundtrip/system-prompt.expected.md
+snapshots/web/side-annotations-roundtrip/system-prompt.expected.md

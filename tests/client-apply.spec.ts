@@ -6,8 +6,23 @@ import { ATTACHMENT_PREPARE_INPUT } from '../src/shared/types.ts'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { InboxState } from '@deepseek-ai/dsh-agent/types'
-import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
+import type {
+  ISessions,
+  SessionReference,
+  SessionSnapshot,
+} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { WorkspaceSnapshot, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import type {
+  SidebarRightCloseHandler,
+  SidebarRightTabDefinition,
+} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
+import { SIDE_CHAT_RECEIPTS_PROJECTION } from '../src/shared/side-chat-types.ts'
+import type { SideChatReceiptState } from '../src/shared/side-chat-types.ts'
+import { SIDE_CHAT_KIND, SIDE_CHAT_TAB_ID } from '../src/client/side-chat-sidebar.tsx'
+import type { SideChatInjected } from '../src/client/components/SideChatReferences.tsx'
+import type { SideChatPanelInjected } from '../src/client/side-chat-sidebar.tsx'
+import { sideChatSessionFixture } from './side-chat-fixtures.ts'
 
 vi.mock('@deepseek-ai/dsh-client-store', () => ({
   createSnapshotStore<T>(initial: T, options?: { persist?: { name: string } }) {
@@ -95,7 +110,12 @@ function remoteSuccess() {
   return { ok: true, value: { result: { kind: 'success' as const } } }
 }
 
-function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true, sharedSelection = false) {
+function fixtureContext(
+  command: ReturnType<typeof vi.fn>,
+  initialEnabled = true,
+  sharedSelection = false,
+  inputSessionId = 'session-test' as SessionId,
+) {
   type HostSettings = Partial<AnnotationSettings>
   let referenceSerializer = async (_source: string, ref: string): Promise<string> =>
     `<reference>${ref}</reference>`
@@ -114,10 +134,26 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
   const disposers: (() => void | Promise<void>)[] = []
   const slotListeners = new Set<(key: string) => void>()
   const listListeners = new Set<() => void>()
+  const deletionListeners = new Set<(sessionId: SessionId) => void>()
   const unsubscribeSession = vi.fn()
   const unsubscribeChat = vi.fn()
   const unsubscribeInbox = vi.fn()
   const inboxListeners = new Set<() => void>()
+  const receiptListeners = new Set<() => void>()
+  const sidebarTabDefinitions = new Map<string, SidebarRightTabDefinition>()
+  const sidebarCloseHandlers = new Map<string, SidebarRightCloseHandler>()
+  const mountedListeners = new Set<() => void>()
+  const workspaceListeners = new Set<() => void>()
+  let workspaceSnapshot: WorkspaceSnapshot = {
+    phase: 'ready',
+    state: 'idle',
+    error: null,
+    items: [],
+    archivedSessionIds: [],
+    pinnedSessionIds: [],
+  }
+  let sideSessions: Pick<ISessions, 'create' | 'retain'> | undefined
+  let sideReference: SessionReference | undefined
   const sessionListeners = new Set<() => void>()
   const chatListeners = new Set<() => void>()
   const inputListeners = new Set<() => void>()
@@ -170,6 +206,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
     hasMore: initialSnapshot.hasMore,
   }
   let inbox: InboxState | undefined
+  let sideReceipts: SideChatReceiptState | undefined
   let chatSnapshot = initialSnapshot.chat
   let listed = true
   let remoteCommandsAvailable = true
@@ -191,6 +228,7 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
     }[],
     queue: [],
   }
+  const inactiveInputState = inputState
   const publishInput = (next: typeof inputState) => {
     inputState = next
     for (const listener of inputListeners) listener()
@@ -203,10 +241,15 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
         if (inputState.phase !== 'plain' && inputState.phase !== 'claimed') return undefined
         if (span.draftRev !== inputState.draftRev) return undefined
         const draft = nextClaim.token + inputState.draft.slice(span.end)
+        const occurrences = inputState.occurrences.map((occurrence) => ({
+          ...occurrence,
+          offset: occurrence.offset + nextClaim.token.length - span.end,
+        }))
         claim = nextClaim
         publishInput({
           ...inputState,
           draft,
+          occurrences,
           draftRev: inputState.draftRev + 1,
           phase: 'claimed',
           claim: nextClaim,
@@ -219,11 +262,28 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
           span: { start: number; end: number; draftRev: number }
         }
         if (guard.kind !== 'span' || guard.span.draftRev !== inputState.draftRev) return undefined
-        const draft = inputState.draft.slice(0, guard.span.start) + inputState.draft.slice(guard.span.end)
+        // The editor counts an armed command chip as one unit; persistence expands its token.
+        const tokenLength =
+          inputState.phase === 'claimed' && inputState.draft.startsWith(COMPOSER_ATTACHMENT_TOKEN)
+            ? COMPOSER_ATTACHMENT_TOKEN.length
+            : 0
+        const draftOffset = (offset: number) =>
+          tokenLength > 0 && offset > 0 ? offset + tokenLength - 1 : offset
+        const start = draftOffset(guard.span.start)
+        const end = draftOffset(guard.span.end)
+        const draft = inputState.draft.slice(0, start) + inputState.draft.slice(end)
+        const occurrences = inputState.occurrences
+          .filter((occurrence) => occurrence.offset >= end || occurrence.offset + occurrence.length <= start)
+          .map((occurrence) =>
+            occurrence.offset >= end
+              ? { ...occurrence, offset: occurrence.offset - (end - start) }
+              : occurrence,
+          )
         claim = null
         publishInput({
           ...inputState,
           draft,
+          occurrences,
           draftRev: inputState.draftRev + 1,
           phase: 'plain',
           claim: null,
@@ -247,12 +307,23 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       publishInput({
         ...inputState,
         draft,
+        occurrences: [],
         draftRev: inputState.draftRev + 1,
         phase: keepsClaim ? 'claimed' : 'plain',
         claim: keepsClaim ? claim : null,
       })
     },
     notify: inputNotice,
+  }
+  const inactiveInput = {
+    state: {
+      getSnapshot: () => inactiveInputState,
+      subscribe: () => () => {},
+    },
+    setDraft() {
+      throw new Error('The fixture cannot edit another Session input')
+    },
+    notify: vi.fn(),
   }
   const inboxFace = {
     getSnapshot: () => inbox,
@@ -267,6 +338,14 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
   const session = {
     projections: {
       faceOf(key: string) {
+        if (key === SIDE_CHAT_RECEIPTS_PROJECTION)
+          return {
+            getSnapshot: () => sideReceipts,
+            subscribe(listener: () => void) {
+              receiptListeners.add(listener)
+              return () => receiptListeners.delete(listener)
+            },
+          }
         if (key !== 'inbox') throw new Error(`Unexpected projection: ${key}`)
         return inboxFace
       },
@@ -319,6 +398,13 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       ? prepareAttachments(sessionId, line, attachments)
       : Reflect.apply(command, undefined, [sessionId, line, attachments])
   const ctx = {
+    remote: {
+      $on: (_event: string, listener: (sessionId: SessionId) => void) => {
+        deletionListeners.add(listener)
+        return () => deletionListeners.delete(listener)
+      },
+    },
+    logger: { warn: vi.fn(), error: vi.fn() },
     get(name: string) {
       if (name === 'remote.commands' && remoteCommandsAvailable) return { execute }
       return undefined
@@ -329,6 +415,8 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       getLocale: () => ({ active: 'zh' as const, locales: [], revision: 0 }),
     },
     sessions: {
+      delete: vi.fn(async () => {}),
+      isDeleted: vi.fn(async () => false),
       list: {
         getSnapshot: () => ({ phase: 'ready', byId: listed ? { 'session-test': {} } : {} }),
         subscribe(listener: () => void) {
@@ -336,8 +424,21 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
           return () => listListeners.delete(listener)
         },
       },
-      binding: () => ({ sessionId: 'session-test', session, ctx: actx }),
+      binding: (sessionId: SessionId) =>
+        sessionId === sideReference?.sessionId
+          ? sideReference.binding
+          : { sessionId: 'session-test', session, ctx: actx },
       scopeOf: (candidate: unknown) => (candidate === actx ? ('session-test' as SessionId) : undefined),
+      create: (...args: Parameters<ISessions['create']>) => {
+        if (sideSessions === undefined) throw new Error('Unexpected side Session creation')
+        return sideSessions.create(...args)
+      },
+      retain: (...args: Parameters<ISessions['retain']>) => {
+        if (sideSessions === undefined) throw new Error('Unexpected side Session retention')
+        const reference = sideSessions.retain(...args)
+        if (reference.sessionId !== 'session-test') sideReference = reference
+        return reference
+      },
     },
     uiConversation: {
       ...(sharedSelection ? { interactions: {} } : {}),
@@ -354,7 +455,12 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
         }),
       }),
     },
-    conversation: { input: { for: () => input } },
+    conversation: {
+      input: {
+        for: (candidate: unknown) =>
+          candidate === actx && inputSessionId !== 'session-test' ? inactiveInput : input,
+      },
+    },
     inputTriggers: {
       sessionOf: () => ({
         serializeReference: (source: string, ref: string) => referenceSerializer(source, ref),
@@ -362,6 +468,41 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
     },
     configForms: {
       get: () => settingsScope,
+    },
+    workspaces: {
+      list: {
+        getSnapshot: () => workspaceSnapshot,
+        subscribe(listener: () => void) {
+          workspaceListeners.add(listener)
+          return () => workspaceListeners.delete(listener)
+        },
+      },
+    },
+    sidebarRightTabs: {
+      register(definition: SidebarRightTabDefinition) {
+        if (sidebarTabDefinitions.has(definition.id)) throw new Error('Sidebar tab already registered')
+        sidebarTabDefinitions.set(definition.id, definition)
+        return () => sidebarTabDefinitions.delete(definition.id)
+      },
+    },
+    sidebarRight: {
+      openTabIn: vi.fn(),
+      registerCloseHandler(kind: string, handler: SidebarRightCloseHandler) {
+        if (sidebarCloseHandlers.has(kind)) throw new Error('Sidebar close handler already registered')
+        sidebarCloseHandlers.set(kind, handler)
+        return () => sidebarCloseHandlers.delete(kind)
+      },
+      mounted: {
+        getSnapshot: () => 'session-test' as SessionId,
+        subscribe(listener: () => void) {
+          mountedListeners.add(listener)
+          return () => mountedListeners.delete(listener)
+        },
+      },
+      tabsIn: () => [],
+      openResourceIn: vi.fn(),
+      hide: vi.fn(),
+      closeIn: vi.fn(),
     },
     slots: {
       register(options: Record<string, unknown>, component: unknown) {
@@ -403,15 +544,48 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
     },
     effect(install: () => void | (() => void | Promise<void>)) {
       const dispose = install()
-      if (typeof dispose === 'function') disposers.push(dispose)
+      let active = true
+      const release = async () => {
+        if (!active) return
+        active = false
+        if (typeof dispose === 'function') await dispose()
+      }
+      disposers.push(release)
+      return release
     },
   } as unknown as ClientContext
   return {
     ctx,
+    editorContext: actx,
     prepareAttachments,
     fileContents,
+    setWorkspaces(snapshot: WorkspaceSnapshot) {
+      workspaceSnapshot = snapshot
+      for (const listener of workspaceListeners) listener()
+    },
+    setSideSessions(sessions: Pick<ISessions, 'create' | 'retain'>) {
+      sideSessions = sessions
+    },
+    /** @param sessionId - side Conversation whose chip face is wanted. @returns Its injected side-chat face. */
+    sideFace(sessionId = 'session-test' as SessionId): SideChatInjected {
+      const chip = registrations.find((entry) => entry.options.id === 'dsh-annotation-side-chat-chip')
+      if (chip === undefined || typeof chip.options.inject !== 'function')
+        throw new Error('Side-chat chip was not registered')
+      return chip.options.inject(sessionId) as SideChatInjected
+    },
+    /** @param sessionId - main Session whose panel body face is wanted. @returns Its injected panel face. */
+    sidePanelFace(sessionId = 'session-test' as SessionId): SideChatPanelInjected {
+      const tab = registrations.find(
+        (entry) => entry.options.name === 'sidebar.right.pane.tab' && entry.options.key === SIDE_CHAT_TAB_ID,
+      )
+      if (tab === undefined || typeof tab.options.inject !== 'function')
+        throw new Error('Side-chat panel was not registered')
+      return tab.options.inject(sessionId) as SideChatPanelInjected
+    },
     face(sessionId = 'session-test' as SessionId) {
-      const dock = registrations.find((entry) => entry.options.name === 'conversation.input.dock')
+      const dock = registrations.find(
+        (entry) => entry.options.name === 'conversation.input.dock' && entry.options.id === 'dsh-annotation',
+      )
       if (dock === undefined || typeof dock.options.inject !== 'function')
         throw new Error('dock was not registered')
       return dock.options.inject(sessionId) as AnnotationInjected
@@ -488,6 +662,11 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
     hasRegistrationKey(name: string, key: string) {
       return registrations.some((entry) => entry.options.name === name && entry.options.key === key)
     },
+    registrationIds(name: string) {
+      return registrations
+        .filter((entry) => entry.options.name === name)
+        .map((entry) => String(entry.options.id ?? ''))
+    },
     countRegistrationKey(name: string, key: string) {
       return registrations.filter((entry) => entry.options.name === name && entry.options.key === key).length
     },
@@ -495,6 +674,10 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
     inputSnapshot: () => inputState,
     setComposerPhase(phase: typeof inputState.phase) {
       publishInput({ ...inputState, phase })
+    },
+    restorePlainComposerPrefix() {
+      claim = null
+      inputState = { ...inputState, phase: 'plain', claim: null }
     },
     setPlainComposerText(text: string) {
       input.setDraft(text)
@@ -580,6 +763,15 @@ function fixtureContext(command: ReturnType<typeof vi.fn>, initialEnabled = true
       inbox = snapshot
       if (notify) for (const listener of inboxListeners) listener()
     },
+    setSideReceipts(snapshot: SideChatReceiptState | undefined) {
+      sideReceipts = snapshot
+      for (const listener of receiptListeners) listener()
+    },
+    sideRegistrations: () => ({
+      tabs: [...sidebarTabDefinitions.values()],
+      closeKinds: [...sidebarCloseHandlers.keys()],
+      receiptSubscribers: receiptListeners.size,
+    }),
     setChatSnapshot(snapshot: AnnotationReconciliationSnapshot['chat'], notify = true) {
       chatSnapshot = snapshot
       if (notify) for (const listener of chatListeners) listener()
@@ -679,6 +871,432 @@ function persistedAnnotationValues(sessionId = 'session-test'): string {
 }
 
 describe('Client plugin composer attachment lifecycle', () => {
+  it('keeps ordinary annotations available without a permanent-deletion service', async ({
+    onTestFinished,
+  }) => {
+    const fixture = fixtureContext(vi.fn())
+    onTestFinished(() => fixture.dispose())
+    Reflect.deleteProperty(fixture.ctx.sessions, 'isDeleted')
+    const subscribe = vi.spyOn(fixture.ctx.remote, '$on')
+    apply(fixture.ctx)
+    expect(subscribe.mock.calls.some(([event]) => String(event) === 'api-session/deleted')).toBe(false)
+    expect(fixture.settingsFace()).toBeDefined()
+  })
+
+  it('drains a deleted main Session resource before releasing its ready side Session', async ({
+    onTestFinished,
+  }) => {
+    const mainId = 'session-test' as SessionId
+    const fixture = fixtureContext(vi.fn())
+    const side = sideChatSessionFixture(mainId)
+    const events: string[] = []
+    const stopped = vi.fn(() => events.push('resource-stop'))
+    const release = vi.fn(() => events.push('side-release'))
+    const mainRelease = vi.fn(() => events.push('main-release'))
+    fixture.setSideSessions({
+      ...side.sessions,
+      retain: (...args) => {
+        const reference = side.sessions.retain(...args)
+        const releaseReference = args[1].source === 'annotationSideChatMain' ? mainRelease : release
+        return { ...reference, release: releaseReference, [Symbol.dispose]: releaseReference }
+      },
+    })
+    fixture.setWorkspaces({
+      phase: 'ready',
+      state: 'idle',
+      error: null,
+      items: [
+        {
+          workspaceId: 'workspace-test' as WorkspaceView['workspaceId'],
+          title: 'Workspace test',
+          path: '/fixture-workspace',
+          sessionIds: [mainId],
+          createdAt: '2026-11-06T00:00:00.000Z',
+          updatedAt: '2026-11-06T00:00:00.000Z',
+        },
+      ],
+      archivedSessionIds: [],
+      pinnedSessionIds: [],
+    })
+    onTestFinished(async () => {
+      await fixture.dispose()
+      await side.dispose()
+    })
+    apply(fixture.ctx)
+    expect(fixture.face().beginSideAnnotation?.(capture(0, 'Alpha'))).toBe(true)
+    const source = fixture.sidePanelFace().hooks.sideChat
+    await vi.waitFor(() => expect(source.getSnapshot()).toMatchObject({ status: 'ready' }))
+    const subscribe = source.subscribe
+    vi.spyOn(source, 'subscribe').mockImplementation((listener) => {
+      const unsubscribe = subscribe(listener)
+      return () => {
+        unsubscribe()
+        stopped()
+      }
+    })
+    fixture.removeSession()
+    await vi.waitFor(() => expect(release).toHaveBeenCalledOnce())
+    expect(mainRelease).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(source.getSnapshot()).toMatchObject({ status: 'disposed' }))
+    // Disposal closes the shared listener set: a late subscriber never learns about a
+    // retired main, and no further view is published.
+    const late = vi.fn()
+    source.subscribe(late)
+    expect(late).not.toHaveBeenCalled()
+    void stopped
+  })
+
+  it('does not retain or create a restored side association whose main Session was already deleted', async ({
+    onTestFinished,
+  }) => {
+    const mainId = 'session-test' as SessionId
+    const fixture = fixtureContext(vi.fn())
+    const side = sideChatSessionFixture(mainId)
+    const create = vi.fn<ISessions['create']>(side.sessions.create)
+    const retain = vi.fn<ISessions['retain']>(side.sessions.retain)
+    fixture.setSideSessions({ create, retain })
+    localStorage.setItem(
+      `dsh-annotation:side-chat:v1:${mainId}`,
+      JSON.stringify({
+        storageVersion: 1,
+        mainSessionId: mainId,
+        sideSessionId: side.sideId,
+        created: true,
+        visible: true,
+        references: [],
+        outbox: null,
+      }),
+    )
+    fixture.removeSession()
+    onTestFinished(async () => {
+      await fixture.dispose()
+      await side.dispose()
+    })
+    apply(fixture.ctx)
+    const face = fixture.face()
+    expect(face.beginSideAnnotation?.(capture(0, 'Alpha'))).toBe(false)
+    expect(create).not.toHaveBeenCalled()
+    expect(retain).not.toHaveBeenCalled()
+    expect(fixture.face().beginSideAnnotation?.(capture(0, 'Beta'))).toBe(false)
+  })
+
+  it('waits for Workspace membership and keeps three annotation editors bound to the receiving side Session', async ({
+    onTestFinished,
+  }) => {
+    const fixture = fixtureContext(vi.fn())
+    const side = sideChatSessionFixture('session-test' as SessionId)
+    const creation = Promise.withResolvers<SessionId>()
+    const create = vi.fn<ISessions['create']>(() => creation.promise)
+    fixture.setSideSessions({ ...side.sessions, create })
+    onTestFinished(async () => {
+      creation.resolve(side.sideId)
+      await fixture.dispose()
+      await side.dispose()
+    })
+    const workspace: WorkspaceView = {
+      workspaceId: 'workspace-test' as WorkspaceView['workspaceId'],
+      title: 'Workspace test',
+      path: '/fixture-workspace',
+      sessionIds: ['session-test' as SessionId],
+      createdAt: '2026-11-06T00:00:00.000Z',
+      updatedAt: '2026-11-06T00:00:00.000Z',
+    }
+    const ready: WorkspaceSnapshot = {
+      phase: 'ready',
+      state: 'idle',
+      error: null,
+      items: [workspace],
+      archivedSessionIds: [],
+      pinnedSessionIds: [],
+    }
+    fixture.setWorkspaces({ ...ready, phase: 'pending', state: 'loading', items: [] })
+    apply(fixture.ctx)
+    fixture.setPlainComposerText('Keep the main draft.')
+    const face = fixture.face()
+    const sideFace = fixture.sidePanelFace()
+    for (const [index, text] of ['Alpha', 'Beta', 'Gamma'].entries()) {
+      expect(face.beginSideAnnotation?.(capture(index * 10, text))).toBe(true)
+    }
+    await vi.waitFor(() =>
+      expect(sideFace.hooks.sideChat.getSnapshot()).toMatchObject({ status: 'preparing' }),
+    )
+    expect(create).not.toHaveBeenCalled()
+    fixture.setWorkspaces(ready)
+    await vi.waitFor(() => expect(create).toHaveBeenCalledOnce())
+    expect(create.mock.calls[0]?.[0]).toMatchObject({ workspaceId: workspace.workspaceId })
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('cwd')
+    expect(sideFace.hooks.sideChat.getSnapshot()?.references).toEqual([])
+    fixture.setWorkspaces(ready)
+    creation.resolve(side.sideId)
+    await vi.waitFor(() =>
+      expect(sideFace.hooks.sideChat.getSnapshot()).toMatchObject({
+        status: 'ready',
+        sideSessionId: side.sideId,
+      }),
+    )
+    expect(create).toHaveBeenCalledOnce()
+    const annotations = fixture.face(side.sideId).hooks.annotations
+    await vi.waitFor(() => expect(annotations.getSnapshot().editorDrafts).toHaveLength(2))
+    expect(
+      [...annotations.getSnapshot().editorDrafts, annotations.getSnapshot().editor].map((editor) =>
+        editor?.kind === 'new' ? [editor.capture.quote.exact, editor.capture.source] : null,
+      ),
+    ).toEqual(
+      ['Alpha', 'Beta', 'Gamma'].map((text) => [
+        text,
+        expect.objectContaining({ kind: 'message', sessionId: 'session-test' }),
+      ]),
+    )
+    expect(sideFace.hooks.sideChat.getSnapshot()?.references).toEqual([])
+    expect(fixture.inputSnapshot()).toMatchObject({
+      draft: 'Keep the main draft.',
+      phase: 'plain',
+      claim: null,
+    })
+  })
+
+  it('releases an unloaded composer claim after a pending failure while preserving its draft', async ({
+    onTestFinished,
+  }) => {
+    const response = Promise.withResolvers<ReturnType<typeof remoteSuccess>>()
+    const entered = Promise.withResolvers<void>()
+    const command = vi.fn(() => {
+      entered.resolve()
+      return response.promise
+    })
+    const fixture = fixtureContext(command)
+    let pending: Promise<SubmitOutcome> | undefined
+    onTestFinished(async () => {
+      response.reject(new Error('Fixture cleanup releases the pending command'))
+      await pending
+      await fixture.dispose()
+    })
+    apply(fixture.ctx)
+    const face = fixture.face()
+    saveAnnotation(face)
+    face.ensureComposerAttachment()
+    fixture.setComposerText('Keep draft on unload')
+    pending = fixture.submitComposer()
+    await entered.promise
+    expect(command).toHaveBeenCalledOnce()
+    const unloading = fixture.dispose()
+    let retired = false
+    void unloading.then(() => {
+      retired = true
+    })
+    await Promise.resolve()
+    expect(retired).toBe(false)
+    response.reject(new Error('Offline after unload'))
+    expect((await pending).kind).toBe('error')
+    await unloading
+    expect(fixture.inputSnapshot()).toMatchObject({
+      phase: 'plain',
+      claim: null,
+      draft: 'Keep draft on unload',
+    })
+  })
+
+  it('projects a side editor onto its source bubble and clears that state when its panel is hidden', async ({
+    onTestFinished,
+  }) => {
+    const side = sideChatSessionFixture('session-test' as SessionId)
+    const fixture = fixtureContext(vi.fn())
+    fixture.setSideSessions(side.sessions)
+    fixture.setWorkspaces({
+      phase: 'ready',
+      state: 'idle',
+      error: null,
+      items: [
+        {
+          workspaceId: 'workspace-test' as WorkspaceView['workspaceId'],
+          title: 'Workspace test',
+          path: '/fixture-workspace',
+          sessionIds: ['session-test' as SessionId],
+          createdAt: '2026-11-06T00:00:00.000Z',
+          updatedAt: '2026-11-06T00:00:00.000Z',
+        },
+      ],
+      archivedSessionIds: [],
+      pinnedSessionIds: [],
+    })
+    onTestFinished(async () => {
+      await fixture.dispose()
+      await side.dispose()
+    })
+    apply(fixture.ctx)
+    const main = fixture.face()
+    expect(main.beginSideAnnotation?.(capture(0, 'Alpha'))).toBe(true)
+    await vi.waitFor(() =>
+      expect(fixture.sidePanelFace().hooks.sideChat.getSnapshot()).toMatchObject({ status: 'ready' }),
+    )
+    const notes = fixture.face(side.sideId)
+    const releaseVisibility = fixture.sidePanelFace().retainVisiblePanel()
+    onTestFinished(releaseVisibility)
+    notes.updateEditorText('Explain Alpha')
+    const id = notes.saveEditor()
+    const markers = () => main.hooks.annotations.getSnapshot().sourceAnnotations
+    expect(markers()).toMatchObject([{ annotation: { annotationId: id }, active: false, editorOpen: false }])
+    main.openSourceAnnotation?.(String(side.sideId) as SessionIdentity, id)
+    expect(markers()).toMatchObject([{ active: true, detailsOpen: true, editorOpen: true }])
+    const unchanged = markers()
+    notes.updateEditorText('Keep this unfinished change')
+    expect(markers()).toBe(unchanged)
+    const releaseSecondOccurrence = fixture.sidePanelFace().retainVisiblePanel()
+    onTestFinished(releaseSecondOccurrence)
+    releaseVisibility()
+    expect(markers()).toMatchObject([{ active: true, editorOpen: true }])
+    releaseSecondOccurrence()
+    releaseVisibility()
+    expect(markers()).toMatchObject([{ active: false, detailsOpen: false, editorOpen: false }])
+    expect(notes.hooks.annotations.getSnapshot().editor?.text).toBe('Keep this unfinished change')
+    onTestFinished(fixture.sidePanelFace().retainVisiblePanel())
+    expect(markers()).toMatchObject([{ active: true, detailsOpen: true, editorOpen: true }])
+    notes.closeEditor(true)
+    expect(markers()).toMatchObject([{ active: false, editorOpen: false }])
+    expect(main.hooks.annotations.getSnapshot().annotations).toEqual([])
+  })
+
+  it('preserves side input text, official mentions and files after detaching its last annotation', async ({
+    onTestFinished,
+  }) => {
+    const command = vi.fn()
+    const side = sideChatSessionFixture('session-test' as SessionId)
+    const fixture = fixtureContext(command, true, false, side.sideId)
+    const editorContext = side.sessions.retain(side.sideId, { source: 'annotationSideChat' }).binding.ctx
+    editorContext.on('slash/input-begin-command', (request) =>
+      fixture.editorContext.bail(fixture.editorContext, 'slash/input-begin-command', request),
+    )
+    editorContext.on('slash/input-consume-token', (request) =>
+      fixture.editorContext.bail(fixture.editorContext, 'slash/input-consume-token', request),
+    )
+    fixture.setSideSessions(side.sessions)
+    fixture.setWorkspaces({
+      phase: 'ready',
+      state: 'idle',
+      error: null,
+      items: [
+        {
+          workspaceId: 'workspace-test' as WorkspaceView['workspaceId'],
+          title: 'Workspace test',
+          path: '/fixture-workspace',
+          sessionIds: ['session-test' as SessionId],
+          createdAt: '2026-11-06T00:00:00.000Z',
+          updatedAt: '2026-11-06T00:00:00.000Z',
+        },
+      ],
+      archivedSessionIds: [],
+      pinnedSessionIds: [],
+    })
+    onTestFinished(async () => {
+      await fixture.dispose()
+      await side.dispose()
+    })
+    apply(fixture.ctx)
+    const main = fixture.face()
+    expect(main.beginSideAnnotation?.(capture(0, 'Alpha'))).toBe(true)
+    await vi.waitFor(() =>
+      expect(fixture.sidePanelFace().hooks.sideChat.getSnapshot()).toMatchObject({ status: 'ready' }),
+    )
+    const notes = fixture.face(side.sideId)
+    await vi.waitFor(() => expect(notes.hooks.annotations.getSnapshot().editor).not.toBeNull())
+    notes.updateEditorText('Explain Alpha')
+    const first = notes.saveEditor()
+    expect(main.beginSideAnnotation?.(capture(10, 'Beta'))).toBe(true)
+    await vi.waitFor(() => expect(notes.hooks.annotations.getSnapshot().editor).not.toBeNull())
+    notes.updateEditorText('Explain Beta')
+    const last = notes.saveEditor()
+    notes.ensureComposerAttachment()
+    const owner = fixture.sideFace(side.sideId).hooks.sideChat
+    expect(owner.getSnapshot()).toMatchObject({ status: 'ready', sideSessionId: side.sideId })
+    const question = 'Keep this next side-chat draft with @notes.'
+    fixture.setComposerReferences(question, [{ display: '@notes', source: 'file', ref: 'notes-file' }])
+    fixture.setAttachments(['side-image', 'side-file'])
+    const initial = fixture.inputSnapshot()
+    expect(initial).toMatchObject({ phase: 'claimed', draft: `${COMPOSER_ATTACHMENT_TOKEN}${question}` })
+    notes.detachAnnotations([first])
+    expect(fixture.inputSnapshot().draft).toBe(initial.draft)
+    notes.detachAnnotations([last])
+    expect(fixture.inputSnapshot()).toMatchObject({
+      draft: question,
+      phase: 'plain',
+      claim: null,
+      attachmentIds: initial.attachmentIds,
+      occurrences: initial.occurrences.map((occurrence) => ({
+        ...occurrence,
+        offset: occurrence.offset - COMPOSER_ATTACHMENT_TOKEN.length,
+      })),
+    })
+    expect(command).not.toHaveBeenCalled()
+  })
+
+  it.each(['', COMPOSER_TEXT_SEAT])(
+    'preserves official references and attachments when a restored plain attachment prefix with seat %j is withdrawn',
+    async (seat) => {
+      const fixture = fixtureContext(vi.fn())
+      try {
+        apply(fixture.ctx)
+        const face = fixture.face()
+        saveAnnotation(face)
+        fixture.setComposerText(`${seat}Keep the question and @notes.`)
+        fixture.setComposerReferences('Keep the question and @notes.', [
+          { display: '@notes', source: 'file', ref: 'notes-file' },
+        ])
+        fixture.setAttachments(['official-image', 'official-file'])
+        fixture.restorePlainComposerPrefix()
+        const initial = fixture.inputSnapshot()
+        for (const annotation of face.hooks.annotations.getSnapshot().annotations) {
+          if (annotation.status === 'draft') face.deleteDraft(annotation.annotationId)
+        }
+        const prefixLength = COMPOSER_ATTACHMENT_TOKEN.length + seat.length
+        expect(fixture.inputSnapshot()).toMatchObject({
+          draft: 'Keep the question and @notes.',
+          phase: 'plain',
+          claim: null,
+          attachmentIds: initial.attachmentIds,
+          occurrences: initial.occurrences.map((occurrence) => ({
+            ...occurrence,
+            offset: occurrence.offset - prefixLength,
+          })),
+        })
+      } finally {
+        await fixture.dispose()
+      }
+    },
+  )
+
+  it('registers the navigation entry, panel, chip, and embedded Conversation for the enabled lifetime', async ({
+    onTestFinished,
+  }) => {
+    const fixture = fixtureContext(vi.fn())
+    onTestFinished(() => fixture.dispose())
+    apply(fixture.ctx)
+    fixture.face()
+    expect(fixture.sideRegistrations()).toMatchObject({
+      tabs: [{ id: SIDE_CHAT_TAB_ID, kind: SIDE_CHAT_KIND, keepMounted: true }],
+      receiptSubscribers: 1,
+    })
+    expect(fixture.hasRegistration('annotation.side-chat.conversation')).toBe(true)
+    expect(fixture.hasRegistrationKey('sidebar.right.pane.tab', SIDE_CHAT_TAB_ID)).toBe(true)
+    expect(fixture.hasRegistration('conversation.input.overlay')).toBe(true)
+    // The side-chat entry never lives in the main composer's own action row: the
+    // right Sidebar's navigation area owns it, so no composer button duplicates it.
+    expect(
+      fixture.registrationIds('conversation.input.right').filter((id) => id.includes('side-chat')),
+    ).toEqual([])
+    await fixture.setPluginEnabled(false)
+    expect(fixture.sideRegistrations()).toMatchObject({ tabs: [] })
+    expect(fixture.hasRegistration('annotation.side-chat.conversation')).toBe(false)
+    await fixture.setPluginEnabled(true)
+    expect(fixture.sideRegistrations()).toMatchObject({ tabs: [{ id: SIDE_CHAT_TAB_ID }] })
+    await fixture.dispose()
+    expect(fixture.sideRegistrations()).toEqual({
+      tabs: [],
+      closeKinds: [],
+      receiptSubscribers: 0,
+    })
+    expect(fixture.hasRegistration('annotation.side-chat.conversation')).toBe(false)
+  })
+
   it('replaces only the shared quote cell and releases it when annotations are disabled or unloaded', async () => {
     const fixture = fixtureContext(vi.fn(), true, true)
     apply(fixture.ctx)
@@ -908,6 +1526,7 @@ describe('Client plugin composer attachment lifecycle', () => {
         const face = fixture.face()
         saveAnnotation(face)
         fixture.setPlainComposerText(`${prefix}Keep the restored text.`)
+        await Promise.resolve()
         expect(fixture.inputSnapshot()).toMatchObject({
           phase: 'claimed',
           claim: { token: COMPOSER_ATTACHMENT_TOKEN },
@@ -920,6 +1539,34 @@ describe('Client plugin composer attachment lifecycle', () => {
       }
     },
   )
+
+  it('repairs a restored attachment after the editor notification returns, preserving draft attachments', async () => {
+    const fixture = fixtureContext(vi.fn())
+    try {
+      apply(fixture.ctx)
+      const face = fixture.face()
+      saveAnnotation(face)
+      fixture.setAttachments(['retained-image', 'retained-file'])
+      const bail = fixture.editorContext.bail.bind(fixture.editorContext)
+      let publishing = false
+      vi.spyOn(fixture.editorContext, 'bail').mockImplementation((...args) => {
+        expect(publishing).toBe(false)
+        return Reflect.apply(bail, fixture.editorContext, args)
+      })
+      publishing = true
+      fixture.setPlainComposerText('\u200BKeep this restored draft')
+      publishing = false
+      expect(fixture.inputSnapshot().phase).toBe('plain')
+      await Promise.resolve()
+      expect(fixture.inputSnapshot()).toMatchObject({
+        phase: 'claimed',
+        draft: `${COMPOSER_ATTACHMENT_TOKEN}Keep this restored draft`,
+        attachmentIds: ['retained-image', 'retained-file'],
+      })
+    } finally {
+      await fixture.dispose()
+    }
+  })
 
   it('activates Codex UI compatibility from a late dock registration and removes it on disposal', async () => {
     const fixture = fixtureContext(vi.fn())
@@ -977,12 +1624,18 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(command).not.toHaveBeenCalled()
   })
 
-  it('releases a submitting attachment when the feature is disabled mid-send', async () => {
-    let rejectCommand!: (cause: Error) => void
-    const command = vi
-      .fn()
-      .mockImplementation(() => new Promise<never>((_resolve, reject) => (rejectCommand = reject)))
+  it('releases a submitting attachment when the feature is disabled mid-send', async ({ onTestFinished }) => {
+    const response = Promise.withResolvers<ReturnType<typeof remoteSuccess>>()
+    const entered = Promise.withResolvers<void>()
+    const command = vi.fn(() => {
+      entered.resolve()
+      return response.promise
+    })
     const fixture = fixtureContext(command)
+    onTestFinished(async () => {
+      response.reject(new Error('Fixture cleanup releases the pending command'))
+      await fixture.dispose()
+    })
     apply(fixture.ctx)
     const face = fixture.face()
     saveAnnotation(face)
@@ -990,17 +1643,12 @@ describe('Client plugin composer attachment lifecycle', () => {
     fixture.setComposerText('Keep this draft while sending.')
 
     const pending = fixture.submitComposer()
-    await Promise.resolve()
-    await Promise.resolve()
+    await entered.promise
     expect(command).toHaveBeenCalledOnce()
     await fixture.setPluginEnabled(false)
 
     expect(fixture.hasRegistration('conversation.input.dock')).toBe(false)
-    expect(fixture.inputSnapshot().draft.startsWith(COMPOSER_ATTACHMENT_TOKEN)).toBe(true)
-    expect(fixture.inputSnapshot().phase).toBe('submitting')
-
-    rejectCommand(new Error('offline'))
-    await expect(pending).resolves.toEqual({ kind: 'error', text: 'offline' })
+    await expect(pending).resolves.toEqual({ kind: 'error', text: 'sideChat.failure.disposed' })
 
     expect(fixture.inputSnapshot()).toMatchObject({
       draft: 'Keep this draft while sending.',
@@ -1009,6 +1657,15 @@ describe('Client plugin composer attachment lifecycle', () => {
     })
     expect(fixture.hasRegistration('conversation.input.dock')).toBe(false)
     expect(face.hooks.annotations.getSnapshot().outbox[0]).toMatchObject({ status: 'failed' })
+    const stopped = face.hooks.annotations.getSnapshot()
+    response.reject(new Error('Offline after the plugin stopped admission'))
+    await Promise.resolve()
+    expect(face.hooks.annotations.getSnapshot()).toBe(stopped)
+    expect(fixture.inputSnapshot()).toMatchObject({
+      draft: 'Keep this draft while sending.',
+      phase: 'plain',
+      claim: null,
+    })
     await fixture.dispose()
   })
 
@@ -1119,7 +1776,7 @@ describe('Client plugin composer attachment lifecycle', () => {
   })
 
   it('keeps the root command Remote optional and falls back for image-free submissions', async () => {
-    expect(inject).not.toContain('remote')
+    expect(inject).toContain('remote')
     expect(inject).not.toContain('remote.commands')
     const command = vi.fn().mockResolvedValue({ ok: true, value: { matched: true } })
     const fixture = fixtureContext(command)
@@ -1560,6 +2217,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     saveAnnotation(face)
     expect(face.ensureComposerAttachment()).toBe(true)
     fixture.setComposerText('/goal finish the report')
+    await Promise.resolve()
     expect(fixture.inputSnapshot()).toMatchObject({ phase: 'plain', claim: null })
 
     face.repairComposerAttachment()

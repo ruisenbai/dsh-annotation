@@ -1,0 +1,18 @@
+{
+  "mainSessionId": "annotation-side-chat-main-a",
+  "otherSessionId": "annotation-side-chat-main-b",
+  "source": "Alpha confirmed source. Beta confirmed source. Gamma confirmed source. Delta belongs to the next message.\n\n```html\n<script>alert('reference')</script> **literal markdown** `code` & Unicode 中文.\n```\n\nLong confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。 Long confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。 Long confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。 Long confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。 Long confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。 Long confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。 Long confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。 Long confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。",
+  "otherSource": "Other conversation: Alpha confirmed source. Its history must stay independent.",
+  "references": ["Alpha confirmed source.", "Beta confirmed source.", "Gamma confirmed source."],
+  "nextReference": "Delta belongs to the next message.",
+  "safeReference": "<script>alert('reference')</script> **literal markdown** `code` & Unicode 中文.",
+  "mainDraft": "Keep the main conversation draft.",
+  "question": "Explain the three confirmed references in order.",
+  "nextQuestion": "Keep this next side-chat draft.",
+  "sideAnnotation": "Explain this side answer more precisely.",
+  "annotationQuestion": "Please address the side answer annotation.",
+  "longReference": "Long confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。 Long confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。 Long confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。 Long confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。 Long confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。 Long confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。 Long confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。 Long confirmed reference keeps its original source identity and remains readable in a constrained side Conversation. 长引用在受限侧栏中正常换行并保留完整原文。",
+  "ungroupedSessionId": "annotation-side-chat-main-ungrouped",
+  "ungroupedSource": "An ungrouped main Conversation can ask about this exact confirmed source.",
+  "ungroupedQuestion": "Explain this ungrouped source in its independent side Conversation."
+}

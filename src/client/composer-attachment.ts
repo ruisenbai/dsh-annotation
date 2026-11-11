@@ -52,29 +52,70 @@ export function attachComposer(actx: ClientContext, input: SessionInput, claim: 
   return actx.bail(actx, 'slash/input-begin-command', { claim, span }) === true
 }
 
-/** Remove this plugin's claim token while retaining the user's composer text and references. */
+/** Whether the editor's structured content — reference chips, quotes, and attachments — is unchanged. */
+function sameDocument(before: InputState, after: InputState): boolean {
+  if (before.occurrences.length !== after.occurrences.length) return false
+  return before.occurrences.every((occurrence, index) => {
+    const next = after.occurrences[index]
+    return (
+      next !== undefined &&
+      next.occurrenceId === occurrence.occurrenceId &&
+      next.source === occurrence.source &&
+      next.ref === occurrence.ref &&
+      next.clipboardText === occurrence.clipboardText
+    )
+  })
+}
+
+/**
+ * Remove this plugin's leading token without touching the remaining editor document.
+ *
+ * The consume edits one detect-coordinate span, and that span can settle with the
+ * user's first characters still inside the removed range. The document is never
+ * replaced: `setDraft` would flatten reference chips and quotes into plain text and
+ * drop their identities. Structured references, quote blocks, and draft attachment
+ * identities must all survive; when characters go missing the missing prefix is
+ * inserted back at the document start, which leaves every chip, quote, and
+ * attachment intact.
+ * @param actx - Session scope that owns the input.
+ * @param input - Official composer whose text, reference chips, and quotes must survive.
+ * @returns Whether the token is absent and the settled draft still carries the same document.
+ */
 export function detachComposer(actx: ClientContext, input: SessionInput): boolean {
   const state = input.state.getSnapshot()
   const tokenLength = attachmentPrefixLength(state.draft)
   if (tokenLength === 0) return state.claim?.token !== COMPOSER_ATTACHMENT_TOKEN
-  const prefixLength =
-    tokenLength +
-    (state.draft.slice(tokenLength).startsWith(COMPOSER_TEXT_SEAT) ? COMPOSER_TEXT_SEAT.length : 0)
-  if (state.phase === 'plain') {
-    input.setDraft(state.draft.slice(prefixLength))
-    return true
+  if (state.phase !== 'plain' && state.phase !== 'claimed') return false
+  const claimed = state.phase === 'claimed' && state.claim?.token === COMPOSER_ATTACHMENT_TOKEN
+  // Token spans count the command chip as one character; InputState.draft expands its spelling.
+  const tokenSpan = {
+    start: 0,
+    end:
+      (claimed ? 1 : tokenLength) +
+      (state.draft.slice(tokenLength).startsWith(COMPOSER_TEXT_SEAT) ? COMPOSER_TEXT_SEAT.length : 0),
+    draftRev: state.draftRev,
   }
-  if (state.phase !== 'claimed' || state.claim?.token !== COMPOSER_ATTACHMENT_TOKEN) return false
+  const visible = stripComposerToken(state.draft)
+  const command = visible.trimStart().startsWith('/')
+  const applied =
+    actx.bail(actx, 'slash/input-consume-token', { guard: { kind: 'span', span: tokenSpan } }) === true
+  if (!applied) return false
+  // Command state: only the token itself may leave, or the whole line stops being a command.
+  if (command) return true
+  const settledState = input.state.getSnapshot()
+  if (settledState.draft === visible && sameDocument(state, settledState)) return true
+  if (!sameDocument(state, settledState)) return false
+  const settled = settledState.draft
+  if (attachmentPrefixLength(settled) > 0) return false
+  // Only a swallowed leading range is restorable by insertion; any other edit leaves the document alone.
+  if (settled !== visible.slice(visible.length - settled.length)) return false
+  const missing = visible.slice(0, visible.length - settled.length)
+  if (missing === '') return false
+  // Restore only the swallowed characters: an insertion keeps chips, quotes and attachments in place.
   return (
-    actx.bail(actx, 'slash/input-consume-token', {
-      guard: {
-        kind: 'span',
-        span: {
-          start: 0,
-          end: prefixLength,
-          draftRev: state.draftRev,
-        },
-      },
+    actx.bail(actx, 'slash/input-insert-text', {
+      text: missing,
+      span: { start: 0, end: 0, draftRev: settledState.draftRev },
     }) === true
   )
 }

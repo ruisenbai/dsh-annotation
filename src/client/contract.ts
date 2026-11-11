@@ -7,7 +7,15 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AnnotationEndpoint, AnnotationPresentation, AnnotationView } from './controller.ts'
 import type { SelectionCapture } from './selection.ts'
-import type { AnnotationId, MessageIdentity, ProcessingMode, SubmissionId } from '../shared/types.ts'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type {
+  AnnotationId,
+  MessageIdentity,
+  ProcessingMode,
+  SubmissionId,
+  SessionIdentity,
+} from '../shared/types.ts'
+import type { SideChatId, SideChatReference, SideChatReferenceId } from '../shared/side-chat-types.ts'
 
 export interface AnnotationInjected {
   readonly hooks: {
@@ -20,6 +28,16 @@ export interface AnnotationInjected {
   /** Bind the mounted composer to the root notice host for this Session. */
   readonly bindNoticeHost: (anchor: HTMLElement | null) => () => void
   readonly beginSelection: (capture: SelectionCapture) => void
+  /** Associated main Session when this Conversation was created as a side chat. */
+  readonly sideChatMainSessionId?: SessionId
+  /** Open a receiving side chat when the source Conversation is displayed as a main page. */
+  readonly beginSideAnnotation?: (capture: SelectionCapture) => boolean
+  /** Activate the owning Conversation and open one foreign annotation from its source marker. */
+  readonly openSourceAnnotation?: (targetSessionId: SessionIdentity, annotationId: AnnotationId) => void
+  /** Locate a submitted reference in its recorded main Session. */
+  readonly locateSideChatReference?: (reference: SideChatReference) => Promise<boolean>
+  /** Remove exactly one saved source reference without changing the selected side chat. */
+  readonly removeSourceReference?: (sideChatId: SideChatId, referenceId: SideChatReferenceId) => void
   readonly chooseOverlap: (annotationId?: AnnotationId) => void
   readonly dismissOverlap: () => void
   readonly suspendEditor: () => void

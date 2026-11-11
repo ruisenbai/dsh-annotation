@@ -252,7 +252,16 @@ export function parseAnnotationAnchor(value: Record<string, unknown>): Annotatio
   ) {
     throw new ProtocolError('Message source coordinates disagree')
   }
-  return { ...anchor, source: Object.freeze({ kind: 'message' as const, ...anchor }) }
+  return {
+    ...anchor,
+    source: Object.freeze({
+      kind: 'message' as const,
+      ...anchor,
+      ...(source.sessionId === undefined
+        ? {}
+        : { sessionId: id<SessionIdentity>(source.sessionId, 'source.sessionId') }),
+    }),
+  }
 }
 
 /** Diff quotes are reconstructed from immutable snapshots, never from current files. */
@@ -378,7 +387,7 @@ export function parseSubmittedAnnotation(value: unknown, index: number): Submitt
 export function parseSubmissionPayload(value: unknown): AnnotationSubmissionPayload {
   const source = record(value, 'submission')
   const version = source.protocolVersion
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5) {
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6) {
     throw new ProtocolError(`unsupported protocolVersion ${String(version)}`)
   }
   if (!Array.isArray(source.annotations) || source.annotations.length === 0) {
@@ -391,20 +400,27 @@ export function parseSubmissionPayload(value: unknown): AnnotationSubmissionPayl
   }
   const annotations = source.annotations.map(parseSubmittedAnnotation)
   if (
-    (version === 3 || version === 4 || version === 5) &&
+    (version === 3 || version === 4 || version === 5 || version === 6) &&
     annotations.some((item) => item.source === undefined)
   )
     throw new ProtocolError(`Protocol v${version} requires an explicit annotation source`)
   if (version !== 3 && annotations.some((item) => item.source?.kind === 'diff'))
     throw new ProtocolError('Historical Diff sources require protocol v3')
   if (
+    version !== 6 &&
+    annotations.some((item) => item.source?.kind === 'message' && item.source.sessionId !== undefined)
+  )
+    throw new ProtocolError('Session-qualified message sources require protocol v6')
+  if (
     version !== 4 &&
     version !== 5 &&
+    version !== 6 &&
     annotations.some((item) => item.source?.kind === 'file' || item.source?.kind === 'official-diff')
   )
     throw new ProtocolError('Official file and Diff sources require protocol v4')
   if (
     version !== 5 &&
+    version !== 6 &&
     annotations.some(
       (item) =>
         (item.source?.kind === 'file' || item.source?.kind === 'official-diff') &&
@@ -413,7 +429,7 @@ export function parseSubmissionPayload(value: unknown): AnnotationSubmissionPayl
   )
     throw new ProtocolError('Compact official sources require protocol v5')
   if (
-    version === 5 &&
+    (version === 5 || version === 6) &&
     annotations.some(
       (item) =>
         (item.source?.kind === 'file' || item.source?.kind === 'official-diff') &&
@@ -435,7 +451,7 @@ export function parseSubmissionPayload(value: unknown): AnnotationSubmissionPayl
   const overallRequirement = optionalString(source.overallRequirement, 'overallRequirement')
   const protocolLocale: ProtocolLocale = source.protocolLocale === 'zh' ? 'zh' : 'en'
   return Object.freeze({
-    protocolVersion: version === 5 ? 5 : version === 4 ? 4 : version === 3 ? 3 : 2,
+    protocolVersion: version === 1 ? 2 : version,
     source: PROTOCOL_SOURCE,
     submissionId: id<SubmissionId>(source.submissionId, 'submissionId'),
     sessionId: id<SessionIdentity>(source.sessionId, 'sessionId'),
@@ -558,7 +574,11 @@ const PROCESSING_INSTRUCTIONS_EN: Readonly<Record<ProcessingMode, readonly strin
 function annotationLocationLines(item: SubmittedAnnotation): string[] {
   const source = item.source
   if (source === undefined || source.kind === 'message')
-    return [`Reply message: ${item.messageId}`, `Reply event seq: ${item.messageSeq}`]
+    return [
+      ...(source?.sessionId === undefined ? [] : [`Source session: ${source.sessionId}`]),
+      `Reply message: ${item.messageId}`,
+      `Reply event seq: ${item.messageSeq}`,
+    ]
   if (source.kind === 'file') {
     const coordinateSpace =
       source.snapshot.coordinateSpace ?? (source.snapshot.renderedText === undefined ? 'raw' : 'rendered')

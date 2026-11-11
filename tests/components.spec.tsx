@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TestAnnotatedAssistantNode as AnnotatedAssistantNode } from './assistant-host-fixture.tsx'
+import { AnnotatedAssistantNode as AssistantDecoration } from '../src/client/components/AnnotatedAssistantNode.tsx'
+import type { SessionSnapshot, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { InputState } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { TestAnnotatedUserNode as AnnotatedUserNode, userContentFactory } from './user-host-fixture.tsx'
 import { AnnotationDetails } from '../src/client/components/AnnotationDetails.tsx'
 import {
@@ -25,8 +28,15 @@ import { parseSubmissionPayload } from '../src/shared/protocol.ts'
 import { en } from '../src/client/locales.ts'
 import type { AnnotationDraft, SessionIdentity } from '../src/shared/types.ts'
 
+let originalFont = ''
+beforeEach(() => {
+  originalFont = document.body.style.fontSize
+  document.body.style.fontSize = '16px'
+})
+
 afterEach(() => {
   cleanup()
+  document.body.style.fontSize = originalFont
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -77,9 +87,9 @@ const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
     'settings.refresh': 'Refresh page',
     'settings.restart': 'Restart Host',
     'settings.restartManaged': 'Restart it from the Host.',
-    'timeline.single': '1 comment',
-    'timeline.summary': `${String(params?.count)} comments`,
-    'timeline.singleLocate': '1 comment, double-click to locate the source',
+    'timeline.single': '1 annotation',
+    'timeline.summary': `${String(params?.count)} annotations`,
+    'timeline.singleLocate': '1 annotation, double-click to locate the source',
     'timeline.previewSource': `Source: ${String(params?.quote)}`,
     'timeline.preview': `Source: ${String(params?.quote)}\nAnnotation: ${String(params?.annotation)}`,
     'list.locate': 'Locate source',
@@ -130,6 +140,7 @@ const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
     'processing.retryFrozen': 'Retry mode is frozen',
     'selection.toolbar': 'Selection actions',
     'selection.annotate': 'Add annotation',
+    'selection.quote': 'Quote text',
     'selection.copy': 'Copy',
     'error.attachmentsRequired': `Re-select the ${String(params?.count)} attachments or discard the record.`,
     'list.discard': 'Discard this pending record',
@@ -503,7 +514,7 @@ describe('inline comment presentation', () => {
       t: translate,
     } as unknown as UserAnnotationProps<'user'>
     const { container } = render(<AnnotatedUserNode {...props} />)
-    const badge = screen.getByRole('button', { name: '3 comments' })
+    const badge = screen.getByRole('button', { name: '3 annotations' })
     expect(container.querySelector('.dia-user-submission')?.firstElementChild).toHaveClass('dia-timeline')
     expect(badge).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText('src/example.ts')).not.toBeInTheDocument()
@@ -543,8 +554,8 @@ describe('inline comment presentation', () => {
     expect(submission.firstElementChild).toHaveClass('dia-timeline')
     expect(submission.children[1]).toHaveClass('dia-user')
     expect(screen.getByText('Rewrite the proposal coherently.')).toBeInTheDocument()
-    const badge = screen.getByRole('button', { name: '1 comment, double-click to locate the source' })
-    expect(badge).toHaveTextContent('1 comment')
+    const badge = screen.getByRole('button', { name: '1 annotation, double-click to locate the source' })
+    expect(badge).toHaveTextContent('1 annotation')
     fireEvent.click(badge, { detail: 1 })
     expect(navigate).not.toHaveBeenCalled()
     fireEvent.doubleClick(badge)
@@ -891,7 +902,202 @@ describe('inline comment presentation', () => {
     unmount()
   })
 
-  it('keeps mobile text width and hides markers when no safe whitespace remains', async () => {
+  function mountLinkSelection() {
+    const session = { removed: false, subagent: null } as SessionSnapshot
+    const input = { phase: 'plain' } as InputState
+    const view = baseView()
+    const beginSelection = vi.fn()
+    const insertQuote = vi.fn(() => true)
+    const openWeb = vi.fn()
+    const openFile = vi.fn()
+    const props: Partial<AssistantAnnotationProps> = {
+      node: {
+        key: 'links',
+        kind: 'assistant-step',
+        visibility: 'visible',
+        location: { kind: 'session' },
+        data: {
+          status: 'settled',
+          blocks: [{ kind: 'text', text: 'Before web label and file label after.' }],
+          finalNode: { messageId: 'assistant-link-test', seq: 9 },
+        },
+      } as AssistantAnnotationProps['node'],
+      useSession: (select) => select(session),
+      useSessions: (select) => select({ phase: 'ready', byId: {} } as SessionListState),
+      useInput: (select) => select(input),
+      inputActions: {
+        insertQuote,
+        captureInsertion: () => ({ start: 0, end: 0, draftRev: 0 }),
+        insertText: vi.fn(() => true),
+        setDraft: vi.fn(),
+        persistDraft: vi.fn(),
+        addAttachments: vi.fn(() => true),
+        removeAttachment: vi.fn(),
+        pruneAttachments: vi.fn(),
+        submit: vi.fn(),
+      },
+      useAnnotations: (select) => select(view),
+      beginSelection,
+      openAnnotation: vi.fn(),
+      registerEndpoint: vi.fn(() => () => undefined),
+      updateHighlightRanges: vi.fn(),
+      activateHighlight: vi.fn(),
+      removeHighlights: vi.fn(),
+      t: (key, params) => t(key as AnnotationLocaleKey, params),
+    }
+    const mounted = render(
+      <AssistantDecoration {...(props as AssistantAnnotationProps)} sharedSelection>
+        <p>
+          Before{' '}
+          <a
+            href="https://example.com/"
+            onClick={(event) => {
+              event.preventDefault()
+              openWeb()
+            }}
+          >
+            <strong>web label</strong>
+          </a>{' '}
+          and{' '}
+          <button className="host_fileMention host_fileLink" onClick={openFile}>
+            <strong>file label</strong>
+          </button>{' '}
+          after.
+        </p>
+      </AssistantDecoration>,
+    )
+    const select = (label: string) => {
+      const element = screen.getByText(label)
+      const range = document.createRange()
+      Object.defineProperty(range, 'getBoundingClientRect', {
+        value: () => new DOMRect(40, 20, 110, 22),
+      })
+      range.selectNodeContents(element)
+      const selection = document.getSelection()!
+      selection.removeAllRanges()
+      selection.addRange(range)
+      fireEvent.pointerUp(element)
+      return selection
+    }
+    return { ...mounted, beginSelection, insertQuote, openWeb, openFile, select }
+  }
+
+  it('shares both actions for file-link selections and preserves rejected composer insertions', () => {
+    const { select, insertQuote, beginSelection } = mountLinkSelection()
+    const selection = select('file label')
+    expect(screen.getAllByRole('toolbar')).toHaveLength(1)
+    expect(document.querySelector('[data-dsh-annotation-link-selection]')).not.toBeNull()
+    insertQuote.mockReturnValueOnce(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Quote text' }))
+    expect(selection.toString()).toBe('file label')
+    expect(screen.getByRole('toolbar')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Quote text' }))
+    expect(insertQuote).toHaveBeenLastCalledWith('file label')
+    expect(selection.isCollapsed).toBe(true)
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument()
+    expect(document.querySelector('[data-dsh-annotation-link-selection]')).toBeNull()
+    expect(beginSelection).not.toHaveBeenCalled()
+  })
+
+  it('annotates file-link labels and releases the fallback after Escape and unmount', () => {
+    const { select, beginSelection, unmount } = mountLinkSelection()
+    const selection = select('file label')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    fireEvent.keyUp(screen.getByText('file label'), { key: 'Escape' })
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument()
+    expect(document.querySelector('[data-dsh-annotation-link-selection]')).toBeNull()
+    select('file label')
+    fireEvent.click(screen.getByRole('button', { name: 'Add annotation' }))
+    expect(beginSelection).toHaveBeenCalledWith(
+      expect.objectContaining({ quote: expect.objectContaining({ exact: 'file label' }) }),
+    )
+    expect(selection.isCollapsed).toBe(true)
+    select('file label')
+    unmount()
+    fireEvent.pointerUp(document.body)
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument()
+    selection.removeAllRanges()
+  })
+
+  it.each(['web label', 'file label'])(
+    'prevents pointer selection from opening %s and preserves normal and keyboard activation',
+    (label) => {
+      const { select, openWeb, openFile } = mountLinkSelection()
+      const element = screen.getByText(label)
+      const open = label === 'web label' ? openWeb : openFile
+      const selection = select(label)
+      fireEvent.click(element, { detail: 1 })
+      expect(open).not.toHaveBeenCalled()
+      expect(selection.toString()).toBe(label)
+      fireEvent.click(element, { detail: 0 })
+      expect(open).toHaveBeenCalledOnce()
+      selection.removeAllRanges()
+      fireEvent.click(element, { detail: 1 })
+      expect(open).toHaveBeenCalledTimes(2)
+    },
+  )
+
+  it('keeps zoomed character placement independent of overflow-marker height', async () => {
+    const payload = fixturePayload()
+    const annotation: AnnotationDraft = {
+      ...payload.annotations[0]!,
+      messageId: 'assistant-chip' as NonNullable<AnnotationDraft['messageId']>,
+      responseVersion: 'assistant-chip' as NonNullable<AnnotationDraft['responseVersion']>,
+      messageSeq: 9,
+      status: 'draft',
+      updatedAt: payload.createdAt,
+    }
+    const rangeRects = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects')
+    const line = new DOMRect(100, 30, 100, 20)
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: (): DOMRectList => ({
+        0: line,
+        length: 1,
+        item: () => line,
+        [Symbol.iterator]: function* () {
+          yield line
+          return undefined
+        },
+      }),
+    })
+    let gutterHeight = 63.8125
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.parentElement?.classList.contains('dia-marker') ? 16 : 512
+    })
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.parentElement?.classList.contains('dia-marker')
+        ? 16
+        : this.classList.contains('dia-assistant__body')
+          ? 48
+          : 51
+    })
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return new DOMRect(0, 0, 640, this.classList.contains('dia-assistant__body') ? 60 : gutterHeight)
+    })
+    try {
+      const view = { ...baseView(), annotations: [annotation] }
+      const { container } = render(
+        <AnnotatedAssistantNode
+          {...assistantPropsFor(view, 'closed', [{ kind: 'text', text: 'before selected source after' }])}
+        />,
+      )
+      const marker = container.querySelector<HTMLElement>('.dia-marker')!
+      const initialTop = marker.style.top
+      expect(Number.parseFloat(initialTop)).toBeLessThan(24)
+      expect(Number.parseFloat(marker.style.left)).toBeGreaterThan(160)
+      for (gutterHeight of [63.828125, 63.8125]) {
+        fireEvent(window, new Event('resize'))
+        await waitFor(() => expect(marker.style.top).toBe(initialTop))
+      }
+      expect(container.querySelector<HTMLElement>('.dia-assistant')!.style.minHeight).toBe('48px')
+    } finally {
+      if (rangeRects === undefined) Reflect.deleteProperty(Range.prototype, 'getClientRects')
+      else Object.defineProperty(Range.prototype, 'getClientRects', rangeRects)
+    }
+  })
+
+  it('keeps five independent records at the text edge without reserving text width', async () => {
     vi.stubGlobal('innerWidth', 320)
     let lineRight = 280
     const payload = fixturePayload()
@@ -954,22 +1160,17 @@ describe('inline comment presentation', () => {
         t,
       } as unknown as AssistantAnnotationProps
       const { container, rerender } = render(<AnnotatedAssistantNode {...props} />)
-      const marker = screen.getByRole('button', {
-        name: 'View 5 annotations on this line, numbered 1, 2, 3, 4, 5',
-      })
-      expect(marker).toHaveStyle({ left: '282px', width: '24px' })
-      expect(marker).toHaveTextContent('×5')
-      expect(marker).toHaveAttribute(
-        'data-annotation-ids',
-        annotations.map((item) => item.annotationId).join(' '),
+      const markers = container.querySelectorAll<HTMLElement>('.dia-marker')
+      expect(markers).toHaveLength(5)
+      expect([...markers].map((element) => element.dataset.annotationIds)).toEqual(
+        annotations.map((item) => item.annotationId),
       )
       const body = container.querySelector<HTMLElement>('.dia-assistant__body')!
-      expect(body.style.paddingRight).toBe('')
+      expect(container.querySelector<HTMLElement>('.dia-assistant')!.style.paddingRight).toBe('')
       expect(body.textContent).toBe('before selected source after')
       lineRight = 320
       fireEvent(window, new Event('resize'))
-      await waitFor(() => expect(container.querySelector('.dia-marker')).toBeNull())
-      expect(body.style.paddingRight).toBe('')
+      await waitFor(() => expect(container.querySelectorAll('.dia-marker')).toHaveLength(5))
       expect(body.textContent).toBe('before selected source after')
 
       const unresolvedView: AnnotationView = {

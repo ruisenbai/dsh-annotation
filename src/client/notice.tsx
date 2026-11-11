@@ -24,6 +24,13 @@ interface ActiveNotice {
   readonly anchor: HTMLElement | null
 }
 
+interface NoticeBinding {
+  readonly controller: NoticeController
+  readonly hosts: Map<object, HTMLElement | null>
+  readonly unsubscribe: () => void
+  notice: AnnotationNotice | null
+}
+
 const EMPTY_NOTICE: ActiveNotice = Object.freeze({
   sessionId: '' as SessionIdentity,
   notice: null,
@@ -37,20 +44,13 @@ export interface AnnotationToastInjected {
   readonly runAnnotationNoticeAction: (sessionId: SessionIdentity, id: number) => void
 }
 
-/** Select the current Session's notice without retaining notices from another Session. */
+/** Render the latest new notice from mounted composers using its originating Session's anchor. */
 export class AnnotationNoticeHub implements HostObservable<ActiveNotice> {
   private view: ActiveNotice = EMPTY_NOTICE
   private readonly listeners = new Set<() => void>()
   private readonly retired = new WeakMap<NoticeController, number>()
-  private active:
-    | {
-        readonly token: object
-        readonly controller: NoticeController
-        readonly sessionId: SessionIdentity
-        readonly anchor: HTMLElement | null
-        readonly unsubscribe: () => void
-      }
-    | undefined
+  private readonly bindings = new Map<NoticeController, NoticeBinding>()
+  private active: NoticeBinding | undefined
   private disposed = false
 
   getSnapshot = (): ActiveNotice => this.view
@@ -61,36 +61,55 @@ export class AnnotationNoticeHub implements HostObservable<ActiveNotice> {
     return () => this.listeners.delete(listener)
   }
 
-  /** Bind the currently rendered composer so notices stay Session-local and can share its width. */
+  /**
+   * Bind one composer without replacing other mounted Sessions. Its last unmount retires the retained notice.
+   * @param controller - Notice owner for the composer's Session.
+   * @param anchor - This composer’s position and width anchor; null leaves Toast positioning to the Host.
+   * @returns The disposer for this mount; older mount disposers cannot remove a newer mount.
+   */
   activate(controller: NoticeController, anchor: HTMLElement | null): () => void {
     if (this.disposed) return () => undefined
     const token = {}
-    this.retireActive()
-    const sync = (): void => {
-      if (this.active?.token !== token) return
-      const notice = controller.getSnapshot().notice
-      this.publish({
-        sessionId: controller.sessionId,
-        notice: notice?.id === this.retired.get(controller) ? null : notice,
-        anchor,
-      })
+    let binding = this.bindings.get(controller)
+    if (binding === undefined) {
+      const sync = (): void => this.sync(controller)
+      binding = {
+        controller,
+        hosts: new Map(),
+        unsubscribe: controller.subscribe(sync),
+        notice: null,
+      }
+      this.bindings.set(controller, binding)
     }
-    const unsubscribe = controller.subscribe(sync)
-    this.active = { token, controller, sessionId: controller.sessionId, anchor, unsubscribe }
-    sync()
+    binding.hosts.set(token, anchor)
+    this.sync(controller)
+    if (this.active === binding) this.publishActive(binding)
     return () => {
-      if (this.active?.token !== token) return
+      const current = this.bindings.get(controller)
+      if (current !== binding || !current.hosts.delete(token)) return
+      if (current.hosts.size > 0) {
+        if (this.active === current) this.publishActive(current)
+        return
+      }
       const notice = controller.getSnapshot().notice
       if (notice !== null) this.retired.set(controller, notice.id)
-      unsubscribe()
-      this.active = undefined
-      this.publish(EMPTY_NOTICE)
+      current.unsubscribe()
+      this.bindings.delete(controller)
+      if (this.active === current) {
+        this.active = undefined
+        this.publish(EMPTY_NOTICE)
+      }
     }
   }
 
   dismiss = (sessionId: SessionIdentity, id: number): void => {
     const active = this.active
-    if (active?.sessionId !== sessionId || active.controller.getSnapshot().notice?.id !== id) return
+    if (
+      this.view.sessionId !== sessionId ||
+      this.view.notice?.id !== id ||
+      active?.controller.getSnapshot().notice?.id !== id
+    )
+      return
     this.retired.set(active.controller, id)
     active.controller.clearNotice(id)
   }
@@ -100,7 +119,8 @@ export class AnnotationNoticeHub implements HostObservable<ActiveNotice> {
     const notice = active?.controller.getSnapshot().notice
     if (
       active === undefined ||
-      active.sessionId !== sessionId ||
+      this.view.sessionId !== sessionId ||
+      this.view.notice?.id !== id ||
       notice?.id !== id ||
       notice.action === undefined
     )
@@ -123,18 +143,37 @@ export class AnnotationNoticeHub implements HostObservable<ActiveNotice> {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    this.retireActive()
+    for (const binding of this.bindings.values()) binding.unsubscribe()
+    this.bindings.clear()
+    this.active = undefined
     this.view = EMPTY_NOTICE
     this.listeners.clear()
   }
 
-  private retireActive(): void {
-    const active = this.active
-    if (active === undefined) return
-    const notice = active.controller.getSnapshot().notice
-    if (notice !== null) this.retired.set(active.controller, notice.id)
-    active.unsubscribe()
-    this.active = undefined
+  private sync(controller: NoticeController): void {
+    const binding = this.bindings.get(controller)
+    if (binding === undefined) return
+    const notice = controller.getSnapshot().notice
+    if (binding.notice === notice) return
+    binding.notice = notice
+    if (notice === null || notice.id === this.retired.get(controller)) {
+      if (this.active === binding) {
+        this.active = undefined
+        this.publish(EMPTY_NOTICE)
+      }
+      return
+    }
+    this.active = binding
+    this.publishActive(binding)
+  }
+
+  private publishActive(binding: NoticeBinding): void {
+    const anchors = [...binding.hosts.values()]
+    this.publish({
+      sessionId: binding.controller.sessionId,
+      notice: binding.notice,
+      anchor: anchors[anchors.length - 1] ?? null,
+    })
   }
 
   private publish(next: ActiveNotice): void {
@@ -158,17 +197,17 @@ function composerCard(anchor: HTMLElement | null): HTMLElement | null {
   return seat?.querySelector<HTMLElement>('[data-composer-card]') ?? seat ?? anchor
 }
 
-/** Match the body-portaled Toast to the composer width without changing Host layout. */
-function useComposerToastWidth(id: number, anchor: HTMLElement | null): void {
+/** Match Toast width to its composer and hide it while that retained composer has no visible area. */
+function useComposerToastWidth(marker: string | null, anchor: HTMLElement | null): void {
   const attached = useRef<HTMLElement | null>(null)
   useLayoutEffect(() => {
     const card = composerCard(anchor)
-    if (card === null) return undefined
+    if (card === null || marker === null) return undefined
     let disposed = false
     let frame = 0
     const findToast = (): HTMLElement | null =>
-      document.body
-        .querySelector<HTMLElement>(`[data-dsh-annotation-toast-marker="${String(id)}"]`)
+      Array.from(document.body.querySelectorAll<HTMLElement>('[data-dsh-annotation-toast-marker]'))
+        .find((element) => element.dataset.dshAnnotationToastMarker === marker)
         ?.closest<HTMLElement>('[role="alert"]') ?? null
     const measure = (): void => {
       if (disposed || !card.isConnected) return
@@ -178,11 +217,13 @@ function useComposerToastWidth(id: number, anchor: HTMLElement | null): void {
         return
       }
       attached.current = toast
-      toast.dataset.dshAnnotationToast = String(id)
+      toast.dataset.dshAnnotationToast = marker
       toast.setAttribute('aria-live', 'assertive')
       toast.setAttribute('aria-atomic', 'true')
       toast.style.boxSizing = 'border-box'
       const rect = card.getBoundingClientRect()
+      toast.style.visibility =
+        rect.width <= 0 || rect.right <= 0 || rect.left >= window.innerWidth ? 'hidden' : ''
       const width = Math.max(0, Math.min(rect.width, window.innerWidth - 48))
       toast.style.width = `${width}px`
       toast.style.maxWidth = `${width}px`
@@ -204,7 +245,7 @@ function useComposerToastWidth(id: number, anchor: HTMLElement | null): void {
       window.visualViewport?.removeEventListener('resize', measure)
       window.visualViewport?.removeEventListener('scroll', measure)
       const toast = attached.current
-      if (toast?.dataset.dshAnnotationToast === String(id)) {
+      if (toast?.dataset.dshAnnotationToast === marker) {
         delete toast.dataset.dshAnnotationToast
         toast.removeAttribute('aria-live')
         toast.removeAttribute('aria-atomic')
@@ -212,17 +253,18 @@ function useComposerToastWidth(id: number, anchor: HTMLElement | null): void {
         toast.style.removeProperty('width')
         toast.style.removeProperty('max-width')
         toast.style.removeProperty('left')
+        toast.style.removeProperty('visibility')
       }
       attached.current = null
     }
-  }, [anchor, id])
+  }, [anchor, marker])
 }
 
 type ToastProps = PropsRuntime<'shell.overlay'> &
   PropsLocale<'dshAnnotation'> &
   InjectFace<AnnotationToastInjected>
 
-/** Render one deduplicated notice for the currently mounted Session. */
+/** Render the newest notice from mounted Sessions at its originating composer. */
 export function AnnotationToastHost({
   useAnnotationToast,
   dismissAnnotationNotice,
@@ -233,7 +275,8 @@ export function AnnotationToastHost({
   const notice = current.notice
   const text = notice === null ? '' : t(notice.messageKey, notice.params)
   const anchor = composerCard(current.anchor)
-  useComposerToastWidth(notice?.id ?? 0, anchor)
+  const marker = notice === null ? null : `${String(current.sessionId)}:${String(notice.id)}`
+  useComposerToastWidth(marker, anchor)
   if (notice === null) return null
   return (
     <Toast
@@ -243,7 +286,7 @@ export function AnnotationToastHost({
       icon={
         <span
           className={`dia-toast-icon dia-toast-icon--${notice.level}`}
-          data-dsh-annotation-toast-marker={notice.id}
+          data-dsh-annotation-toast-marker={marker}
         >
           {notice.level === 'success' ? (
             <IconCheckCircleOutlineRegular />

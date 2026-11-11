@@ -1,0 +1,44 @@
+以下引用来自主会话中用户明确选中的助手回复。根据这些引用和问题回答，不要假设能访问主会话的其他内容。
+
+引用 1 [{{reference:1}}]
+来源会话: annotation-side-chat-repair-main
+助手消息: annotation-side-chat-repair-main:assistant; seq=7; version=annotation-side-chat-repair-main:assistant
+原文:
+Repair Alpha source.
+
+引用 2 [{{reference:2}}]
+来源会话: annotation-side-chat-repair-main
+助手消息: annotation-side-chat-repair-main:assistant; seq=7; version=annotation-side-chat-repair-main:assistant
+原文:
+https://example.test/continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-continuous-path-
+
+引用 3 [{{reference:3}}]
+来源会话: annotation-side-chat-repair-main
+助手消息: annotation-side-chat-repair-main:assistant; seq=7; version=annotation-side-chat-repair-main:assistant
+原文:
+连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak连续长文本withoutBreak
+
+问题：
+Standalone A sends only its visible references and A annotation.
+
+[DSH 注解提交]
+Submission ID: {{submission:1}}
+Reply annotations: 1
+
+交付方式：逐条回答
+按编号逐条回答，不合并；每段以「注解 N：」开头，段前原样输出对应隐藏关联标记（HTML 注释）。
+
+<!-- dsh-annotation-reply:{"submissionId":"{{submission:1}}","annotationId":"{{annotation:1}}","ordinal":1} -->
+注解 1
+Reply message: {{message:answer:A}}
+Reply event seq: 14
+原文前文：
+dependent confirmed references.{{space}}
+被选中的原文：
+This answer stays selectable.
+用户的注解：
+Only A annotation
+
+处理确认：
+在回复末尾输出以下隐藏 HTML 注释，processed 仅列本次按交付方式实际完成的注解 ID：
+<!-- dsh-annotation:{"submissionId":"{{submission:1}}","processed":["annotation-id"]} -->

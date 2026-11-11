@@ -80,7 +80,7 @@ function needsEditorIds(value: unknown): boolean {
 
 export function emptyPersistedState(): PersistedSessionState {
   return Object.freeze({
-    storageVersion: 6,
+    storageVersion: 7,
     annotations: Object.freeze([]),
     outbox: Object.freeze([]),
     overallRequirementDraft: '',
@@ -365,7 +365,15 @@ function parseDeletionMark(value: unknown): AnnotationDeletionMark {
 function parseStoredDeletionMarks(raw: string): readonly AnnotationDeletionMark[] {
   const source = object(JSON.parse(raw), 'state')
   const version = source.storageVersion
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6)
+  if (
+    version !== 1 &&
+    version !== 2 &&
+    version !== 3 &&
+    version !== 4 &&
+    version !== 5 &&
+    version !== 6 &&
+    version !== 7
+  )
     throw new Error('unsupported storage state')
   if (source.deletionMarks === undefined) return []
   if (!Array.isArray(source.deletionMarks)) throw new Error('invalid deletionMarks array')
@@ -400,7 +408,15 @@ function parseState(
     throw new Error('state must be an object')
   const source = value as Record<string, unknown>
   const version = source.storageVersion
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6)
+  if (
+    version !== 1 &&
+    version !== 2 &&
+    version !== 3 &&
+    version !== 4 &&
+    version !== 5 &&
+    version !== 6 &&
+    version !== 7
+  )
     throw new Error('unsupported storage state')
   const errors: string[] = []
   const rows = (candidate: unknown, field: string): unknown[] => {
@@ -583,7 +599,7 @@ function parseState(
         ? retryId
         : null
   const state = Object.freeze({
-    storageVersion: 6,
+    storageVersion: 7,
     ...(source.trash === undefined ? {} : { trash: Object.freeze(trash) }),
     ...(source.deletionMarks === undefined ? {} : { deletionMarks: Object.freeze(deletionMarks) }),
     annotations: Object.freeze(annotations),
@@ -1134,7 +1150,7 @@ function applyJournal(state: PersistedSessionState, journal: StorageJournal): Pe
   const processingMode = journal.processingMode === null ? state.processingMode : journal.processingMode.after
   const merged = parseState(
     {
-      storageVersion: 6,
+      storageVersion: 7,
       ...(state.trash === undefined && journal.trash.length === 0 ? {} : { trash: [...trash.values()] }),
       ...(state.deletionMarks === undefined && journal.deletionMarks.length === 0
         ? {}
@@ -1161,6 +1177,7 @@ class ChangedJournalError extends Error {}
 /** Browser-local repository for one Session's drafts and immutable retry records. */
 export class AnnotationStorage {
   readonly key: string
+  private readonly retiredKey: string
   private readonly legacyKeys: readonly string[]
   private error: string | null = null
   private drainError: string | null = null
@@ -1182,7 +1199,26 @@ export class AnnotationStorage {
     private readonly coordination?: StorageCoordination,
   ) {
     this.key = `${PREFIX}${sessionId}`
+    this.retiredKey = `dsh-annotation:deleted-session:${sessionId}`
     this.legacyKeys = Object.freeze(LEGACY_PREFIXES.map((prefix) => `${prefix}${sessionId}`))
+  }
+
+  /** @param storage - Browser persistence. @param sessionId - Host-deleted Session. @param coordination - Key enumeration owner. @returns Nothing; a permanent marker also rejects writes from older live pages. */
+  static retireSession(
+    storage: StorageLike,
+    sessionId: SessionIdentity,
+    coordination?: StorageCoordination,
+  ): void {
+    storage.setItem(`dsh-annotation:deleted-session:${sessionId}`, '1')
+    const prefixes = [PREFIX, ...LEGACY_PREFIXES].map((prefix) => `${prefix}${sessionId}`)
+    const keys =
+      coordination?.keys() ??
+      Array.from({ length: storage.length ?? 0 }, (_, index) => storage.key?.(index) ?? '')
+    for (const key of [
+      ...prefixes,
+      ...keys.filter((key) => prefixes.some((prefix) => key.startsWith(`${prefix}:journal:`))),
+    ])
+      storage.removeItem(key)
   }
 
   /** Enumerate current and renamed session stores, including sessions whose writes are still journaled. */
@@ -1202,11 +1238,21 @@ export class AnnotationStorage {
       const prefix = [PREFIX, ...LEGACY_PREFIXES].find((candidate) => key.startsWith(candidate))
       if (prefix === undefined) continue
       const id = key.slice(prefix.length).split(':journal:')[0]
-      if (id !== undefined && id.length > 0) ids.add(id as SessionIdentity)
+      if (
+        id !== undefined &&
+        id.length > 0 &&
+        storage.getItem(`dsh-annotation:deleted-session:${id}`) !== '1'
+      )
+        ids.add(id as SessionIdentity)
     }
     return Object.freeze([...ids].sort())
   }
 
+  /**
+   * Read the Session's recoverable state and report denied or invalid storage through lastError.
+   * @param live - Preserve in-flight statuses while synchronizing a live page.
+   * @returns Valid recovered records; raw data stays untouched after a failed read.
+   */
   load(live = false): PersistedSessionState {
     return this.read(live, 0)
   }
@@ -1215,6 +1261,7 @@ export class AnnotationStorage {
     let recovered = emptyPersistedState()
     this.fastSkipAllowed = false
     try {
+      if (this.storage.getItem(this.retiredKey) === '1') return recovered
       const raw = this.readFirstAvailable()
       this.bytes = raw === null ? 0 : byteLength(raw)
       let state = emptyPersistedState()
@@ -1257,7 +1304,7 @@ export class AnnotationStorage {
           raw !== null &&
           (this.storage.getItem(this.key) === null ||
             needsEditorIds(decoded) ||
-            (decoded as Record<string, unknown>).storageVersion !== 6)
+            (decoded as Record<string, unknown>).storageVersion !== 7)
         if (this.coordination?.runExclusive !== undefined && (journalKeys.length > 0 || migrate))
           this.scheduleDrain()
         return state
@@ -1273,7 +1320,7 @@ export class AnnotationStorage {
         this.writeMigrated(
           state,
           raw,
-          needsEditorIds(decoded) || (decoded as Record<string, unknown>).storageVersion !== 6,
+          needsEditorIds(decoded) || (decoded as Record<string, unknown>).storageVersion !== 7,
         )
       } catch (error: unknown) {
         this.error = error instanceof Error ? error.message : String(error)
@@ -1290,10 +1337,16 @@ export class AnnotationStorage {
     }
   }
 
+  /**
+   * Save a Session edit without overwriting failed reads or permanently deleted Sessions.
+   * @param state - Current local annotation and retry records.
+   * @returns Whether the edit is durable or unchanged; access failures set lastError and remain retryable.
+   */
   save(state: PersistedSessionState): boolean {
     if (this.status === 'unread') this.load()
     if (this.status === 'failed') return false
     try {
+      if (this.storage.getItem(this.retiredKey) === '1') return false
       const journalKeys = this.journalKeys()
       const prepared = prepareJournalStates(
         this.baseState ?? emptyPersistedState(),
@@ -1457,6 +1510,7 @@ export class AnnotationStorage {
   }
 
   private drainJournals(): void {
+    if (this.storage.getItem(this.retiredKey) === '1') return
     const keys = this.journalKeys() ?? []
     const raw = this.readFirstAvailable()
     const parsed =

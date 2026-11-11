@@ -1,39 +1,19 @@
-# Releasing
+# 发布插件
 
-Version tags publish npm-format tarballs through GitHub Releases. This project does not publish to the npm registry.
+GitHub Releases 提供预构建安装包，dsh-market 从目录中的固定地址下载。请先在公开版宿主上验收；本机改过的宿主不能代表市场用户的环境。
 
-## One-time repository setup
+## 准备与验证
 
-1. Create the GitHub repository with `main` as its default branch.
-2. When publishing under a different owner, replace the owner (`ruisenbai`) in `package.json`, Markdown files, and `.github/ISSUE_TEMPLATE/config.yml`.
-3. Enable GitHub Discussions and private vulnerability reporting so the links in `SUPPORT.md` and `SECURITY.md` work.
-4. Protect `main`, require the `CI` workflow, and require pull-request review before merging.
-5. Keep GitHub Actions permission to write repository contents so the Release workflow can create tags and attach tarballs.
+1. 更新 `package.json` 中的版本与中文简介，检查宿主最低版本、依赖、中文首页、英文入口、升级说明和[更新记录](CHANGELOG.md)。
+2. 按[开发与验证](docs/development.md)从锁文件安装依赖，运行类型检查、代码检查、测试、构建、覆盖率和浏览器验证。安装包还要在独立的 Web 配置下加载，并验证侧栏选区保存、原文定位、发送与恢复。
+3. 检查安装包内的版本、许可、入口、截图和依赖，确保没有本机路径或凭据。生成版本化安装包、内容完全相同的固定文件名 `dsh-annotation.tgz`。交互原型单独提供，不放进插件运行包。
 
-Do not replace the contributor copyright in `LICENSE` unless the project has a specific copyright holder. Contributions are accepted under the same MIT License through `CONTRIBUTING.md`; no separate CLA is required.
+## 发布到 GitHub
 
-## Release checklist
+将验证过的源码提交到插件仓库，提交合并请求并遵守默认分支的审核要求。标签必须等于 `v` 加上包版本。GitHub Release 可先以草稿附上已验证的两个安装包，再推送对应标签；如果没有预构建附件，仓库的 Release 工作流会从标签构建。
 
-For `1.1.7`, the Host target is master commit `8bd073392e` (package version `0.2.2-alpha.3`); [Compatibility](docs/compatibility.md#dependency-source) records its official source commit. Record executed checks and outstanding manual checks separately; updating the version, dependency lockfile, or documentation does not establish release readiness. Check the dedicated **Settings → Annotations** page, its annotation record, sent-note reattachment, Inbox-only queue updates, unsynchronized Inbox snapshots, next-step exclusion, clickable user/steering references, and Markdown file-link selection and restoration before release. Capture repository screenshots from the current Chinese Web profile, including the main Settings page.
+版本标题、正文和仓库简介优先使用中文。正文列出宿主要求、真实验证结果、升级限制及[兼容性说明](docs/compatibility.md)。发布后从 GitHub 下载两个安装包，验证 SHA-256 相同，并验证独立原型附件可以打开。
 
-1. Move relevant entries from `Unreleased` into a dated version section in `CHANGELOG.md`.
-2. Update `version` in `package.json`; refresh `pnpm-lock.yaml` only when the complete dependency family is available from its registry.
-3. For a baseline whose registry packages contain all required APIs, run:
+## 更新 dsh-market
 
-   ```bash
-   pnpm install --frozen-lockfile --strict-peer-dependencies
-   pnpm verify
-   pnpm test:browser
-   pnpm test:profile
-   pnpm test:coverage
-   pnpm pack --pack-destination artifacts
-   ```
-
-   The `0.2.2-alpha.3` registry family includes the required interfaces. To verify source artifacts as CI does, follow [Official source verification](docs/development.md#official-source-verification) and [Packaging](docs/development.md#packaging). Report the dependency source and commands actually used; source overrides and temporary lockfiles remain verification inputs only.
-
-4. Inspect the tarball file list, package version, and exact `engines.dsh` and peer declarations, then test-install it into a disposable DSH Web profile using the declared host version.
-5. Commit and push the release source. When the registry path is available, push an annotated `v<version>` tag and let the Release workflow build both the versioned tarball and the stable `dsh-annotation.tgz` alias used by plugin catalogs. For an unpublished baseline, create a draft GitHub Release with the locally verified versioned tarball, an identical `dsh-annotation.tgz` copy, and the pushed commit as its target; the workflow recognizes those prebuilt assets instead of attempting a registry install.
-6. Confirm the workflow accepts the tag and both assets, then publish the draft and verify the public downloads. Compare the downloaded assets byte for byte; the workflow only detects their filenames. The public Release body must state the exact `engines.dsh` host requirement and link `docs/compatibility.md`; generated notes alone are insufficient. Distinguish executed checks from manual checks that remain unverified.
-7. For a catalog update, confirm `engines.dsh` matches every lockstep DSH peer, keep `screenshots.json` at 1-8 repository-owned images, and update `data/plugins/ruisenbai__dsh-annotation.yml` in `awesome-dsh-plugin`. Set and keep its category at `session` and preserve its stable tarball alias. Submit the single YAML entry change; current catalog rules regenerate both READMEs on main after merge. Recheck the catalog contribution guide before later releases.
-
-The tag must exactly match `v` plus the package version. The workflow rejects a version mismatch. It uses the prebuilt path only when both the versioned filename and stable alias exist; otherwise it attempts the registry build.
+按照[目录投稿规则](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/contributing.md)提交 `data/plugins/ruisenbai__dsh-annotation.yml`。保留 `session` 分类、中文一句话说明、必填英文翻译，以及 `https://github.com/ruisenbai/dsh-annotation/releases/latest/download/dsh-annotation.tgz`。不编辑自动生成的市场首页。目录合并并刷新后，再核对市场展示的简介和下载地址。

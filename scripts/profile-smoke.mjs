@@ -40,6 +40,109 @@ const pending = new Map()
 let nextId = 0
 const acceptanceGeometry = {}
 
+async function exerciseIndependentOfficialMarkers(content, select, label) {
+  const markers = content.locator('.dia-marker')
+  const ids = () => markers.evaluateAll((items) => items.map((item) => item.dataset.annotationId))
+  const before = await ids()
+  for (let number = 1; number <= 2; number++) {
+    await select()
+    await page.locator('.dia-selection-bar').getByRole('button', { name: '添加注解', exact: true }).click()
+    const editor = page.locator('.dia-record-editor--quick')
+    await editor
+      .getByRole('textbox', { name: '你的注解', exact: true })
+      .fill(`${label} independent ${number}`)
+    await editor.getByRole('button', { name: '保存', exact: true }).click()
+    await editor.waitFor({ state: 'hidden' })
+  }
+  const all = await ids()
+  assert.equal(all.length, before.length + 2)
+  assert.equal(new Set(all).size, all.length)
+  const added = all.filter((id) => !before.includes(id))
+  const originalFont = await page.evaluate(() =>
+    Number.parseFloat(getComputedStyle(document.body).getPropertyValue('--dsh-content-font-size')),
+  )
+  for (const size of [10, 22, originalFont]) {
+    await page.getByRole('button', { name: '账号菜单', exact: true }).click()
+    await page.getByRole('menuitem', { name: '设置', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '设置', exact: true })
+    while (
+      (await page.evaluate(() =>
+        Number.parseFloat(getComputedStyle(document.body).getPropertyValue('--dsh-content-font-size')),
+      )) !== size
+    ) {
+      const prior = await page.evaluate(() =>
+        Number.parseFloat(getComputedStyle(document.body).getPropertyValue('--dsh-content-font-size')),
+      )
+      await dialog.getByRole('button', { name: prior < size ? '增大字号' : '减小字号', exact: true }).click()
+      await page.waitForFunction(
+        (prior) =>
+          Number.parseFloat(getComputedStyle(document.body).getPropertyValue('--dsh-content-font-size')) !==
+          prior,
+        prior,
+      )
+    }
+    await dialog.getByRole('button', { name: '关闭', exact: true }).click()
+    await markers.last().waitFor({ state: 'visible' })
+    await select()
+    const sourceFont = await page.evaluate(() =>
+      Number.parseFloat(
+        getComputedStyle(window.getSelection().getRangeAt(0).endContainer.parentElement).fontSize,
+      ),
+    )
+    await page.keyboard.press('Escape')
+    await page.waitForFunction(
+      ({ id, font }) => {
+        const item = document.querySelector(`.dia-marker[data-annotation-id="${id}"]`)
+        return item && Math.abs(Number.parseFloat(getComputedStyle(item).fontSize) - font * 0.8) < 0.01
+      },
+      { id: added[1], font: sourceFont },
+    )
+    const geometry = await markers.evaluateAll((items) =>
+      items.map((e) => {
+        const box = e.getBoundingClientRect()
+        return {
+          id: e.dataset.annotationId,
+          left: box.left,
+          right: box.right,
+          top: box.top,
+          bottom: box.bottom,
+          width: box.width,
+          height: box.height,
+          font: getComputedStyle(e).fontSize,
+        }
+      }),
+    )
+    for (const item of geometry)
+      assert.ok(
+        item.left >= 0 &&
+          item.right <= (await page.evaluate(() => innerWidth)) &&
+          item.width >= 24 &&
+          item.height >= 24,
+      )
+    for (const [index, item] of geometry.entries())
+      for (const peer of geometry.slice(index + 1))
+        assert.ok(
+          item.right <= peer.left ||
+            peer.right <= item.left ||
+            item.bottom <= peer.top ||
+            peer.bottom <= item.top,
+        )
+    acceptanceGeometry[`${label}-font-${size}`] = geometry
+  }
+  await page.screenshot({ path: join(artifacts, `${label}-independent-markers.png`), fullPage: true })
+  for (const [index, id] of added.entries()) {
+    await content.locator(`.dia-marker[data-annotation-id="${id}"]`).click()
+    const editor = page.locator('.dia-record-editor--detail')
+    assert.equal(await editor.getByRole('textbox').inputValue(), `${label} independent ${index + 1}`)
+    await editor.getByRole('button', { name: '删除', exact: true }).click()
+    await editor.waitFor({ state: 'hidden' })
+  }
+  assert.deepEqual(await ids(), before)
+  console.log(
+    `PASS ${label}: repeated saved selection keeps separate source ids, measured fonts and exact deletion`,
+  )
+}
+
 function rectEdges(rect) {
   assert.ok(rect, 'Expected a visible element with a DOMRect')
   return {
@@ -203,6 +306,10 @@ async function openReadingSession(page, sessionId, source) {
   await group.waitFor()
   if ((await group.getAttribute('aria-expanded')) !== 'true') await group.click()
   const row = page.locator(`[role="treeitem"][data-row-key="session:${sessionId}"]`)
+  if ((await row.count()) === 0) {
+    const overflow = page.getByRole('button', { name: /展开其余 \d+ 个会话/u }).first()
+    if ((await overflow.count()) > 0) await overflow.click()
+  }
   await row.waitFor()
   assert.equal(await row.count(), 1, 'Exactly one unopened Session must show its workspace basename')
   await row.click()
@@ -238,6 +345,191 @@ async function selectReadingSource(page, source) {
   )
   await toolbar.getByRole('button', { name: '引用文本', exact: true }).waitFor()
   await toolbar.getByRole('button', { name: '添加注解', exact: true }).waitFor()
+}
+
+/** Exercise native link-label drags through the installed Host, retaining its recorded Session. */
+async function exerciseLinkSelections(page, workspace) {
+  const directory = new URL('../tests/profile-fixtures/link-selection/', import.meta.url)
+  const recorded = await readRecordedGeneration(directory, 4)
+  const cases = JSON.parse(await readFile(new URL('selection.expected.json', directory), 'utf8'))
+  const results = []
+  for (const width of [1440, 390]) {
+    const bindings = new Map([
+      ['{{session:1}}', `annotation-link-selection-${width}`],
+      ['{{message:1}}', `annotation-link-user-${width}`],
+      ['{{message:2}}', `annotation-link-reply-${width}`],
+      ['{{cwd}}', workspace],
+    ])
+    const [{ type, ...header }, ...rows] = substituteIdentities(recorded, bindings)
+    assert.equal(type, 'session')
+    const replay = {
+      recorded,
+      bindings,
+      header,
+      events: rows.map((event, seq) => ({ ...event, seq, time: seq })),
+    }
+    assertRecordedSession(await request('seed-session', replay), replay)
+    const open = async () => {
+      await page.setViewportSize({ width: 1440, height: 960 })
+      await openReadingSession(page, header.id, 'Before web label after.')
+      await page.setViewportSize({ width, height: 960 })
+    }
+    await open()
+    const body = page.locator('.dia-assistant__body')
+    const toolbar = page.getByRole('toolbar', { name: '选区操作', exact: true })
+    const editor = page.locator('.dia-record-editor--quick')
+    const composer = page.locator('[data-composer-card] [contenteditable="true"]').first()
+    const drag = async (testCase) => {
+      const link = body.getByText(`${testCase.link} label`, { exact: true })
+      await link.scrollIntoViewIfNeeded()
+      const points = await link.evaluate((label, paragraph) => {
+        window.getSelection().removeAllRanges()
+        const target = paragraph ? label.closest('p') : label
+        const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT)
+        const nodes = []
+        for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+          if (node.textContent.trim() && !node.parentElement.closest('[aria-hidden="true"]')) nodes.push(node)
+        }
+        const first = nodes[0]
+        const last = nodes.at(-1)
+        const range = document.createRange()
+        range.setStart(first, 0)
+        range.setEnd(first, 1)
+        const start = range.getBoundingClientRect()
+        range.setStart(last, last.textContent.length - 1)
+        range.setEnd(last, last.textContent.length)
+        const end = range.getBoundingClientRect()
+        return {
+          x: start.left + 0.5,
+          y: start.top + start.height / 2,
+          endX: end.right - 0.5,
+          endY: end.top + end.height / 2,
+        }
+      }, testCase.paragraph)
+      await page.mouse.move(points.x, points.y)
+      await page.mouse.down()
+      await page.mouse.move(points.endX, points.endY, { steps: 20 })
+      await page.mouse.up()
+      const actual = await page.evaluate(() => window.getSelection().toString())
+      const diagnostic =
+        actual === testCase.text
+          ? null
+          : await link.evaluate((element) => {
+              const link = element.closest('a, button')
+              return {
+                label: getComputedStyle(element).userSelect,
+                link: getComputedStyle(link).userSelect,
+                drag: getComputedStyle(link).webkitUserDrag,
+                active: document.activeElement?.tagName,
+                hit: document.elementFromPoint(
+                  element.getBoundingClientRect().left + 1,
+                  element.getBoundingClientRect().top + 5,
+                )?.tagName,
+              }
+            })
+      assert.equal(
+        actual,
+        testCase.text,
+        JSON.stringify({ points, diagnostic, pages: page.context().pages().length }),
+      )
+      await toolbar.waitFor({ state: 'visible' })
+      assert.equal(await toolbar.count(), 1, 'Only one selection toolbar may be accessible')
+      assert.equal(await page.locator('[role="toolbar"]:visible').count(), 1)
+      assert.deepEqual(await toolbar.getByRole('button').allTextContents(), [
+        '引用文本',
+        '添加注解',
+        '在侧边添加注解',
+      ])
+      assert.equal(
+        await page.locator('[data-document-preview]:visible').count(),
+        0,
+        'A file-label drag must not open its document',
+      )
+      assert.equal(page.context().pages().length, 1, 'A web-label drag must not open its URL')
+      const bounds = rectEdges(await toolbar.boundingBox())
+      assert.ok(
+        bounds.left >= 0 && bounds.right <= width && bounds.top >= 0 && bounds.bottom <= 960,
+        `Link toolbar must fit the viewport: ${JSON.stringify(bounds)}`,
+      )
+      return bounds
+    }
+    for (const testCase of cases) {
+      const bounds = await drag(testCase)
+      await mkdir(artifacts, { recursive: true })
+      await page.screenshot({ path: join(artifacts, `link-selection-${width}-${testCase.id}.png`) })
+      await toolbar.getByRole('button', { name: '引用文本', exact: true }).click()
+      await toolbar.waitFor({ state: 'hidden' })
+      const quote = composer.locator('[data-quote-preview][data-removable]')
+      await quote.waitFor({ state: 'visible' })
+      assert.equal(await quote.locator('[data-quote-preview-text]').innerText(), testCase.text)
+      await quote.getByRole('button').click()
+      await quote.waitFor({ state: 'detached' })
+      await drag(testCase)
+      await page.keyboard.press('Escape')
+      await toolbar.waitFor({ state: 'hidden' })
+      assert.equal(await page.locator('[data-dsh-annotation-link-selection]').count(), 0)
+      results.push({ width, case: testCase.id, text: testCase.text, bounds })
+    }
+    // Host quotation requires a plain draft; saved annotations claim the composer.
+    for (const testCase of cases) {
+      await drag(testCase)
+      await toolbar.getByRole('button', { name: '添加注解', exact: true }).click()
+      await editor.waitFor({ state: 'visible' })
+      await editor.getByRole('textbox', { name: '你的注解', exact: true }).fill(`Review ${testCase.id}`)
+      await editor.getByRole('button', { name: '保存', exact: true }).click()
+      await editor.waitFor({ state: 'hidden' })
+    }
+    await page.waitForFunction(
+      ({ id, count }) =>
+        JSON.parse(localStorage.getItem(`dsh-annotation:v1:${id}`) ?? 'null')?.annotations.length === count,
+      { id: header.id, count: cases.length },
+    )
+    const saved = await page.evaluate(
+      (id) =>
+        JSON.parse(localStorage.getItem(`dsh-annotation:v1:${id}`)).annotations.map((note) => ({
+          text: note.quote.exact,
+          annotation: note.annotation,
+        })),
+      header.id,
+    )
+    assert.deepEqual(
+      saved,
+      cases.map((testCase) => ({
+        text: testCase.text,
+        annotation: `Review ${testCase.id}`,
+      })),
+    )
+    await open()
+    await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
+    const row = page.locator('.dia-record-row').filter({ hasText: 'Review file-label' })
+    await row.getByRole('button', { name: '定位原文', exact: true }).click()
+    await assertLocateFlash(page, '.dia-quote-flash', 'Saved file-link label')
+    assertRecordedSession(await request('read-session', { sessionId: header.id }), replay)
+    console.log(
+      `PASS ${width}px: native web/file link drags, one toolbar, quote, annotate, Escape, reload and Locate`,
+    )
+  }
+  await page.setViewportSize({ width: 1440, height: 960 })
+  await page.context().route('https://example.com/annotation-reference', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<title>Link activation fixture</title>',
+    }),
+  )
+  try {
+    const popup = page.waitForEvent('popup')
+    await page.locator('.dia-assistant__body').getByRole('link', { name: 'web label', exact: true }).click()
+    const opened = await popup
+    await opened.waitForLoadState('domcontentloaded')
+    assert.equal(opened.url(), 'https://example.com/annotation-reference')
+    await opened.close()
+  } finally {
+    await page.context().unroute('https://example.com/annotation-reference')
+  }
+  await page.locator('.dia-assistant__body').getByRole('button', { name: 'file label', exact: true }).click()
+  await page.locator('[data-textpreview-url][data-document-preview$="/code"]').waitFor({ state: 'visible' })
+  console.log('PASS ordinary web/file link clicks retain their Host navigation')
+  acceptanceGeometry.linkSelection = results
 }
 
 async function cancelBlankNewEditor(page, editor, source) {
@@ -658,7 +950,31 @@ try {
   })
   page.setDefaultTimeout(30_000)
   const pageErrors = []
-  page.on('pageerror', (error) => pageErrors.push(error.message))
+  page.on('pageerror', (error) => {
+    pageErrors.push(error.message)
+    console.error(error.stack)
+    console.error('Client error:', error.message.replace(/([?&]token=)[^\s&]+/g, '$1<redacted>'))
+  })
+  if (process.argv.includes('--diagnose-abort')) {
+    await page.addInitScript(() => {
+      for (const [owner, key] of [
+        [window, 'fetch'],
+        [Response.prototype, 'json'],
+        [Response.prototype, 'text'],
+        [Response.prototype, 'arrayBuffer'],
+      ]) {
+        const original = owner[key]
+        owner[key] = function (...args) {
+          const stack = new Error(`${key} call`).stack
+          return Reflect.apply(original, this, args).catch((cause) => {
+            if (cause?.name === 'AbortError')
+              Object.defineProperty(cause, 'stack', { value: stack, configurable: true })
+            throw cause
+          })
+        }
+      }
+    })
+  }
   await page.goto(initial.url, { waitUntil: 'domcontentloaded' })
   try {
     await Promise.race([
@@ -681,7 +997,9 @@ try {
   }
   const continueFromPreviewNotice = page.getByRole('button', { name: '继续', exact: true })
   if (await continueFromPreviewNotice.isVisible()) await continueFromPreviewNotice.click()
-  if (process.argv.includes('--record-attachments-only')) {
+  if (process.argv.includes('--link-selection-only')) {
+    await request('submit')
+  } else if (process.argv.includes('--record-attachments-only')) {
     await request('submit')
     const replay = await readingReplay(workspace)
     assertRecordedSession(
@@ -833,7 +1151,7 @@ try {
       .waitFor()
     const submissionCard = page.locator('.dia-user-submission')
     await assertUserMessageAlignment(page, 'Host plain and annotated messages')
-    await submissionCard.getByRole('button', { name: '1 条注释，双击定位原文', exact: true }).waitFor()
+    await submissionCard.getByRole('button', { name: '1 条注解，双击定位原文', exact: true }).waitFor()
     const conversation = `# Assistant\n${await page.locator('.dia-assistant__body').first().ariaSnapshot()}\n\n# Annotation submission\n${await submissionCard.ariaSnapshot()}\n`
     await mkdir(artifacts, { recursive: true })
     await writeFile(join(artifacts, 'conversation.actual.txt'), conversation)
@@ -931,7 +1249,10 @@ try {
       }))
       assert.equal(bodyFontSize, `${variant.fontSize}px`)
       assert.equal(typography.fontSize, `${variant.fontSize - 1}px`)
-      assert.equal(typography.buttons.length, 2)
+      assert.deepEqual(
+        typography.buttons.map((button) => button.label.trim()),
+        ['引用文本', '添加注解', '在侧边添加注解'],
+      )
       for (const button of typography.buttons) {
         assert.equal(
           button.fontSize,
@@ -1130,18 +1451,18 @@ try {
     await chip.waitFor()
     assert.equal(await page.locator('.dia-record').count(), 0, 'Saving does not open the record')
     const bodyMarker = page.locator('.dia-marker').first()
-    const markerIdle = await assertMarkerMaterial(bodyMarker, false)
+    const markerIdle = await assertMarkerMaterial(bodyMarker)
     await bodyMarker.hover()
-    const markerHover = await assertMarkerMaterial(bodyMarker, false)
+    const markerHover = await assertMarkerMaterial(bodyMarker)
     await captureMarker(page, bodyMarker, join(artifacts, 'marker-hover-profile.png'))
     await bodyMarker.click()
     const markerEditor = page.locator('.dia-record-editor--detail')
     await markerEditor.waitFor()
-    const markerOpen = await assertMarkerMaterial(bodyMarker, true)
+    const markerOpen = await assertMarkerMaterial(bodyMarker)
     await captureMarker(page, bodyMarker, join(artifacts, 'marker-open-profile.png'))
     await markerEditor.getByRole('button', { name: '取消', exact: true }).click()
     await markerEditor.waitFor({ state: 'hidden' })
-    const markerClosed = await assertMarkerMaterial(bodyMarker, false)
+    const markerClosed = await assertMarkerMaterial(bodyMarker)
     acceptanceGeometry.markerMaterial = { markerIdle, markerHover, markerOpen, markerClosed }
     await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
     const record = page.locator('.dia-record')
@@ -1166,13 +1487,15 @@ try {
     await editor.getByRole('button', { name: '保存', exact: true }).click()
     await editor.waitFor({ state: 'hidden' })
     const newerRow = record.locator('.dia-record-row').filter({ hasText: newerNote })
-    const groupedMarker = page.locator('.dia-marker[aria-haspopup="menu"]').first()
-    await groupedMarker.click()
-    await page.getByRole('menu').waitFor()
-    await assertMarkerMaterial(groupedMarker, true)
-    await page.keyboard.press('Escape')
-    await page.getByRole('menu').waitFor({ state: 'hidden' })
-    await assertMarkerMaterial(groupedMarker, false)
+    const independent = page.locator('.dia-marker[aria-haspopup="dialog"]')
+    assert.equal(await independent.count(), 2, 'Repeated saved selection keeps two independent bubbles')
+    const newerMarker = independent.last()
+    await newerMarker.click()
+    await markerEditor.waitFor()
+    await assertMarkerMaterial(newerMarker)
+    await markerEditor.getByRole('button', { name: '取消', exact: true }).click()
+    await markerEditor.waitFor({ state: 'hidden' })
+    await assertMarkerMaterial(newerMarker)
     const recordOrder = () => record.locator('.dia-record-row__preview-anchor').allTextContents()
     const recordPresentation = async () =>
       `${[await record.locator('.dia-record__progress').textContent(), ...(await recordOrder())].join('\n')}\n`
@@ -1322,6 +1645,16 @@ try {
   if (
     codexUiPath === undefined &&
     !process.argv.includes('--official-only') &&
+    !process.argv.includes('--legacy-diff-only') &&
+    !process.argv.includes('--record-perf-only') &&
+    !process.argv.includes('--record-attachments-only')
+  ) {
+    await exerciseLinkSelections(page, workspace)
+  }
+  if (
+    codexUiPath === undefined &&
+    !process.argv.includes('--official-only') &&
+    !process.argv.includes('--link-selection-only') &&
     !process.argv.includes('--record-perf-only') &&
     !process.argv.includes('--record-attachments-only')
   ) {
@@ -1337,6 +1670,7 @@ try {
   if (
     codexUiPath === undefined &&
     !process.argv.includes('--legacy-diff-only') &&
+    !process.argv.includes('--link-selection-only') &&
     !process.argv.includes('--record-perf-only') &&
     !process.argv.includes('--record-attachments-only')
   ) {
@@ -1355,6 +1689,7 @@ try {
     await page.getByRole('button', { name: '账号菜单', exact: true }).click()
     await page.getByRole('menuitem', { name: '设置', exact: true }).click()
     const settings = page.getByRole('dialog', { name: '设置' })
+    await settings.getByRole('button', { name: '通用设置', exact: true }).click()
     const codeTools = settings.getByRole('switch', { name: '显示代码工作视图', exact: true })
     if ((await codeTools.getAttribute('aria-checked')) === 'false') await codeTools.click()
     await settings.getByRole('button', { name: '注解', exact: true }).click()
@@ -1411,11 +1746,11 @@ try {
       await page.locator('.dia-selection-bar').waitFor({ state: 'visible' })
     }
     await selectChangedDiffText()
-    await page.locator('.dia-selection-bar').getByRole('button', { name: '添加注解' }).click()
+    await page.locator('.dia-selection-bar').getByRole('button', { name: '添加注解', exact: true }).click()
     const diffEditor = page.locator('.dia-record-editor--quick')
     await cancelBlankNewEditor(page, diffEditor, 'Diff sidebar')
     await selectChangedDiffText()
-    await page.locator('.dia-selection-bar').getByRole('button', { name: '添加注解' }).click()
+    await page.locator('.dia-selection-bar').getByRole('button', { name: '添加注解', exact: true }).click()
     await diffEditor.getByRole('textbox', { name: '你的注解' }).fill('Check the changed line.')
     await diffEditor.getByRole('button', { name: '保存', exact: true }).click()
     await diffEditor.waitFor({ state: 'hidden' })
@@ -1423,6 +1758,7 @@ try {
     await saved.waitFor({ state: 'visible' })
     const annotationId = await saved.getAttribute('data-annotation-id')
     assert.ok(annotationId)
+    await exerciseIndependentOfficialMarkers(review, selectChangedDiffText, 'official-diff')
     await page.screenshot({
       path: join(artifacts, 'official-diff-sidebar-saved-profile.png'),
       fullPage: true,
@@ -1544,23 +1880,25 @@ try {
     await filePreview.locator('[data-document-viewer-menu]').click()
     await page.getByRole('menuitem', { name: 'Markdown' }).click()
     await filePreview.locator('[data-document-markdown]').waitFor({ state: 'visible' })
-    await filePreview.locator('[data-document-markdown]').evaluate((body) => {
-      const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT)
-      let first = null
-      let last = null
-      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-        if (node.textContent.includes('Local review notes')) first = node
-        if (node.textContent.includes('A changed line.')) last = node
-      }
-      if (first === null || last === null) throw new Error('Multiline Markdown target is missing')
-      const range = document.createRange()
-      range.setStart(first, 0)
-      range.setEnd(last, last.textContent.length)
-      const selection = window.getSelection()
-      selection.removeAllRanges()
-      selection.addRange(range)
-      last.parentElement.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
-    })
+    const selectMarkdownText = async () =>
+      filePreview.locator('[data-document-markdown]').evaluate((body) => {
+        const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT)
+        let first = null
+        let last = null
+        for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+          if (node.textContent.includes('Local review notes')) first = node
+          if (node.textContent.includes('A changed line.')) last = node
+        }
+        if (first === null || last === null) throw new Error('Multiline Markdown target is missing')
+        const range = document.createRange()
+        range.setStart(first, 0)
+        range.setEnd(last, last.textContent.length)
+        const selection = window.getSelection()
+        selection.removeAllRanges()
+        selection.addRange(range)
+        last.parentElement.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+      })
+    await selectMarkdownText()
     await page.locator('.dia-selection-bar').waitFor({ state: 'visible' })
     const multilineAnchor = await page.evaluate(() => {
       const body = document.querySelector('[data-document-markdown]')
@@ -1593,23 +1931,25 @@ try {
     )
     await page.keyboard.press('Escape')
     await page.evaluate(() => window.getSelection()?.removeAllRanges())
-    await filePreview.locator('[data-document-markdown]').evaluate((body) => {
-      const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT)
-      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-        const start = node.textContent.indexOf('A changed line.')
-        if (start < 0) continue
-        const range = document.createRange()
-        range.setStart(node, start)
-        range.setEnd(node, start + 'A changed line.'.length)
-        const selection = window.getSelection()
-        selection.removeAllRanges()
-        selection.addRange(range)
-        node.parentElement.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
-        return
-      }
-      throw new Error('Markdown selection target is missing')
-    })
-    await page.locator('.dia-selection-bar').getByRole('button', { name: '添加注解' }).click()
+    const selectMarkdownRange = async () =>
+      filePreview.locator('[data-document-markdown]').evaluate((body) => {
+        const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT)
+        for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+          const start = node.textContent.indexOf('A changed line.')
+          if (start < 0) continue
+          const range = document.createRange()
+          range.setStart(node, start)
+          range.setEnd(node, start + 'A changed line.'.length)
+          const selection = window.getSelection()
+          selection.removeAllRanges()
+          selection.addRange(range)
+          node.parentElement.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+          return
+        }
+        throw new Error('Markdown selection target is missing')
+      })
+    await selectMarkdownRange()
+    await page.locator('.dia-selection-bar').getByRole('button', { name: '添加注解', exact: true }).click()
     await fileEditor.waitFor({ state: 'visible' })
     await page.setViewportSize({ width: 390, height: 850 })
     await page.waitForFunction(() => {
@@ -1628,6 +1968,7 @@ try {
       fileMarkers.length >= 2 && fileMarkers.every((ids) => ids?.split(' ').length === 1),
       `Whole-file and text-range notes need distinct bubbles: ${JSON.stringify(fileMarkers)}`,
     )
+    await exerciseIndependentOfficialMarkers(filePreview, selectMarkdownRange, 'official-file')
     const fileRecord = page.locator('.dia-record')
     if (!(await fileRecord.isVisible()))
       await page.getByRole('button', { name: '显示注解记录', exact: true }).click()
@@ -1648,7 +1989,12 @@ try {
       body.scrollTop = body.scrollHeight
     })
     await page.waitForFunction(() => document.querySelector('[data-document-markdown]')?.scrollTop > 100)
-    await page.waitForFunction(() => document.querySelectorAll('.dia-marker').length === 1)
+    assert.equal(
+      await filePreview.locator('.dia-marker').count(),
+      2,
+      'Saved source bubbles remain independently accessible while the inner Markdown body scrolls',
+    )
+    await page.screenshot({ path: join(artifacts, 'official-file-inner-scroll-markers.png'), fullPage: true })
     await filePreview.locator('[data-document-markdown]').evaluate((body) => {
       body.scrollTop = 0
     })
@@ -1710,14 +2056,17 @@ try {
     )
     await page.locator('.dia-selection-bar').waitFor({ state: 'visible', timeout: 5_000 })
     await page.screenshot({ path: join(artifacts, 'official-code-selection-profile.png'), fullPage: true })
-    await page.locator('.dia-selection-bar').getByRole('button', { name: '添加注解' }).click()
+    await page.locator('.dia-selection-bar').getByRole('button', { name: '添加注解', exact: true }).click()
     await fileEditor.waitFor({ state: 'visible' })
     await page.screenshot({ path: join(artifacts, 'official-code-editor-profile.png'), fullPage: true })
     await cancelBlankNewEditor(page, fileEditor, 'Code file selection')
     console.log('PASS native multiline code selection shows the shared action and blank cancellation')
     await page.evaluate(() => window.getSelection()?.removeAllRanges())
     await selectReadingSource(page, 'Review the changed ')
-    await page.locator('.dia-message-selection').getByRole('button', { name: '添加注解' }).click()
+    await page
+      .locator('.dia-message-selection')
+      .getByRole('button', { name: '添加注解', exact: true })
+      .click()
     await fileEditor.getByRole('textbox', { name: '你的注解' }).fill('Review this reply.')
     await fileEditor.getByRole('button', { name: '保存', exact: true }).click()
     await fileEditor.waitFor({ state: 'hidden' })

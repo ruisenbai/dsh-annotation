@@ -1,176 +1,72 @@
-# Architecture
+# 注解如何工作
 
-## Scope
+[English](architecture.en.md) · [使用指南](../README.md) · [数据模型](data-model.md)
 
-`dsh-annotation` is one installable Cordis row with two runtime halves:
+<a id="scope"></a>
 
-- the **Host half** registers the `dsh-annotation` settings namespace and internal `annotation_submit` command (plus invisible legacy aliases), validates a base64url JSON payload and rejects historical Git Diff sources, admits official image and file attachments, creates one standard user message, deduplicates retries, and calls `Agent.followup()`;
-- the **Web Client half** owns message, official file, and official turn-Diff selection, independent annotation records, editor buffers, the selected send set, the official composer claim, immutable retries, status reconstruction, reply chips, queue withdrawal, and source navigation.
+## 宿主与客户端
 
-The package does not add a custom durable Session event. Every model-visible batch is represented by the existing `user/message` event and therefore survives replay and persistence without extending DSH's closed reload vocabulary.
+客户端读取选区、显示气泡和编辑器，保存当前浏览器中的草稿。宿主检查提交内容与接收会话，交给 DSH 的标准消息输入队列。插件不单独向模型发请求。主会话、嵌入侧栏的聊天和单独打开的侧边聊天使用同一套注解组件。
 
-## Official sources and historical Diff records
+<a id="official-sources-and-historical-diff-records"></a>
 
-The Client consumes the public Host document slots and changes APIs rather than reading the workspace or Git state directly. File-preview selection captures the rendered resource address, path, format, revision, and immutable snapshot identity. Text selections retain a range quote; whole-file actions use an empty quote. Image, PDF, Office, Excel, CSV, TSV, HTML, and other non-text previews use the official renderer or resource revision as the snapshot identity.
+## 原文来源
 
-Official turn-Diff selection consumes `/api/changes.summary` and `/api/changes.diff`, keyed by Session, turn sequence, file index, and immutable hunk data. The Diff sidebar owns new annotation actions and the Locate endpoint. A hover preview has no annotation action; earlier hover-origin records remain readable and locatable in the sidebar. `sourceKey` excludes the creation entry so those records resolve the same source. Independent file and turn-Diff settings remove only their new entry points; existing records remain available.
+消息选区以会话、消息、版本、原文和上下文共同标识。文件和本轮代码差异来自宿主预览：保存身份、版本、定位和片段摘要，必要时在本地保留快照。旧 Git 差异只用于回读，不重新读取当前仓库作为历史依据。
 
-Historical Git Diff sources in durable Session messages and browser storage remain parseable so historical text, file positions, and diagnostic snapshots can be read without accessing the current repository. They are permanently read-only and cannot be created, edited, selected for new sends, located, deleted from the record, or retried. [Data model](data-model.md#historical-diff-source) owns the retained fields.
+<a id="submission-sequence"></a>
 
-## Submission sequence
+## 从选区到模型
 
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant C as Web Client
-  participant H as Host command
-  participant A as Agent inbox
-  participant L as Session log
-  participant M as Model
+1. 用户保存注解并用回形针选择本次发送项。附加数显示在接收聊天的官方输入框中。
+2. 如含图片或文件，宿主先返回按原顺序排列的附件身份。客户端验证选中的记录，固定本次提交标识、注解、附件、语言和要求。
+3. 宿主通过 `commands/execute` 接收命令，检查目标会话、内容、数量和大小，将一条标准用户消息交给代理。记录能否撤回取决于宿主队列。
+4. 会话中的用户消息是发送成功的依据；模型回答中的有效完成标记是“已处理”的依据。收到命令响应不等于模型已完成。
 
-  U->>C: Select reply text
-  U->>C: Save an annotation; attach records with paperclips
-  U->>C: Send through the official composer
-  C->>H: Prepare ordered official attachments when present
-  H-->>C: Admitted attachment identities
-  C->>C: Validate the selected set and freeze the payload
-  C->>H: commands/execute /annotation_submit + attachments
-  H->>A: followup() with a deterministic message id
-  A->>L: Standard user/message
-  L->>M: Composer text, selected annotations, and attachments
-  M->>L: Reply markers and completed-id acknowledgement
-  C->>C: Reconstruct queued, sent, and processed status
-```
+<a id="side-chat-sessions-and-annotations"></a>
 
-## Composer attachment claim
+## 主会话与侧栏
 
-Each newly saved annotation enters `selectedAnnotationIds` and, when `autoAttach` is enabled, arms the official composer. A record row's paperclip selects or deselects one draft or historical sent annotation. Selecting a sent annotation uses its original ID in the next payload; it does not create another record. A manual detach remains detached until the user reattaches or saves another annotation. A new conversation has no record or empty-state copy; the record closes automatically when all annotations have sent status and none is selected. The rounded composer chip counts only annotations in the next batch, shares the official add-file button's left inset, and previews their source and note. Its detach control appears on hover or keyboard focus. Its first click opens the expanded record; later clicks toggle the row list without hiding the record. The model-side button hides or shows the whole record. Rows show no delivery status or state dots. The header shows the record count, and creation time owns ordering regardless of delivery or attachment selection. Locating source text preserves the record's visibility and expansion state.
+选择“在侧边添加注解”时，插件同时记住接收聊天和原文选区。即使创建侧边会话期间切换标签，注解也不会送往另一个聊天。原文可见时，新建编辑器和重开的气泡都靠近原文；原文不在页面上时才退到接收聊天的输入框附近。保存本身不产生模型请求。
 
-The internal claim uses `name: dsh-annotation-attachment` and `attachments: true`; `claim.submit()` receives ordered `SubmitAttachment[]` values and captures one controller snapshot for preparation. The selected annotations receive contiguous batch ordinals, and new payloads use `processingMode: answer`. A retry retains its original mode, text, selected records, locale, target Session, and attachment identities. Before creating a new outbox record, the controller rechecks every captured annotation against live content so deletion or an unfinished edit cannot submit stale text.
+每个主会话维护自己的侧边聊天列表。侧边会话继承主会话所在工作区或目录，但有独立的草稿、记录、输入框与历史。嵌入视图和独立页面通过宿主保留同一会话；切换标签不终止生成。支持共享会话管理接口的宿主提供标签内的归档、删除和确认；公开版缺少这些扩展时，插件仍可创建侧栏、添加注解和发送消息。
 
-For a new attachment-bearing send, the Client invokes `/<commandName> prepare-attachments` through the existing `commands/execute` Remote. DSH admits the official attachments first; the plugin returns only ordered stable ids, byte counts, names, and image media types. A retry compares reselected attachments with the frozen identities. The final command independently verifies admitted blocks. Raw bytes and temporary upload receipts never enter the annotation JSON or command string.
+<a id="composer-attachment-claim"></a>
+<a id="slash-command-release"></a>
 
-The Host owns the atomic command node. The plugin inserts `/annotation-attachment` through `slash/input-begin-command` without rewriting the resulting draft; the visible annotation count chip presents that hidden internal claim. A slash-prefixed token passes the Host's persisted command-draft parser, preserving text and references on reload. Restored plain drafts with the current token or legacy zero-width prefix re-arm through the same scoped event. User and steering messages render text, ordered attachments, and reference actions through the Host’s `conversation.chat.user.content` factory.
+## 输入框与附件
 
-### Slash-command release
+插件使用官方输入框的命令占位机制，将选中的注解呈现为数量按钮。用户输入、文件引用和附件仍由宿主管理。输入普通斜杠命令时会释放占位；文字、图片和文件仍按宿主协议发送。重试时只允许同一批记录与同一组附件，刷新后可能需要按原顺序重新选择文件。
 
-While attached, the Client watches the composer input state (no global keyboard listeners). When the visible content — after removing the plugin's own token — starts with `/`, the plugin enters command-release state: it releases the claim and removes the token while annotations stay logically attached. Leaving command state re-arms the claim and restores the attachment. `claim.submit()` re-checks for a leading `/` to defeat the Enter race: a raced command is executed through the root `commands/execute(sessionId, line, attachments)` Remote, without creating an outbox, sending annotations, or marking them sent. A failed command keeps its text, attachments, and annotations because the Client returns an error outcome, which retains the composer draft.
+<a id="durable-representation"></a>
+<a id="protocol-and-storage-compatibility"></a>
+<a id="idempotency"></a>
 
-## Durable representation
+## 历史记录与重复提交
 
-The Host attaches this structured annotation data to the standard user message:
+模型可见的文本、选中的引用、意见和附件从标准 `user/message` 记录还原。未选中的草稿和本地完整来源快照不会进入请求。同一批重试复用提交标识；相同标识但内容不同的请求会被拒绝。旧侧栏请求的接收凭据从入队和用户消息事件累积，保留跨重启的判重依据。详见[数据格式](data-model.md#submission-payload)。
 
-```ts
-{
-  kind: 'user',
-  annotationSubmission: AnnotationSubmissionPayload
-}
-```
+<a id="client-state-owner"></a>
+<a id="selection-anchoring"></a>
+<a id="reply-chips"></a>
+<a id="editor-input-handling"></a>
 
-`kind: 'user'` is intentional: every quote and annotation comes from an explicit human gesture, and DSH should treat the input with ordinary human authority. The extra field is an owned JSON value preserved by standard message cloning. It contains the exact submitted batch, so a fresh browser can rebuild timeline cards without a plugin sidecar. Replay also accepts the pre-rename `inlineComments` and `inlineAnnotations` source fields on durable messages.
+## 编辑与定位
 
-The model-visible text is generated from the same payload. The overall requirement remains the user's goal and constraints, with `processingMode: answer` for new submissions; historical `rewrite` and `modify` payloads retain their selected delivery mode on retry. The protocol retains brief `Annotation N:` / `注解 N：` handling notes and one hidden `dsh-annotation-reply` marker per annotation. The text also carries `supplementalTo` when present and requests a final acknowledgement containing only ids actually completed under the selected mode.
+每个会话有独立的状态。选区和可见原文位置用于放置编辑器；滚动、窗口缩放或原文重新排版时重新测量。多条气泡可能共享位置，但各自保留身份。无法唯一匹配历史文本时显示无法定位，不跳到相似文字。输入法组字期间不把回车当成保存；多个页面通过写入日志协调浏览器中的修改。
 
-The formatter emits the delivery and acknowledgement instructions once per batch. Blank overall requirements omit both their section and conflict guidance. Empty quote prefixes and suffixes omit their labels, while nonempty context, including whitespace-only context, remains verbatim. Highlight-only handling guidance appears only when a selected annotation has that kind. Item headings use ordinals; hidden markers retain the complete submission and annotation IDs. Source coordinates and selected text remain intact, and formatting new submissions never rewrites durable historical messages.
+<a id="feature-setting-lifecycle"></a>
+<a id="marketplace-update-lifecycle"></a>
+<a id="slot-composition"></a>
 
-The shadow user-message renderer places a compact comment count above the ordinary message body. One comment previews its quote and note on hover and navigates to a message or official source on double-click. A multi-comment count toggles a list of source quotes and notes with per-row map-pin navigation; historical Git Diff sources remain readable in that list without a navigation action. The renderer does not expose diagnostic details. The annotation record uses the Host task panel's radius, translucent menu token, backdrop filter, and panel shadow. Settings cards use the Host settings fill and stroke aliases; editors use its input background. Selection actions use `MenuSurface`, ordinary text actions use `Button`, and composer previews use the portaled `HoverCard` so they fit the viewport and support keyboard dismissal. Preview and history cards use the Host preview radius and elevation without a texture layer. Record panels below 360px place actions beneath each note to preserve readable text.
+## 接入设置和界面
 
-Reply labels retain the Host's Markdown strong text. Each mounted assistant component owns a CSS Custom Highlight for the associated label ranges and removes its registry entry on cleanup. Coloring does not wrap or replace Host DOM text; measured overlay targets retain hover, keyboard navigation, and multi-line hit testing without drawing underlines.
+启用、自动附加、文件预览和本轮差异是宿主配置。停用或卸载时释放插槽、侦听器、样式和资源订阅，已存记录仍保留。助手正文使用宿主原渲染器，插件为它增加选区和标记；用户消息与引导消息按消息类型呈现附加记录。市场更新通过同源的 dsh-market 公共接口进行，插件不负责自行下载或重启宿主。
 
-## Protocol and storage compatibility
+<a id="processed-acknowledgement"></a>
+<a id="archived-sessions"></a>
+<a id="security-properties"></a>
 
-New submissions emit protocol v5 with explicit `message`, official `file`, or official `official-diff` sources and batch-level `processingMode` plus optional annotation-level `supplementalTo`. Historical Git `diff` sources remain parseable but are rejected for new sends. The parser accepts only `answer`, `rewrite`, or `modify`; an absent mode in old v1/v2 records defaults to `answer`, while an explicit invalid value fails. A supplemental id uses the normal nonblank bounded-id validation, cannot equal its own annotation id, and need not name an annotation in the current batch. The v1 `comment` conversion, missing `kind` inference, missing `protocolLocale` English fallback, legacy marker prefixes, and no-rewrite rule for historical messages remain unchanged.
+## 完成状态、归档与隐私
 
-Browser storage keeps the `dsh-annotation:v1:<session-id>` namespace and writes `storageVersion: 6`, reading v1-v5 state without changing frozen legacy payload versions. Compact v2 official file and turn-Diff sources require protocol v5; older message and historical Git Diff records remain readable. `trash` and `deletionMarks` are optional additions that preserve deleted records and prevent history replay from restoring them. `editorDrafts`, `selectionMode`, `selectedAnnotationIds`, `processingMode`, and `retrySubmissionId` remain optional; absent values recover as no suspended buffers, aggregate selection, no selected ids, `answer`, and the legacy retry fallback. A new persisted snapshot writes an explicit retry id or `null`, so no current pending record becomes active merely because it is first in the outbox. Legacy storage namespaces, Host settings, and internal command names retain their existing migration paths.
-
-## Idempotency
-
-The stable inbox/message id is `dsh-inline-annotations:<submissionId>` for both current and migrated outbox records. This durable protocol namespace preserves retry identity across package-name changes. Before admission, the Host synchronously checks:
-
-1. `agent.inbox.nextTurn`;
-2. `agent.inbox.nextStep`;
-3. logged `user/message` events.
-
-A match returns success without another enqueue, so the Host keeps only the first successful result per submission id. This is plugin-owned idempotency; DSH's generic prompt path does not provide an idempotency key. The Client freezes the selected annotations, their contiguous batch ordinals, processing mode, overall requirement, locale, target Session, and ordered attachment metadata on the first attempt. Retry reuses that payload and submission id rather than adopting the current selection or mode. A selected `ready` or `failed` record may send; `queued`, `accepted`, or `sent` authority makes a stale retry action a no-op, while `withdrawn` aborts it.
-
-An item observed in the Inbox projection's `next-turn` entries may be withdrawn through `SessionFace.updateQueue(messageId, { kind: 'remove' })`; the entry's `id` is the stable message id. `next-step` entries are not withdrawable. An `undefined` projection is unsynchronized and establishes neither admission nor departure. Withdrawal returns only that batch's annotations to editable drafts. Direct discard applies only to a failed/ready record that queue authority has never established; queued and sent authority cannot be downgraded by a stale retry, discard, or transport failure. A durable payload restores its original annotation id, status, fields, and ordinal instead of inheriting later browser-local state. This also applies when durable history arrives after an ambiguous failed record was discarded. A changed saved draft is preserved under a new id linked to the restored annotation; an unfinished edit becomes an independent new supplemental buffer. Both preserved values remain unselected by default. Sent history is immutable.
-
-## Client state owner
-
-One `AnnotationController` exists per Session encountered by the Client plugin. The controller is an identity-stable observable supplied through the Slot `inject.hooks` compartment. Components receive the framework-bound `useAnnotations` selector hook and plain action callbacks; they do not subscribe manually or receive `ctx`.
-
-The controller combines three sources:
-
-- browser-local `PersistedSessionState` for saved annotations, active and suspended editor buffers, selection and processing state, and immutable outbox records;
-- the independently subscribed `session.projections.faceOf('inbox')` snapshot for authoritative `next-turn` placement, mapping each `id` to the controller's `messageId` and preserving `undefined` as unsynchronized;
-- replayed nodes from the Chat conversation target for sent submissions and model acknowledgements.
-
-Durable state changes publish one frozen snapshot and write persisted fields immediately. Editor keystrokes publish immediately and coalesce `localStorage` writes behind a 400 ms timer. Each editor buffer has a stable key: `edit:<annotationId>` for an unfinished change and `new:<draftId>` for an unfinished annotation. Another editor can open while a suspended buffer remains recoverable. Saving consumes only that buffer; canceling an empty new editor removes its active and suspended buffer without creating an annotation, while explicit discard never deletes a previously saved annotation. A storage failure leaves the in-memory snapshot usable and presents a warning.
-
-The composer compares live outbox snapshots only after its initial baseline. A confirmed queue transition shows an official queued Toast and keeps withdrawal available, a durable transition shows sent and removes withdrawal, and a failed transition presents the retained batch for retry. Internal ids are not shown in sent-message UI. Reloaded recovery state does not replay stale Toasts.
-
-## Selection anchoring
-
-A message selector stores the finalized assistant message id and sequence, half-open rendered-text offsets, the exact quote, and its prefix and suffix. Code and table selectors retain their structural coordinates. Capture excludes hidden content and plugin controls; the restored range belongs only to the same assistant message. Selecting an overlapping range directly opens a new independent editor while preserving an unfinished editor buffer.
-
-Mounted messages rebuild `Range` objects from offsets. If the quote moved within the same immutable message, the Client uses exact text, context, and distance to relocate it. Navigation loads older pages when necessary, expands a genuinely hidden Turn process, centers the quote, and displays a brief local highlight. CSS Custom Highlights are transparent at rest and color only an active quote; the manager maintains active ranges per message.
-
-Each mounted reply shares one text-node and offset index across its annotations and reply chips. Text or DOM changes invalidate that index; replacing the message body, changing the message identity, and unmounting release its node references. Scroll, viewport, and font geometry changes remeasure positions against the current index. Changing the active quote updates the active CSS highlight without rebuilding the unchanged base highlight.
-
-A number bubble measures the last non-whitespace character of the restored selection and sits at its upper right, with its tail pointing toward the lower left. Marker measurement intersects the viewport and scroll-container bounds, so a bubble disappears as its source scrolls away. A visible bubble can represent multiple annotations on one line. Hovering or clicking it highlights the quote; clicking opens a content-sized card positioned beside, below, or above the quote without covering it. A record row remains the fallback when no bubble fits. Resizing, scrolling, font loading, and Turn disclosure trigger remeasurement.
-
-## Reply chips
-
-The Client parses raw assistant text blocks for `dsh-annotation-reply` markers. Only markers whose `submissionId` + `annotationId` pair exists among the current Session's submitted annotations are used; unknown, duplicate, forged, and malformed markers are ignored. A resend reuses the annotation ID with a new submission ID; the Client recognizes both pairs from durable submissions or confirmed local outbox entries without duplicating the annotation record. Each marker window begins and ends at a displayed-text offset computed by running the same marker removal, blank-line collapse, and edge normalization over the corresponding raw prefix. This keeps later windows aligned after normalized whitespace and supports repeated ordinals from multiple submission batches. The Client considers every localized complete heading in a window, chooses the earliest heading only when that exact heading occurs once, and leaves the marker plain when that earliest heading text is duplicated instead of substituting a later translation or citation. The original label stays visible and is neither copied nor covered: a transparent, keyboard-focusable target uses its exact measured text bounds, while pointer hit testing leaves drag selection and copying intact. `MutationObserver` and `ResizeObserver` keep measurements current. Hovering the label for 300 ms or focusing it from the keyboard shows the annotation number, quote, and annotation summary; activating it calls source navigation rather than opening the annotation editor. Wrapped or otherwise unmeasurable labels, and malformed model output, remain plain text. Reply markers never mutate business state — only the acknowledgement marker updates the processed status.
-
-## Feature setting lifecycle
-
-The main Settings card exposes `enabled` and `autoAttach`; the optional dsh-market controls manage plugin updates. Historical individual-selection, compact-summary, and transcript-visibility preferences remain readable in stored settings but have no controls in the active annotation UI. The private `archivedPreferencesImported` marker prevents archived preferences from being imported repeatedly. [Compatibility](compatibility.md#main-settings-integration) describes the retained settings data.
-
-Disabling the feature removes an armed composer claim while retaining visible draft text and disposes conversation registrations and CSS Custom Highlights. Controllers, local drafts, editor buffers, outbox entries, and durable-history reconstruction remain available. When disable lands during official composer submission, release waits for the input phase to leave `submitting`.
-
-## Marketplace update lifecycle
-
-The plugin owns a separate `MarketUpdateController` for its configuration form. A user-triggered check first requests `/dsh-market/api/v1/capabilities`, requires schema `dsh-market/update-api/v1`, and validates every advertised endpoint as a same-origin `/dsh-market/api/v1/*` path. No update control becomes active before discovery. The Client then checks only `dsh-annotation`, starts one operation, and polls its operation id until dsh-market reports a terminal state. Package source selection, release-age policy, installation, activation, rollback recovery, and process ownership remain dsh-market responsibilities.
-
-The controller projects installed and latest versions, progress, bounded failure text, rollback availability, refresh need, and restart need into an identity-stable snapshot store. Force becomes available only for `RELEASE_TOO_FRESH` and `VERSION_UNCHANGED`. Rollback is operation-scoped. Host restart is visible only when capability discovery reports both the restart feature and a supported restart owner; otherwise the card names the external lifecycle owner. When discovery fails, the card directs the user to Plugin Market and calls no legacy route. Plugin disposal aborts fetch and polling work before the Client fiber settles.
-
-## Slot composition
-
-The Client contributes the `quote` cell of `conversation.chat.text-interaction` with one toolbar containing the Host quote action and, for a mounted assistant source, Add annotation. Each Session controller resolves captures through its own mounted message endpoints. The Host admits selections and owns placement and dismissal; the plugin does not add a second message-selection surface. Hosts without text interactions retain the standalone annotation action. Unloading or disabling annotations removes the contribution so the Host quote renderer is visible again.
-
-DSH has no additive slot inside `AssistantMarkdown`. The Client decorates the existing `assistant-step` renderer in place, composes its injected props, and passes the Host-rendered element into an annotation-only wrapper. The Host renderer owns Markdown, reasoning, tools, images, streaming, and interruption presentation; the wrapper has no standalone assistant-body renderer. It uses priority shadows for `user` and `steering` nodes so annotation submissions can show their history alongside ordinary message content. The decorator removes annotation protocol markers from display; it does not filter unrelated transcript content. A `slots/changed` listener decorates later assistant entries, and disposal restores owned entries.
-
-`conversation.input.dock` renders the downward annotation record and source-anchored editor. The record follows the official task strip width, padding, typography, chevron, status glyphs, translucent background, blur, and shadow; `conversation.input.right` adds the record toggle before model selection; `conversation.input.overlay` adds the attached-count chip. `conversation.chat.assistant-actions` offers a whole-reply annotation entry, `conversation.chat.commandview` hides only the redundant annotation transport command row, and `settings.section:dsh-annotation` renders plugin settings and optional Market updates. Registrations, locale strings, styles, controllers, subscriptions, and highlights belong to the plugin fiber and dispose with it.
-
-Codex UI compatibility observes `sidebar` and `conversation.input.dock` registrations. Its sidebar registrant `michengai-codex-ui` or dock entry `codex-ui-input-history` activates `data-dsh-annotation-compatibility="codex-ui"` on the document root. The scoped input rule reserves space for the attachment chip even when Codex UI styles load later. Removing both registrations clears the mode; annotation disposal removes the listener and restores the previous attribute. Detection does not import Codex UI, poll the DOM, or alter message content.
-
-## Editor input handling
-
-New annotations use a compact input bar with a check button. Enter or the check button can save an empty selection note; a whole-file note requires a written opinion. Shift+Enter inserts a newline. An empty new editor closes without a record after the third outside click or composer input; the first two outside clicks only shake it. Nonempty new text saves on the third outside click or composer input. Escape cancels an empty new editor and suspends nonempty text or an existing edit. Draft bubble cards use the same source-anchored placement, with a trash button for deletion. The new editor and draft and sent bubble cards share a 392-pixel responsive width, fixed corners, and a textarea that starts at one line, grows with visual wrapping up to seven lines, and then scrolls with the Host scrollbar. The field cannot be manually resized; limited room reduces its visible height while preserving the action buttons. A sent bubble opens a read-only card with a paperclip for attaching it again.
-
-Floating cards measure the selected range, the visible scroll container, the viewport, and the composer. Editors and bubble cards prefer ten pixels below the final non-whitespace selected character, then above; reply previews continue to use the reply gutter first. A bounded panel uses the remaining area when the card does not fit. The active text stays visible. The new editor restores the official composer focus and caret after a successful save only if that input remains the active unchanged target.
-
-## Processed acknowledgement
-
-The generated user message asks the model to append:
-
-```html
-<!-- dsh-annotation:{"submissionId":"sub-…","processed":["ann-…"]} -->
-```
-
-The prompt tells the model to list only annotations actually completed under the selected processing mode and never to acknowledge the batch automatically. The Client parses raw assistant block text and validates exact strings. It accepts the current `dsh-annotation:` marker and the legacy `dsh-inline-comments:` / `dsh-inline-annotations:` markers, then strips matching markers before Markdown rendering. Prose mentions, malformed JSON, unknown ids, elapsed time, and turn completion have no status authority.
-
-## Archived sessions
-
-Archived tasks have no active composer, so the paperclip stays disabled and annotations cannot be armed there. Create and attach annotations in an editable task instead.
-
-## Security properties
-
-- The Host validates the complete decoded payload before using it.
-- The configured byte and item limits apply to the complete JSON batch.
-- Session identity in the payload must equal the receiving Agent id; historical Git Diff submissions are rejected, while official file and turn-Diff sources require validated immutable snapshot identities.
-- Unsent opinions remain browser-local; old Diff snapshots in persisted history are preserved. Outbox records never store image bytes.
-- The package performs no arbitrary HTML rendering and uses DSH's untrusted Markdown primitive.
-- Reply markers only affect display; they cannot modify business status.
-- Raw command input is excluded from `command/run`; the durable standard user message is the single model-visible record.
+回复关联标记只决定从哪里跳回；完成标记还必须匹配本批次和允许的注解标识。缺失、损坏或重复的标记不会凭空完成一条注解。归档会话可以查阅历史，不能通过已移除的输入框发送。数据的保存位置、清理方式和用户主动触发的网络请求见[隐私说明](privacy.md)。

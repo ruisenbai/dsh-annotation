@@ -4,12 +4,15 @@ import assert from 'node:assert/strict'
 /**
  * Check the painted material without changing marker state or interaction handlers.
  * @param marker Visible source marker locator.
- * @param opaque Whether its annotation or group has been opened.
+ * @param options Whether backdrop blur is available in this scene.
  * @returns Computed material and contrast for the browser evidence report.
  */
-export async function assertMarkerMaterial(marker, opaque) {
-  const material = await marker.evaluate((element) => {
-    const style = getComputedStyle(element)
+export async function assertMarkerMaterial(marker, { blur = true } = {}) {
+  const material = await marker.evaluate(async (element) => {
+    const surface = element.querySelector('span')
+    const style = getComputedStyle(surface)
+    // Resolve the current state after its color transition finishes.
+    await Promise.all(surface.getAnimations().map((animation) => animation.finished))
     const canvas = document.createElement('canvas')
     canvas.width = canvas.height = 1
     const context = canvas.getContext('2d')
@@ -33,27 +36,48 @@ export async function assertMarkerMaterial(marker, opaque) {
     const background = fill.slice(0, 3).map((channel, index) => channel * alpha + base[index] * (1 - alpha))
     return {
       alpha,
+      emphasized:
+        (matchMedia('(hover: hover)').matches && element.matches(':hover')) ||
+        element.matches(':focus-visible') ||
+        element.dataset.active === 'true' ||
+        element.getAttribute('aria-expanded') === 'true',
+      fill,
+      topLeftRadius: style.borderTopLeftRadius,
+      bottomLeftRadius: style.borderBottomLeftRadius,
+      height: surface.getBoundingClientRect().height,
+      numberFont: Number.parseFloat(style.fontSize),
       blur: style.backdropFilter,
       opacity: style.opacity,
       foreground,
       border: rgba(style.borderTopColor),
-      contrast: (luminance(foreground) + 0.05) / (luminance(background) + 0.05),
+      contrast:
+        (Math.max(luminance(foreground), luminance(background)) + 0.05) /
+        (Math.min(luminance(foreground), luminance(background)) + 0.05),
     }
   })
   assert.equal(material.opacity, '1', 'Transparency belongs to the fill, not the number')
-  assert.deepEqual(material.foreground, [255, 255, 255, 255])
-  assert.deepEqual(material.border, [255, 255, 255, 255])
+  assert.deepEqual(material.foreground, [255, 255, 255, 255], 'Blue bubbles retain clear white numbers')
+  assert.ok(
+    material.fill[2] > material.fill[0] && material.fill[2] > material.fill[1],
+    'The translucent surface is blue',
+  )
+  assert.ok(
+    Number.parseFloat(material.bottomLeftRadius) < Number.parseFloat(material.topLeftRadius),
+    'The original lower-left speech-bubble corner remains distinct',
+  )
+  assert.ok(
+    material.height >= material.numberFont * 1.8,
+    'The surface is visibly larger than the superseded tiny marker',
+  )
   assert.ok(
     material.contrast >= 4.5,
     `The marker number needs readable contrast: ${JSON.stringify(material)}`,
   )
-  if (opaque) {
-    assert.equal(material.alpha, 1, 'An opened marker must be opaque')
-    assert.equal(material.blur, 'none')
-  } else {
-    assert.ok(material.alpha > 0 && material.alpha < 1, 'An unopened marker must be translucent')
-    assert.match(material.blur, /blur\(/)
-  }
+  if (material.emphasized)
+    assert.equal(material.alpha, 1, 'Hover, keyboard focus and open records use an opaque blue fill')
+  else assert.ok(material.alpha > 0 && material.alpha < 0.8, 'Idle bubbles have a visibly translucent fill')
+  if (blur) assert.match(material.blur, /blur\(/)
+  else assert.equal(material.blur, 'none')
   return material
 }
 

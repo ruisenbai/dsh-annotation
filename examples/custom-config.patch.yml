@@ -1,4 +1,4 @@
-# Example bundle patch with stricter review-team limits.
+# 示例：为审阅团队设置更严格的注解数量和大小限制。
 - insert:
     - id: dsh-annotation
       name: dsh-annotation

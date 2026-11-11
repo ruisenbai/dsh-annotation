@@ -123,7 +123,7 @@ describe('annotation notice host', () => {
     expect(controller.clearNotice).not.toHaveBeenCalled()
     await waitFor(() =>
       expect(
-        screen.getByRole('alert').querySelector('[data-dsh-annotation-toast-marker="2"]'),
+        screen.getByRole('alert').querySelector('[data-dsh-annotation-toast-marker="session-a:2"]'),
       ).not.toBeNull(),
     )
 
@@ -143,6 +143,7 @@ describe('annotation notice host', () => {
 
     first.show('success', 'notice.saved')
     expect(await screen.findByText('Annotation saved')).toBeInTheDocument()
+    deactivateFirst()
     const deactivateSecond = hub.activate(second, anchor)
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
     second.show('error', 'trash.error.write')
@@ -152,6 +153,61 @@ describe('annotation notice host', () => {
     hub.activate(first, anchor)
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
     deactivateFirst()
+    hub.dispose()
+  })
+
+  it('keeps both mounted composers subscribed and positions each new notice at its own composer', async () => {
+    const hub = new AnnotationNoticeHub()
+    const main = new NoticeControllerFixture('session-main' as SessionIdentity)
+    const side = new NoticeControllerFixture('session-side' as SessionIdentity)
+    const mainComposer = appendComposer(80, 480)
+    const sideComposer = appendComposer(660, 280)
+    hub.activate(main, mainComposer.anchor)
+    renderHost(hub)
+    const mainNotice = main.show('success', 'notice.saved')
+    const releaseSide = hub.activate(side, sideComposer.anchor)
+    expect(hub.getSnapshot()).toMatchObject({
+      sessionId: main.sessionId,
+      notice: mainNotice,
+      anchor: mainComposer.anchor,
+    })
+
+    side.show('error', 'trash.error.write')
+    await waitFor(() => {
+      const alert = screen.getByRole('alert')
+      expect(alert).toHaveTextContent('Saving failed.')
+      expect(alert.style.width).toBe('280px')
+      expect(alert.style.left).toBe('800px')
+    })
+    main.show('success', 'notice.saved')
+    await waitFor(() => {
+      const alert = screen.getByRole('alert')
+      expect(alert).toHaveTextContent('Annotation saved')
+      expect(alert.style.width).toBe('480px')
+      expect(alert.style.left).toBe('320px')
+    })
+    releaseSide()
+    expect(hub.getSnapshot().sessionId).toBe(main.sessionId)
+    hub.dispose()
+  })
+
+  it('keeps a newer mount when an older composer for the same Session unmounts', () => {
+    const hub = new AnnotationNoticeHub()
+    const controller = new NoticeControllerFixture('session-a' as SessionIdentity)
+    const first = appendComposer(80, 480)
+    const second = appendComposer(660, 280)
+    const releaseFirst = hub.activate(controller, first.anchor)
+    const notice = controller.show('success', 'notice.saved')
+    const releaseSecond = hub.activate(controller, second.anchor)
+    releaseFirst()
+    expect(hub.getSnapshot()).toMatchObject({ notice, anchor: second.anchor })
+    releaseSecond()
+    expect(hub.getSnapshot().notice).toBeNull()
+    const releaseRemounted = hub.activate(controller, first.anchor)
+    expect(hub.getSnapshot().notice).toBeNull()
+    const next = controller.show('error', 'trash.error.write')
+    expect(hub.getSnapshot()).toMatchObject({ notice: next, anchor: first.anchor })
+    releaseRemounted()
     hub.dispose()
   })
 
@@ -235,6 +291,15 @@ describe('annotation notice host', () => {
       expect(alert.style.left).toBe('320px')
     })
     expect(card.getBoundingClientRect()).toEqual(before)
+    const bounds = vi.spyOn(card, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 0, 0))
+    fireEvent(window, new Event('resize'))
+    await waitFor(() => expect(alert).not.toBeVisible())
+    bounds.mockRestore()
+    fireEvent(window, new Event('resize'))
+    await waitFor(() => {
+      expect(alert).toBeVisible()
+      expect(alert.style.width).toBe('480px')
+    })
     hub.dispose()
   })
 })

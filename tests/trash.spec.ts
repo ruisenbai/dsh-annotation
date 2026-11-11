@@ -431,7 +431,7 @@ describe('annotation recycle bin', () => {
     const { controller } = harness(memory)
     expect(controller.getSnapshot().trash).toEqual([])
     expect(controller.getSnapshot().deletionMarks).toEqual([])
-    expect(latest(memory).storageVersion).toBe(6)
+    expect(latest(memory).storageVersion).toBe(7)
   })
 })
 

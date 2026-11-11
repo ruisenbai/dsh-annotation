@@ -160,7 +160,7 @@ describe('draft storage', () => {
     expect(storage.save({ ...state })).toBe(true)
     expect(writes).not.toHaveBeenCalled()
     writes.mockRestore()
-    expect(storage.load()).toEqual({ ...state, storageVersion: 6 })
+    expect(storage.load()).toEqual({ ...state, storageVersion: 7 })
     expect(storage.loadStatus()).toBe('loaded')
     expect(storage.lastError()).toBeNull()
     expect(storage.usageBytes()).toBeGreaterThan(0)
@@ -454,7 +454,7 @@ describe('draft storage', () => {
         }),
       )
       const restored = storage.load()
-      expect(restored.storageVersion).toBe(6)
+      expect(restored.storageVersion).toBe(7)
       expect(restored.outbox[0]).toMatchObject({
         status: 'failed',
         attempts: 1,
@@ -543,5 +543,28 @@ describe('draft storage', () => {
     expect(storage.load()).toEqual(emptyPersistedState())
     expect(storage.lastError()).toBe('denied')
     expect(storage.save(emptyPersistedState())).toBe(false)
+  })
+
+  it('retains a ready Session after deletion-marker access fails and retries its pending edit', () => {
+    const memory = new MemoryStorage()
+    const storage = new AnnotationStorage(memory, 'session-1' as SessionIdentity)
+    const previous = { ...emptyPersistedState(), overallRequirementDraft: 'Saved requirement' }
+    expect(storage.save(previous)).toBe(true)
+    const raw = memory.values.get(storage.key)
+    const pending = { ...previous, overallRequirementDraft: 'Pending requirement' }
+    const access = vi.spyOn(memory, 'getItem').mockImplementation(() => {
+      throw new Error('denied')
+    })
+    try {
+      expect(storage.save(pending)).toBe(false)
+      expect(storage.lastError()).toBe('denied')
+      expect(storage.loadStatus()).toBe('loaded')
+      expect(memory.values.get(storage.key)).toBe(raw)
+    } finally {
+      access.mockRestore()
+    }
+    expect(storage.save(pending)).toBe(true)
+    expect(storage.lastError()).toBeNull()
+    expect(new AnnotationStorage(memory, 'session-1' as SessionIdentity).load()).toEqual(pending)
   })
 })

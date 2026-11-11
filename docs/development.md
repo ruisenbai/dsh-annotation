@@ -1,119 +1,70 @@
-# Development and release
+# 开发、测试与打包
 
-## Prerequisites
+[English](development.en.md) · [发布步骤](../RELEASING.md)
 
-- Node.js `>=24.9.0`;
-- Corepack;
-- pnpm `11.28.5`;
-- the clean DeepSeek Harness master commit pinned in `source-baseline.json` for verification.
+<a id="prerequisites"></a>
+<a id="install-and-verify"></a>
 
-## Install and verify
+## 从干净目录开始
 
-The registry lockfile supplies the published `0.2.2-alpha.3` family. The pinned master also removes parent-availability gating from continuable-child selections, so release verification uses its source build. Run `pnpm install --frozen-lockfile --strict-peer-dependencies`, then `pnpm verify` and the browser/profile checks. [Official source verification](#official-source-verification) checks the exact master commit in [source-baseline.json](../source-baseline.json) independently of the registry distribution.
-
-`pnpm run test:profile --record-attachments-only` replays a recorded Session and checks arbitrary attachment clicks, stable row positions, scrolling, and unobstructed previews in wide and narrow windows.
-
-## Historical Diff verification
-
-`pnpm run test:profile --legacy-diff-only` replays a frozen mixed-source Session in the isolated DSH Web profile and confirms historical Git Diff records remain readable without creation, editing, attachment, or retry controls. `pnpm run test:profile --official-only` runs the focused live-Session workspace/changes, file-preview, and turn-Diff browser path. The default `pnpm run test:profile` runs both paths with Composer and migration checks. `tests/legacy-diff.spec.ts`, `tests/diff-protocol.spec.ts`, `tests/diff-source.spec.ts`, and `tests/official-source.spec.ts` cover retained and official source data in unit tests.
-
-## Official source verification
-
-Source verification uses the pinned official source tree so the selection interfaces and the built Web profile come from the same master commit. Never commit its `file:` overrides or generated lockfile.
-
-Start in the plugin repository. Set `ANNOTATION_HOST` to a clean official checkout at the pinned commit, then build and pack its runtime families into a temporary directory:
+需要 Node.js 24.9.0 或更新版本、pnpm 11.28.5，以及运行 Chromium 的环境。公开版宿主和插件依赖由 `pnpm-lock.yaml` 锁定。宿主使用 Zod 4.4.3，插件与接收凭据的校验也要保持相同版本。
 
 ```bash
-ANNOTATION_SOURCE="$(pwd)"
-ANNOTATION_HOST=/absolute/path/to/pinned-harness-checkout
-ANNOTATION_WORK="$(mktemp -d)"
-cd "$ANNOTATION_HOST"
-pnpm install --frozen-lockfile
-pnpm run build:official
-pnpm run release:pack --family dsh --out "$ANNOTATION_WORK/dsh-pack" --concurrency 4
-pnpm run release:pack --family vendor --out "$ANNOTATION_WORK/vendor-pack" --concurrency 4
-pnpm --dir native/system/packages/entry pack --pack-destination "$ANNOTATION_WORK/native-pack"
-cd "$ANNOTATION_SOURCE"
-node scripts/prepare-source-verification.mjs --harness "$ANNOTATION_HOST" \
-  --from "$ANNOTATION_WORK/dsh-pack" \
-  --from "$ANNOTATION_WORK/vendor-pack" \
-  --from "$ANNOTATION_WORK/native-pack" \
-  --out "$ANNOTATION_WORK/plugin"
-cd "$ANNOTATION_WORK/plugin"
-pnpm install --no-frozen-lockfile --strict-peer-dependencies
-pnpm exec prettier --write pnpm-workspace.yaml package.json
-```
-
-The helper requires a new output directory, checks the pinned Host commit and DSH package versions, and copies plugin sources without the registry lockfile. It adds every provided official package to the temporary development dependencies and pins resolution to local tarballs through workspace overrides. Explicit development entries satisfy peers that would otherwise query npm. Only the two generated configuration files are formatted after installation. pnpm settings, including strict peer enforcement and disabled automatic peer installation, live in `pnpm-workspace.yaml`. The source repository's manifest and lockfile remain unchanged. The [CI workflow](https://github.com/ruisenbai/dsh-annotation/blob/main/.github/workflows/ci.yml) builds the same pinned Host and checks the isolated plugin on Node 24.9 and 24.
-
-The temporary install skips optional platform binaries in the `@anthropic-ai/claude-agent-sdk-*` and `@openai/codex-*` families; it does not verify those Claude or Codex CLI backends. All official DSH packages, strict peer checks, and other native and browser dependencies remain included. Real-model verification requires a configured DSH provider and credentials; when it cannot run, report that limit separately from build, unit, and browser results.
-
-Run the plugin checks inside the prepared directory:
-
-```bash
+pnpm install --frozen-lockfile --strict-peer-dependencies
 pnpm verify
 pnpm exec playwright install chromium
 pnpm test:browser
 pnpm test:profile
+pnpm test:profile:side-chat
 pnpm test:coverage
 ```
 
-`tsc` emits declarations and intermediate JavaScript to `lib/types`. `tsdown` produces ESM Host entries and wraps the browser CJS artifact in `window.__ModuleLoader__.load(...)`. `client-platform.json` pins the exact modules supplied by the DSH `0.2.2-alpha.3` browser loader; ordinary third-party Client libraries are bundled instead of becoming loader requests. DSH requires the factory bundle at `lib/client.js` even though generic Node tooling classifies `.js` under `type: module`; `publint` therefore gates errors while the DSH-specific verifier owns this intentional format. `scripts/verify-bundle.mjs` asserts the required artifacts, module-loader registration, declared module closure, matching peer/development ranges, DSH manifest, and Cordis patch.
+`pnpm verify` 包含类型和格式检查、静态检查、单元测试、构建和安装包入口检查。公开包可能缺少部分调试源映射；以测试和覆盖率的退出结果判断是否通过。
 
-## Test layout
+<a id="side-chat-verification"></a>
 
-`pnpm test` runs the unit and component suites. `tests/controller.spec.ts`, `tests/selection-drafts.spec.ts`, and `tests/legacy-diff.spec.ts` cover independent annotations, selected batches, recovery, same-ID resend, immutable retry payloads, whole-file opinions, and navigation cancellation. `tests/official-source.spec.ts` covers legacy and compact file/Diff parsing, BOM bytes, CRLF and Unicode context, line/column anchors, and whole-file quotes; `tests/document-integration.spec.tsx` and `tests/diff-integration.spec.tsx` cover delayed Host data, outside release, public changes APIs, multiline DOM capture, and stale results. `tests/annotation-interactions.spec.tsx` covers the annotation record, composer chip, paperclip, blank-new cancellation, explicit empty-note save, nonempty outside-click save, and sent-note card. `tests/client-apply.spec.ts` covers official composer claims, slash commands, attachments, Host queue authority, and failure recovery.
+## 验证侧栏
 
-`pnpm test:browser` runs the real Chromium fixture at wide light and narrow dark viewport sizes. The fixture checks the source-end bubble position; compact new, draft, and sent popups with visual-line growth, a seven-line scrolling cap, and visible actions; record placement; frosted idle/hover bubbles and opaque opened bubbles; composer chip preview, reset after detachment, and fold toggle; absence of delivery labels and dots; source navigation that keeps the record open; row actions; automatic closing after send; and reattaching a sent record without duplication. Screenshots are written under ignored `artifacts/browser/`.
+`pnpm test:profile:side-chat` 运行独立的 Web 配置，以测试模型生成确定的回复，不使用真实 API 密钥。它检查从主会话到侧栏的接收归属、空意见保留原文、重开气泡的位置、独立侧栏草稿、发送后的模型输入、会话记录及刷新恢复。截图和运行记录在 `artifacts/browser/` 下，不应提交本机运行日志。
 
-`pnpm test:profile` uses an isolated installed Web profile and deterministic model adapter. It checks the four annotation settings, archive recovery, command admission, historical replay, Composer submission and same-ID resend, attachment identity, historical Git Diff read-only behavior, official workspace/changes, sidebar Diff selection and Locate, Markdown whole-file and text-range annotation, saved source markers, and browser source filters. The adapter emits a `write` tool call; the official file tool produces filesystem intents, durable tool events, and workspace changes. The official source path compares the submitted message with both the Session log and the model request, then checks idempotent retry. The temporary profile binds an allocated loopback port and closes its browser and Host process afterward.
+<a id="historical-diff-verification"></a>
+<a id="test-layout"></a>
+<a id="web-smoke-test"></a>
 
-```bash
-pnpm exec vitest run tests/controller.spec.ts tests/annotation-interactions.spec.tsx
-pnpm test:browser
-```
+## 不同测试能说明什么
 
-## Record performance
+- `tests/` 中的单元和组件测试覆盖选区、浮窗、存储、并发合并、旧格式、附件与重试。
+- `pnpm test:browser` 用真实 Chromium 检查宽屏与窄屏的编辑框、气泡、附加按钮、记录排序和回收站确认框。
+- `pnpm test:profile` 用真实加载器、官方输入框、文件与差异预览核对标准会话日志、测试模型输入及历史只读行为。图形应用、操作系统输入法和第三方模型需分别验证。
+- 记录回放保留宿主会话 v3/v4 的既有样本及新侧栏示例。测试样本只使用虚构数据，机器目录使用占位符。
 
-After building, run `node scripts/profile-smoke.mjs --record-perf-only` for a manual Chromium diagnostic through the installed Web profile. It loads 50, 500, and 2,000 synthetic draft records with half attached, varied opinion lengths, and one mounted source; other records represent history outside the current transcript. Each size reloads the Session, then measures five list openings, five detachments, and five keystrokes each with the list expanded and collapsed. The first opening mounts a cold list; subsequent openings remount it in the same page.
+<a id="official-source-verification"></a>
 
-Timings start at a real click or keydown and end at the second animation frame after the update. Fixture loading and model/network latency are excluded; the endpoint does not wait for deferred persistence. The report at `artifacts/browser/record-performance.json` retains every sample, medians, runtime/browser versions, and the built bundle hash; matching record screenshots are saved beside it. Heap and DOM diagnostics run after garbage collection with the list collapsed, outside timing samples. These local measurements have no CI timing threshold and do not cover transcript scrolling or source navigation.
+## 对照官方源码
 
-The record count reads the collection length; source filters traverse annotations and attachment lookups use a Set. Derived values belong to the mounted component and retain only its current record and selection references. Unchanged rows skip rendering, while changed records, selection, locale, action callbacks, editor visibility, and submission state invalidate the affected presentation. Interaction tests cover update freshness and use attachment-action translations to count renders; the browser tests cover order, focus, and scroll preservation.
+持续集成会检出 `source-baseline.json` 指定的官方提交，构建宿主、Cordis 和必要的原生包，再使用 `scripts/prepare-source-verification.mjs` 创建独立测试目录。该脚本拒绝错误提交、带修改的宿主源码、版本不符或缺包的输入。临时目录的包声明、覆盖地址和锁文件不能代替正式发行文件。具体参数与命令见[完整源码验证步骤](development.en.md#official-source-verification)。
 
-## Web smoke test
+<a id="record-performance"></a>
 
-After [Packaging](#packaging), install the local tarball into a disposable Web profile on the declared DSH release:
+## 记录列表性能
 
-```bash
-dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.1.7.tgz
-dsh --profile annotation-dev
-```
+`node scripts/profile-smoke.mjs --record-perf-only` 可测量同一环境中 50、500、2000 条合成记录的展开、取消附加和输入延迟。结果记录样本、运行环境和构建摘要；它不是跨机器的速度保证。
 
-In the Web page, select a source range and explicitly save an empty note and a filled note. Confirm that both attach to the next composer message while the record stays closed. Start another blank new editor, click outside twice to observe the shake and once more to cancel, then confirm that no record or bubble appears. Repeat with whitespace and text that was entered then deleted, and check that typing in the composer cancels a blank new editor while preserving composer focus. Hover the count chip to inspect its quote and note preview; click it to expand and then collapse the record. Use a row paperclip to remove and restore one attachment, then send. Confirm the record closes after all notes are sent, the source bubble scrolls out with its text, and reopening the record allows the same sent note to be attached and sent again without a new annotation ID. Check Enter, Shift+Enter, nonempty outside-click save, the one-line check alignment, automatic wrapping and seven-line mouse-wheel scrolling in all three popups, narrow viewport placement, and text/attachment submission. The target Host release and browser both need to be recorded with the result.
+<a id="packaging"></a>
 
-## Packaging
+## 制作可安装的压缩包
 
-After `pnpm verify`, browser fixture regressions, the real-profile smoke, and coverage pass in the prepared directory, restore the source repository's release manifest before packing. Keep the same shell's `ANNOTATION_SOURCE` value from setup:
-
-```bash
-cp "$ANNOTATION_SOURCE/package.json" package.json
-pnpm --config.ignoreScripts=true pack --pack-destination artifacts
-```
-
-`--config.ignoreScripts=true` avoids repeating the completed prepack checks after restoring the manifest. It does not replace verification. Do not reinstall dependencies in this restored temporary directory. The published package must contain the original dependency declarations, without the temporary complete-family development entries or machine-local paths.
-
-Inspect the resulting tarball rather than invoking pack again:
+在锁文件对应的验证目录完成以上检查后，用 `pnpm --config.ignoreScripts=true pack --pack-destination artifacts` 打包。此选项只用于避免重复执行已经完成的检查。若在临时源码验证目录打包，先还原发布仓库的 `package.json`，不发布本机依赖覆盖。
 
 ```bash
-tar -tzf artifacts/dsh-annotation-1.1.7.tgz
-tar -xOf artifacts/dsh-annotation-1.1.7.tgz package/package.json
+tar -tzf artifacts/dsh-annotation-1.2.0.tgz
+tar -xOf artifacts/dsh-annotation-1.2.0.tgz package/package.json
 ```
 
-The package must contain `lib/index.js`, `lib/invariant.js`, `lib/client.js`, declarations under `lib/types`, `cordis.patch.yml`, `source-baseline.json`, README files and images under `docs/assets`, the changelog, and the license. Compare its version, Host requirement, dependency declarations and exports with the source manifest; pnpm removes package-manager metadata and development lifecycle hooks when packing.
+安装包应含 `lib/index.js`、`lib/client.js`、`lib/invariant.js`、类型、配置补丁、中文文档、截图及许可。用隔离的 `DSH_HOME` 将它安装到 `web` 配置；`dsh plugin --profile web why dsh-annotation` 应显示 1.2.0。再通过公开版宿主实际加载并核对安装包内的客户端内容。
 
-## Release checklist
+<a id="release-checklist"></a>
 
-Follow [Releasing](../RELEASING.md) for versioning, dependency sources, verification, and GitHub Release assets. This project publishes versioned tarballs and a stable `dsh-annotation.tgz` alias through GitHub Releases; it does not publish to the npm registry.
+## 发布与复核
 
-Never commit `.env`, DSH credentials, Session logs, or real annotation drafts.
+按[发布步骤](../RELEASING.md)上传两个内容相同的安装包和独立 HTML 原型，核对 GitHub 的公开下载，再提交中文市场介绍。

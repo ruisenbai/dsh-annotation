@@ -1,38 +1,15 @@
-# Security policy
+# 安全问题报告
 
-## Supported versions
+请通过[仓库的私密漏洞报告入口](https://github.com/ruisenbai/dsh-annotation/security/advisories/new)联系维护者，不要公开开单。如果入口不可用，请使用仓库所有者在 GitHub 个人资料中列出的私密联系方式，标题注明 `dsh-annotation security`。
 
-| Version  | Security updates |
-| -------- | ---------------- |
-| `0.1.x`  | Yes              |
-| `<0.1.0` | No               |
+## 报告应包含什么
 
-Support also requires a DSH version listed in [Compatibility](docs/compatibility.md).
+写明插件和宿主版本、安装方式、浏览器、操作系统、受影响的功能和触发条件。用虚构数据展示最小复现步骤；可以附上修复建议。请勿提交真实密钥、私人选区、用户数据或完整会话日志。
 
-## Reporting a vulnerability
+## 版本与处理
 
-Do not open a public issue. Use GitHub's private vulnerability reporting for this repository. If that feature is unavailable, contact the repository owner through the private address listed in the GitHub profile and include `dsh-annotation security` in the subject.
+请先对照[兼容性说明](docs/compatibility.md)确认宿主版本，并说明能否在最新公开版复现。维护者会核实影响，与报告者协商修复和披露时间；除非你要求匿名，会注明报告者。请留出合理的修复时间。
 
-Include:
+## 数据处理
 
-- affected plugin and DSH versions;
-- browser, operating system, and installation method;
-- impact and attack prerequisites;
-- minimal reproduction steps;
-- suggested remediation, if known.
-
-Do not include real API keys, credentials, Session logs, selected private text, or user data. Use synthetic examples.
-
-## Response process
-
-Maintainers will acknowledge a complete report when available, validate the issue, coordinate a fix and disclosure date, and credit the reporter unless anonymity is requested. Please allow a reasonable remediation window before public disclosure.
-
-## Security-relevant design
-
-- Unsent drafts remain in browser `localStorage`.
-- Submitted content becomes ordinary DSH Session/model data.
-- The plugin has no direct external network client or telemetry.
-- Host admission validates the complete decoded batch and receiving Session identity.
-- Assistant content uses DSH's untrusted Markdown renderer; acknowledgement markers are parsed as text, not HTML.
-
-See [Privacy](docs/privacy.md) for the data lifecycle.
+未发送的注解保存在当前浏览器；提交后成为 DSH 的会话和模型数据。宿主检查整个提交批次和接收会话，界面把关联标记作为文本解析。插件没有独立的遥测服务。文件上传和用户主动发起的市场更新见[隐私说明](docs/privacy.md)。

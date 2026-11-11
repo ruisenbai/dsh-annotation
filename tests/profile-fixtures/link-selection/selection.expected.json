@@ -1,0 +1,26 @@
+[
+  {
+    "id": "web-label",
+    "link": "web",
+    "paragraph": false,
+    "text": "web label"
+  },
+  {
+    "id": "web-paragraph",
+    "link": "web",
+    "paragraph": true,
+    "text": "Before web label after."
+  },
+  {
+    "id": "file-label",
+    "link": "file",
+    "paragraph": false,
+    "text": "file label"
+  },
+  {
+    "id": "file-paragraph",
+    "link": "file",
+    "paragraph": true,
+    "text": "Before file label after."
+  }
+]

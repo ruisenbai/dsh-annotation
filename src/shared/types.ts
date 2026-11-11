@@ -24,8 +24,8 @@ export type SubmittedAttachmentIdentity =
       readonly name: string
     }
 
-/** Current submission protocol; v5 stores compact official file and turn-Diff sources. */
-export const PROTOCOL_VERSION = 5 as const
+/** Current submission protocol; v6 preserves a message source's original Session. */
+export const PROTOCOL_VERSION = 6 as const
 /** Protocol source identity written into every non-v1 payload. */
 export const PROTOCOL_SOURCE = 'dsh-annotation' as const
 /** Acknowledgement marker prefix emitted into new model prompts. */
@@ -166,7 +166,7 @@ export interface WireAnnotation {
 
 /** Idempotent batch transported through the internal slash command. */
 export interface AnnotationSubmissionPayload {
-  readonly protocolVersion: 2 | 3 | 4 | 5
+  readonly protocolVersion: 2 | 3 | 4 | 5 | 6
   readonly source: typeof PROTOCOL_SOURCE
   readonly submissionId: SubmissionId
   readonly sessionId: SessionIdentity
@@ -283,7 +283,7 @@ export interface AnnotationDeletionMark {
 }
 
 export interface PersistedSessionState {
-  readonly storageVersion: 2 | 3 | 4 | 5 | 6
+  readonly storageVersion: 2 | 3 | 4 | 5 | 6 | 7
   readonly trash?: readonly AnnotationTrashEntry[]
   readonly deletionMarks?: readonly AnnotationDeletionMark[]
   readonly annotations: readonly AnnotationDraft[]

@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-settings'
 import { installSettingsMigration } from './host/settings-migration.ts'
 import { createAnnotationCommand, createLegacyAnnotationAliases } from './host/command.ts'
+import { installSideChatCommand } from './host/side-chat-command.ts'
 import { DEFAULT_CONFIG, resolveConfig } from './shared/config.ts'
 import {
   ARCHIVED_PREFERENCES_IMPORTED_FIELD,
@@ -21,7 +22,7 @@ import {
 import type { AnnotationConfig } from './shared/types.ts'
 
 export const name = 'dsh-annotation'
-export const inject = ['commands']
+export const inject = ['commands', 'sessionProjections']
 
 /** Command limits and live preferences exposed by the Host configuration form. */
 export type Config = AnnotationConfig & {
@@ -64,7 +65,7 @@ export const Config = Schema.object({
 })
 
 /** Register the Host command bridge and optional user-settings section. */
-export function apply(ctx: Context, input: AnnotationConfig): void {
+export async function apply(ctx: Context, input: AnnotationConfig): Promise<void> {
   const config = resolveConfig(input)
   installSettingsMigration(ctx)
   ctx.effect(
@@ -74,6 +75,7 @@ export function apply(ctx: Context, input: AnnotationConfig): void {
   for (const alias of createLegacyAnnotationAliases(config)) {
     ctx.effect(() => ctx.commands.register(alias), `dsh-annotation: legacy alias /${alias.name}`)
   }
+  await installSideChatCommand(ctx, config)
   ctx.inject(['settings'], (child) => {
     child.effect(() => child.settings.configure({ auto: false }, ctx.fiber), 'dsh-annotation: settings page')
   })

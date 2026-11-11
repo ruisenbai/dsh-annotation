@@ -403,6 +403,7 @@ function Fixture({ mode }: { mode: 'legacy' | 'reading' | 'blocked' }) {
 
   const assistantProps = {
     ...shared,
+    sessionId: SESSION_ID,
     node: {
       data: {
         status: 'closed',
@@ -861,6 +862,7 @@ function InteractionSession({
   }
   const assistantProps = {
     ...shared,
+    sessionId,
     node: {
       data: {
         status: 'closed',

@@ -4,7 +4,12 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
+import type {
+  SessionSnapshot,
+  SessionListState,
+  SessionSummary,
+} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { InputState } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { MessageSelectionActions } from '../src/client/components/MessageSelectionActions.tsx'
 import type { SelectionCapture } from '../src/client/selection.ts'
 import type { MessageIdentity } from '../src/shared/types.ts'
@@ -22,8 +27,19 @@ const capture: SelectionCapture = {
 function fixture(
   selected: SelectionCapture | null = capture,
   overrides: Partial<Pick<SessionSnapshot, 'removed' | 'subagent'>> = {},
+  sideChat = false,
+  parent?: SessionId,
 ) {
-  const session = { removed: false, subagent: null, ...overrides } as SessionSnapshot
+  const session = {
+    sessionId: 'session-test' as SessionId,
+    removed: false,
+    subagent: null,
+    ...overrides,
+  } as SessionSnapshot
+  const input = { phase: 'plain' } as InputState
+  const retention = { mainView: 0 }
+  const summary = { retainedBy: retention } as SessionSummary
+  const catalog = { phase: 'ready', byId: { [session.sessionId]: summary } } as SessionListState
   const props = {
     trigger: 'selection' as const,
     dismiss: vi.fn(),
@@ -31,21 +47,87 @@ function fixture(
     readText: vi.fn<() => string | null>(() => 'selected text'),
     readAnnotationSelection: vi.fn<() => SelectionCapture | null>(() => selected),
     beginAnnotation: vi.fn(() => true),
+    readSideChatTarget: vi.fn<() => string | undefined>(() => undefined),
+    ...(sideChat ? { beginSideAnnotation: vi.fn<(selection: SelectionCapture) => boolean>(() => true) } : {}),
+    ...(parent === undefined ? {} : { sideChatMainSessionId: parent }),
     inputActions: { insertQuote: vi.fn(() => true) },
     useSession: (select: (state: SessionSnapshot) => unknown) => select(session),
+    useSessions: (select: (state: SessionListState) => unknown) => select(catalog),
+    useInput: (select: (state: InputState) => unknown) => select(input),
     t: (key: string) =>
       ({
         'selection.toolbar': 'Selection actions',
         'selection.quote': 'Quote text',
         'selection.annotate': 'Add annotation',
+        'selection.sideChat': 'Annotate in sidebar',
       })[key] ?? key,
   }
   const mount = () =>
     render(<MessageSelectionActions {...(props as ComponentProps<typeof MessageSelectionActions>)} />)
-  return { props, session, mount }
+  return { props, session, input, retention, mount }
 }
 
 describe('shared message selection actions', () => {
+  it('offers a former side chat its own sidebar action only while opened as a main page', () => {
+    const { props, retention, mount } = fixture(capture, {}, true, 'original-main' as SessionId)
+    const mounted = mount()
+    expect(screen.queryByRole('button', { name: 'Annotate in sidebar' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add annotation' })).toBeInTheDocument()
+    retention.mainView = 1
+    mounted.rerender(
+      <MessageSelectionActions {...(props as ComponentProps<typeof MessageSelectionActions>)} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Annotate in sidebar' }))
+    expect(props.beginSideAnnotation).toHaveBeenCalledExactlyOnceWith(capture)
+    retention.mainView = 0
+    mounted.rerender(
+      <MessageSelectionActions {...(props as ComponentProps<typeof MessageSelectionActions>)} />,
+    )
+    expect(screen.queryByRole('button', { name: 'Annotate in sidebar' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add annotation' })).toBeInTheDocument()
+  })
+
+  it('opens annotations for A, B and C through the same toolbar while the main input is submitting', () => {
+    const { props, input, mount } = fixture(capture, {}, true)
+    props.useInput = (select) => select({ ...input, phase: 'submitting' })
+    mount()
+    const selections = ['A', 'B', 'C'].map((exact, index) => ({
+      ...capture,
+      quote: { ...capture.quote, exact, start: index, end: index + 1 },
+    }))
+    for (const selection of selections) {
+      props.readAnnotationSelection.mockReturnValue(selection)
+      fireEvent.click(screen.getByRole('button', { name: 'Annotate in sidebar' }))
+    }
+    expect(props.beginSideAnnotation!.mock.calls.map(([selection]) => selection)).toEqual(selections)
+    expect(props.clearSelection).toHaveBeenCalledTimes(3)
+    expect(props.dismiss).toHaveBeenCalledTimes(3)
+    expect(props.beginAnnotation).not.toHaveBeenCalled()
+    expect(props.inputActions.insertQuote).not.toHaveBeenCalled()
+    expect(screen.getAllByRole('toolbar')).toHaveLength(1)
+  })
+
+  it('names the receiving chat in the toolbar without adding a second entry', () => {
+    const { props, mount } = fixture(capture, {}, true)
+    props.readSideChatTarget.mockReturnValue('Receiving now: Side chat 2')
+    mount()
+    expect(screen.getByText('Receiving now: Side chat 2')).toBeInTheDocument()
+    expect(screen.getAllByRole('toolbar')).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Annotate in sidebar' })).toHaveLength(1)
+  })
+
+  it('keeps a rejected side annotation selection and omits the action without its main-session capability', () => {
+    const side = fixture(capture, {}, true)
+    side.props.beginSideAnnotation!.mockReturnValue(false)
+    const mounted = side.mount()
+    fireEvent.click(screen.getByRole('button', { name: 'Annotate in sidebar' }))
+    expect(side.props.clearSelection).not.toHaveBeenCalled()
+    expect(side.props.dismiss).not.toHaveBeenCalled()
+    mounted.unmount()
+    fixture().mount()
+    expect(screen.queryByRole('button', { name: 'Annotate in sidebar' })).not.toBeInTheDocument()
+  })
+
   it('offers quote and annotation in one toolbar and preserves the selection on pointer down', () => {
     const { mount } = fixture()
     mount()
@@ -84,6 +166,19 @@ describe('shared message selection actions', () => {
     expect(props.dismiss).toHaveBeenCalledOnce()
     expect(props.inputActions.insertQuote).not.toHaveBeenCalled()
   })
+
+  it.each(['adjudicating', 'submitting', 'sending'] as const)(
+    'preserves the selection when annotation editing is locked during %s',
+    (phase) => {
+      const { props, input, mount } = fixture()
+      props.useInput = (select) => select({ ...input, phase })
+      mount()
+      fireEvent.click(screen.getByRole('button', { name: 'Add annotation' }))
+      expect(props.beginAnnotation).not.toHaveBeenCalled()
+      expect(props.dismiss).not.toHaveBeenCalled()
+      expect(props.clearSelection).not.toHaveBeenCalled()
+    },
+  )
 
   it('keeps quotation available for text outside an annotatable assistant message', () => {
     const { props, mount } = fixture(null)

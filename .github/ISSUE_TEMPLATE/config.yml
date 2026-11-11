@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Questions and setup help
+  - name: 使用与安装咨询
     url: https://github.com/ruisenbai/dsh-annotation/discussions
-    about: Ask usage questions without opening a bug.
-  - name: Private security report
+    about: 安装和使用问题请到讨论区提问。
+  - name: 私下报告安全问题
     url: https://github.com/ruisenbai/dsh-annotation/security/advisories/new
-    about: Report a vulnerability privately.
+    about: 通过私密渠道向维护者报告漏洞。

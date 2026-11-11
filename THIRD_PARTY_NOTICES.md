@@ -1,8 +1,10 @@
-# Third-party notices
+# 第三方软件许可
+
+以下介绍使用中文，版权声明与许可证保留原文。
 
 ## Lucide
 
-The Web bundle includes the MapPin icon from [Lucide](https://lucide.dev/) through `lucide-react` 0.468.0.
+网页端通过 `lucide-react` 0.468.0 使用 [Lucide](https://lucide.dev/) 图标。
 
 ISC License
 
@@ -14,7 +16,7 @@ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH RE
 
 ## jsdiff
 
-The bundles include jsdiff for text comparison.
+发行包使用 jsdiff 比较文字。
 
 ```text
 BSD 3-Clause License
@@ -50,7 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ## Zod
 
-The bundles include Zod for wire and storage validation.
+发行包使用 Zod 校验传输和存储的数据。
 
 ```text
 MIT License
@@ -78,7 +80,7 @@ SOFTWARE.
 
 ## yaml 2.9.0
 
-License: ISC. Used to read retained Host preference archives.
+使用 ISC 许可证。用于读取宿主保留的旧设置档案。
 
 ```text
 Copyright Eemeli Aro <eemeli@gmail.com>
@@ -94,4 +96,32 @@ INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
 OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
 TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
+```
+
+## @noble/hashes
+
+注解使用此库计算内容摘要。以下为上游版权及许可原文。
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2022 Paul Miller (https://paulmillr.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the “Software”), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 ```

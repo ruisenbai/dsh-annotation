@@ -1,9 +1,11 @@
 /** Measured annotation overlays that leave reply text and the current composer unobstructed when space permits. */
 import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
-import type { AnnotationId } from '../shared/types.ts'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { AnnotationId, SessionIdentity } from '../shared/types.ts'
 import { sourceKey } from '../shared/annotation-source.ts'
 import { FOCUS_CHANGED_EVENT } from './focus-adapter.ts'
 import { rangeFromSelector, type SelectionCapture } from './selection.ts'
+import { sourceEndpoint } from './source-geometry.ts'
 
 /** Viewport-relative CSS-pixel edges, shared by element and selection measurements. */
 export type FloatingRect = Pick<DOMRectReadOnly, 'top' | 'right' | 'bottom' | 'left'>
@@ -190,12 +192,9 @@ function portalZoom(element: HTMLElement): number {
   }, 1)
 }
 
-/** Whether a source is mounted and visible, excluding hidden retained sidebar tabs. */
-export function rendered(element: HTMLElement): boolean {
+function displayed(element: HTMLElement): boolean {
   if (!element.isConnected || element.closest('[hidden], [inert], [aria-hidden="true"]') !== null)
     return false
-  const rect = element.getBoundingClientRect()
-  if (rect.width <= 0 || rect.height <= 0) return false
   const view = element.ownerDocument.defaultView!
   return [element, ...ancestors(element)].every((current) => {
     const style = view.getComputedStyle(current)
@@ -206,6 +205,13 @@ export function rendered(element: HTMLElement): boolean {
       style.contentVisibility !== 'hidden'
     )
   })
+}
+
+/** Whether a source is mounted and visible, excluding hidden retained sidebar tabs. */
+export function rendered(element: HTMLElement): boolean {
+  if (!displayed(element)) return false
+  const rect = element.getBoundingClientRect()
+  return rect.width > 0 && rect.height > 0
 }
 
 /** Intersect viewport edges with every clipping ancestor's client area. */
@@ -298,18 +304,30 @@ function visibleElement(elements: readonly HTMLElement[]): HTMLElement | null {
   return visible.find((element) => element.closest('[data-focus-flow]') !== null) ?? visible[0] ?? null
 }
 
+function belongsToSession(element: HTMLElement, sessionId: SessionIdentity | SessionId | undefined): boolean {
+  if (sessionId === undefined) return true
+  const owner = element.closest<HTMLElement>('[data-dsh-annotation-session-id], [data-conversation-session]')
+  return (owner?.dataset.dshAnnotationSessionId ?? owner?.dataset.conversationSession) === sessionId
+}
+
 /**
  * Resolve a displayed marker, including a member of a same-line marker group; hidden focus-view copies are excluded.
  * @param annotationId - Annotation represented by the marker's single id or space-separated id list.
  * @param root - Subtree to search; defaults to the current document.
+ * @param sessionId - When supplied, only markers owned by this Session are eligible; omitted searches every Session in root.
  * @returns A visible matching button, preferring the focus view, or null when no matching marker is visible.
  */
-export function markerElement(annotationId: AnnotationId, root: ParentNode = document): HTMLElement | null {
+export function markerElement(
+  annotationId: AnnotationId,
+  root: ParentNode = document,
+  sessionId?: SessionIdentity | SessionId,
+): HTMLElement | null {
   return visibleElement(
     Array.from(root.querySelectorAll<HTMLElement>('button.dia-marker')).filter(
       (element) =>
-        element.dataset.annotationId === annotationId ||
-        element.dataset.annotationIds?.split(/\s+/).includes(annotationId),
+        belongsToSession(element, sessionId) &&
+        (element.dataset.annotationId === annotationId ||
+          element.dataset.annotationIds?.split(/\s+/).includes(annotationId)),
     ),
   )
 }
@@ -318,11 +336,13 @@ export function markerElement(annotationId: AnnotationId, root: ParentNode = doc
  * Rebuild a selection's current position instead of reusing its saved viewport coordinates after scrolling.
  * @param capture - The message and text quote retained by an unfinished editor.
  * @param root - Subtree containing mounted assistant replies; defaults to the current document.
+ * @param sessionId - Source Session to search; an explicit id must match the capture's recorded source. Omitted uses the recorded source id, or searches root for legacy captures without one. Official sources retain their Session-qualified source key.
  * @returns The final visible non-whitespace character in the displayed quote, or null when its reply is unavailable.
  */
 export function selectionAnchor(
   capture: SelectionCapture,
   root: ParentNode = document,
+  sessionId?: SessionIdentity | SessionId,
 ): AnnotationFloatingAnchor | null {
   if (capture.source?.kind === 'file' || capture.source?.kind === 'official-diff') {
     for (const resolve of officialAnchors.get(sourceKey(capture)) ?? []) {
@@ -333,9 +353,13 @@ export function selectionAnchor(
     }
     return null
   }
+  const recordedSession = capture.source?.kind === 'message' ? capture.source.sessionId : undefined
+  if (recordedSession !== undefined && sessionId !== undefined && recordedSession !== sessionId) return null
   const reply = visibleElement(
     Array.from(root.querySelectorAll<HTMLElement>('[data-dsh-annotation-message-id]')).filter(
-      (element) => element.dataset.dshAnnotationMessageId === capture.messageId,
+      (element) =>
+        belongsToSession(element, recordedSession ?? sessionId) &&
+        element.dataset.dshAnnotationMessageId === capture.messageId,
     ),
   )
   const body = reply?.querySelector<HTMLElement>('.dia-assistant__body')
@@ -355,34 +379,10 @@ export function rangeAnchor(range: Range): {
     range.commonAncestorContainer instanceof HTMLElement
       ? range.commonAncestorContainer
       : (range.commonAncestorContainer.parentElement ?? document.body)
-  const nodes: Text[] = []
-  const walker = body.ownerDocument.createTreeWalker(body, NodeFilter.SHOW_TEXT)
-  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-    if (node instanceof Text && range.intersectsNode(node)) nodes.push(node)
-  }
-  let finalRect: DOMRect | null = null
-  for (let index = nodes.length - 1; index >= 0 && finalRect === null; index -= 1) {
-    const node = nodes[index]!
-    const start = node === range.startContainer ? range.startOffset : 0
-    const end = node === range.endContainer ? range.endOffset : node.length
-    for (let offset = end - 1; offset >= start; offset -= 1) {
-      if (/\s/u.test(node.data[offset] ?? '')) continue
-      const character = body.ownerDocument.createRange()
-      character.setStart(node, offset)
-      character.setEnd(node, offset + 1)
-      const rect =
-        typeof character.getBoundingClientRect === 'function'
-          ? character.getBoundingClientRect()
-          : range.getBoundingClientRect()
-      if (rect.width > 0 && rect.height > 0) {
-        finalRect = rect
-        break
-      }
-    }
-  }
+  const endpoint = sourceEndpoint(range)
   return {
-    rect: finalRect ?? range.getBoundingClientRect(),
-    contextElement: range.startContainer.parentElement ?? body,
+    rect: endpoint?.rect ?? range.getBoundingClientRect(),
+    contextElement: endpoint?.contextElement ?? range.startContainer.parentElement ?? body,
     selectionRect: range.getBoundingClientRect(),
   }
 }
@@ -405,8 +405,13 @@ export interface AnnotationFloatingOptions {
   readonly enabled: boolean
   /** Editors sit below the last selected character before considering other available space. */
   readonly preferBelow?: boolean
-  /** The current Dock can provide its exact composer; previews otherwise use the anchor's nearest composer region. */
-  readonly composer?: () => HTMLElement | null
+  /**
+   * @param source - Visible or retained source element, or null when it is unavailable.
+   * @returns The exact composer, undefined to use the source's nearest composer, or null to exclude one.
+   */
+  readonly composer?: (source: HTMLElement | null) => HTMLElement | null | undefined
+  /** A hidden or detached owner hides the portal without discarding its editor or draft. */
+  readonly owner?: () => HTMLElement | null
 }
 
 function samePosition(left: AnnotationFloatingPosition | null, right: AnnotationFloatingPosition): boolean {
@@ -423,22 +428,24 @@ function samePosition(left: AnnotationFloatingPosition | null, right: Annotation
 /**
  * Measure before first paint and coalesce subsequent layout, font, viewport, and scroll changes into one animation frame.
  * @param options - Mounted overlay, live anchor resolver, enabled state, and optional current composer resolver.
- * @returns Fixed styles in the portal's CSS coordinates and placement; never changes focus, selection,
+ * @returns Owner visibility, fixed styles in the portal's CSS coordinates and placement; never changes focus, selection,
  * or editor state, including when an anchor disappears.
  */
 export function useAnnotationFloating(options: AnnotationFloatingOptions): {
   readonly style: CSSProperties
   readonly placement: AnnotationFloatingPosition['placement']
+  readonly visible: boolean
 } {
-  const { enabled, floatingRef, anchor, composer, preferBelow = false } = options
-  const latest = useRef({ anchor, composer, preferBelow })
+  const { enabled, floatingRef, anchor, composer, owner, preferBelow = false } = options
+  const latest = useRef({ anchor, composer, owner, preferBelow })
   const request = useRef<(() => void) | null>(null)
   const [position, setPosition] = useState<AnnotationFloatingPosition | null>(null)
+  const [visible, setVisible] = useState(owner === undefined)
 
   useLayoutEffect(() => {
-    latest.current = { anchor, composer, preferBelow }
+    latest.current = { anchor, composer, owner, preferBelow }
     request.current?.()
-  }, [anchor, composer, preferBelow])
+  }, [anchor, composer, owner, preferBelow])
 
   useLayoutEffect(() => {
     if (!enabled) return undefined
@@ -492,13 +499,22 @@ export function useAnnotationFloating(options: AnnotationFloatingOptions): {
         floating.setAttribute(floatingAttribute, '')
         floatingElement = floating
       }
+      const owner = latest.current.owner?.() ?? null
+      const visible = latest.current.owner === undefined || (owner !== null && displayed(owner))
+      setVisible(visible)
+      if (!visible) {
+        releaseSpace()
+        observe(new Set(owner === null ? [] : [owner, ...ancestors(owner)]))
+        return
+      }
       let resolved = latest.current.anchor()
       const candidate = resolved instanceof HTMLElement ? resolved : (resolved?.contextElement ?? null)
       const context = candidate !== null && rendered(candidate) ? candidate : null
       if (context !== null) lastContext = context
       const retained = context ?? (lastContext !== null && rendered(lastContext) ? lastContext : null)
+      const requestedComposer = latest.current.composer?.(retained)
       const proposedComposer =
-        latest.current.composer === undefined ? currentComposer(retained, doc) : latest.current.composer()
+        requestedComposer === undefined ? currentComposer(retained, doc) : requestedComposer
       const composerElement =
         proposedComposer !== null && rendered(proposedComposer) ? proposedComposer : null
       const source = retained ?? composerElement
@@ -596,6 +612,7 @@ export function useAnnotationFloating(options: AnnotationFloatingOptions): {
       observe(
         new Set([
           floating,
+          ...(owner === null ? [] : [owner, ...ancestors(owner)]),
           ...(context === null ? [] : [context, ...ancestors(context)]),
           ...(body === null ? [] : [body]),
           ...(composerElement === null ? [] : [composerElement, ...ancestors(composerElement)]),
@@ -663,7 +680,9 @@ export function useAnnotationFloating(options: AnnotationFloatingOptions): {
 
   return {
     placement: position?.placement ?? 'panel',
+    visible,
     style: {
+      visibility: visible ? undefined : 'hidden',
       position: 'fixed',
       left: position?.left ?? 0,
       top: position?.top ?? 0,

@@ -1,0 +1,7 @@
+version: 1
+scenario: side-annotations-roundtrip
+profile: web
+composition: web-annotation
+recording: authored
+header:
+  class: annotation-side-annotations-roundtrip

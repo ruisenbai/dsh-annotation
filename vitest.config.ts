@@ -4,6 +4,7 @@ import { defineConfig } from 'vitest/config'
 const execArgv = process.allowedNodeEnvironmentFlags.has('--webstorage') ? ['--no-webstorage'] : []
 
 export default defineConfig({
+  resolve: { dedupe: ['react', 'react-dom'] },
   test: {
     execArgv,
     // Real Git cases use the managed Host subprocess provider for every read.
@@ -11,7 +12,7 @@ export default defineConfig({
     hookTimeout: 30_000,
     server: {
       deps: {
-        inline: [/@deepseek-ai\/dsh-client-ui-primitives/, /katex/],
+        inline: [/@deepseek-ai\/dsh-client-ui-primitives/, /@deepseek-ai\/dsh-client-ui-dockkit/, /katex/],
       },
     },
     setupFiles: ['tests/setup.ts'],

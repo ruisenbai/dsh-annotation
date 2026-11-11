@@ -1,24 +1,17 @@
-# Decision 0005: Public dsh-market update API
+# 决策 0005：通过 dsh-market 的公共接口更新
 
-Status: accepted
+已采用，v1 接口仍标注为测试阶段。
 
-## Context
+## 背景
 
-dsh-market `1.45.0` exposes `dsh-market/update-api/v1` for plugin-owned update controls. Its internal UI routes and response fields remain private, while installations may omit dsh-market or delegate Host restart to a desktop shell or operator. The public API currently reports beta stability.
+dsh-market 从 1.45.0 提供 `dsh-market/update-api/v1`。市场可以未安装，重启也可能由桌面程序或管理员管理。插件不能依赖市场自己的界面路径和私有响应字段。
 
-## Decision
+## 决定
 
-The Web Client adds update controls to the existing annotation settings card. It discovers `/dsh-market/api/v1/capabilities` on the first user request, validates the response schema and same-origin v1 endpoint paths, then checks only `dsh-annotation`. The Client starts one update operation and polls its public operation endpoint until a terminal state. It displays installed and latest versions, structured progress, and the bounded failure message returned by dsh-market.
+用户主动检查时才访问同源 `/dsh-market/api/v1/capabilities`，验证能力及各操作地址后只查询或更新 `dsh-annotation`。开始更新后跟踪同一操作至结束，展示版本、进度和失败原因，不自行实现下载或安装。
 
-Update installation is never reimplemented in this package. Force is exposed only after `RELEASE_TOO_FRESH` or `VERSION_UNCHANGED`. Rollback uses the completed operation id and appears only while dsh-market reports a retained recovery point. Refresh follows `refreshRequired`. Restart appears only when both the restart feature and `restart.supported` are true; desktop- and operator-owned Hosts keep their external restart path.
+只在 `RELEASE_TOO_FRESH` 或 `VERSION_UNCHANGED` 等允许的结果后提供强制操作。回退需要市场保留的恢复点，刷新和重启也须以市场报告的能力为准。市场缺失或返回无效数据时，提示打开插件市场；停止插件时取消请求和轮询。
 
-When discovery is unavailable or invalid, the card directs users to **Settings → Plugin Market**. It never calls legacy `/dsh-market/*` mutation routes, imports dsh-market implementation code, or assumes that the optional plugin is present. Client disposal aborts active requests and polling waits, then awaits settlement.
+## 影响
 
-## Consequences
-
-- dsh-market remains the sole owner of source selection, install policy, compatibility recovery, activation, and process control.
-- The annotation package has no dsh-market peer dependency and still loads when Market is absent.
-- Response validation and deterministic polling tests are required because all API values cross an HTTP interface.
-- While v1 reports beta stability, each release must recheck the public document and keep an upstream dependency issue open.
-
-The [compatibility guide](../compatibility.md#marketplace-update-api) records the supported API behavior and upgrade checks.
+安装来源、兼容检查、回退与进程控制始终归市场负责。没有 dsh-market 时注解仍能使用。升级前重新核对公共接口，并验证错误和终止状态，见[兼容性说明](../compatibility.md#marketplace-update-api)。

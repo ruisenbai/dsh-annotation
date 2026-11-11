@@ -269,6 +269,48 @@ function scene() {
 }
 
 describe('live annotation anchors', () => {
+  it('keeps repeated message and annotation ids inside the owning Session and Conversation', () => {
+    const main = scene()
+    main.root.dataset.conversationSession = 'main-session'
+    const side = scene()
+    side.root.dataset.conversationSession = 'side-session'
+    side.root.dataset.focusFlow = ''
+    const sameSessionElsewhere = scene()
+    sameSessionElsewhere.root.dataset.conversationSession = 'main-session'
+    sameSessionElsewhere.root.dataset.focusFlow = ''
+    const mainSessionId = 'main-session' as SessionIdentity
+    const sideSessionId = 'side-session' as SessionIdentity
+    expect(markerElement(firstId, main.root, mainSessionId)).toBe(main.marker)
+    expect(markerElement(firstId, document, sideSessionId)).toBe(side.marker)
+    expect(markerElement(firstId, side.root, mainSessionId)).toBeNull()
+    const finalCharacter = rect(530, 362, 10, 22)
+    replaceProperty(Range.prototype, 'getBoundingClientRect', function (this: Range) {
+      expect(this.startContainer.parentElement).toBe(main.body)
+      return finalCharacter
+    })
+    const capture = {
+      messageId,
+      messageSeq: 1,
+      responseVersion: messageId,
+      quote: { exact: 'quoted', prefix: 'A ', suffix: ' sentence.', start: 2, end: 8 },
+      rect: { top: 0, bottom: 1, left: 0, right: 1 },
+    }
+    expect(selectionAnchor(capture, main.root, mainSessionId)).toMatchObject({ contextElement: main.body })
+    expect(selectionAnchor(capture, side.root, mainSessionId)).toBeNull()
+    const foreignCapture = {
+      ...capture,
+      source: {
+        kind: 'message' as const,
+        sessionId: mainSessionId,
+        messageId,
+        messageSeq: 1,
+        responseVersion: messageId,
+      },
+    }
+    expect(selectionAnchor(foreignCapture, side.root, sideSessionId)).toBeNull()
+    expect(selectionAnchor(foreignCapture, main.root)).toMatchObject({ contextElement: main.body })
+  })
+
   it('anchors a whole file to its visible action instead of a hidden retained preview', () => {
     const hidden = scene()
     hidden.root.hidden = true
@@ -423,13 +465,15 @@ function FloatingProbe({
   enabled = true,
   anchor,
   composer,
+  owner,
   preferBelow = false,
 }: {
   current: ReturnType<typeof scene>
   enabled?: boolean
   preferBelow?: boolean
   anchor?: () => AnnotationFloatingAnchor | null
-  composer?: () => HTMLElement | null
+  composer?: (source: HTMLElement | null) => HTMLElement | null | undefined
+  owner?: () => HTMLElement | null
 }) {
   const floatingRef = useRef<HTMLElement | null>(null)
   const attach = useCallback(
@@ -445,6 +489,7 @@ function FloatingProbe({
     enabled,
     preferBelow,
     ...(composer === undefined ? {} : { composer }),
+    ...(owner === undefined ? {} : { owner }),
   })
   return (
     <aside ref={attach} data-testid="floating" style={floating.style} data-placement={floating.placement}>
@@ -454,6 +499,64 @@ function FloatingProbe({
 }
 
 describe('annotation floating lifecycle', () => {
+  it('uses the source composer for a foreign editor and its receiver when the source is unavailable', async () => {
+    const events = layoutEvents()
+    const source = scene()
+    source.bounds.scroll = rect(0, 80, 600, 790)
+    source.bounds.body = rect(40, 100, 500, 1300)
+    source.bounds.marker = rect(400, 400, 24, 22)
+    source.bounds.composer = rect(16, 710, 568, 160)
+    const receiver = scene()
+    receiver.bounds.scroll = rect(620, 80, 600, 790)
+    receiver.bounds.composer = rect(636, 750, 568, 120)
+    render(
+      <FloatingProbe
+        current={source}
+        preferBelow
+        owner={() => receiver.root}
+        composer={(context) => (context === null ? receiver.composer : undefined)}
+      />,
+    )
+    const panel = screen.getByTestId('floating')
+    expect(panel).toBeVisible()
+    expect(Number.parseFloat(panel.style.left)).toBeLessThan(600)
+    expect(Number.parseFloat(panel.style.top)).toBe(source.bounds.marker.bottom + 10)
+    expect(events.observers[0]!.targets.has(source.composer)).toBe(true)
+    expect(events.observers[0]!.targets.has(receiver.composer)).toBe(false)
+    source.root.hidden = true
+    await act(async () => {})
+    events.flush()
+    expect(panel).toBeVisible()
+    expect(Number.parseFloat(panel.style.left)).toBeGreaterThan(620)
+    expect(events.observers[0]!.targets.has(receiver.composer)).toBe(true)
+  })
+
+  it('hides a portal with its retained owner and reveals the same element when the owner returns', async () => {
+    const events = layoutEvents()
+    const current = scene()
+    current.root.hidden = true
+    render(<FloatingProbe current={current} owner={() => current.root} />)
+    const panel = screen.getByTestId('floating')
+    expect(panel).not.toBeVisible()
+    current.root.hidden = false
+    await act(async () => {})
+    events.flush()
+    expect(panel).toBeVisible()
+    expect(screen.getByTestId('floating')).toBe(panel)
+    current.root.style.display = 'none'
+    await act(async () => {})
+    events.flush()
+    expect(panel).not.toBeVisible()
+    current.root.style.removeProperty('display')
+    await act(async () => {})
+    events.flush()
+    expect(panel).toBeVisible()
+    current.root.remove()
+    await act(async () => {})
+    events.flush()
+    expect(panel).not.toBeVisible()
+  })
+
   it('scrolls a selection out from under the composer without padding the composer scrollport', () => {
     layoutEvents()
     const current = scene()

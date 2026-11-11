@@ -7,6 +7,8 @@ import {
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { parseAnnotationSource } from '../../shared/protocol.ts'
+import { parseSideChatSource } from '../../shared/side-chat-protocol.ts'
+import { SideChatHistoryReferences } from './SideChatReferences.tsx'
 import type { AnnotationId } from '../../shared/types.ts'
 import type { UserAnnotationProps } from '../contract.ts'
 import { MapPin } from '../icons.ts'
@@ -119,9 +121,18 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
   loadImage,
   renderFactorySlot,
   navigate,
+  locateSideChatReference,
   t,
 }: UserAnnotationProps<Key>) {
   const payload = parseAnnotationSource(node.data.source)
+  let sideSubmission: ReturnType<typeof parseSideChatSource> = null
+  let invalidSource = false
+  try {
+    sideSubmission = parseSideChatSource(node.data.source)
+  } catch (_invalidSource) {
+    void _invalidSource
+    invalidSource = true
+  }
   const attachments: UserContentAttachment[] = []
   const texts: string[] = []
   const extraBlocks: unknown[] = []
@@ -134,7 +145,10 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
   }
   const content = renderFactorySlot('conversation.chat.user.content', {
     content: {
-      text: payload === null ? texts.join('') : (payload.overallRequirement?.trim() ?? ''),
+      text: invalidSource
+        ? texts.join('')
+        : (sideSubmission?.question ??
+          (payload === null ? texts.join('') : (payload.overallRequirement?.trim() ?? ''))),
       attachments,
       extraBlocks,
       ...(node.data.referenceLabels === undefined ? {} : { referenceLabels: node.data.referenceLabels }),
@@ -147,7 +161,23 @@ export function AnnotatedUserNode<Key extends 'user' | 'steering'>({
     interactive: true,
   })
   return (
-    <div className={payload === null ? 'dia-user-row' : 'dia-user-row dia-user-submission'}>
+    <div
+      className={
+        payload === null && sideSubmission === null ? 'dia-user-row' : 'dia-user-row dia-user-submission'
+      }
+    >
+      {invalidSource && (
+        <p className="dia-side-chat-notice" role="alert">
+          {t('sideChat.invalidSource')}
+        </p>
+      )}
+      {sideSubmission !== null && (
+        <SideChatHistoryReferences
+          references={sideSubmission.references}
+          onLocate={locateSideChatReference ?? (() => Promise.resolve(false))}
+          t={t}
+        />
+      )}
       {payload !== null && <AnnotationSubmissionRow payload={payload} navigate={navigate} t={t} />}
       {content}
     </div>

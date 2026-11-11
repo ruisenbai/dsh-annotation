@@ -1,33 +1,17 @@
-# Decision 0003: Decorate the existing assistant renderer
+# 决策 0003：在原有助手正文上添加注解
 
-Status: accepted with compatibility risk
+已采用。此方式依赖宿主插槽的实现，升级时需验证。
 
-## Context
+## 背景
 
-Exact inline annotation requires a stable DOM root around assistant content, browser Range capture, persistent highlight reconstruction, and quote click handling. DSH `0.1.3-alpha.1` has no additive slot inside the assistant body.
+精确选区、原文气泡和定位需要稳定的正文节点。当时的宿主没有正文内部的附加插槽；直接替换同一优先级的助手渲染器还会和其他插件冲突。
 
-Registering another `conversation.chat.node:assistant-step` entry can collide with a renderer plugin at the same priority. `dsh-smooth-stream` owns that keyed cell at priority `-100`, so two independent replacements cannot load together.
+## 决定
 
-DSH exposes the registered ledger through `ctx.slots.entries()`. A stored entry keeps mutable `component` and `inject` fields, which allows behavior to be composed without claiming another keyed cell. Its `0.1.3-alpha.1` Markdown renderer displays HTML literally, so plugin protocol comments require filtering before that renderer receives them.
+保留宿主已选择的助手渲染器，在外层添加注解选区和标记，将原有与注解所需的数据一起传入。观察后注册的助手渲染器，停用时仅还原仍由本插件持有的组件和注入函数。
 
-## Decision
+原数据用于提取回复关联和完成标记，展示层隐藏能识别的标记。流式文本中只有已匹配完整前缀的尾部标记才临时隐藏；截断或不认识的标记不能确认完成。
 
-Do not register an `assistant-step` entry. Decorate every existing assistant entry in place:
+## 影响
 
-1. keep the existing component as the inner renderer;
-2. wrap its rendered output with the annotation selection, highlight, and marker layer;
-3. compose the existing inject result with the annotation face, including both hook sets;
-4. listen for `slots/changed` and decorate assistant entries registered later;
-5. restore both fields when the feature is disabled or the plugin unloads, but only when they still point to this plugin's values.
-
-The inner renderer keeps its own locale binding and receives a display projection of text and reasoning blocks with this plugin's acknowledgement and reply markers removed, including legacy prefixes. The outer annotation layer receives the original node for acknowledgement parsing and uses a separately bound translation function. Nodes and blocks without markers retain their original references. The projection changes no Session event or persisted history and leaves the Host's Markdown policy unchanged.
-
-While a block is streaming, a trailing unclosed comment is hidden only after it contains a complete recognized plugin prefix. Finalized unclosed comments remain literal text and do not count as acknowledgements. The Host accumulates one text stream within one block; filtering does not join separate blocks. DOM changes inside the renderer trigger range and marker reconstruction, while live-region and Think text do not enter persisted quote offsets.
-
-## Consequences
-
-- `dsh-annotation` no longer occupies `assistant-step`, so it can run with `dsh-smooth-stream` without a same-key, same-priority registration error.
-- Markdown, images, Think, streaming, and interruption behavior stay owned by the selected assistant renderer.
-- The plugin depends on DSH's stored-entry fields, block accumulation, and mutation behavior; every DSH upgrade still needs type checks and a real Web smoke test.
-- If another plugin replaces the same stored fields without preserving the current values, cleanup can only restore fields that this decorator still owns.
-- A public assistant-body decoration Slot should replace this mechanism when DSH provides one.
+Markdown、图片、思考、流式输出与中断仍由宿主当前渲染器负责。其他插件若覆盖相同字段，卸载时不得覆盖其更改。未来宿主若提供公开正文装饰插槽，优先改用该插槽。
