@@ -1,19 +1,15 @@
-# Decision 0002: Shadow input-message renderers
+# 决策 0002：呈现带注解的用户消息
 
-Status: accepted for user and steering rows; assistant part superseded by Decision 0003
+已采用，适用于用户消息和运行中发出的引导消息。助手正文采用[决策 0003](0003-assistant-renderer-decoration.md)。
 
-## Context
+## 背景
 
-Submitted batches also need a folded timeline row. Standard user and steering renderers display generated model text and do not expose a per-message body slot.
+用户需要在对话中看到可折叠的已发送注解，而通用消息渲染器只会展示整理后的模型文本。
 
-## Decision
+## 决定
 
-Register priority `-100` replacements for the keyed `user` and `steering` cells. Lower priority wins while the shipped priority-0 renderers remain available after plugin disposal.
+对 `user` 和 `steering` 两种消息注册优先级 `-100` 的展示组件。使用宿主公开的内容和组件展示文字、文件引用、图片缩略图及查看器；底部注解入口和助手操作使用可叠加的插槽。默认渲染器继续注册。
 
-Build replacements only from public DSH data and primitives. Preserve user text, images, and file mentions, and render official image thumbnails through the official image viewer for annotation submissions. Use additive slots for the composer dock and assistant action. Decision 0003 replaces the former `assistant-step` shadow with an in-place decorator.
+## 影响
 
-## Consequences
-
-- Stop or uninstall restores shipped user and steering renderers through Slot lifecycle disposal.
-- DSH renderer changes can cause visual or behavioral drift even when TypeScript still compiles.
-- Every supported DSH upgrade requires the Web smoke matrix in `docs/development.md`.
+停用或卸载后，插槽注销，宿主恢复默认显示。静态类型检查无法发现所有外观和行为偏差，因此宿主升级要做[真实页面验证](../development.md#web-smoke-test)。

@@ -3,9 +3,10 @@ import type { AnnotationDraft } from '../shared/types.ts'
 import type { InputAnnotationProps } from './contract.ts'
 import type { AnnotationController } from './controller.ts'
 import type { HighlightManager } from './highlight.ts'
-import { layoutMarkers } from './marker-layout.ts'
+import { layoutMarkers, markerSize } from './marker-layout.ts'
 import { AnnotationMarkerButton } from './components/AnnotationMarkerButton.tsx'
-import { rangeAnchor, rendered, visibleBoundary } from './floating.ts'
+import { rendered, visibleBoundary } from './floating.ts'
+import { sourceEndpoint, sourceObstacles } from './source-geometry.ts'
 import type { MarkerAnchor, MarkerGroup, MarkerRect } from './marker-layout.ts'
 
 /** Derive official-source markers and CSS highlights from saved records on every mount or reflow. */
@@ -21,12 +22,16 @@ export function installOfficialMarkers(
   nav.className = 'dia-markers'
   nav.dataset.dshOfficialMarkers = ''
   nav.setAttribute('aria-label', t('list.title'))
-  Object.assign(nav.style, { position: 'fixed', inset: '0', pointerEvents: 'none', zIndex: '1100' })
-  document.body.append(nav)
+  nav.dataset.dshAnnotationIgnore = 'true'
+  const originalPosition = root.style.position
+  if (getComputedStyle(root).position === 'static') root.style.position = 'relative'
+  Object.assign(nav.style, { position: 'absolute', inset: '0', pointerEvents: 'none', zIndex: '8' })
+  root.append(nav)
   const react = createRoot(nav)
   const owner = `official:${crypto.randomUUID()}`
   let frame = 0
   let disposed = false
+  const sizeCache = new Map<string, ReturnType<typeof markerSize>>()
   const schedule = (): void => {
     if (disposed || frame !== 0) return
     frame = requestAnimationFrame(() => {
@@ -44,43 +49,59 @@ export function installOfficialMarkers(
     const view = controller.getSnapshot()
     const annotations = view.annotations.filter(matches)
     const ranges = new Map<string, readonly Range[]>()
-    const regions = new Map<string, { bounds: MarkerRect; anchors: MarkerAnchor[] }>()
+    const anchors: MarkerAnchor[] = []
+    const frame = root.getBoundingClientRect()
+    const scaleX = root.offsetWidth > 0 && frame.width > 0 ? frame.width / root.offsetWidth : 1
+    const scaleY = root.offsetHeight > 0 && frame.height > 0 ? frame.height / root.offsetHeight : 1
+    const targetSize = window.matchMedia?.('(pointer: coarse)').matches ? 44 : 24
+    const localRect = (rect: MarkerRect): MarkerRect => ({
+      left: (rect.left - frame.left) / scaleX + root.scrollLeft,
+      right: (rect.right - frame.left) / scaleX + root.scrollLeft,
+      top: (rect.top - frame.top) / scaleY + root.scrollTop,
+      bottom: (rect.bottom - frame.top) / scaleY + root.scrollTop,
+    })
+    const boundary = localRect(visibleBoundary(root))
     if (rendered(root))
       for (const item of annotations) {
         const target = resolve(item)
-        const selected = Array.isArray(target) ? target : target instanceof Range ? [target] : []
+        const selected: Range[] =
+          target instanceof Range ? [target] : Array.isArray(target) ? [...target] : []
         if (selected.length > 0) ranges.set(item.annotationId, selected)
-        const final = selected.at(-1)
-        const anchor =
-          final === undefined ? (target instanceof HTMLElement ? target : null) : rangeAnchor(final)
-        if (anchor === null) continue
-        const context = anchor instanceof HTMLElement ? anchor : anchor.contextElement
-        if (!rendered(context)) continue
-        const line = anchor instanceof HTMLElement ? anchor.getBoundingClientRect() : anchor.rect
-        const clipped = visibleBoundary(context)
-        const frame = root.getBoundingClientRect()
-        const bounds = {
-          left: Math.max(clipped.left, frame.left) + 4,
-          right: Math.min(clipped.right, frame.right) - 4,
-          top: Math.max(clipped.top, frame.top) + 4,
-          bottom: Math.min(clipped.bottom, frame.bottom) - 4,
+        if (target instanceof HTMLElement) {
+          const range = document.createRange()
+          range.selectNodeContents(target)
+          selected.push(range)
         }
-        if (
-          line.bottom <= bounds.top ||
-          line.top >= bounds.bottom ||
-          line.right <= bounds.left ||
-          line.left >= bounds.right
-        )
-          continue
-        const key = `${bounds.left}:${bounds.top}:${bounds.right}:${bounds.bottom}`
-        const region = regions.get(key) ?? { bounds, anchors: [] }
-        region.anchors.push({ annotationId: item.annotationId, ordinal: item.ordinal, line })
-        regions.set(key, region)
+        const anchor = selected
+          .toReversed()
+          .map((range) => sourceEndpoint(range))
+          .find((value) => value !== null)
+        if (anchor === undefined) continue
+        const context = anchor.contextElement
+        if (!rendered(context)) continue
+        const line = localRect(anchor.rect)
+        anchors.push({
+          annotationId: item.annotationId,
+          ordinal: item.ordinal,
+          line,
+          ceiling: line.top >= boundary.top ? boundary.top : -targetSize,
+          size: markerSize(context, item.ordinal, targetSize, sizeCache),
+        })
       }
     highlights?.update(owner, [...ranges.values()].flat())
-    const groups: MarkerGroup[] = [...regions.values()].flatMap(
-      ({ bounds, anchors }) => layoutMarkers({ anchors, bounds, targetSize: 26 }).groups,
-    )
+    const layout = layoutMarkers({
+      anchors,
+      bounds: {
+        left: Math.max(root.scrollLeft, boundary.left),
+        top: -targetSize,
+        right: Math.min(root.scrollLeft + (root.clientWidth || frame.width), boundary.right),
+        bottom: Math.max(...anchors.map((anchor) => anchor.line?.bottom ?? 0), 0),
+      },
+      targetSize,
+      obstacles: sourceObstacles(root).map(localRect),
+    })
+    const groups: readonly MarkerGroup[] = layout.groups
+    nav.style.height = `${layout.contentHeight ?? 0}px`
     react.render(
       groups.map((group) => (
         <AnnotationMarkerButton
@@ -100,7 +121,9 @@ export function installOfficialMarkers(
     )
   }
   const unsubscribe = controller.subscribe(schedule)
-  const observer = new MutationObserver(schedule)
+  const observer = new MutationObserver((changes) => {
+    if (changes.some((change) => !nav.contains(change.target) && change.target !== nav)) schedule()
+  })
   observer.observe(root, { childList: true, subtree: true, characterData: true, attributes: true })
   for (let parent = root.parentElement; parent !== null; parent = parent.parentElement)
     observer.observe(parent, {
@@ -113,7 +136,12 @@ export function installOfficialMarkers(
   window.addEventListener('resize', schedule)
   window.visualViewport?.addEventListener('resize', schedule)
   window.visualViewport?.addEventListener('scroll', schedule)
-  void document.fonts?.ready.then(schedule)
+  const fontsLoaded = () => {
+    sizeCache.clear()
+    schedule()
+  }
+  document.fonts?.addEventListener('loadingdone', fontsLoaded)
+  void document.fonts?.ready.then(fontsLoaded)
   schedule()
   return () => {
     disposed = true
@@ -125,8 +153,10 @@ export function installOfficialMarkers(
     window.removeEventListener('resize', schedule)
     window.visualViewport?.removeEventListener('resize', schedule)
     window.visualViewport?.removeEventListener('scroll', schedule)
+    document.fonts?.removeEventListener('loadingdone', fontsLoaded)
     highlights?.remove(owner)
     react.unmount()
     nav.remove()
+    root.style.position = originalPosition
   }
 }

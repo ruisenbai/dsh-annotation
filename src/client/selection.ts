@@ -9,6 +9,14 @@ import type {
 
 export type SelectionCapture = AnnotationSelectionCapture
 
+/** Exact settled message and quote used for navigation without creating an annotation. */
+export interface MessageQuoteTarget {
+  readonly messageId: MessageIdentity
+  readonly messageSeq: number
+  readonly responseVersion: MessageIdentity
+  readonly quote: TextQuoteSelector
+}
+
 /**
  * Identify settled Markdown file links by their two Host CSS Module local names.
  * @param element A possible file-link button; image-preview links may have no title.

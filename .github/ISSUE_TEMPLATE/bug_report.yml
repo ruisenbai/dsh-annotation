@@ -1,71 +1,71 @@
-name: Bug report
-description: Report a reproducible plugin defect
-title: '[Bug]: '
+name: 问题反馈
+description: 反馈可以复现的插件问题
+title: '[问题] '
 labels: [bug]
 body:
   - type: markdown
     attributes:
-      value: Do not include private prompts, selected text, credentials, or complete Session logs.
+      value: 请使用虚构的示例。不要提交私人提示词、选区、凭据或完整会话日志。
   - type: input
     id: plugin-version
     attributes:
-      label: Plugin version
-      placeholder: 0.1.0 or commit SHA
+      label: 插件版本
+      placeholder: 例如 1.2.0 或提交编号
     validations:
       required: true
   - type: input
     id: dsh-version
     attributes:
-      label: DeepSeek Harness version
-      placeholder: 0.1.0-rc.6
+      label: DeepSeek Harness 版本
+      placeholder: 例如 0.2.2-rc.1
     validations:
       required: true
   - type: input
     id: environment
     attributes:
-      label: Environment
+      label: 运行环境
       placeholder: Windows 11, Chrome 130, Node 24
     validations:
       required: true
   - type: dropdown
     id: session-state
     attributes:
-      label: Session state
+      label: 会话状态
       options:
-        - Idle
-        - Running
-        - Waiting for approval or question
-        - Archived
-        - Not applicable
+        - 空闲
+        - 生成中
+        - 等待确认或回答
+        - 已归档
+        - 不适用
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Reproduction steps
-      description: Use synthetic text and the smallest reproducible sequence.
+      label: 复现步骤
+      description: 请用虚构内容说明最少需要哪些操作。
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected behavior
+      label: 预期结果
     validations:
       required: true
   - type: textarea
     id: actual
     attributes:
-      label: Actual behavior and sanitized console error
+      label: 实际结果和已去除私人信息的控制台报错
     validations:
       required: true
   - type: checkboxes
     id: checks
     attributes:
-      label: Checklist
+      label: 提交前检查
       options:
-        - label: I searched existing issues.
+        - label: 我已搜索已有问题。
           required: true
-        - label: I removed private data and credentials.
+        - label: 我已移除私人数据和凭据。
           required: true
-        - label: This is not a security vulnerability.
+        - label: 这不是需要私下报告的安全漏洞。
           required: true

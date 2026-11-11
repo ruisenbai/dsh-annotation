@@ -1,0 +1,426 @@
+# Changelog
+
+All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and releases follow Semantic Versioning while DeepSeek Harness compatibility remains pre-release.
+
+## [Unreleased]
+
+## [1.2.0] - 2026-11-11
+
+- Capture highlights or notes in a sidebar chat using the same editor as the main conversation. The editor opens beside the original text, including when reopened from a bubble.
+- Keep the receiving conversation and original source separate, preserve quote-only rows, and use the ordinary composer for submission. Release documentation and metadata now open in Chinese. Protocol v6 and browser storage v7 require matching plugin builds.
+
+## [1.1.8] - 2026-11-05
+
+### Changed
+
+- Target DSH master `fcc0ad4621` (`0.2.2-rc.1`), with Cordis `4.1.0`, group `1.1.0`, and Schemastery `3.19.0`. The minimum Host is `>=0.2.2-rc.1`; Node.js remains `>=24.9.0`.
+- Anchor grouped annotation menus to their actual marker button through the Host CSS-anchor API.
+
+### Fixed
+
+- Allow assistant web and local file link labels to be selected alone or with surrounding text. Preserve the complete quote, one Quote text / Add annotation toolbar, ordinary link navigation, and saved annotation anchors after reload.
+- Prevent the click following a link-label selection drag from opening its destination. Include image-preview file-link labels whose Host button has no title attribute.
+
+## [1.1.7] - 2026-11-04
+
+Target host: DeepSeek Harness master `8bd073392e` (`0.2.2-alpha.3`); minimum Host `>=0.2.2-alpha.3`, Node.js `>=24.9.0`.
+
+### Changed
+
+- Align the dependency family and CI source baseline with current master. Quote text and Add annotation remain available in continuable child Sessions without the removed parent-availability field. One-shot, unknown, and removed Sessions keep their Host restrictions.
+- Present annotations in one newest-first list with a total count and shared attachment controls, without delivery labels, status dots, or delivery groups. Existing annotations can be attached again after sending.
+- Show associated reply labels in blue bold text without dotted underlines, preserving previews, source navigation, text selection, and copy.
+
+Annotation protocol v5 and browser storage v6 retain their formats; internal delivery tracking continues to protect retries and history.
+
+## [1.1.6] - 2026-10-28
+
+Target host: DeepSeek Harness master `f3803c9697` (`0.2.2-alpha.2`); minimum Host `>=0.2.2-alpha.2`, Node.js `>=24.9.0`.
+
+### Fixed
+
+- Keep open record rows stationary when attaching or detaching any annotation, and place readable previews above the whole record so they cannot cover other row actions.
+- Freeze annotation editing and attachment changes during Host command checking and message admission.
+
+- Combine Quote text and Add annotation in the Host message-selection toolbar, with shared placement and dismissal. Hosts without text interactions retain their annotation entry.
+
+- Match the selection toolbar's font size to conversation text and keep its padding compact across font sizes and narrow layouts.
+
+- Align the annotation record's expand/collapse chevron with the Host task summary while preserving its click target.
+
+Annotation protocol v5 and browser storage v6 retain their existing formats.
+
+## [1.1.5] - 2026-10-20
+
+Target host: DeepSeek Harness `0.2.1-rc.2`; minimum Host `>=0.2.1-rc.2`.
+
+### Fixed
+
+- Keep user and steering messages right-aligned when a submitted message replaces its temporary echo, including ordinary messages and annotation submissions with Codex UI enabled.
+
+Annotation protocol v5 and browser storage v6 retain their existing formats.
+
+## [1.1.4] - 2026-10-20
+
+Target host: DeepSeek Harness `0.2.1-rc.2`; minimum Host `>=0.2.1-rc.2`.
+
+### Added
+
+- Automatically enable compatibility styling while dsh-codex-ui is active, and restore the default styling when it unloads.
+
+### Changed
+
+- Use the Host's buttons, selection menu, attachment preview, theme colors, and corner radii for consistent light and dark interfaces.
+- Shorten annotation instructions and omit redundant submission fields while preserving note order, meaningful whitespace, reply markers, and historical protocol readers.
+
+### Fixed
+
+- Keep annotation attachments and draft text after a page refresh with dsh-codex-ui.
+- Keep attachment previews inside narrow viewports, above the composer, with keyboard focus and Escape dismissal.
+- Wrap record actions below long notes on narrow screens and prevent crowded record rows from overlapping.
+
+Annotation protocol v5 and browser storage v6 retain their existing formats.
+
+## [1.1.3] - 2026-10-20
+
+Target host: DeepSeek Harness `0.2.1-rc.2`; minimum Host `>=0.2.1-rc.2`.
+
+### Changed
+
+- Align the dependency family, official source pin, and CI with DSH `0.2.1-rc.2`.
+- Render user and steering message contents through the Host's public content factory, preserving ordered attachments and interactive file, skill, and Session references.
+- Replace every README screenshot with a Chinese dark-theme capture and add a combined file/Diff annotation view.
+
+### Fixed
+
+- Preserve the Host's atomic composer command when attaching notes to an empty draft; keep typing, submission, and refresh recovery available.
+- Migrate legacy annotation settings using the current Host write permission.
+- Keep unavailable full-source copies in recycle-bin details instead of interrupting annotation editing with an error toast; retain saved quotes and background source recovery.
+
+Annotation protocol v5 and browser storage v6 retain their existing formats.
+
+## [1.1.2] - 2026-10-10
+
+### Changed
+
+- Describe the select → annotate → send workflow, ordered replies, and source navigation in the bilingual README and package summary; omit Host versions from the short description.
+- Adapt version 1.1.2 to DSH `0.2.1-alpha.2`; align Host peers, development dependencies, registry lockfile, and CI source pin with `dsh-v0.2.1-alpha.2`.
+- Remove the retired, unused `dsh-subagent-in-process-driver` development dependency and refresh the exact official-package release-age exceptions.
+- Exercise official file writes through the AgentLoop and file tool in the isolated profile fixture, including the filesystem intents used for workspace Diff capture.
+- Document Release archive installation and the Host upgrade from plugin 1.1.1; preserve annotation protocol v5, browser storage v6, and historical Session fixtures.
+
+## [1.1.1] - 2026-10-09
+
+Target host: DeepSeek Harness `0.2.1-alpha.1`, official source baseline `dsh-v0.2.1-alpha.1`. Users on the `0.2.0` Host family must keep 1.1.0 until upgrading the Host; see the [upgrade guide](docs/upgrade-guide/v1.1.0/host-baseline/guide.md).
+
+### Changed
+
+- Align Host peers, development dependencies, registry lockfile, and CI source baseline with DSH `0.2.1-alpha.1` and its Cordis/Schemastery family; remove the retired Host invariants dependency.
+- Order attached and unfinished annotations first, other drafts next, and history last, newest-created first within each group. Preserve bubble numbers, submission order, retry contents, keyboard focus, and the scrolled reading position.
+- Reuse annotation counts, source filters, and attachment lookups; skip unchanged record-row renders while keeping edits, locale, controls, and send state current.
+- Use blue numbered bubbles with a white outline, a frosted translucent idle/hover surface, and an opaque surface while the annotation or group menu is open.
+- Complete both README guides with source support, editor behavior, record ordering, attachment controls, retries, recovery, settings, installation, and upgrade instructions.
+
+### Fixed
+
+- Clear a removed composer chip's open preview before notes are attached again, preventing a stale tooltip from covering record controls on narrow screens.
+
+## [1.1.0] - 2026-09-30
+
+Target host: DeepSeek Harness `0.2.0-rc.1`, official source baseline `dsh-v0.2.0-rc.1`.
+
+### Added
+
+- Add official file-preview annotations for text, Markdown, code, HTML, image, PDF, Office, Excel, CSV, TSV, and other public renderers, including whole-file actions for non-text previews.
+- Add official turn-Diff annotations from the public changes summary/Diff APIs, with immutable line and multiline column anchors, sidebar selection, and Locate navigation that restores the same annotation ID.
+- Add browser-local full-source snapshots, recycle-bin source previews, source-flash navigation feedback, and transient operation notices with localized status and undo actions.
+- Add tooltips to annotation summary controls and make composer trash/detach actions collapse until hover or keyboard focus.
+
+### Changed
+
+- Adapt the manifest and lockfile to DeepSeek Harness `0.2.0-rc.1` and accept compatible `>=0.2.0-rc.1` peer ranges for local and market installation.
+- Reuse the reply selection action, editor, and numbered marker for official file and Diff text; retain drafts and editor placement while sources scroll or load.
+- Keep historical Git Diff annotations permanently read-only while storing compact v2 official file and turn-Diff sources with protocol v5 and browser-storage v6. Existing v1-v4 submissions and v1-v5 storage remain readable.
+- Require a written opinion for whole-file annotations, validate legacy UTF-8 BOM byte digests, and restore source markers from saved annotations after a preview remount.
+- Keep the composer attachment chip compact at rest while preserving hover previews and accessible action behavior.
+
+### Fixed
+
+- Restore multiline code-preview selection and Locate by indexing the code element's direct line spans and preserving the source newline between highlighted rows.
+- Keep a durably sent annotation labelled sent when its paperclip is selected for a later message; the selection controls the next attachment independently of delivery status.
+- Cancel a blank new annotation after three outside clicks or composer input without saving a highlight-only record; explicit empty selection saves remain available.
+- Prevent failed source snapshots from producing repeated notifications when transient notices are dismissed; retries remain available after meaningful record or panel changes.
+
+## [1.0.0] - 2026-09-28
+
+Target host: DeepSeek Harness `0.1.7-rc.2`, official source tag `dsh-v0.1.7-rc.2` at commit `477b4f420553e8a52c2fbccc464d7561b239c443`.
+
+### Added
+
+- Add source-end numbered bubbles, a compact annotation editor, and an annotation record beside the official composer. New notes attach to the next message by default; sent notes can be attached again without duplicating their IDs or source bubbles.
+- Show annotation counts above sent user messages. Single annotations support hover preview and double-click source location; multiple annotations expand into a list with per-row navigation.
+- Add browser-local recovery for unfinished edits, corrupt or unsupported storage, and concurrent tabs. Separate journal entries and Web Locks prevent stale tabs from silently overwriting drafts or reviving deletions; conflicting edits retain both versions.
+- Add current Chinese Web screenshots for selection, editing, source bubbles, records, sending, reattachment, and settings.
+
+### Changed
+
+- Match the official task panel's material and layout for the annotation record; retain annotation-only settings for enablement, automatic attachment, and optional dsh-market updates.
+- Send annotations, optional composer text, and attachment identities as one frozen submission. Retries reuse the payload; existing Session and browser storage records remain readable under protocol v3 and storage v3 migrations.
+- Reconcile Chat history and Inbox changes separately. Reuse unchanged protocol parses, DOM text indexes, and annotation references; skip unchanged storage writes and subscriber notifications.
+- Adapt the manifest, lockfile, client integration, CI source checkout, and real-profile verification to the exact `0.1.7-rc.2` Host family.
+
+### Fixed
+
+- Preserve original and resent reply-heading interactions after Session restoration. Explicit record-row attachment works when automatic attachment is disabled.
+- Keep the source bubble clipped with its reply, the quick editor below the selected text, and its actions visible as the note grows to the seven-line scrolling limit.
+- Preserve queued and sent authority across late failures and retries; reject stale asynchronous preparation when its source annotation changes before submission.
+
+### Removed
+
+- Remove Code Diff annotation creation and editing, transcript visibility controls, duplicate assistant-body rendering, and other non-annotation UI. Historical Diff messages and frozen retries remain readable without rewriting their data.
+
+## [0.9.0] - 2026-09-20
+
+Target host: DeepSeek Harness `0.1.6-alpha.2`, source tag `dsh-v0.1.6-alpha.2` at commit `ddefc45fbc7f8e46dd73185e68295696d1297887`.
+
+### Changed
+
+- Set the exact host and lockstep dependency baseline to `0.1.6-alpha.2`.
+- Subscribe independently to `session.projections.faceOf('inbox')` for queue reconciliation. Only `next-turn` item ids map to withdrawable queued submissions; `next-step` entries do not. An undefined projection remains unsynchronized rather than being treated as an empty queue.
+- Supply the required `CommandClaim.name` while retaining the zero-width token and standard attachment submission path.
+- Move annotation configuration into a dedicated **Settings → Annotations** page through `settings.section:dsh-annotation`; do not register a community-bundle detail form, a built-in-plugins tab, or an Official `plugins.item` entry.
+- Add selective visibility switches for `read` / `read_image`, `glob`, `grep`, `bash` / `pwsh`, `edit`, `write`, and every other tool family while retaining `hideTools` as the all-tools override. Arrange all 18 transcript switches in a responsive grid, collapse fully hidden Chat rows without leaving flow gaps, and filter nested tool trees without changing recorded Session events.
+- Use `FileTypeIcon` for file attachments and pass `openFile` and `openSkill` to `projectUserText` for user and steering rows, including annotation submission requirements.
+- Join the upward annotation list and bottom summary controls into one responsive card. Compact mode expands both to the same capped 560 px width while open, full-width mode shares the same one-pixel seam, the toolbar spans the card with right-aligned actions, and the attached-count overview remains collapsed-only. One chevron rotates in place, the panel fades upward from its bottom-right anchor with reduced-motion support, and Escape restores focus to the summary trigger.
+- Retain Host command behavior, ordered image/file attachments, protocol v2, storage versions and namespaces, stable submission-derived message ids, and legacy reads.
+
+#### Fixed
+
+- Include Markdown file-link button text when capturing selections and restoring annotation ranges, while continuing to exclude action buttons and hidden content.
+- Restore every unambiguous model-reply heading after the marker-stripping display transform collapses blank lines or trims edges. Search windows now use normalized raw prefixes, retain repeated ordinals across submission batches, and reject an earliest heading text that is duplicated instead of substituting a later localized citation.
+- Activate model-reply headings through source navigation rather than the annotation editor. A genuinely folded Turn expands before measurement, the complete quote is centered, and a local quote-range background fades without taking ownership of persistent Custom Highlights; monotonic navigation epochs cancel overlays and history continuations from superseded requests.
+
+## [0.8.0] - 2026-09-09
+
+### Changed
+
+- Raised the exact DeepSeek Harness requirement to `0.1.5-alpha.1` across the manifest, lockstep peers, registry lockfile, CI source commit, bundle baseline, and compatibility guidance.
+- Added `@deepseek-ai/dsh-client-ui-dockkit` to the pinned browser platform module list and its bundle verification, matching the `0.1.5-alpha.1` Web loader's shared module table. No plugin source changed: the `0.1.5-alpha.1` Slot, settings, renderer, and command declarations used by this plugin are unchanged, and annotation protocol v2, browser persistence, submission ids, command aliases, and durable Session reads remain as in `0.7.0`.
+
+## [0.7.0] - 2026-09-08
+
+### Added
+
+- Added an optional dsh-market `dsh-market/update-api/v1` section to the annotation settings card. It discovers capabilities before checking `dsh-annotation`, follows public operation progress, offers force only after the documented release-policy failures, and exposes rollback, refresh, or Host restart only when advertised.
+- Added strict HTTP response and endpoint validation, abort-aware polling disposal, deterministic controller coverage, and settings-card coverage for supported and unavailable Market states.
+
+### Changed
+
+- Raised the exact DeepSeek Harness requirement to `0.1.3-alpha.2` across the manifest, lockstep peers, registry lockfile, CI source commit, bundle baseline, and compatibility guidance.
+- Replaced the plugin card's custom toggle and status badge markup with the official alpha.2 `Switch` and `Tag` primitives. Annotation protocol v2, browser persistence, submission ids, command aliases, and durable Session reads remain unchanged.
+
+## [0.6.0] - 2026-09-07
+
+### Changed
+
+- Raised the exact DeepSeek Harness requirement to `0.1.3-alpha.1` across the manifest, dependencies, bundle verification, and compatibility guidance.
+- Adapted annotation submissions to the Host's unified image/file attachments and focus and caret restoration in the Lexical contenteditable composer. Protocol v2, per-Session annotation storage, stable submission ids, and legacy annotation reads remain supported.
+- User and steering text use the official `projectUserText` projection, preserving file, Session, and skill reference labels after the removal of `MessageText`.
+- Documented provenance requirements for unpublished DSH packages and kept GitHub Release tarballs as the sole publication channel.
+
+### Fixed
+
+- Prevented annotation acknowledgement and reply HTML markers from appearing as literal text in the DSH `0.1.3-alpha.1` assistant renderer. Only the inner renderer receives filtered text and reasoning blocks; acknowledgement parsing and persisted Session history retain the original content.
+
+## [0.5.2] - 2026-09-04
+
+### Changed
+
+- Moved `@deepseek-ai/schemastery` from a bundled dependency to matching `^3.18.2` peer and development declarations, so the plugin reuses the rc.1 host runtime instead of installing a second official package copy.
+- Standardized the marketplace label as **Sessions & Messages** / **会话与消息**, documented recovery from host-version mismatch, and required public Release notes to state the exact host requirement.
+
+## [0.5.1] - 2026-09-04
+
+### Changed
+
+- Declared the exact DSH Web `0.1.2-rc.1` host requirement through `engines.dsh`, matching lockstep peers, installation guidance, and the compatibility reference; the Cordis reference now matches the `^4.0.2` manifest range.
+- Documented the **Sessions & Messages** marketplace placement and added repository-owned storefront screenshot metadata.
+- Bundle verification now enforces the host declaration, lockstep peer agreement, and the curated screenshot files.
+
+## [0.5.0] - 2026-09-01
+
+### Changed
+
+- Raised the reviewed DeepSeek Harness baseline to `0.1.2-rc.1` (peer and development declarations, lockfile, bundle verification, docs). Annotation behavior, protocol v2, persisted storage, command names, and legacy reads remain unchanged.
+- The Host idempotency scan now reads `Session.snapshotEvents()` because DSH `0.1.2-rc.1` replaced the `Session.events` getter with the snapshot reader.
+- The Cordis peer range now follows the `0.1.2-rc.1` family at `^4.0.2`.
+
+## [0.4.0] - 2026-09-01
+
+### Changed
+
+- Raised the reviewed DeepSeek Harness baseline to `0.1.2-alpha.3`. The `0.1.2-alpha.3` family is available from npm, so the checked-in lockfile is again a registry-resolvable graph and the disposable source-overlay verification procedure is retired. Annotation behavior, protocol v2, persisted storage, command names, and legacy reads remain unchanged.
+- The Host settings registration now passes the plain namespace string: DSH `0.1.2-alpha.3` removed the `settingsNamespace` brand helper and validates namespaces at the `register`/`update`/`replace` boundary instead.
+- Withdrawal now recognizes the namespaced `session/queue-item-not-found` Remote failure code introduced with DSH's shared `RemoteResult` vocabulary.
+- Test workers now disable Node's process-wide Web Storage on Node ≥25 so jsdom storage is not shadowed during local runs; the supported CI matrix (Node 22.19/24) is unchanged.
+- GitHub Releases now include a stable `dsh-annotation.tgz` asset alias so plugin catalogs can follow the latest release without hard-coding a versioned URL.
+
+## [0.3.0] - 2026-08-28
+
+### Changed
+
+- Raised the reviewed DeepSeek Harness baseline to `0.1.2-alpha.1` and moved the browser integration from the removed client runtime to session-controller snapshots, the Chat conversation target, the shared client store, and the Session-addressed command Remote. Annotation behavior, protocol v2, persisted storage, command names, and legacy reads remain unchanged.
+
+### Fixed
+
+- Cross-Session withdrawal now materializes and persists the target mirror before removing the queued message, so reopening the target cannot leave annotations stuck as accepted.
+- The root command Remote remains optional for image-free submissions, preserving the Session command fallback in partial Client compositions.
+- Bundle verification now rejects browser module requests outside the exact DSH platform baseline and declared Client externals.
+
+## [0.2.4] - 2026-08-23
+
+### Fixed
+
+- The read-only preview shown when hovering or focusing the attached `Annotations ×N` summary button now always opens six pixels above the button. Its anchor uses the button's top edge and translates by the preview's full height, so varying annotation counts never make it expand downward over the composer.
+
+## [0.2.3] - 2026-08-23
+
+### Changed
+
+- Clicking a numbered annotation marker in the assistant body now opens a compact preview eight pixels below that marker instead of expanding the composer summary box. Editing or supplementing from the preview keeps the editor under the same marker, follows nested scrolling and viewport resizing, and preserves marker anchoring on mobile instead of switching to the generic bottom editor. Editing from the summary box remains inline. The marker preview closes from its close action, the same marker, outside pointer input, or Escape.
+
+## [0.2.2] - 2026-08-23
+
+### Fixed
+
+- Empty-composer and image submissions no longer fail with `Client API: commands/execute rejected "images"`: the `commands/execute` face on a Session AgentContext is already Agent-scoped and accepts `(line, images)`, not the root Remote form `(agentId, line, images)`. Passing the Session id again shifted the command line into the validated `images` field. The command bridge now calls the scoped two-argument face and uses the target Session context for cross-Session retries.
+
+## [0.2.1] - 2026-08-23
+
+### Fixed
+
+- Sending attached annotations no longer fails with `cannot get property "remote" without inject`: the submission command is now executed through the session AgentContext that `claim.submit` receives (`actx`), which is the only context that carries the scoped `commands/execute` remote. Reading the remote from the plugin's root client context threw in the real Web runtime (the fixture provided it, so browser regressions passed) and surfaced as the send-failed Toast with the raw Cordis error. The slash-command re-check inside `claim.submit` uses the same scope context, and the session `command()` fallback stays for runtimes without the remote.
+
+## [0.2.0] - 2026-08-23
+
+### Changed
+
+- Renamed the public repository to **ruisenbai/dsh-annotation**: package metadata URLs, documentation badges, clone and install instructions, support links, changelog links, and the license line now use the new repository name. GitHub redirects the old repository URLs, and the legacy protocol/storage identifiers intentionally keep their old names for compatibility.
+- Renamed the plugin runtime identity to **dsh-annotation**: the npm package name, bundle row, settings namespace, settings card, internal command (`annotation_submit`), log prefixes, Slot ids, locale namespace, DOM data attributes, and CSS Custom Highlight names all use the new identity.
+- Unified the user-visible Chinese terminology on 注解 and the internal domain model on annotation semantics (`comment` → `annotation`, `inlineComments` → `annotations`, `inline-comments-submit` → `annotation-submit`).
+- Upgraded the internal protocol to v2 (`protocolVersion: 2`, `source: "dsh-annotation"`, `annotation` field). New submissions only emit v2; legacy v1 payloads are still read and converted, historical messages are never rewritten, and legacy acknowledgement and reply markers remain authoritative reads while new messages only emit `dsh-annotation-*` markers.
+- Migrated browser storage to the `dsh-annotation:v1:<session-id>` namespace: legacy keys are validated, converted, and written to the new key before removal, and a failed migration keeps the legacy data. The legacy `inline-comments` settings namespace migrates the same way, and the legacy internal command names forward to the new handler through invisible aliases.
+- Enabled official slash commands while annotations are attached: composer content starting with `/` temporarily releases the input claim and removes the zero-width token, the claim re-arms when command state ends, `claim.submit()` re-checks slash commands to defeat the Enter race, and a raced command routes through the rc.2 official Session command interface without creating an outbox, sending annotations, or marking them sent.
+- Merged composer images into the same submission: the claim declares `CommandClaim.images = true`, images travel as rc.2 standard command attachments, the internal command declares `input.images = true`, the Host appends the admitted durable image blocks to the single user message, and the custom user node renders official image thumbnails and the official image viewer. The outbox stores only image count, media types, and names; after a refresh, a recorded image batch refuses to resubmit without images and offers re-selection or discarding the pending record.
+- Restored focus and the previous caret position to the official composer after saving a new annotation (one microtask plus one frame, DOM adapter scoped to the current Session's composer card, no text overwrite, no focus grab on save failure, cancel, Session switch, or edits to existing annotations).
+- Completed Chinese input-method handling in the annotation editor: Enter during composition only confirms the candidate, the post-composition Enter never saves, a plain Enter saves, Shift+Enter inserts a newline, Escape during composition never closes the editor, and composition events never reach the official composer.
+- The model prompt now demands ordered per-annotation replies: each paragraph starts with `注解 N：`, annotations are never merged, a hidden `dsh-annotation-reply` marker precedes each paragraph, and the reply ends with the `dsh-annotation` acknowledgement marker. The Client validates markers against the current Session, locates each `注解 N` heading by text Range, and overlays React chips that show the annotation number, source quote, and user annotation on hover or keyboard focus; unknown, duplicate, forged, and malformed markers are ignored, and reply markers never mutate business state.
+- Stopped registering a competing `conversation.chat.node:assistant-step` entry. The Client now decorates every existing assistant renderer in place, composes its inject face, and restores both fields on disable or unload so renderer plugins such as `dsh-smooth-stream` can remain the sole keyed owner.
+- Rebuild annotation ranges and marker geometry after an inner renderer mutates its DOM, while excluding live-region and Think text from persistent quote offsets.
+- Matched the rc.2 official queue-action geometry in the annotation summary header: 10 px action spacing, 28 px circular targets, and the official interactive hover background.
+- Added a Host-backed, on-by-default automatic-attachment switch. Saving a new annotation now attaches the live annotation set to the official composer, whose Enter key sends it together with visible composer text and images; editing an existing annotation remains attach-neutral and the paperclip remains the manual override.
+
+### Fixed
+
+- A manual detach click on the annotation summary box now sticks: the input-state repair watcher no longer re-attaches the claim after the user cancelled the attachment, while the slash-command release still auto-restores the attachment when the command state ends.
+- Clearing the last draft annotation now releases the armed composer claim immediately (even while the claim is still in the claimed phase), so ordinary composer text sends through the official plain-message path afterwards.
+- An Enter that lands right after the annotations were cleared no longer fails with the raw `no draft annotations to submit` error: the claim is released after settlement and the composer shows a friendly localized notice, keeping the typed text for the next Enter.
+- The annotation summary box's fold button now keeps the same 6 px right margin from the visible card edge as the official task summary box (including the dsh-queue-plus takeover of QueueDock).
+- Locate source now survives the history-page race: after `loadOlder` resolves, the Client waits a few frames for the mounted assistant node to register its endpoint instead of failing a synchronous check, and the reveal re-measures once after scrolling an unrendered reply into view (lazy-rendered or `content-visibility` content).
+- Editing an existing annotation no longer positions or locates anything in the assistant body: the editor opens inline inside the annotation summary box (including marker-clicked edits and supplemental annotations), so a failed marker lookup can no longer strand the popup at the body's top-right corner.
+- The selection action bar now opens wherever the selection drag ends: `pointerup` is observed on the document in the capture phase, so releasing the mouse outside the assistant body (past the bubble edge, over other UI) still opens the bar for a selection that lies inside one assistant reply. Cross-message selections keep being rejected, and the existing dismiss paths (outside pointerdown, selection collapse, Escape) are unchanged.
+
+### Added
+
+- Empty-content annotations (highlight-only): an empty or whitespace-only annotation saves as `kind: "highlight-only"` and means “mark the quoted text only; review and respond to it”. The editor shows the empty-content hint and keeps Save enabled, the list/overview/chips display 仅标记原文 instead of a blank line, clearing an existing annotation converts it to highlight-only (deletion still requires the delete action), and highlight-only items participate in attachment, send, retry, processed confirmation, and per-annotation replies.
+- Compact “注解 ×N” summary (the only summary mode): the annotation summary box always shows the attached-annotation count near the official composer as a “注解 ×N” chip; clicking it pops the full annotation list upward (a drop-up panel anchored above the chip row, rounded on top, max-height with internal scrolling) instead of expanding downward. Hover or keyboard focus on the chip opens a read-only overview (ordinal, quote summary, annotation summary, highlight-only state, and draft/retry status) with max-height internal scrolling. The count updates on add/delete/attach/detach, resets after a successful send, survives failed sends, counts highlight-only items, and stays per-Session. The previous `summaryMode` setting was removed; the compact behavior is unconditional.
+- The plugin settings card is now named **注解** (zh) / **Annotations** (en) instead of the package id, and a new Host-backed `localTools` switch (default on) shows or hides the local data usage, export, and clear-drafts controls at the bottom of the annotation list; the toggle takes effect immediately through a reactive store.
+- DSH-locale model protocol: new submissions freeze `protocolLocale: "zh" | "en"` from the DSH locale at outbox creation; first send and retries reuse the frozen language, UI language switches never rewrite pending or sent content, and legacy records without the field keep the old English protocol. Reply parsing accepts 注解 N：/注解 N:/Annotation N: and legacy formats; association still rides the hidden stable marker.
+- Optional dsh-focus-chat compatibility (`src/client/focus-adapter.ts`): the adapter stays passive without the plugin (no service dependency, no pending startup), detects the focus view through its public DOM root, pauses marker/chip measurement for hidden nodes while the focus view is active, re-measures after view switches, and deduplicates normal-view markers by message id. Failures only disable focus enhancements.
+
+## [0.1.3] - 2026-08-22
+
+### Changed
+
+- Raised the supported and development baseline to DeepSeek Harness `0.1.1-rc.2` and added the complete matching DSH development environment so peer validation covers the assembled release.
+- Moved the enabled switch from General Settings to **Settings → Plugins → Plugin configuration** through the official Host `inline-comments` settings namespace and keyed plugin-card Slot.
+- Staged enabled-setting edits until Save, added Discard and Reset-to-default behavior, and applied conversation changes only after the Host settings provider accepts the value.
+- Moved enabled-preference persistence to the active DSH settings provider while keeping per-Session comment drafts in browser storage; a valid pre-0.1.3 browser preference migrates once and is removed only after the Host accepts it.
+
+## [0.1.2] - 2026-08-20
+
+### Changed
+
+- Raised the supported and development baseline to DeepSeek Harness `0.1.0-rc.8`.
+- Migrated historical message images to rc.8's `renderMessageImages` Slot helper after attachment React components and the `loadImage` renderer prop were removed.
+- Updated the input-trigger claim callback for rc.8's serialized image argument while keeping mixed image and comment submissions disabled.
+- Updated composer reference serialization for rc.8's full-length display ranges so model reference markup replaces the complete inline label.
+- Removed the direct `dsh-client-ui-attachment` dependency because rc.8 supplies attachment presentation through the conversation Slot.
+
+## [0.1.1] - 2026-08-19
+
+### Changed
+
+- Raised the supported and development baseline to DeepSeek Harness `0.1.0-rc.7` after reviewing the command, Session, input-trigger, Slot, renderer, and browser-composer integration points.
+- Added the optional `unrun` peer required by the current `tsdown` release to load the TypeScript build configuration reliably.
+- Added a local oxlint configuration so linting inside a parent repository no longer picks up the parent's configuration.
+
+## [0.1.0] - 2026-08-17
+
+### Added
+
+- A browser-wide **DSH Inline Comments** switch in General Settings. It is enabled by default; disabling it restores official conversation renderers and removes comment UI while preserving drafts, outbox state, visible composer text, and history for later re-enabling. Disabling while a submission is in flight releases the composer claim as soon as the transport settles.
+- Automatic migration from `dsh-inline-annotations:v1:<session-id>` to `dsh-inline-comments:v1:<session-id>` without discarding valid Session data.
+- Current `inlineComments` user-message provenance and `dsh-inline-comments:` model acknowledgement output, with readers for durable `inlineAnnotations` provenance and acknowledgement markers.
+- A hidden command-view row for durable rows recorded under the pre-rename `inline_annotations_submit` command, so upgraded Sessions keep them out of the visible timeline.
+- A selection action bar with Add comment and Copy buttons after selecting assistant reply text. The selection stays alive, so Ctrl+C keeps working; Copy keeps the selection, and clicking elsewhere or pressing Escape dismisses the bar.
+- A direct comment input with icon-only Cancel and Save actions, 400 ms local autosave, empty outside-click dismissal, and red shake feedback when dirty input requires a decision.
+- Draft, attachable, delivery-outcome/retry, authoritative queue, and sent list groups with official state dots, two-line rows, deletion undo, local-data export, draft clearing, and storage-usage feedback.
+- A paperclip toggle that arms the current Session's official composer without expanding the list or sending. Armed comments follow the live unsent set until the official submit; ordinary text plus comments, or comments alone, create one task and one model execution.
+- One-time migration of the removed plugin-owned overall-request text into the official composer on the first successful attachment, plus explicit refusal of mixed image and comment drafts because DSH command claims do not carry composer image ids.
+- Web-native assistant flow, reasoning disclosure, stopped marker, composer geometry, 28 px icon-action targets, semantic colors, form typography, floating surfaces, user-message bubbles, and the original Lucide MapPin for Locate source.
+- Complete-line marker anchoring, an overflow-safe mobile gutter, ascending same-row order, animation-frame-coalesced measurement, exact marker-line centering, CSS zoom correction, reduced-motion behavior, and a stale-selector fallback.
+- Unit and real Chromium coverage for compact editing, autosave, mobile and zoom layout, dark mode, reasoning disclosure, attachment behavior, official composer submission, and source location, along with GitHub CI and release automation.
+
+### Changed
+
+- The project and npm package are named **DSH Inline Comments** and `dsh-inline-comments`; the Cordis row, default command, artifact names, documentation, and install examples use the same identity.
+- The English UI uses “comment” instead of “annotation”, and the Chinese UI uses 注释. The durable `dsh-inline-annotations:<submissionId>` message-id namespace remains unchanged so pre-upgrade retries keep one authoritative queue identity.
+- The plugin no longer renders an overall-requirement textarea, destination notices, or its own send/retry button. The official composer is the only task input and submit surface.
+- `overallRequirement` carries the official composer text at submit time; submitted history renders it as the ordinary user-message text above the folded comment card.
+- Attachment retry reuses the immutable submission id and payload through the official composer.
+
+### Removed
+
+- Archived-session fork-on-send behavior: archived tasks have no active composer and cannot arm comments.
+
+### Fixed
+
+- The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
+- Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
+
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.7...v1.2.0
+[1.1.3]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.2...v1.1.3
+[1.1.2]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.1...v1.1.2
+[1.1.1]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/ruisenbai/dsh-annotation/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.9.0...v1.0.0
+[0.9.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.2...v0.6.0
+[0.5.2]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/ruisenbai/dsh-annotation/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.4...v0.3.0
+[0.2.4]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.3...v0.2.4
+[0.2.3]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.2...v0.2.3
+[0.2.2]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/ruisenbai/dsh-annotation/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/ruisenbai/dsh-annotation/compare/v0.1.3...v0.2.0
+[0.1.3]: https://github.com/ruisenbai/dsh-annotation/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/ruisenbai/dsh-annotation/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/ruisenbai/dsh-annotation/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/ruisenbai/dsh-annotation/releases/tag/v0.1.0

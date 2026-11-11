@@ -1,39 +1,43 @@
-# Privacy and security model
+# 注解数据保存在哪里
 
-## Data retained before submission
+[English](privacy.en.md) · [删除与恢复](../README.md#recovery)
 
-For each DSH Session, the browser stores selected reply text, annotations, historical frozen Git Diff sides, official file and turn-Diff snapshots, source IDs, editor buffers, drafts, selected annotation IDs, processing mode, retry intent, and immutable retry records under `dsh-annotation:v1:<session-id>` and pending `:journal:<id>` keys in the origin's `localStorage`. New v2 official file and Diff snapshots keep source identity, version, byte count where available, coordinates, quote context, and a verified fragment digest; whole-file byte sources may keep a streamed digest. Previously stored v1 snapshots may still include complete file text or served Diff hunks. Every changed journal entry includes the before and after values needed to merge concurrent pages, so unfinished text can remain in a journal until compaction succeeds. If the current key is absent, valid data under `dsh-inline-comments:v1:<session-id>` or `dsh-inline-annotations:v1:<session-id>` remains available and is converted under the Session lock before the legacy keys are removed. The Host profile patch stores current source switches, `enabled`, `autoAttach`, retained historical preferences, and `archivedPreferencesImported` under `dsh-annotation`; none contains annotation content. Recovery may read the Host-retained `settings.yaml.imported` file, but extracts only supported booleans from this plugin's current and legacy namespaces. It never writes other namespaces, deletes the archive, logs its values, or adds them to a model message. When the Host has no user-layer value, the plugin reads a valid pre-0.1.3 `dsh.inline-comments.enabled` value and removes that browser key only after the Host accepts it. Editor input is written after 400 ms of inactivity. A blank new editor is discarded after three outside clicks or composer input without creating an annotation or recoverable buffer. Nonempty new content saves on those implicit paths; Escape suspends it. Existing edits can be suspended without deleting the saved annotation.
+<a id="data-retained-before-submission"></a>
 
-New outbox payloads freeze ordered attachment identities supplied by DSH: stable content-addressed attachment id, byte count, name, and image media type where applicable. Separate summary metadata retains counts and image/file kinds. Neither field contains raw bytes or temporary upload receipts. After refresh, users must reselect the same content and names in the original order; a fresh receipt for the same file is valid. Legacy records without identities remain readable but can only enforce their recorded count and kinds, so same-kind substitution cannot be detected for those older records.
+## 发送前
 
-Only selected, saved annotations enter a submission; unselected annotations and unsaved editor buffers never do. Before explicit submission, opinion text and editor buffers stay browser-local. Only the selected batch reaches the model-visible user message. DSH's official composer owns attachment selection and file uploads, including uploads that occur before message submission. Anyone with access to the browser profile or origin storage may be able to read local annotation content.
+选区、意见、未完编辑、附加选择和重试内容按接收会话保存在当前站点的浏览器存储中。侧边关联单独保存原文会话、接收聊天和旧引用。点击“在侧边添加注解”可能创建一个普通宿主会话，但不会因为点击或保存就发起模型请求。
 
-The browser also stores independently captured full source copies in the `dsh-annotation-source-snapshots` IndexedDB database. One content-addressed copy can serve several annotation owners; the owner is qualified by Session and annotation ID. A copy is marked complete only after the full text or bytes from the saved source version pass validation and its transaction commits. When capture fails, the saved quote and context remain available as a fragment; the plugin does not substitute current file contents for a historical version. Deleting an annotation into the recycle bin retains its copy. Permanent deletion releases the owner and removes unreferenced content. These local copies are not added to model submissions or DSH Session logs.
+普通草稿使用 `dsh-annotation:v1:<session-id>`；侧边聊天使用 `dsh-annotation:side-chat:v2:<main-session-id>`。两个页面同时修改时，写入日志可能暂时保留修改前后的文字。站点内的完整来源副本保存在浏览器的 IndexedDB 数据库 `dsh-annotation-source-snapshots`。同一副本可以被多条注解引用。读取或校验失败时只有片段可用，不会拿当前文件冒充旧版本。
 
-If a session's browser value cannot be fully validated, valid independent records may remain visible with a storage warning. The plugin keeps the original value, blocks automatic saves for that session, and does not remove damaged entries or unfinished text from browser storage. Invalid JSON and unsupported versions remain unreadable until the value is repaired or cleared through browser site-data controls.
+输入框草稿由宿主单独保存。官方输入框可能在发送前上传已选择的图片和文件；插件保存重试所需的顺序、名称、类型和内容标识，不保存上传凭据或原始附件字节到重试记录。刷新后可能要重选原附件。可访问同一浏览器用户配置的人，也可能读取这些本地内容。
 
-## Data retained after submission
+<a id="data-retained-after-submission"></a>
 
-Submission creates one standard DSH user message. Its model-visible text and structured source fields include the complete selected quotes and annotations, `processingMode`, any `supplementalTo` links, and the immutable official file or Diff snapshot included with a selected source; its content appends the official image and file blocks in attachment order. New v2 whole-file annotations require an opinion and send an empty quote with source identity, not the complete file body. New v2 Diff annotations send the selected quote and bounded context, not every served hunk. Older frozen v1 payloads retain their original content. The data follows the current DSH Session's persistence, model-provider, export, backup, and deletion policies. The plugin cannot retract content after the durable user message exists.
+## 发送后
 
-The command lifecycle does not duplicate the base64url payload because `recordInput` is false. Attachment preflight emits no user message or model request; its command result records stable attachment identities and names, not raw bytes or receipts. Historical Diff preview results may already contain complete source files in Session logs. The final user message remains the authoritative model-visible record. Historical Diff source metadata retains both full file sides, while its readable body includes the selected quote and bounded context. Session export and backup can therefore include more source code than the selected lines.
+只发送显式附加且已保存的注解，包括原文片段、意见、来源和整体要求，以及用户选择发送的文字和附件。未选中的草稿、浏览器保存的完整来源副本不会自动加入模型请求。已提交内容成为 DSH 的标准会话历史，遵循宿主和所用模型服务的保留策略。从本地删除一条注解不能撤回已发内容或改写模型收到的请求。
 
-## Network access
+<a id="network-access"></a>
 
-The plugin contains no telemetry, analytics, or WebSocket client. Its Settings card makes user-triggered, same-origin `fetch` requests to the public dsh-market API for capability discovery, update checks, and update-progress polling; these requests contain no annotation content. Submission uses DSH's existing command Remote (`commands/execute`, with the session command fallback for attachment-free submissions). Attachment admission, image reads, file uploads, and Session operations use DSH's services.
+## 网络访问
 
-## Validation
+插件没有独立账号、遥测或第三方数据同步。消息、文件上传和宿主远程调用经过 DSH。用户主动检查更新时，插件访问同源 dsh-market 接口，提交插件标识及更新操作，不提交选中文字或注解。市场负责选择下载源和执行安装。
 
-The Host validates protocol version, source identity, structured source fields, stable IDs, quote offsets, ordinal order, delivery mode, `processingMode`, supplement links, receiving Session identity, annotation count, and complete decoded byte size. A missing `processingMode` resolves to `answer`; an invalid mode or manual command input fails before inbox admission.
+<a id="validation"></a>
 
-Assistant Markdown is rendered by DSH's untrusted Markdown primitive. Model acknowledgement and reply markers are parsed as text and removed before rendering; they are never injected as HTML.
+## 校验与定位
 
-The retired Diff reader and private signing service are not installed. Existing complete snapshots remain in historical Session or browser storage until that data is removed through the Host or browser's normal storage controls. New message-source annotations do not read Git files.
+宿主验证提交大小、接收会话、来源和附件身份；新格式重试不能替换为其他内容。旧附件记录可能只记数量和类型，无法识别同类替换。选区和模型回复标记按文本处理。原文版本不符、丢失或存在多个可能位置时，界面提示无法定位。
 
-## Clearing local drafts
+<a id="clearing-local-drafts"></a>
 
-Move a record or attached batch to the recycle bin and use the temporary Undo action within 4.5 seconds when needed. The composer list has no local-storage usage display, recovery export/download, or bulk-clear footer; local drafts and editor buffers still save automatically and recover after a refresh. An explicit discard removes its selected editor buffer without a queue-state restriction and never deletes a saved annotation. Browser site-data controls remain the way to clear every plugin-local record for the origin. None of these actions deletes already submitted DSH Session history.
+## 删除与恢复
 
-## Reporting a vulnerability
+删除注解后先进入当前站点的回收站，可以撤销或恢复。永久删除需要确认；被其他记录使用的快照仍保留。清空浏览器站点数据也会清除未发送草稿、回收站和本地来源副本。浏览器保存失败或发生冲突时，请先保留数据；旧侧栏恢复导出不含宿主历史、附件字节或普通注解记录。
 
-Follow [SECURITY.md](../SECURITY.md). Remove prompts, selected text, API keys, paths, and Session logs from reports unless a maintainer requests a secure minimal sample.
+<a id="reporting-a-vulnerability"></a>
+
+## 报告问题
+
+请参阅[安全报告方式](../SECURITY.md)。提供虚构的最小样例即可，不要公开私人选区、工作目录或会话日志。

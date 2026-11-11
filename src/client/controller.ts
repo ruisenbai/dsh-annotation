@@ -41,7 +41,8 @@ import type {
   SubmittedAttachmentIdentity,
 } from '../shared/types.ts'
 import { AnnotationStorage } from './storage.ts'
-import type { SelectionCapture } from './selection.ts'
+import type { MessageQuoteTarget, SelectionCapture } from './selection.ts'
+import type { SideChatId, SideChatReference } from '../shared/side-chat-types.ts'
 import type { AnnotationLocaleKey } from './locales.ts'
 
 export type EditorState = PersistedEditorDraft
@@ -72,7 +73,29 @@ export class SubmissionChangedError extends Error {
   }
 }
 
+/** One saved reference's exact source marker and its owning conversation. */
+export interface SourceReferenceMarker {
+  readonly reference: SideChatReference
+  readonly sideChatId: SideChatId
+  readonly ordinal: number
+  readonly disabled: boolean
+}
+
+/** A saved annotation displayed at its original reply, owned by another Conversation. */
+export interface SourceAnnotationMarker {
+  readonly annotation: AnnotationDraft
+  readonly targetSessionId: SessionIdentity
+  readonly title: string
+  /** Transient presentation in the visible receiving Conversation. */
+  readonly active: boolean
+  readonly detailsOpen: boolean
+  readonly editorOpen: boolean
+}
+
 export interface AnnotationView {
+  /** Main source markers; separate from its input attachments. */
+  readonly sourceReferences?: readonly SourceReferenceMarker[]
+  readonly sourceAnnotations?: readonly SourceAnnotationMarker[]
   readonly trash: readonly AnnotationTrashEntry[]
   readonly deletionMarks: readonly AnnotationDeletionMark[]
   readonly annotations: readonly AnnotationDraft[]
@@ -129,6 +152,8 @@ export interface AnnotationEndpoint {
   annotateAll(): void
   /** Capture a browser selection contained in this mounted message. */
   captureSelection?(): SelectionCapture | null
+  /** Reveal an exact message quote without adding an annotation record. */
+  revealQuote?(target: MessageQuoteTarget, navigationEpoch: number): Promise<SourceLocateResult>
   /** Official file/Diff views may reveal an anchor without a message identity. */
   revealSource?(
     annotationId: AnnotationId,
@@ -169,7 +194,10 @@ function retainedItems<T>(previous: readonly T[], next: readonly T[]): readonly 
 }
 
 function sameView(left: AnnotationView, right: AnnotationView): boolean {
-  return (Object.keys(left) as (keyof AnnotationView)[]).every((key) => left[key] === right[key])
+  return (
+    left.sourceReferences === right.sourceReferences &&
+    (Object.keys(left) as (keyof AnnotationView)[]).every((key) => left[key] === right[key])
+  )
 }
 
 function samePersistedView(left: AnnotationView, right: AnnotationView): boolean {
@@ -334,7 +362,7 @@ function statusAtLeast(current: AnnotationStatus, candidate: AnnotationStatus): 
 
 function cloneState(view: AnnotationView): PersistedSessionState {
   return Object.freeze({
-    storageVersion: 6,
+    storageVersion: 7,
     trash: view.trash,
     deletionMarks: view.deletionMarks,
     annotations: view.annotations,
@@ -600,27 +628,6 @@ export class AnnotationController {
       ...selection
     } = capture
     capture = Object.freeze({ ...selection, ...sourceFields(capture) })
-    const source = capture.source
-    if (source?.kind === 'file' || source?.kind === 'official-diff') {
-      const existing = this.view.annotations.find(
-        (item) =>
-          item.status === 'draft' &&
-          sourceKey(item) === sourceKey(capture) &&
-          item.quote.start === capture.quote.start &&
-          item.quote.end === capture.quote.end &&
-          item.quote.exact === capture.quote.exact &&
-          (item.source?.kind !== 'official-diff' ||
-            source.kind !== 'official-diff' ||
-            (item.source.startLine === source.startLine &&
-              item.source.endLine === source.endLine &&
-              item.source.startColumn === source.startColumn &&
-              item.source.endColumn === source.endColumn)),
-      )
-      if (existing !== undefined) {
-        this.openAnnotation(existing.annotationId, 'summary')
-        return
-      }
-    }
     this.suspendEditor()
     this.startNewEditor(capture)
   }
@@ -1295,6 +1302,78 @@ export class AnnotationController {
     this.publish({ ...this.view, overallRequirementDraft })
   }
 
+  /**
+   * Update saved reference markers without persisting annotation state or changing drafts.
+   * @param sourceReferences - Main-Session-owned occurrences in stable creation order.
+   * @returns Nothing; equal record identities reuse the existing view.
+   */
+  setSourceReferences(sourceReferences: readonly SourceReferenceMarker[]): void {
+    const previous = this.view.sourceReferences ?? []
+    if (
+      previous.length === sourceReferences.length &&
+      previous.every((item, index) => {
+        const next = sourceReferences[index]!
+        return (
+          item.reference === next.reference &&
+          item.ordinal === next.ordinal &&
+          item.sideChatId === next.sideChatId &&
+          item.disabled === next.disabled
+        )
+      })
+    )
+      return
+    this.publish({ ...this.view, sourceReferences: Object.freeze(sourceReferences) }, false)
+  }
+
+  /**
+   * Publish foreign annotation markers without adding them to this Conversation's input.
+   * @param markers - Records owned by receiving Conversations, with their titles and visible editor state.
+   * @returns Nothing; equivalent projections retain their observable identity.
+   */
+  setSourceAnnotations(markers: readonly SourceAnnotationMarker[]): void {
+    const previous = this.view.sourceAnnotations ?? []
+    if (
+      previous.length === markers.length &&
+      previous.every((item, index) => {
+        const next = markers[index]!
+        return (
+          item.annotation === next.annotation &&
+          item.targetSessionId === next.targetSessionId &&
+          item.title === next.title &&
+          item.active === next.active &&
+          item.detailsOpen === next.detailsOpen &&
+          item.editorOpen === next.editorOpen
+        )
+      })
+    )
+      return
+    this.publish({ ...this.view, sourceAnnotations: Object.freeze(markers) }, false)
+  }
+
+  /**
+   * Import pending legacy references before their owner removes the old records.
+   * @param records - Deterministic annotation identities derived from the original references.
+   * @returns True only after durable storage; repeated imports preserve edits, selection and deletions.
+   */
+  importPendingAnnotations(records: readonly AnnotationDraft[]): boolean {
+    const known = new Set([
+      ...this.view.annotations.map((item) => item.annotationId),
+      ...this.view.deletionMarks.map((item) => item.annotationId),
+    ])
+    const additions = records.filter((item) => !known.has(item.annotationId))
+    return this.commitLifecycle({
+      ...this.view,
+      annotations:
+        additions.length === 0
+          ? this.view.annotations
+          : withOrdinals([...this.view.annotations, ...additions]),
+      selectedAnnotationIds:
+        additions.length === 0
+          ? this.view.selectedAnnotationIds
+          : [...this.view.selectedAnnotationIds, ...additions.map((item) => item.annotationId)],
+    })
+  }
+
   setNotice(
     level: AnnotationNoticeLevel,
     messageKey: AnnotationLocaleKey,
@@ -1353,6 +1432,7 @@ export class AnnotationController {
     protocolLocale: ProtocolLocale = FALLBACK_PROTOCOL_LOCALE,
     snapshot: AnnotationView = this.view,
     attachmentIdentities?: readonly SubmittedAttachmentIdentity[],
+    validateCombined?: (payload: AnnotationSubmissionPayload) => void,
   ): OutboxPayloadEntry {
     if (
       snapshot.retrySubmissionId !== null &&
@@ -1413,6 +1493,7 @@ export class AnnotationController {
       this.config,
       new TextEncoder().encode(JSON.stringify(payload)).byteLength,
     )
+    validateCombined?.(payload)
     const entry: OutboxPayloadEntry = Object.freeze({
       payload,
       targetSessionId,
@@ -1923,6 +2004,45 @@ export class AnnotationController {
     return null
   }
 
+  /**
+   * Locate a confirmed quote through this Session's mounted replies and paged history.
+   * @param target - Exact settled message version and original selected occurrence.
+   * @param signal - Cancels source navigation when its main Conversation or feature is left.
+   * @returns Whether the source was shown, unmatched, unavailable, or superseded.
+   */
+  async locateMessageQuote(target: MessageQuoteTarget, signal?: AbortSignal): Promise<SourceLocateResult> {
+    if (this.disposed || signal?.aborted) return 'cancelled'
+    const navigationEpoch = this.view.navigationEpoch + 1
+    this.pendingNavigation = null
+    this.publish({ ...this.view, activeAnnotationId: null, markerAnnotationId: null, navigationEpoch }, false)
+    const current = (): boolean =>
+      !this.disposed && !signal?.aborted && this.view.navigationEpoch === navigationEpoch
+    const cancel = (): void => {
+      if (!this.disposed && this.view.navigationEpoch === navigationEpoch)
+        this.publish({ ...this.view, navigationEpoch: navigationEpoch + 1 }, false)
+    }
+    signal?.addEventListener('abort', cancel, { once: true })
+    try {
+      let endpoint = this.endpoints.get(target.messageId)
+      for (let page = 0; endpoint === undefined && page < this.config.locateHistoryPages; page += 1) {
+        if (!current()) return 'cancelled'
+        if (!this.navigationSession.getSnapshot().hasMore) break
+        await this.navigationSession.loadOlder()
+        if (!current()) return 'cancelled'
+        endpoint = await this.awaitEndpoint(target.messageId)
+      }
+      if (!current()) return 'cancelled'
+      if (endpoint?.revealQuote === undefined) return 'unavailable'
+      const result = await endpoint.revealQuote(target, navigationEpoch)
+      return current() ? result : 'cancelled'
+    } catch (_unavailableHistory) {
+      void _unavailableHistory
+      return current() ? 'unavailable' : 'cancelled'
+    } finally {
+      signal?.removeEventListener('abort', cancel)
+    }
+  }
+
   /** Register a mounted official file/Diff view by its immutable source key. */
   registerSourceEndpoint(source: AnnotationAnchor, endpoint: AnnotationEndpoint): () => void {
     const key = sourceKey(source)
@@ -2126,6 +2246,8 @@ export class AnnotationController {
     )
     this.view = Object.freeze({
       ...next,
+      sourceReferences: next.sourceReferences ?? previous.sourceReferences ?? [],
+      sourceAnnotations: next.sourceAnnotations ?? previous.sourceAnnotations ?? [],
       selectedAnnotationIds: selectionUnchanged ? next.selectedAnnotationIds : Object.freeze(selectedIds),
       retrySubmissionId: retryPresent ? next.retrySubmissionId : null,
     })

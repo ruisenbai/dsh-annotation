@@ -30,13 +30,14 @@ import {
   type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
-import type { AnnotationDraft, AnnotationId } from '../../shared/types.ts'
-import { sourceType } from '../../shared/annotation-source.ts'
+import type { AnnotationDraft, AnnotationId, SessionIdentity } from '../../shared/types.ts'
+import { sourceType, type AnnotationAnchor } from '../../shared/annotation-source.ts'
 import { isOutboxPayloadEntry } from '../../shared/outbox-redaction.ts'
 import { composerInput, createComposerFocus } from '../composer-focus.ts'
 import type { AnnotationBoundProps, InputAnnotationProps } from '../contract.ts'
 import { editorBufferKey, retryEntry, selectedAnnotations, type AnnotationView } from '../controller.ts'
 import { markerElement, selectionAnchor, useAnnotationFloating } from '../floating.ts'
+import { useComposerChipLayout } from '../composer-chip-layout.ts'
 import { MapPin } from '../icons.ts'
 import { orderedRecords } from '../record-order.ts'
 import { displayAnnotationQuote } from './AnnotationSourceLabel.tsx'
@@ -127,7 +128,7 @@ export function AnnotationComposerChip({
   const view = useAnnotations((state) => state)
   const items = selectedAnnotations(view)
   const hasItems = items.length > 0
-  const chipRef = useRef<HTMLDivElement>(null)
+  const chipRef = useComposerChipLayout(hasItems)
   const composerRef = useRef<HTMLElement | null>(null)
   useLayoutEffect(() => {
     composerRef.current = chipRef.current?.closest<HTMLElement>('[data-composer-card]') ?? null
@@ -145,7 +146,7 @@ export function AnnotationComposerChip({
     )
   if (!hasItems) return null
   return (
-    <div ref={chipRef} className="dia-composer-chip">
+    <div ref={chipRef} className="dia-composer-chip" data-dia-annotation-chip="">
       <HoverCard
         inline
         variant="preview"
@@ -168,46 +169,65 @@ export function AnnotationComposerChip({
         content={<AttachmentPreview items={items} t={t} />}
       />
       <span className="dia-composer-chip__actions">
-        <Tooltip label={t('record.trashAttached')} side="top" delayMs={350}>
-          <button
-            type="button"
-            className="dia-composer-chip__remove"
-            data-danger="true"
-            aria-label={t('record.trashAttached')}
-            disabled={busy}
-            onClick={(event) => {
-              event.stopPropagation()
-              trashAnnotations(items.map((item) => item.annotationId))
-            }}
-          >
-            <IconTrashOutlineRegular size={14} />
-          </button>
-        </Tooltip>
-        <Tooltip label={t('record.detachAll')} side="top" delayMs={350}>
-          <button
-            type="button"
-            className="dia-composer-chip__remove"
-            aria-label={t('record.detachAll')}
-            disabled={busy}
-            onClick={(event) => {
-              event.stopPropagation()
-              detachAnnotations(items.map((item) => item.annotationId))
-            }}
-          >
-            <IconCloseOutlineRegular size={14} />
-          </button>
-        </Tooltip>
+        <span className="dia-composer-chip__actions-inner">
+          <Tooltip label={t('record.trashAttached')} side="top" delayMs={350}>
+            <button
+              type="button"
+              className="dia-composer-chip__remove"
+              data-danger="true"
+              aria-label={t('record.trashAttached')}
+              disabled={busy}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                event.stopPropagation()
+                trashAnnotations(items.map((item) => item.annotationId))
+              }}
+            >
+              <IconTrashOutlineRegular size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip label={t('record.detachAll')} side="top" delayMs={350}>
+            <button
+              type="button"
+              className="dia-composer-chip__remove"
+              aria-label={t('record.detachAll')}
+              disabled={busy}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                event.stopPropagation()
+                detachAnnotations(items.map((item) => item.annotationId))
+              }}
+            >
+              <IconCloseOutlineRegular size={14} />
+            </button>
+          </Tooltip>
+        </span>
       </span>
     </div>
   )
 }
 
-function sourceAnchor(item: AnnotationDraft) {
+function sourceRoot(anchor: HTMLElement | null, foreign = false): ParentNode {
+  const doc = anchor?.ownerDocument ?? document
+  return foreign ? doc : (anchor?.closest<HTMLElement>('[data-conversation-content]') ?? doc)
+}
+
+/** Message positions belong to the recorded source Session, independently of the receiving editor. */
+function annotationSourceSession(
+  item: AnnotationAnchor | undefined,
+  receiver: InputAnnotationProps['sessionId'],
+) {
+  return item?.source?.kind === 'message' ? (item.source.sessionId ?? receiver) : receiver
+}
+
+function sourceAnchor(
+  item: AnnotationDraft,
+  root: ParentNode,
+  sessionId: InputAnnotationProps['sessionId'] | SessionIdentity,
+) {
   return (
-    selectionAnchor({
-      ...item,
-      rect: { top: 0, left: 0, bottom: 0, right: 0 },
-    }) ?? markerElement(item.annotationId)
+    selectionAnchor({ ...item, rect: { top: 0, left: 0, bottom: 0, right: 0 } }, root, sessionId) ??
+    markerElement(item.annotationId, root, sessionId)
   )
 }
 
@@ -276,12 +296,16 @@ function useAnnotationTextareaHeight(
 }
 
 function AnnotationEditor({
+  anchorRef,
+  sessionId,
   view,
   t,
   actions,
   saveEditor,
   submitting,
 }: {
+  anchorRef: RefObject<HTMLSpanElement | null>
+  sessionId: InputAnnotationProps['sessionId']
   view: AnnotationView
   t: InputAnnotationProps['t']
   actions: AnnotationActions
@@ -289,6 +313,12 @@ function AnnotationEditor({
   submitting: boolean
 }) {
   const editor = view.editor
+  const source =
+    editor?.kind === 'new'
+      ? editor.capture
+      : view.annotations.find((item) => editor?.kind === 'edit' && item.annotationId === editor.annotationId)
+  const sourceId = annotationSourceSession(source, sessionId)
+  const foreign = sourceId !== sessionId
   const ref = useRef<HTMLElement>(null)
   const textarea = useRef<HTMLTextAreaElement>(null)
   const outsideClicks = useRef(0)
@@ -300,17 +330,25 @@ function AnnotationEditor({
   const floating = useAnnotationFloating({
     floatingRef: ref,
     enabled: editor !== null,
+    owner: () => anchorRef.current?.parentElement ?? null,
     preferBelow: true,
     anchor: () => {
       if (editor === null) return null
+      const root = sourceRoot(anchorRef.current, foreign)
       if (editor.kind === 'new')
         return (
-          selectionAnchor(editor.capture) ??
-          (editor.supplementalTo === undefined ? null : markerElement(editor.supplementalTo))
+          selectionAnchor(editor.capture, root, sourceId) ??
+          (editor.supplementalTo === undefined ? null : markerElement(editor.supplementalTo, root, sourceId))
         )
       const item = view.annotations.find((candidate) => candidate.annotationId === editor.annotationId)
-      return item === undefined ? markerElement(editor.annotationId) : sourceAnchor(item)
+      return item === undefined
+        ? markerElement(editor.annotationId, root, sourceId)
+        : sourceAnchor(item, root, sourceId)
     },
+    composer: (sourceContext) =>
+      foreign && sourceContext !== null
+        ? undefined
+        : (composerInput(anchorRef.current)?.closest<HTMLElement>('[data-composer-card]') ?? null),
   })
   useAnnotationTextareaHeight(
     textarea,
@@ -344,7 +382,8 @@ function AnnotationEditor({
   latest.current = { editor, actions, save, submitting }
   const editorKey = editor === null ? null : editorBufferKey(editor)
   useEffect(() => {
-    if (editorKey === null) return undefined
+    if (editorKey === null || !floating.visible) return undefined
+    textarea.current?.focus({ preventScroll: true })
     outsideClicks.current = 0
     setShake(false)
     setError(null)
@@ -363,8 +402,10 @@ function AnnotationEditor({
       if (text.trim() === '') current.actions.closeEditor(true)
       else if (!current.save()) finishing = false
     }
+    const hidden = (): boolean =>
+      anchorRef.current?.parentElement?.closest('[hidden], [inert], [aria-hidden="true"]') != null
     const onPointer = (event: PointerEvent) => {
-      if (finishing) return
+      if (finishing || hidden()) return
       if (ref.current?.contains(event.target as Node)) return
       const current = latest.current
       if (current.editor === null || current.submitting || composingRef.current) return
@@ -385,9 +426,10 @@ function AnnotationEditor({
       })
     }
     const onInput = (event: Event) => {
+      if (hidden()) return
       if (event instanceof InputEvent && event.isComposing) return
       const target = event.target
-      if (!(target instanceof Element) || !target.closest('[data-composer-input]')) return
+      if (!(target instanceof Node) || !composerInput(anchorRef.current)?.contains(target)) return
       if (event.type === 'beforeinput') {
         pairedComposerInput = true
         queueMicrotask(() => {
@@ -398,7 +440,7 @@ function AnnotationEditor({
       else finishImplicitly()
     }
     const onKey = (event: KeyboardEvent) => {
-      if (finishing || event.key !== 'Escape' || event.isComposing || composingRef.current) return
+      if (finishing || hidden() || event.key !== 'Escape' || event.isComposing || composingRef.current) return
       const current = latest.current
       if (current.editor === null) return
       event.preventDefault()
@@ -424,7 +466,7 @@ function AnnotationEditor({
       document.removeEventListener('beforeinput', onInput, true)
       document.removeEventListener('keydown', onKey)
     }
-  }, [editorKey])
+  }, [editorKey, anchorRef, sessionId, floating.visible])
   if (editor === null) return null
   const quick = editor.kind === 'new'
   const item =
@@ -437,6 +479,7 @@ function AnnotationEditor({
       className={`dia-record-editor ${quick ? 'dia-record-editor--quick' : 'dia-record-editor--detail'}${shake ? ' dia-record-editor--shake' : ''}`}
       style={floating.style}
       data-floating-placement={floating.placement}
+      data-dia-annotation-target={sessionId}
       role="dialog"
       aria-modal="false"
       aria-label={quick ? t('editor.title') : t('editor.editTitle')}
@@ -444,7 +487,6 @@ function AnnotationEditor({
     >
       <textarea
         ref={textarea}
-        autoFocus
         rows={1}
         value={editor.text}
         aria-label={t('editor.annotationLabel')}
@@ -478,7 +520,9 @@ function AnnotationEditor({
           size="sm"
           variant="primary"
           className="dia-record-editor__check"
-          icon={<IconCheckOutlineRegular size={17} />}
+          icon={<IconCheckOutlineRegular size={16} />}
+          aria-busy={submitting}
+          data-saving={submitting || undefined}
           aria-label={t('editor.save')}
           disabled={submitting || editor.longSelectionConfirmed === false}
           onClick={save}
@@ -524,22 +568,34 @@ function AnnotationEditor({
 }
 
 function SentAnnotationCard({
+  anchorRef,
+  sessionId,
   view,
   t,
   actions,
 }: {
+  anchorRef: RefObject<HTMLSpanElement | null>
+  sessionId: InputAnnotationProps['sessionId']
   view: AnnotationView
   t: InputAnnotationProps['t']
   actions: AnnotationActions
 }) {
   const item = view.annotations.find((candidate) => candidate.annotationId === view.markerAnnotationId)
+  const sourceId = annotationSourceSession(item, sessionId)
+  const foreign = sourceId !== sessionId
   const ref = useRef<HTMLElement>(null)
   const textarea = useRef<HTMLTextAreaElement>(null)
   const floating = useAnnotationFloating({
     floatingRef: ref,
     enabled: item !== undefined && view.editor === null,
+    owner: () => anchorRef.current?.parentElement ?? null,
     preferBelow: true,
-    anchor: () => (item === undefined ? null : sourceAnchor(item)),
+    anchor: () =>
+      item === undefined ? null : sourceAnchor(item, sourceRoot(anchorRef.current, foreign), sourceId),
+    composer: (sourceContext) =>
+      foreign && sourceContext !== null
+        ? undefined
+        : (composerInput(anchorRef.current)?.closest<HTMLElement>('[data-composer-card]') ?? null),
   })
   useAnnotationTextareaHeight(
     textarea,
@@ -548,11 +604,18 @@ function SentAnnotationCard({
     typeof floating.style.maxHeight === 'number' ? floating.style.maxHeight : undefined,
   )
   useEffect(() => {
-    if (item === undefined || view.editor !== null) return undefined
+    if (item === undefined || view.editor !== null || !floating.visible) return undefined
     const onPointer = (event: PointerEvent) => {
+      const sourceMarker =
+        event.target instanceof Element ? event.target.closest<HTMLElement>('button.dia-marker') : null
       if (
         event.target instanceof Node &&
-        (ref.current?.contains(event.target) || markerElement(item.annotationId)?.contains(event.target))
+        (ref.current?.contains(event.target) ||
+          (sourceMarker?.dataset.annotationId === item.annotationId &&
+            sourceMarker.dataset.diaAnnotationTarget === String(sessionId)) ||
+          markerElement(item.annotationId, sourceRoot(anchorRef.current, foreign), sourceId)?.contains(
+            event.target,
+          ))
       )
         return
       actions.openAnnotation(item.annotationId, 'marker')
@@ -566,15 +629,16 @@ function SentAnnotationCard({
       document.removeEventListener('pointerdown', onPointer, true)
       document.removeEventListener('keydown', onKey)
     }
-  }, [item, view.editor, actions.openAnnotation])
+  }, [item, view.editor, actions.openAnnotation, anchorRef, sessionId, sourceId, foreign, floating.visible])
   if (item === undefined || view.editor !== null) return null
   const selected = view.selectedAnnotationIds.includes(item.annotationId)
-  return createPortal(
+  const content = (
     <section
       ref={ref}
       className="dia-record-editor dia-record-editor--detail"
       style={floating.style}
       data-floating-placement={floating.placement}
+      data-dia-annotation-target={sessionId}
       role="dialog"
       aria-modal="false"
       aria-label={t('editor.editTitle')}
@@ -600,18 +664,20 @@ function SentAnnotationCard({
           </Button>
         </span>
       </div>
-    </section>,
-    document.body,
+    </section>
   )
+  return createPortal(content, document.body)
 }
 
 /** Keep readable previews outside the whole record so other rows remain clickable. */
 function RecordPreview({
   item,
+  summary,
   disabled,
   t,
 }: {
   item: AnnotationDraft
+  summary: string
   disabled: boolean
   t: InputAnnotationProps['t']
 }) {
@@ -684,12 +750,8 @@ function RecordPreview({
           if (!(event.relatedTarget instanceof Node) || !panel.current?.contains(event.relatedTarget)) close()
         }}
       >
-        <span
-          tabIndex={0}
-          className="dia-record-row__preview-anchor"
-          aria-label={item.annotation || t('highlightOnly')}
-        >
-          {item.annotation}
+        <span tabIndex={0} className="dia-record-row__preview-anchor" aria-label={summary}>
+          {summary}
         </span>
       </span>
       {visible &&
@@ -734,14 +796,18 @@ const RecordRow = memo(function RecordRow({
 }) {
   const legacyDiff = item.source?.kind === 'diff'
   const attachLabel = selected ? t('record.detach') : t('record.attach')
+  const summary =
+    item.annotation.trim() ||
+    displayAnnotationQuote(item, t).replace(/\s+/gu, ' ').trim() ||
+    t('highlightOnly')
   return (
     <div
       className="dia-record-row"
       role="listitem"
       data-annotation-id={item.annotationId}
-      aria-label={`${item.ordinal} · ${item.annotation}`}
+      aria-label={`${item.ordinal} · ${summary}`}
     >
-      <RecordPreview item={item} disabled={editorOpen} t={t} />
+      <RecordPreview item={item} summary={summary} disabled={editorOpen} t={t} />
       <div className="dia-record-row__actions">
         {legacyDiff ? <span className="dia-record-row__legacy">{t('source.readOnly')}</span> : null}
         {!legacyDiff && (
@@ -979,7 +1045,7 @@ export function AnnotationExperience({
     <>
       <span ref={anchorRef} hidden aria-hidden="true" />
       {view.annotations.length > 0 && view.panelOpen && (
-        <section id="dia-annotation-record" className="dia-record" aria-label={t('record.title')}>
+        <section id={`${listId}-record`} className="dia-record" aria-label={t('record.title')}>
           <div
             className="dia-record__body"
             onClick={(event) => {
@@ -1079,8 +1145,16 @@ export function AnnotationExperience({
           </div>
         </section>
       )}
-      <AnnotationEditor view={view} t={t} actions={actions} saveEditor={saveEditor} submitting={submitting} />
-      <SentAnnotationCard view={view} t={t} actions={actions} />
+      <AnnotationEditor
+        anchorRef={anchorRef}
+        sessionId={sessionId}
+        view={view}
+        t={t}
+        actions={actions}
+        saveEditor={saveEditor}
+        submitting={submitting}
+      />
+      <SentAnnotationCard anchorRef={anchorRef} sessionId={sessionId} view={view} t={t} actions={actions} />
     </>
   )
 }

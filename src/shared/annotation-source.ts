@@ -5,6 +5,8 @@ import type { MessageIdentity, SessionIdentity } from './types.ts'
 /** A selection from a specific rendered message version. */
 export interface MessageAnnotationSource {
   readonly kind: 'message'
+  /** Source Session when the quoted reply belongs to a different receiving Conversation. */
+  readonly sessionId?: SessionIdentity
   readonly messageId: MessageIdentity
   readonly messageSeq: number
   readonly responseVersion: MessageIdentity
@@ -128,7 +130,13 @@ export function sourceFields(value: AnnotationAnchor): AnnotationAnchor {
     messageId,
     messageSeq,
     responseVersion,
-    source: { kind: 'message', messageId, messageSeq, responseVersion },
+    source: {
+      kind: 'message',
+      messageId,
+      messageSeq,
+      responseVersion,
+      ...(value.source?.sessionId === undefined ? {} : { sessionId: value.source.sessionId }),
+    },
   }
 }
 
@@ -142,7 +150,21 @@ export function sourceKey(value: AnnotationAnchor): string {
   if (source?.kind === 'official-diff') {
     return `official-diff:${source.snapshot.sessionId}:${source.snapshot.seq}:${source.snapshot.turn}:${source.snapshot.fileIndex}:${source.snapshot.version === 2 ? 'v2' : source.snapshot.hash}:${source.side}`
   }
-  return `message:${value.messageId}`
+  return source?.sessionId === undefined
+    ? `message:${value.messageId}`
+    : `message:${source.sessionId}:${value.messageId}`
+}
+
+/**
+ * Resolve a reply's original Session, including records created before cross-Conversation annotations.
+ * @param value - Saved annotation or unfinished selection.
+ * @param owner - Receiving Conversation used by historical message records.
+ * @returns Original Session for message sources; undefined for file and Diff sources.
+ */
+export function messageSourceSession(value: AnnotationAnchor, owner: string): string | undefined {
+  return value.source === undefined || value.source.kind === 'message'
+    ? (value.source?.sessionId ?? owner)
+    : undefined
 }
 
 /** Historical Git Diff records are the only source that remains permanently read-only. */

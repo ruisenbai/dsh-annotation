@@ -10,6 +10,27 @@
 /** 聚焦视图根节点的公开 DOM 标记（dsh-focus-chat 挂载其会话视图于此）。 */
 const FOCUS_ROOT_SELECTOR = '[data-focus-flow]'
 
+function sessionIdentity(element: HTMLElement): string | undefined {
+  const owner = element.closest<HTMLElement>('[data-dsh-annotation-session-id], [data-conversation-session]')
+  return owner?.dataset.dshAnnotationSessionId ?? owner?.dataset.conversationSession
+}
+
+function focusedCopy(element: HTMLElement): HTMLElement | null {
+  const sessionId = sessionIdentity(element)
+  const messageId = element.dataset.dshAnnotationMessageId
+  if (sessionId === undefined || messageId === undefined) return null
+  return (
+    Array.from(
+      element.ownerDocument.querySelectorAll<HTMLElement>(
+        `${FOCUS_ROOT_SELECTOR} [data-dsh-annotation-message-id]`,
+      ),
+    ).find(
+      (candidate) =>
+        sessionIdentity(candidate) === sessionId && candidate.dataset.dshAnnotationMessageId === messageId,
+    ) ?? null
+  )
+}
+
 export interface FocusChatAdapter {
   readonly active: boolean
   subscribe(listener: () => void): () => void
@@ -20,6 +41,7 @@ export interface FocusChatAdapter {
 
 class FocusChatAdapterImpl implements FocusChatAdapter {
   private _active = false
+  private copies = new Set<string>()
   private readonly listeners = new Set<() => void>()
   private observer: MutationObserver | null = null
 
@@ -37,34 +59,60 @@ class FocusChatAdapterImpl implements FocusChatAdapter {
   /** 启动 DOM 观察；聚焦根出现或消失时通知订阅者重新测量。 */
   start(): void {
     if (this.observer !== null || typeof MutationObserver === 'undefined') return
-    this.observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type !== 'childList') continue
-        if (mutation.target === document.body || this.liveRoot() !== null) {
-          this.refresh()
-          return
-        }
-      }
+    this.observer = new MutationObserver(() => this.refresh())
+    this.observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: [
+        'data-focus-flow',
+        'data-dsh-annotation-message-id',
+        'data-dsh-annotation-session-id',
+        'data-conversation-session',
+      ],
     })
-    this.observer.observe(document.body, { childList: true, subtree: true })
     this.refresh()
   }
 
   dispose(): void {
     this.observer?.disconnect()
     this.observer = null
+    this.copies.clear()
     this.listeners.clear()
   }
 
   private liveRoot(): HTMLElement | null {
-    return document.querySelector<HTMLElement>(FOCUS_ROOT_SELECTOR)
+    return (
+      Array.from(document.querySelectorAll<HTMLElement>(FOCUS_ROOT_SELECTOR)).find(
+        (root) => root.children.length > 0,
+      ) ?? null
+    )
   }
 
   private refresh(): void {
     const root = this.liveRoot()
     const next = root !== null && root.children.length > 0
-    if (next === this._active) return
+    const copies = new Set(
+      Array.from(
+        document.querySelectorAll<HTMLElement>(`${FOCUS_ROOT_SELECTOR} [data-dsh-annotation-message-id]`),
+      )
+        .map((element) => {
+          const sessionId = sessionIdentity(element)
+          const messageId = element.dataset.dshAnnotationMessageId
+          return sessionId === undefined || messageId === undefined
+            ? null
+            : JSON.stringify([sessionId, messageId])
+        })
+        .filter((identity) => identity !== null),
+    )
+    if (
+      next === this._active &&
+      copies.size === this.copies.size &&
+      [...copies].every((identity) => this.copies.has(identity))
+    )
+      return
     this._active = next
+    this.copies = copies
     for (const listener of this.listeners) {
       try {
         listener()
@@ -81,24 +129,22 @@ class FocusChatAdapterImpl implements FocusChatAdapter {
 /** 聚焦视图根节点的公开选择器；页面适配使用，核心逻辑不直接依赖它。 */
 export const FOCUS_ROOT_SELECTOR_VALUE = FOCUS_ROOT_SELECTOR
 
-/** 一个助手节点当前是否参与布局；仅在聚焦视图激活时才启用隐藏判断。 */
+/** 仅当同一 Session 的同一消息存在聚焦副本时，检查该节点是否参与布局。 */
 export function isFocusViewHidden(element: HTMLElement): boolean {
-  const focusRoot = document.querySelector<HTMLElement>(FOCUS_ROOT_SELECTOR)
-  if (focusRoot === null || focusRoot.children.length === 0) return false
+  if (focusedCopy(element) === null) return false
   if (element.offsetParent === null) return true
   const rect = element.getBoundingClientRect()
   return rect.width === 0 && rect.height === 0
 }
 
-/** 当前是否处于聚焦视图，且该节点不在聚焦视图内（普通视图的重复节点）。 */
+/** 同一 Session 的同一消息存在聚焦副本时，普通视图节点才是重复节点。 */
 export function isDuplicatedByFocusView(element: HTMLElement): boolean {
   const root = element.closest<HTMLElement>(FOCUS_ROOT_SELECTOR)
   if (root !== null) return false
-  const focusRoot = document.querySelector<HTMLElement>(FOCUS_ROOT_SELECTOR)
-  return focusRoot !== null && focusRoot.children.length > 0
+  return focusedCopy(element) !== null
 }
 
-/** 全局聚焦切换通知：助手节点监听后重新测量标记与芯片。 */
+/** 聚焦活动或 Session/消息副本集合变化时，助手节点重新测量标记与芯片。 */
 export const FOCUS_CHANGED_EVENT = 'dsh-annotation:focus-changed'
 
 export function createFocusChatAdapter(): FocusChatAdapter {

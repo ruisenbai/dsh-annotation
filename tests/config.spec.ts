@@ -84,7 +84,7 @@ describe('configuration', () => {
     expect(Config.dict).not.toHaveProperty('localTools')
   })
 
-  it('keeps the custom settings page scoped to the plugin fiber', () => {
+  it('keeps the custom settings page scoped to the plugin fiber', async () => {
     const disposePresentation = vi.fn()
     const configure = vi.fn(() => disposePresentation)
     const register = vi.fn(() => () => undefined)
@@ -93,6 +93,7 @@ describe('configuration', () => {
     const ctx = {
       fiber,
       commands: { register },
+      sessionProjections: { register: vi.fn(async () => ({ dispose: vi.fn() })) },
       effect(install: () => () => void) {
         effects.push(install())
       },
@@ -101,27 +102,29 @@ describe('configuration', () => {
         install({ settings: { configure }, effect: ctx.effect })
       },
     } as unknown as Context
-    apply(ctx, DEFAULT_CONFIG)
+    await apply(ctx, DEFAULT_CONFIG)
     expect(configure).toHaveBeenCalledWith({ auto: false }, fiber)
     expect(register.mock.calls.map((call) => (call as unknown as [{ name: string }])[0].name)).toEqual([
       'annotation_submit',
       'inline_comments_submit',
       'inline_annotations_submit',
+      'annotation_side_chat_submit',
     ])
     for (const dispose of effects.reverse()) dispose()
     expect(disposePresentation).toHaveBeenCalledOnce()
   })
 
-  it('keeps command registration available without optional settings services', () => {
+  it('keeps command registration available without optional settings services', async () => {
     const register = vi.fn(() => () => undefined)
     const ctx = {
       commands: { register },
+      sessionProjections: { register: vi.fn(async () => ({ dispose: vi.fn() })) },
       effect(install: () => unknown) {
         install()
       },
       inject: vi.fn(),
     } as unknown as Context
-    apply(ctx, DEFAULT_CONFIG)
-    expect(register).toHaveBeenCalledTimes(3)
+    await apply(ctx, DEFAULT_CONFIG)
+    expect(register).toHaveBeenCalledTimes(4)
   })
 })

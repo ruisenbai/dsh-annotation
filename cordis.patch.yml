@@ -1,4 +1,4 @@
-# Install one dual-face row: Host command bridge plus Web Client UI.
+# 注册注解插件：同一个配置项加载宿主命令和网页界面。
 - insert:
     - id: dsh-annotation
       name: dsh-annotation

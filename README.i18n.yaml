@@ -1,43 +1,44 @@
-# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
-# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
-# After editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write dsh-annotation/README.md
+# README.en.md（英文）与 README.zh.md（简体中文）的章节摘要；README.md 同步展示中文。
+# 使用 DeepSeek Harness 的 scripts/translation-pairing-record.ts 按上述路径记录。
 /:
   en: 2d6adcd9f45b5705
-  zh: 5571926cbe5d2daf
+  zh: ff6abf1f018ac06d
 /dsh-annotation:
-  en: 62bc0950bddfc133
-  zh: caf0f9ba673d1028
+  en: 1942a75080fbe696
+  zh: b935c82380f74499
 /dsh-annotation/summary:
-  en: dbe30add3a9c88f8
-  zh: e2443c13d88f9e58
+  en: ba0c780febc58ca9
+  zh: 8b8bad50da02c708
 /dsh-annotation/contents:
-  en: 393b3905da8e58f1
-  zh: ca07301760ed272c
+  en: fb5047d96b412d51
+  zh: ff47a1d878c34d3b
 /dsh-annotation/install-and-upgrade:
-  en: 2b2455eeaa1c010d
-  zh: 4a9cbbd751928303
+  en: cd63e5a2aa2765d8
+  zh: f8f336ad98b667ff
 /dsh-annotation/install-and-upgrade/manual-installation:
-  en: 5befa845d414810e
-  zh: 3cec347c246468c6
+  en: e3284c680e6a2933
+  zh: b87d51121292fbc9
 /dsh-annotation/install-and-upgrade/install-with-an-ai-agent:
   en: 21bb8ed5dc37727e
-  zh: 4515e16837b0565e
+  zh: 7247c66c407d0570
 /dsh-annotation/install-and-upgrade/upgrading-from-an-older-host:
-  en: ad9e9817830cb33e
-  zh: fb0980d0474fc385
+  en: 50b0299ecd033fd2
+  zh: 9673e0a85330b032
 /dsh-annotation/supported-sources:
   en: dc9c7e2d3ae08ffa
   zh: 9939c646f862aba8
 /dsh-annotation/create-and-edit-notes:
-  en: 69239286d26392c9
-  zh: 25de4c0430e46380
+  en: ad8b8d1d7b955b11
+  zh: 331153c6ffc0670e
 /dsh-annotation/records-and-attachments:
-  en: ae437ef3845a537a
-  zh: 45fb2677bbf908ec
+  en: 9c4e96da23d2c693
+  zh: 6733e31267f8f31f
+/dsh-annotation/side-chats:
+  en: ec024e44cf164459
+  zh: 7a07a582228452c8
 /dsh-annotation/send-resend-and-retry:
   en: 963a748d6a5182c6
-  zh: 5865d537143c87cb
+  zh: 0e64e0dd9aaa41bf
 /dsh-annotation/delete-and-recover:
   en: b71f8adabdd8ffdd
   zh: 381d162638b80ed1

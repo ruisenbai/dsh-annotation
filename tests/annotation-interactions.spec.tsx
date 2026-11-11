@@ -27,8 +27,11 @@ afterEach(() => {
 const t: InputAnnotationProps['t'] = (key, params) =>
   en[key as keyof typeof en].replace(/\{(\w+)\}/gu, (_match: string, name: string) => String(params?.[name]))
 
-function harness(values = new Map<string, string>(), now = () => 1_700_000_000_000) {
-  const sessionId = 'interaction-session' as SessionIdentity
+function harness(
+  values = new Map<string, string>(),
+  now = () => 1_700_000_000_000,
+  sessionId = 'interaction-session' as SessionIdentity,
+) {
   const storage = new AnnotationStorage(
     {
       getItem: (key) => values.get(key) ?? null,
@@ -159,6 +162,149 @@ function beginNewEditor(h: ReturnType<typeof harness>, source: NewEditorSource, 
 }
 
 describe('annotation record and composer interactions', () => {
+  it.each([
+    { surface: 'main', foreign: false },
+    { surface: 'sidebar', foreign: false },
+    { surface: 'sidebar', foreign: true },
+    { surface: 'standalone', foreign: false },
+    { surface: 'standalone', foreign: true },
+  ])('uses the same floating editor in $surface for foreign source $foreign', ({ surface, foreign }) => {
+    const h = harness()
+    onTestFinished(() => h.controller.dispose())
+    const messageId = 'assistant-1' as MessageIdentity
+    h.controller.beginSelection({
+      messageId,
+      messageSeq: 20,
+      responseVersion: messageId,
+      ...(foreign
+        ? {
+            source: {
+              kind: 'message' as const,
+              sessionId: 'source-main' as SessionIdentity,
+              messageId,
+              messageSeq: 20,
+              responseVersion: messageId,
+            },
+          }
+        : {}),
+      quote: { exact: 'source', prefix: '', suffix: '', start: 0, end: 6 },
+      rect: { top: 10, left: 20, bottom: 28, right: 100 },
+    })
+    h.controller.updateEditorText('Keep this note')
+    const { container } = render(
+      <div data-dia-side-chat={surface === 'sidebar' ? '' : undefined}>
+        <AnnotationExperience {...h.props} />
+      </div>,
+    )
+    const assertFloating = () => {
+      const card = screen.getByRole('dialog')
+      expect(card).not.toHaveClass('dia-record-editor--inline')
+      expect(container).not.toContainElement(card)
+      expect(card.querySelector('.dia-record-editor__source')).toBeNull()
+      expect(within(card).getByRole('textbox', { name: 'Your annotation' })).toHaveValue('Keep this note')
+    }
+    assertFloating()
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Save' })).toHaveClass('dia-record-editor__check')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    const id = h.controller.getSnapshot().annotations[0]!.annotationId
+    act(() => h.controller.openAnnotation(id, 'marker-edit'))
+    assertFloating()
+    act(() => {
+      h.controller.closeEditor(true)
+      const submitted = h.controller.createOutbox('queue', h.controller.sessionId)
+      h.controller.reconcile({
+        chat: {
+          nodes: new Map([
+            [
+              '0',
+              { kind: 'user', data: { source: { kind: 'user', annotationSubmission: submitted.payload } } },
+            ],
+          ]),
+        },
+        queue: [],
+        hasMore: false,
+      })
+      h.controller.openAnnotation(id, 'marker')
+    })
+    assertFloating()
+    expect(screen.getByRole('textbox', { name: 'Your annotation' })).toHaveAttribute('readonly')
+  })
+
+  it('lets a foreign source bubble toggle its sent card without closing it before the click', () => {
+    const h = harness()
+    onTestFinished(() => h.controller.dispose())
+    const id = h.save(0, 'Sent note')
+    const submitted = h.controller.createOutbox('queue', h.controller.sessionId)
+    h.controller.reconcile({
+      chat: {
+        nodes: new Map([
+          [
+            '0',
+            { kind: 'user', data: { source: { kind: 'user', annotationSubmission: submitted.payload } } },
+          ],
+        ]),
+      },
+      queue: [],
+      hasMore: false,
+    })
+    h.controller.openAnnotation(id, 'marker')
+    render(
+      <>
+        <div data-conversation-content="">
+          <AnnotationExperience {...h.props} />
+        </div>
+        <button
+          className="dia-marker"
+          data-annotation-id={id}
+          data-dia-annotation-target={h.controller.sessionId}
+          onClick={() => h.controller.openAnnotation(id, 'marker')}
+        >
+          Source bubble
+        </button>
+        <button className="dia-marker" data-annotation-id={id} data-dia-annotation-target="another-chat">
+          Other chat
+        </button>
+      </>,
+    )
+    const source = screen.getByRole('button', { name: 'Source bubble' })
+    fireEvent.pointerDown(source)
+    expect(screen.getByRole('dialog')).toBeVisible()
+    fireEvent.click(source)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    fireEvent.click(source)
+    expect(screen.getByRole('dialog')).toBeVisible()
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Other chat' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('keeps an unfinished editor when a retained chat is hidden and other chats receive clicks or Escape', async () => {
+    const h = harness()
+    onTestFinished(() => h.controller.dispose())
+    h.actions.beginSelection(0)
+    h.controller.updateEditorText('Keep this unfinished note')
+    const { rerender } = render(
+      <div hidden>
+        <AnnotationExperience {...h.props} />
+      </div>,
+    )
+    expect(screen.queryByRole('dialog')).toBeNull()
+    for (let click = 0; click < 4; click += 1) fireEvent.pointerDown(document.body)
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(h.controller.getSnapshot().editor?.text).toBe('Keep this unfinished note')
+    expect(h.controller.getSnapshot().annotations).toEqual([])
+    rerender(
+      <div>
+        <AnnotationExperience {...h.props} />
+      </div>,
+    )
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeVisible())
+    expect(screen.getByRole('textbox', { name: 'Your annotation' })).toHaveFocus()
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(h.controller.getSnapshot().editor).toBeNull()
+    expect(h.controller.getSnapshot().editorDrafts[0]?.text).toBe('Keep this unfinished note')
+  })
+
   it('only renders the changed record when one attachment is toggled', () => {
     const h = harness()
     onTestFinished(() => h.controller.dispose())
@@ -415,7 +561,7 @@ describe('annotation record and composer interactions', () => {
     h.controller.dispose()
   })
 
-  it('uses each row paperclip to detach and reattach, leaving empty note text blank', () => {
+  it('shows quoted source for an empty note and preserves attachment controls and the empty opinion', () => {
     const h = harness()
     const id = h.save(0, '')
     act(() => {
@@ -423,6 +569,8 @@ describe('annotation record and composer interactions', () => {
     })
     render(<AnnotationExperience {...h.props} />)
     const row = screen.getByRole('listitem')
+    expect(within(row).getByText('source')).toBeVisible()
+    expect(row).toHaveAccessibleName('1 · source')
     expect(within(row).queryByText('Highlight only')).toBeNull()
     const attached = within(row).getByRole('button', { name: 'Remove from message' })
     expect(attached).toHaveAttribute('data-active', 'true')
@@ -430,6 +578,10 @@ describe('annotation record and composer interactions', () => {
     expect(h.controller.getSnapshot().selectedAnnotationIds).toEqual([])
     fireEvent.click(within(row).getByRole('button', { name: 'Send with message' }))
     expect(h.controller.getSnapshot().selectedAnnotationIds).toEqual([id])
+    expect(h.controller.getSnapshot().annotations[0]).toMatchObject({
+      annotation: '',
+      kind: 'highlight-only',
+    })
     h.controller.dispose()
   })
 
@@ -747,10 +899,10 @@ describe('annotation record and composer interactions', () => {
       h.actions.beginSelection(0)
       h.controller.updateEditorText(text)
       render(
-        <>
+        <div data-composer-seat>
           <input data-composer-input aria-label="Message" />
           <AnnotationExperience {...h.props} />
-        </>,
+        </div>,
       )
       const composer = screen.getByRole('textbox', { name: 'Message' })
       composer.focus()
@@ -766,6 +918,59 @@ describe('annotation record and composer interactions', () => {
     },
   )
 
+  it('finishes only the quick editor owned by the composer receiving input', () => {
+    const main = harness(new Map(), () => 1_700_000_000_000, 'main-session' as SessionIdentity)
+    const side = harness(new Map(), () => 1_700_000_000_000, 'side-session' as SessionIdentity)
+    onTestFinished(() => main.controller.dispose())
+    onTestFinished(() => side.controller.dispose())
+    main.actions.beginSelection(0)
+    side.actions.beginSelection(0)
+    main.controller.updateEditorText('Main opinion')
+    side.controller.updateEditorText('Side opinion')
+    render(
+      <>
+        <div data-conversation-content data-conversation-session="main-session">
+          <div data-composer-seat>
+            <input data-composer-input aria-label="Main message" />
+            <AnnotationExperience {...main.props} />
+          </div>
+        </div>
+        <div data-conversation-content data-conversation-session="side-session">
+          <div data-composer-seat>
+            <input data-composer-input aria-label="Side message" />
+            <AnnotationExperience {...side.props} />
+          </div>
+        </div>
+      </>,
+    )
+    const mainComposer = screen.getByRole('textbox', { name: 'Main message' })
+    mainComposer.focus()
+    fireEvent(
+      mainComposer,
+      new InputEvent('beforeinput', { bubbles: true, data: 'x', inputType: 'insertText' }),
+    )
+    fireEvent.input(mainComposer, { target: { value: 'x' } })
+    expect(main.actions.saveEditor).toHaveBeenCalledOnce()
+    expect(main.controller.getSnapshot().editor).toBeNull()
+    expect(main.controller.getSnapshot().annotations[0]?.annotation).toBe('Main opinion')
+    expect(side.controller.getSnapshot().editor?.text).toBe('Side opinion')
+    expect(side.actions.saveEditor).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(mainComposer)
+    const sideComposer = screen.getByRole('textbox', { name: 'Side message' })
+    sideComposer.focus()
+    fireEvent.input(sideComposer, { target: { value: 'y' } })
+    expect(side.actions.saveEditor).toHaveBeenCalledOnce()
+    expect(side.controller.getSnapshot().annotations[0]?.annotation).toBe('Side opinion')
+    expect(main.actions.saveEditor).toHaveBeenCalledOnce()
+    act(() => {
+      main.controller.setPanelOpen(true)
+      side.controller.setPanelOpen(true)
+    })
+    const records = screen.getAllByRole('region', { name: t('record.title') })
+    expect(records).toHaveLength(2)
+    expect(new Set(records.map((element) => element.id)).size).toBe(records.length)
+  })
+
   it('keeps composer focus and handles one implicit save attempt per input action', () => {
     const h = harness()
     act(() => beginNewEditor(h, 'body'))
@@ -777,10 +982,10 @@ describe('annotation record and composer interactions', () => {
       })
       .mockImplementation(() => h.controller.saveEditor())
     render(
-      <>
+      <div data-composer-seat>
         <input data-composer-input aria-label="Message" />
         <AnnotationExperience {...h.props} saveEditor={saveEditor} />
-      </>,
+      </div>,
     )
     const composer = screen.getByRole('textbox', { name: 'Message' })
     composer.focus()
@@ -915,10 +1120,10 @@ describe('annotation record and composer interactions', () => {
     const h = harness()
     h.actions.beginSelection(0)
     render(
-      <>
+      <div data-composer-seat>
         <input data-composer-input aria-label="Message" />
         <AnnotationExperience {...h.props} />
-      </>,
+      </div>,
     )
     fireEvent.compositionStart(screen.getByRole('textbox', { name: 'Your annotation' }))
     fireEvent.input(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'x' } })

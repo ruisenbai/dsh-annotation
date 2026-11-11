@@ -1,73 +1,20 @@
-# Contributor Covenant Code of Conduct
+# 社区行为准则
 
-## Our pledge
+我们希望每个人都能参与本项目，免受骚扰和歧视，不论年龄、体型、身心状况、族裔、性别特征、性别认同与表达、经验、教育、经济状况、国籍、外貌、种族、种姓、肤色、宗教或性取向。
 
-We as members, contributors, and leaders pledge to make participation in our community a harassment-free experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of experience, education, socioeconomic status, nationality, personal appearance, race, caste, color, religion, or sexual identity and orientation.
+## 如何相处
 
-We pledge to act and interact in ways that contribute to an open, welcoming, diverse, inclusive, and healthy community.
+尊重不同的经验和观点，坦诚给予并接受建设性反馈。犯错时承担责任，向受影响的人道歉。禁止性骚扰、侮辱或贬损、人身或政治攻击、公开或私下骚扰，以及未经同意披露他人的住址、邮箱等私人信息。在专业协作场合不适当的其他行为也不被接受。
 
-## Our standards
+## 适用范围和执行
 
-Examples of behavior that contributes to a positive environment include:
+本准则适用于社区空间及正式代表社区的公开场合。维护者负责解释和公平执行准则，可移除、编辑或拒绝不符合准则的内容，适当时会说明原因。遇到不当行为，可通过仓库所有者在 GitHub 个人资料中提供的联系方式私下报告。维护者应及时、公平地调查，保护报告者的隐私和安全。
 
-- demonstrating empathy and kindness toward other people;
-- respecting differing opinions, viewpoints, and experiences;
-- giving and gracefully accepting constructive feedback;
-- accepting responsibility, apologizing to those affected by our mistakes, and learning from the experience;
-- focusing on what is best for the overall community.
+## 处理方式
 
-Examples of unacceptable behavior include:
+1. **纠正**：对于不恰当的言语或行为，私下书面说明问题并要求纠正，必要时要求公开道歉。
+2. **警告**：对单次或连续违规说明后果，可在指定期间禁止接触相关人员，包括主动联系执行准则者。违反限制可能导致封禁。
+3. **暂时封禁**：对严重或持续违规，限制在指定期间内与社区交互或公开沟通。继续违规可能导致永久封禁。
+4. **永久封禁**：对反复违规、骚扰、攻击个人或贬低特定群体的行为，永久禁止参与社区公开互动。
 
-- sexualized language or imagery, and sexual attention or advances of any kind;
-- trolling, insulting or derogatory comments, and personal or political attacks;
-- public or private harassment;
-- publishing another person's private information without explicit permission;
-- other conduct which could reasonably be considered inappropriate in a professional setting.
-
-## Enforcement responsibilities
-
-Community leaders are responsible for clarifying and enforcing acceptable behavior and will take appropriate and fair corrective action in response to behavior they deem inappropriate, threatening, offensive, or harmful.
-
-Community leaders have the right and responsibility to remove, edit, or reject comments, commits, code, wiki edits, issues, and other contributions that do not align with this Code of Conduct, and will communicate reasons for moderation decisions when appropriate.
-
-## Scope
-
-This Code of Conduct applies within all community spaces and when an individual officially represents the community in public spaces.
-
-## Enforcement
-
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported privately to the repository owner through the contact method listed in the GitHub profile. All complaints will be reviewed and investigated promptly and fairly.
-
-Community leaders must respect the privacy and security of the reporter of any incident.
-
-## Enforcement guidelines
-
-Community leaders will follow these Community Impact Guidelines in determining consequences:
-
-### 1. Correction
-
-**Community impact:** Use of inappropriate language or other behavior deemed unprofessional or unwelcome.
-
-**Consequence:** A private, written warning explaining the violation and why the behavior was inappropriate. A public apology may be requested.
-
-### 2. Warning
-
-**Community impact:** A violation through a single incident or series of actions.
-
-**Consequence:** A warning with consequences for continued behavior. No interaction with the people involved, including unsolicited interaction with those enforcing the Code of Conduct, for a specified period. Violating these terms may lead to a temporary or permanent ban.
-
-### 3. Temporary ban
-
-**Community impact:** A serious violation of community standards, including sustained inappropriate behavior.
-
-**Consequence:** A temporary ban from interaction or public communication with the community for a specified period. Violating these terms may lead to a permanent ban.
-
-### 4. Permanent ban
-
-**Community impact:** A pattern of violations, harassment, aggression toward individuals, or disparagement of classes of individuals.
-
-**Consequence:** A permanent ban from public interaction within the community.
-
-## Attribution
-
-This Code of Conduct is adapted from the [Contributor Covenant, version 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct.html).
+本准则改编自 [Contributor Covenant 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct.html)。

@@ -383,7 +383,7 @@ export function installDocumentIntegration(
         item.source.resourceVersion === source.resourceVersion,
       (item) =>
         item.source?.kind === 'file' && item.source.wholeFile
-          ? (root.querySelector<HTMLElement>('[data-official-file-annotate]') ?? root)
+          ? (selectableBody(root) ?? null)
           : fileRange(root, item),
       translate,
       highlights,

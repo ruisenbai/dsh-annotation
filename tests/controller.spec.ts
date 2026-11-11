@@ -5,6 +5,7 @@ import { DEFAULT_CONFIG } from '../src/shared/config.ts'
 import { DEFAULT_PROCESSING_MODE } from '../src/shared/types.ts'
 import type { AnnotationId, MessageIdentity, SessionIdentity } from '../src/shared/types.ts'
 import type { SelectionCapture } from '../src/client/selection.ts'
+import type { MessageQuoteTarget } from '../src/client/selection.ts'
 import type { FileAnnotationSource } from '../src/shared/annotation-source.ts'
 import { sha256Hex } from '../src/shared/snapshot-hash.ts'
 
@@ -68,6 +69,88 @@ function saveDraft(controller: AnnotationController): AnnotationId {
 }
 
 describe('annotation controller', () => {
+  it('locates a side reference in its owning message controller without creating an annotation', async ({
+    onTestFinished,
+  }) => {
+    const main = harness()
+    const side = harness(new MemoryStorage(), 'side-session' as SessionIdentity)
+    onTestFinished(() => {
+      main.controller.dispose()
+      side.controller.dispose()
+    })
+    const target: MessageQuoteTarget = {
+      messageId: 'same-message' as MessageIdentity,
+      messageSeq: 20,
+      responseVersion: 'same-message' as MessageIdentity,
+      quote: capture().quote,
+    }
+    const mainReveal = vi.fn(async () => 'shown' as const)
+    const sideReveal = vi.fn(async () => 'shown' as const)
+    main.controller.registerEndpoint(target.messageId, {
+      reveal: vi.fn(),
+      annotateAll: vi.fn(),
+      revealQuote: mainReveal,
+    })
+    side.controller.registerEndpoint(target.messageId, {
+      reveal: vi.fn(),
+      annotateAll: vi.fn(),
+      revealQuote: sideReveal,
+    })
+    await expect(main.controller.locateMessageQuote(target)).resolves.toBe('shown')
+    expect(mainReveal).toHaveBeenCalledWith(target, 1)
+    expect(sideReveal).not.toHaveBeenCalled()
+    expect(main.controller.getSnapshot().annotations).toEqual([])
+    expect(side.controller.getSnapshot().annotations).toEqual([])
+  })
+
+  it('cancels side-reference history navigation when its Conversation is left', async ({
+    onTestFinished,
+  }) => {
+    const { controller, navigation } = harness()
+    onTestFinished(() => controller.dispose())
+    const source = capture()
+    const target: MessageQuoteTarget = {
+      messageId: source.messageId!,
+      messageSeq: source.messageSeq!,
+      responseVersion: source.responseVersion!,
+      quote: source.quote,
+    }
+    let release!: () => void
+    const loading = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    navigation.state.hasMore = true
+    navigation.loadOlder.mockImplementationOnce(async () => {
+      await loading
+      return undefined
+    })
+    const abort = new AbortController()
+    const pending = controller.locateMessageQuote(target, abort.signal)
+    abort.abort()
+    const revealQuote = vi.fn(async () => 'shown' as const)
+    controller.registerEndpoint(target.messageId, { reveal: vi.fn(), annotateAll: vi.fn(), revealQuote })
+    release()
+    await expect(pending).resolves.toBe('cancelled')
+    expect(revealQuote).not.toHaveBeenCalled()
+  })
+
+  it('reports an unavailable quote source without falling back to an annotation reveal', async ({
+    onTestFinished,
+  }) => {
+    const { controller } = harness()
+    onTestFinished(() => controller.dispose())
+    const target: MessageQuoteTarget = {
+      messageId: 'assistant-1' as MessageIdentity,
+      messageSeq: 20,
+      responseVersion: 'assistant-1' as MessageIdentity,
+      quote: capture().quote,
+    }
+    const reveal = vi.fn()
+    controller.registerEndpoint(target.messageId, { reveal, annotateAll: vi.fn() })
+    await expect(controller.locateMessageQuote(target)).resolves.toBe('unavailable')
+    expect(reveal).not.toHaveBeenCalled()
+  })
+
   it('reads selections only from its mounted message sources and releases them on unload', ({
     onTestFinished,
   }) => {
@@ -1039,7 +1122,7 @@ describe('annotation controller', () => {
         restored.undoDelete()
         expect(restored.getSnapshot().annotations).toEqual(expected.annotations)
         expect(new AnnotationStorage(memory, controller.sessionId).load()).toEqual({
-          storageVersion: 6,
+          storageVersion: 7,
           trash: [],
           deletionMarks: [expect.objectContaining({ annotationId: draftId, state: 'restored', revision: 2 })],
           annotations: expected.annotations,

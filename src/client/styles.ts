@@ -1,6 +1,471 @@
 /** @internal */
 export const styles: string = `
 
+.dia-side-chat-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dia-side-chat-tab-action { width: 26px; min-width: 26px; height: 26px; padding: 0; }
+.dia-side-chat-tab-title { flex: none; }
+.dia-side-chat-tab-actions { display: flex; align-items: center; gap: 2px; }
+/* Only the side-chat embedder overlays actions; other DockKit consumers retain their layout. */
+.dia-side-chat-root [data-dockkit-tab-action-bar] {
+  position: absolute;
+  inset-inline-end: 4px;
+  margin: 0;
+  opacity: 1;
+  pointer-events: auto;
+  clip-path: inset(0);
+  transition: clip-path 120ms ease, opacity 120ms ease;
+}
+.dia-side-chat-root [data-dockkit-tab-actions] [data-dockkit-tab-title] {
+  mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
+  mask-repeat: no-repeat;
+  mask-size: calc(100% - var(--dia-tab-actions-width) + 6px) 100%;
+  transition: mask-size 120ms ease;
+}
+@media (hover: hover) {
+  .dia-side-chat-root [data-dockkit-tab][data-dockkit-tab-actions] [data-dockkit-tab-action-bar] { opacity: 0; pointer-events: none; clip-path: inset(0 0 0 100%); }
+  .dia-side-chat-root [data-dockkit-tab-actions] [data-dockkit-tab-title] { mask-image: none; mask-size: 100% 100%; }
+  .dia-side-chat-root [data-dockkit-tab-actions] [data-dockkit-tab-title][data-dockkit-tab-clipped] { mask-image: linear-gradient(to right, black calc(100% - 16px), transparent); }
+  .dia-side-chat-root [data-dockkit-tab][data-dockkit-tab-actions]:hover [data-dockkit-tab-action-bar] { opacity: 1; pointer-events: auto; clip-path: inset(0); }
+  .dia-side-chat-root [data-dockkit-tab-actions]:hover [data-dockkit-tab-title] {
+    mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
+    mask-size: calc(100% - var(--dia-tab-actions-width) + 6px) 100%;
+  }
+}
+/* A clicked Tab can retain :focus-visible; the theme's modality also tracks same-Tab clicks. */
+html:not([data-input-modality='pointer']) .dia-side-chat-root [data-dockkit-tab-actions]:focus-within [data-dockkit-tab-action-bar] { opacity: 1; pointer-events: auto; clip-path: inset(0); }
+html:not([data-input-modality='pointer']) .dia-side-chat-root [data-dockkit-tab-actions]:focus-within [data-dockkit-tab-title] {
+  mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
+  mask-size: calc(100% - var(--dia-tab-actions-width) + 6px) 100%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dia-side-chat-root [data-dockkit-tab-action-bar],
+  .dia-side-chat-root [data-dockkit-tab-actions] [data-dockkit-tab-title] { transition: none; }
+}
+.dia-side-chat-root > [data-dockkit-surface] { flex: 1; min-height: 0; }
+.dia-side-chat-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dia-side-chat-empty {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  padding: 16px;
+  font: 400 13px/20px var(--dsw-font-family);
+}
+
+.dia-side-chat-preparation {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 0;
+  padding: 12px 16px;
+  overflow: auto;
+}
+
+.dia-side-chat-references {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.dia-side-chat-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dia-side-chat-notice {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dia-side-chat-notice-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.dia-side-chat-notice[role="alert"] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.dia-side-chat-tab-icon {
+  flex: none;
+  margin-inline-end: 4px;
+}
+
+/* The guide capsule copies the Host's entry geometry; its badge always means
+   pending references, and the caret opens the chat switch list for any input. */
+.dia-side-chat-guide {
+  --dia-guide-entry-radius: var(--dsw-radius-xl);
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 56px;
+  padding: 14px 20px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dia-guide-entry-radius);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+@media (hover: hover) {
+  .dia-side-chat-guide:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.dia-side-chat-guide__main {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+
+.dia-side-chat-guide__main:focus-visible {
+  outline-offset: -2px;
+}
+
+.dia-side-chat-guide__icon {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  color: var(--dsw-alias-label-secondary);
+  pointer-events: none;
+}
+
+.dia-side-chat-guide__text {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  pointer-events: none;
+}
+
+.dia-side-chat-guide__title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dia-side-chat-guide__title {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dia-side-chat-guide__description {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dia-side-chat-guide__badge,
+.dia-side-chat-guide__row-count {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: var(--dsw-radius-xs);
+  background: var(--dsw-alias-state-business-tertiary);
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.dia-side-chat-guide__row-count {
+  font-size: 10px;
+}
+
+.dia-side-chat-guide__menu {
+  position: relative;
+  display: flex;
+  flex: none;
+  pointer-events: auto;
+}
+
+.dia-side-chat-guide__new { position: relative; z-index: 1; flex: 0 0 auto; width: 28px; height: 28px; padding: 0; }
+.dia-side-chat-guide__caret {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--dsw-radius-xs);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.dia-side-chat-guide__caret svg {
+  width: 14px;
+  height: 14px;
+}
+
+@media (max-width: 860px) {
+  .dia-side-chat-guide {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+
+  .dia-side-chat-guide__description {
+    display: none;
+  }
+}
+
+/* The reference capsule reuses the annotation chip's geometry inside the composer row. */
+/* The overlay anchor is the one row above the draft: the annotation capsule and
+   the side-chat reference capsule share it, so they never occupy the same
+   absolute position and one never covers the other. */
+[data-composer-card] > [data-composer-overlay] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  padding: 8px 8px 0;
+}
+
+/* The slot framework wraps each entry in a display:contents element, so the
+   capsules themselves must be the ones taken out of absolute positioning. */
+[data-composer-card] > [data-composer-overlay] .dia-composer-chip,
+[data-composer-card] > [data-composer-overlay] .dia-side-chat-chip-row {
+  position: static;
+  top: auto;
+  left: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+[data-composer-card] > [data-composer-overlay] > * {
+  min-width: 0;
+}
+
+.dia-side-chat-chip-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.dia-side-chat-record-panel {
+  margin: 0 0 8px;
+}
+
+.dia-side-chat-record-panel .dia-side-chat-record__source {
+  display: block;
+  gap: 6px;
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Reuse the annotation record row: text on the left, actions pinned on the right.
+   The actions never move below the quote, however long the full text is. */
+.dia-side-chat-record-panel .dia-side-chat-record {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 28px;
+}
+
+.dia-side-chat-record-panel .dia-record-row__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+.dia-side-chat-record-panel .dia-record-row__preview-anchor {
+  display: block;
+  min-width: 0;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+.dia-side-chat-record-panel .dia-record-row__actions {
+  flex: none;
+  align-self: flex-start;
+  gap: 8px;
+}
+
+.dia-side-chat-record-panel .dia-side-chat-record__ordinal {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  min-width: 17px;
+  height: 17px;
+  margin-inline-end: 6px;
+  border-radius: var(--dsw-radius-xs);
+  background: var(--dsw-alias-state-business-tertiary);
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* Exact quotes are clamped for reading; expansion never moves row actions below the text. */
+.dia-side-chat-record__quote {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.dia-side-chat-record__quote[data-expanded='true'] {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  max-height: min(120px, 20dvh);
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.dia-side-chat-record__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.dia-side-chat-record__expand {
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-state-business-primary);
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.dia-side-chat-record__expand:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+.dia-side-chat-history {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  margin: 4px 0 0;
+}
+
+.dia-side-chat-history__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  padding: 1px 4px;
+  font: 400 12px/18px var(--dsw-font-family);
+  cursor: pointer;
+}
+
+.dia-side-chat-history__toggle:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.dia-side-chat-history__toggle:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+.dia-side-chat-history__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dia-side-chat-history__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dia-side-chat-history__quote {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dia-side-chat-history__locate {
+  flex: none;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-state-business-primary);
+  padding: 0 2px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.dia-side-chat-history__locate:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
 .dia-source-label { display: flex; flex-wrap: wrap; gap: 4px 8px; overflow-wrap: anywhere; font-size: 12px; color: var(--dsw-alias-label-secondary); }
 .dia-record-row__legacy { color: var(--dsw-alias-label-tertiary); font-size: 12px; white-space: nowrap; }
 
@@ -228,60 +693,80 @@ export const styles: string = `
   pointer-events: none;
 }
 
+/* Painted geometry remains anchored when the hit area is clamped to a viewport edge. */
 .dia-marker {
-  --dia-marker-color: color-mix(in srgb, var(--dia-accent) 45%, var(--dsw-alias-tooltip-bg));
-  --dia-marker-fill: var(--dia-marker-color);
   position: absolute;
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border: 1px solid var(--dia-accent-text);
-  border-radius: 50% 50% 50% 4px;
-  corner-shape: round;
-  background: var(--dia-marker-fill);
+  box-sizing: border-box;
+  display: block;
+  border: 0;
+  background: transparent;
   color: var(--dia-accent-text);
-  box-shadow: 0 1px 3px color-mix(in srgb, var(--dsw-alias-tooltip-bg) 16%, transparent);
   padding: 0;
   cursor: pointer;
-  font-size: 12px;
-  pointer-events: auto;
   font-weight: 500;
-  isolation: isolate;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-}
-
-/* Keep white numbers readable against the blue fill in both themes. */
-@supports (color: oklch(from red l c h)) {
-  .dia-marker {
-    --dia-marker-color: oklch(from var(--dia-accent) 48% c h);
-  }
-}
-
-@supports (backdrop-filter: blur(6px)) or (-webkit-backdrop-filter: blur(6px)) {
-  .dia-marker {
-    --dia-marker-fill: color-mix(in srgb, var(--dia-marker-color) 86%, transparent);
-    -webkit-backdrop-filter: blur(6px) saturate(140%);
-    backdrop-filter: blur(6px) saturate(140%);
-  }
+  pointer-events: auto;
+  outline: none;
 }
 
 .dia-marker > span {
-  position: relative;
-  z-index: 1;
+  --dia-marker-color: color-mix(in srgb, var(--dia-accent) 70%, var(--dsw-alias-tooltip-bg));
+  --dia-marker-fill: color-mix(in srgb, var(--dia-marker-color) 70%, transparent);
+  --dia-marker-edge: color-mix(in srgb, var(--dia-accent-text) 60%, transparent);
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  min-width: 1.9em;
+  height: 1.9em;
+  width: max-content;
+  padding: 0 .42em;
+  border: 0;
+  border-radius: 1em 1em 1em .333em;
+  corner-shape: round;
+  background: var(--dia-marker-fill);
+  box-shadow: 0 0 0 .5px var(--dia-marker-edge);
+  color: inherit;
+  white-space: nowrap;
+  transition: background-color var(--ds-transition-duration-fast) ease,
+    box-shadow var(--ds-transition-duration-fast) ease;
 }
 
-.dia-marker[data-active='true'],
-.dia-marker[aria-expanded='true'] {
+@supports (color: oklch(from red l c h)) {
+  .dia-marker > span { --dia-marker-color: oklch(from var(--dia-accent) 38% c h); }
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .dia-marker > span {
+    -webkit-backdrop-filter: var(--dsw-menu-backdrop-filter);
+    backdrop-filter: var(--dsw-menu-backdrop-filter);
+  }
+}
+
+@media (hover: hover) {
+  .dia-marker:hover > span {
+    --dia-marker-fill: var(--dia-marker-color);
+    --dia-marker-edge: color-mix(in srgb, var(--dia-accent-text) 85%, transparent);
+  }
+}
+
+.dia-marker[data-active='true'] > span,
+.dia-marker[aria-expanded='true'] > span,
+.dia-marker:focus-visible > span {
   --dia-marker-fill: var(--dia-marker-color);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  --dia-marker-edge: color-mix(in srgb, var(--dia-accent-text) 90%, transparent);
 }
 
-.dia-marker:focus-visible {
-  outline: 2px solid var(--dia-accent);
-  outline-offset: 1px;
+.dia-marker:focus-visible > span {
+  outline: 1px solid var(--dia-accent);
+  outline-offset: .15em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dia-marker > span { transition: none; }
 }
 
 .dia-reply-chips {
@@ -454,6 +939,27 @@ export const styles: string = `
   font-size: inherit;
   line-height: 1.35;
   white-space: normal;
+}
+
+.dia-selection-target {
+  flex: 1 1 100%;
+  min-width: 0;
+  padding: 2px 5px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.dia-side-chat-target {
+  flex: none;
+  margin: 0;
+  padding: 6px 12px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 @media (pointer: coarse) {
@@ -649,6 +1155,7 @@ export const styles: string = `
   display: inline-grid;
   width: 28px;
   height: 28px;
+  flex: none;
   place-items: center;
   border: 0;
   border-radius: 999px;
@@ -1933,6 +2440,7 @@ button.dia-group__heading:focus-visible {
   display: inline-grid;
   width: 28px;
   height: 28px;
+  flex: none;
   place-items: center;
   border: 0;
   border-radius: 28px;
@@ -2088,6 +2596,12 @@ button.dia-group__heading:focus-visible {
   box-shadow: var(--dsw-elevation-panel);
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.dia-marker-popover.dia-record {
+  margin: 0;
+  width: min(360px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
 }
 
 .dia-record__body {
@@ -2283,7 +2797,7 @@ button.dia-group__heading:focus-visible {
 @container (max-width: 360px) {
   .dia-record-row {
     display: grid;
-    grid-template-columns: 16px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 4px 8px;
   }
 
@@ -2300,6 +2814,7 @@ button.dia-group__heading:focus-visible {
   flex: none;
   width: 28px;
   height: 28px;
+  flex: none;
   place-items: center;
   border: 0;
   border-radius: 50%;
@@ -2353,15 +2868,17 @@ button.dia-group__heading:focus-visible {
 }
 
 [data-composer-card]:has(.dia-composer-chip) {
-  padding-top: 44px;
+  padding-top: var(--dia-composer-chip-space, 44px);
 }
 
 /* Codex UI gives the input card 8px top padding; attached chips need their own row. */
 [data-dsh-annotation-compatibility='codex-ui'] [data-composer-card]:has(.dia-composer-chip) {
-  padding-top: 44px;
+  padding-top: var(--dia-composer-chip-space, 44px);
 }
 
 .dia-composer-chip {
+  --dia-chip-open-duration: var(--ds-transition-duration);
+  --dia-chip-close-duration: 160ms;
   position: absolute;
   z-index: 8;
   top: 8px;
@@ -2382,8 +2899,9 @@ button.dia-group__heading:focus-visible {
 
 .dia-composer-chip__main {
   display: flex;
+  flex: none;
   min-width: 0;
-  max-width: 100%;
+  max-width: var(--dia-chip-main-width, 100%);
   height: 32px;
   align-items: center;
   gap: 7px;
@@ -2413,23 +2931,43 @@ button.dia-group__heading:focus-visible {
 }
 
 .dia-composer-chip__actions {
-  display: none;
+  display: grid;
+  grid-template-columns: 0fr;
+  flex: none;
+  pointer-events: none;
+  visibility: hidden;
+  transition: grid-template-columns var(--dia-chip-close-duration) var(--ds-ease-in-out), visibility 0s var(--dia-chip-close-duration);
+}
+
+.dia-composer-chip__actions-inner {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
   align-items: center;
   gap: 2px;
-  padding-right: 2px;
   opacity: 0;
-  transition: opacity 140ms ease;
+  translate: -3px 0;
+  transition: opacity var(--dia-chip-close-duration) var(--ds-ease-in-out), translate var(--dia-chip-close-duration) var(--ds-ease-in-out);
 }
 
 .dia-composer-chip:focus-within .dia-composer-chip__actions {
-  display: flex;
+  grid-template-columns: 1fr;
+  visibility: visible;
+  pointer-events: auto;
+  transition-duration: var(--dia-chip-open-duration), 0s;
+  transition-delay: 0s;
+}
+.dia-composer-chip:focus-within .dia-composer-chip__actions-inner {
   opacity: 1;
+  translate: 0;
+  transition-duration: var(--dia-chip-open-duration);
 }
 
 .dia-composer-chip__remove {
   display: grid;
   width: 28px;
   height: 28px;
+  flex: none;
   place-items: center;
   border: 0;
   border-radius: 50%;
@@ -2461,9 +2999,26 @@ button.dia-group__heading:focus-visible {
 
 @media (hover: hover) {
   .dia-composer-chip:hover .dia-composer-chip__actions {
-    display: flex;
-    opacity: 1;
+    grid-template-columns: 1fr;
+    visibility: visible;
+    pointer-events: auto;
+    transition-duration: var(--dia-chip-open-duration), 0s;
+    transition-delay: 0s;
   }
+  .dia-composer-chip:hover .dia-composer-chip__actions-inner {
+    opacity: 1;
+    translate: 0;
+    transition-duration: var(--dia-chip-open-duration);
+  }
+}
+@media (hover: none), (pointer: coarse) {
+  .dia-composer-chip__actions {
+    grid-template-columns: 1fr;
+    visibility: visible;
+    pointer-events: auto;
+    transition: none;
+  }
+  .dia-composer-chip__actions-inner { opacity: 1; translate: 0; transition: none; }
 }
 
 .dia-composer-chip__preview {
@@ -2584,11 +3139,12 @@ button.dia-group__heading:focus-visible {
   place-items: center;
   margin-bottom: 2px;
   border: 0;
-  border-radius: 50%;
+  border-radius: 999px;
   corner-shape: round;
   padding: 0;
-  background: var(--dsw-alias-button-primary-fill);
-  color: var(--dsw-alias-label-primary-foreground);
+  background: var(--dsw-alias-button-info-fill);
+  color: #fff;
+  transition: background-color var(--ds-transition-duration-fast) ease;
   cursor: pointer;
 }
 
@@ -2596,8 +3152,14 @@ button.dia-group__heading:focus-visible {
   margin-bottom: 0;
 }
 
-.dia-record-editor__check:hover:not(:disabled) {
-  background: var(--dsw-alias-button-primary-hover);
+.dia-record-editor .dia-record-editor__check:active:not(:disabled) {
+  background: var(--dsw-alias-button-info-hover);
+}
+
+@media (hover: hover) {
+  .dia-record-editor .dia-record-editor__check:hover:not(:disabled) {
+    background: var(--dsw-alias-button-info-hover);
+  }
 }
 
 .dia-record-editor__check:focus-visible {
@@ -2605,10 +3167,12 @@ button.dia-group__heading:focus-visible {
   outline-offset: 2px;
 }
 
-.dia-record-editor__check:disabled {
-  cursor: not-allowed;
+.dia-record-editor .dia-record-editor__check:disabled {
+  cursor: default;
   opacity: .4;
 }
+
+.dia-record-editor .dia-record-editor__check[data-saving="true"] { opacity: 1; cursor: progress; }
 
 .dia-record-editor__footer {
   display: flex;
@@ -2658,7 +3222,8 @@ button.dia-group__heading:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .dia-record-editor--shake { animation: none; outline: 2px solid var(--dsw-alias-state-business-primary); }
-  .dia-composer-chip__actions { transition: none; }
+  .dia-composer-chip { --dia-chip-open-duration: 0s; --dia-chip-close-duration: 0s; }
+  .dia-composer-chip__actions, .dia-composer-chip__actions-inner { transition: none; }
 }
 
 .dia-toast-icon {

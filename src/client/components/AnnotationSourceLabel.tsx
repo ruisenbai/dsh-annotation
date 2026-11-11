@@ -19,7 +19,7 @@ export function AnnotationSourceLabel({ item, t }: { item: AnnotationAnchor; t: 
     return (
       <span className="dia-source-label">
         <span>{t('source.body')}</span>
-        <span>{t('creation.body')}</span>
+        <span>{t(source?.sessionId === undefined ? 'creation.body' : 'creation.otherConversation')}</span>
       </span>
     )
   }

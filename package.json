@@ -1,7 +1,7 @@
 {
   "name": "dsh-annotation",
-  "version": "1.1.8",
-  "description": "Select text in replies, diffs, or files → annotate → send with a message; replies address each annotation in order, with source navigation for easy reference.",
+  "version": "1.2.0",
+  "description": "在主会话或侧栏选中文字即可添加注解，编辑框跟随原文。也可以标注文件和代码差异，将多条注解随消息发送，再从注解记录跳回出处。",
   "keywords": [
     "deepseek",
     "deepseek-harness",
@@ -11,7 +11,10 @@
     "annotation",
     "review",
     "session",
-    "messages"
+    "messages",
+    "注解",
+    "侧栏",
+    "代码审阅"
   ],
   "homepage": "https://github.com/ruisenbai/dsh-annotation#readme",
   "bugs": {
@@ -54,6 +57,7 @@
     "README.zh.md",
     "README.i18n.yaml",
     "CHANGELOG.md",
+    "CHANGELOG.en.md",
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
     "RELEASING.md",
@@ -73,12 +77,15 @@
       "inject": [
         "@deepseek-ai/dsh-api-remotes",
         "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-api-workspace-controller",
         "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-resources",
         "@deepseek-ai/dsh-client-ui-chat",
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-input-trigger",
         "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-ui-settings"
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
       ]
     }
   },
@@ -97,6 +104,7 @@
     "test": "vitest run",
     "test:browser": "node scripts/browser-test.mjs",
     "test:profile": "node scripts/profile-smoke.mjs",
+    "test:profile:side-chat": "node scripts/profile-side-chat.mjs",
     "test:coverage": "vitest run --coverage",
     "verify:bundle": "node scripts/verify-bundle.mjs",
     "publint": "publint --level error --pack npm",
@@ -113,26 +121,30 @@
     "micromark-extension-gfm": "^3.0.0",
     "micromark-extension-math": "^3.1.0",
     "yaml": "^2.9.0",
-    "zod": "^4.4.3"
+    "zod": "4.4.3"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.1.0",
     "@deepseek-ai/dsh-agent": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-api-remotes": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-api-session-controller": ">=0.2.2-rc.1",
+    "@deepseek-ai/dsh-api-workspace-controller": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-api-workspace-files": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-app-boot": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-brand": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-client-locale": ">=0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-resources": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-chat": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-conversation": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-input-trigger": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-renderer": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-settings": ">=0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-sidebar-right": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-commands": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-fs": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-llm": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-session": ">=0.2.2-rc.1",
+    "@deepseek-ai/dsh-session-projection": ">=0.2.2-rc.1",
     "@deepseek-ai/dsh-settings": ">=0.2.2-rc.1",
     "@deepseek-ai/schemastery": "~3.19.0"
   },
@@ -144,6 +156,7 @@
     "@deepseek-ai/dsh-anonymous-user-id": "0.2.2-rc.1",
     "@deepseek-ai/dsh-api-remotes": "0.2.2-rc.1",
     "@deepseek-ai/dsh-api-session-controller": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-api-workspace-controller": "0.2.2-rc.1",
     "@deepseek-ai/dsh-api-workspace-files": "0.2.2-rc.1",
     "@deepseek-ai/dsh-app-boot": "0.2.2-rc.1",
     "@deepseek-ai/dsh-atomic-write": "0.2.2-rc.1",
@@ -152,10 +165,12 @@
     "@deepseek-ai/dsh-bash-local": "0.2.2-rc.1",
     "@deepseek-ai/dsh-brand": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-locale": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-resources": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-store": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-chat": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-conversation": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-deliverables": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-dockkit": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-input-trigger": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-plugin-manager": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-primitives": "0.2.2-rc.1",
@@ -164,6 +179,7 @@
     "@deepseek-ai/dsh-client-ui-sidebar-documentpreview": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-sidebar-right": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-slots": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.2.2-rc.1",
     "@deepseek-ai/dsh-commands": "0.2.2-rc.1",
     "@deepseek-ai/dsh-compaction": "0.2.2-rc.1",
     "@deepseek-ai/dsh-deepseek-account": "0.2.2-rc.1",
@@ -180,6 +196,7 @@
     "@deepseek-ai/dsh-session": "0.2.2-rc.1",
     "@deepseek-ai/dsh-session-format-catalog": "0.2.2-rc.1",
     "@deepseek-ai/dsh-session-persistence": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-session-projection": "0.2.2-rc.1",
     "@deepseek-ai/dsh-session-query": "0.2.2-rc.1",
     "@deepseek-ai/dsh-session-telemetry": "0.2.2-rc.1",
     "@deepseek-ai/dsh-session-title-llm": "0.2.2-rc.1",

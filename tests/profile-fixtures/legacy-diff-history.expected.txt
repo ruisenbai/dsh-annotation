@@ -1,4 +1,4 @@
-- button "2 条注释" [expanded]
+- button "2 条注解" [expanded]
 - list:
   - listitem:
     - text: "[正文] [对话正文] selected source"

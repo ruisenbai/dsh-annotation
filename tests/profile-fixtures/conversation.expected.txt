@@ -5,5 +5,5 @@
   - text: . Selected source needs clarification.
 
 # Annotation submission
-- button "1 条注释，双击定位原文": 1 条注释
+- button "1 条注解，双击定位原文": 1 条注解
 - text: Clarify the local document.

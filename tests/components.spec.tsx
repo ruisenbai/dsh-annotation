@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TestAnnotatedAssistantNode as AnnotatedAssistantNode } from './assistant-host-fixture.tsx'
 import { AnnotatedAssistantNode as AssistantDecoration } from '../src/client/components/AnnotatedAssistantNode.tsx'
-import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionSnapshot, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { InputState } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { TestAnnotatedUserNode as AnnotatedUserNode, userContentFactory } from './user-host-fixture.tsx'
 import { AnnotationDetails } from '../src/client/components/AnnotationDetails.tsx'
@@ -28,8 +28,15 @@ import { parseSubmissionPayload } from '../src/shared/protocol.ts'
 import { en } from '../src/client/locales.ts'
 import type { AnnotationDraft, SessionIdentity } from '../src/shared/types.ts'
 
+let originalFont = ''
+beforeEach(() => {
+  originalFont = document.body.style.fontSize
+  document.body.style.fontSize = '16px'
+})
+
 afterEach(() => {
   cleanup()
+  document.body.style.fontSize = originalFont
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -80,9 +87,9 @@ const t = (key: AnnotationLocaleKey, params?: Record<string, unknown>) => {
     'settings.refresh': 'Refresh page',
     'settings.restart': 'Restart Host',
     'settings.restartManaged': 'Restart it from the Host.',
-    'timeline.single': '1 comment',
-    'timeline.summary': `${String(params?.count)} comments`,
-    'timeline.singleLocate': '1 comment, double-click to locate the source',
+    'timeline.single': '1 annotation',
+    'timeline.summary': `${String(params?.count)} annotations`,
+    'timeline.singleLocate': '1 annotation, double-click to locate the source',
     'timeline.previewSource': `Source: ${String(params?.quote)}`,
     'timeline.preview': `Source: ${String(params?.quote)}\nAnnotation: ${String(params?.annotation)}`,
     'list.locate': 'Locate source',
@@ -507,7 +514,7 @@ describe('inline comment presentation', () => {
       t: translate,
     } as unknown as UserAnnotationProps<'user'>
     const { container } = render(<AnnotatedUserNode {...props} />)
-    const badge = screen.getByRole('button', { name: '3 comments' })
+    const badge = screen.getByRole('button', { name: '3 annotations' })
     expect(container.querySelector('.dia-user-submission')?.firstElementChild).toHaveClass('dia-timeline')
     expect(badge).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText('src/example.ts')).not.toBeInTheDocument()
@@ -547,8 +554,8 @@ describe('inline comment presentation', () => {
     expect(submission.firstElementChild).toHaveClass('dia-timeline')
     expect(submission.children[1]).toHaveClass('dia-user')
     expect(screen.getByText('Rewrite the proposal coherently.')).toBeInTheDocument()
-    const badge = screen.getByRole('button', { name: '1 comment, double-click to locate the source' })
-    expect(badge).toHaveTextContent('1 comment')
+    const badge = screen.getByRole('button', { name: '1 annotation, double-click to locate the source' })
+    expect(badge).toHaveTextContent('1 annotation')
     fireEvent.click(badge, { detail: 1 })
     expect(navigate).not.toHaveBeenCalled()
     fireEvent.doubleClick(badge)
@@ -916,6 +923,7 @@ describe('inline comment presentation', () => {
         },
       } as AssistantAnnotationProps['node'],
       useSession: (select) => select(session),
+      useSessions: (select) => select({ phase: 'ready', byId: {} } as SessionListState),
       useInput: (select) => select(input),
       inputActions: {
         insertQuote,
@@ -1029,7 +1037,67 @@ describe('inline comment presentation', () => {
     },
   )
 
-  it('keeps mobile text width and hides markers when no safe whitespace remains', async () => {
+  it('keeps zoomed character placement independent of overflow-marker height', async () => {
+    const payload = fixturePayload()
+    const annotation: AnnotationDraft = {
+      ...payload.annotations[0]!,
+      messageId: 'assistant-chip' as NonNullable<AnnotationDraft['messageId']>,
+      responseVersion: 'assistant-chip' as NonNullable<AnnotationDraft['responseVersion']>,
+      messageSeq: 9,
+      status: 'draft',
+      updatedAt: payload.createdAt,
+    }
+    const rangeRects = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects')
+    const line = new DOMRect(100, 30, 100, 20)
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: (): DOMRectList => ({
+        0: line,
+        length: 1,
+        item: () => line,
+        [Symbol.iterator]: function* () {
+          yield line
+          return undefined
+        },
+      }),
+    })
+    let gutterHeight = 63.8125
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.parentElement?.classList.contains('dia-marker') ? 16 : 512
+    })
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.parentElement?.classList.contains('dia-marker')
+        ? 16
+        : this.classList.contains('dia-assistant__body')
+          ? 48
+          : 51
+    })
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return new DOMRect(0, 0, 640, this.classList.contains('dia-assistant__body') ? 60 : gutterHeight)
+    })
+    try {
+      const view = { ...baseView(), annotations: [annotation] }
+      const { container } = render(
+        <AnnotatedAssistantNode
+          {...assistantPropsFor(view, 'closed', [{ kind: 'text', text: 'before selected source after' }])}
+        />,
+      )
+      const marker = container.querySelector<HTMLElement>('.dia-marker')!
+      const initialTop = marker.style.top
+      expect(Number.parseFloat(initialTop)).toBeLessThan(24)
+      expect(Number.parseFloat(marker.style.left)).toBeGreaterThan(160)
+      for (gutterHeight of [63.828125, 63.8125]) {
+        fireEvent(window, new Event('resize'))
+        await waitFor(() => expect(marker.style.top).toBe(initialTop))
+      }
+      expect(container.querySelector<HTMLElement>('.dia-assistant')!.style.minHeight).toBe('48px')
+    } finally {
+      if (rangeRects === undefined) Reflect.deleteProperty(Range.prototype, 'getClientRects')
+      else Object.defineProperty(Range.prototype, 'getClientRects', rangeRects)
+    }
+  })
+
+  it('keeps five independent records at the text edge without reserving text width', async () => {
     vi.stubGlobal('innerWidth', 320)
     let lineRight = 280
     const payload = fixturePayload()
@@ -1092,22 +1160,17 @@ describe('inline comment presentation', () => {
         t,
       } as unknown as AssistantAnnotationProps
       const { container, rerender } = render(<AnnotatedAssistantNode {...props} />)
-      const marker = screen.getByRole('button', {
-        name: 'View 5 annotations on this line, numbered 1, 2, 3, 4, 5',
-      })
-      expect(marker).toHaveStyle({ left: '282px', width: '24px' })
-      expect(marker).toHaveTextContent('×5')
-      expect(marker).toHaveAttribute(
-        'data-annotation-ids',
-        annotations.map((item) => item.annotationId).join(' '),
+      const markers = container.querySelectorAll<HTMLElement>('.dia-marker')
+      expect(markers).toHaveLength(5)
+      expect([...markers].map((element) => element.dataset.annotationIds)).toEqual(
+        annotations.map((item) => item.annotationId),
       )
       const body = container.querySelector<HTMLElement>('.dia-assistant__body')!
-      expect(body.style.paddingRight).toBe('')
+      expect(container.querySelector<HTMLElement>('.dia-assistant')!.style.paddingRight).toBe('')
       expect(body.textContent).toBe('before selected source after')
       lineRight = 320
       fireEvent(window, new Event('resize'))
-      await waitFor(() => expect(container.querySelector('.dia-marker')).toBeNull())
-      expect(body.style.paddingRight).toBe('')
+      await waitFor(() => expect(container.querySelectorAll('.dia-marker')).toHaveLength(5))
       expect(body.textContent).toBe('before selected source after')
 
       const unresolvedView: AnnotationView = {

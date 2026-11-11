@@ -1,24 +1,16 @@
-## Summary
+## 用户会看到什么变化
 
-<!-- What user or maintainer problem does this change solve? -->
+<!-- 写明触发步骤和实际效果。 -->
 
-## Behavior and compatibility
+## 兼容性与隐私
 
-- User-visible behavior:
-- Persisted/wire/config changes:
-- DSH renderer or API compatibility impact:
-- Privacy or model-context impact:
+<!-- 说明宿主版本、历史记录、配置、模型输入或隐私方面的影响。 -->
 
-## Verification
+## 验证
 
-- [ ] `pnpm typecheck`
-- [ ] `pnpm lint`
-- [ ] `pnpm format:check`
-- [ ] `pnpm test`
-- [ ] `pnpm build && pnpm verify:bundle`
-- [ ] Relevant DSH Web smoke scenarios from `docs/development.md`
-- [ ] Documentation and both locale dictionaries updated when needed
+- [ ] 类型、代码和格式检查
+- [ ] 相关单元测试、构建和安装包检查
+- [ ] 涉及界面时，已运行对应的真实 Web 场景并附上不含私人信息的截图
+- [ ] 已更新中文文档及相应语言文字
 
-## Screenshots or recording
-
-<!-- Required for visible UI changes. Remove this section when not applicable. -->
+<!-- 请列出实际执行的命令，并明确未验证的环境。 -->

@@ -3,6 +3,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime, { type CommandSubmitAttachment } from '@deepseek-ai/dsh-commands'
 import type { FileBlock, ImageBlock } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { describe, expect, it, vi } from 'vitest'
 import { createAnnotationCommand } from '../src/host/command.ts'
 import { encodeSubmissionCommand } from '../src/shared/codec.ts'
@@ -10,8 +11,47 @@ import { DEFAULT_CONFIG } from '../src/shared/config.ts'
 import { fixturePayload } from './fixtures.ts'
 import { parseAttachmentIdentities } from '../src/shared/protocol.ts'
 import { ATTACHMENT_PREPARE_INPUT, ATTACHMENT_IDENTITY_MISMATCH } from '../src/shared/types.ts'
+import { apply, inject } from '../src/index.ts'
+import { SIDE_CHAT_COMMAND_NAME, SIDE_CHAT_RECEIPTS_PROJECTION } from '../src/shared/side-chat-types.ts'
 
 describe('official Host command attachment admission', () => {
+  it('installs annotation commands and side receipts through the Host plugin lifecycle', async () => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionProjectionRegistry)
+      await ctx.plugin(CommandRuntime)
+      const session = ctx.sessions.create(SessionId('annotation-runtime'))
+      const agent = { id: session.id } as Agent
+      const plugin = await ctx.plugin({
+        name: 'annotation-runtime-test',
+        inject,
+        apply: (scope: Context) => apply(scope, DEFAULT_CONFIG),
+      })
+      expect(ctx.commands.list(agent).map((command) => command.name)).toEqual(
+        expect.arrayContaining([
+          DEFAULT_CONFIG.commandName,
+          'inline_comments_submit',
+          'inline_annotations_submit',
+          SIDE_CHAT_COMMAND_NAME,
+        ]),
+      )
+      expect(ctx.sessionProjections.snapshot(session).values).toHaveProperty(SIDE_CHAT_RECEIPTS_PROJECTION, {
+        receipts: {},
+      })
+      expect(
+        ctx.sessionProjections.snapshot(session, ctx.sessionProjections.summaryKeys()).values,
+      ).not.toHaveProperty(SIDE_CHAT_RECEIPTS_PROJECTION)
+      await plugin.dispose()
+      expect(ctx.commands.list(agent)).toEqual([])
+      expect(ctx.sessionProjections.snapshot(session).values).not.toHaveProperty(
+        SIDE_CHAT_RECEIPTS_PROJECTION,
+      )
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('admits mixed attachments before enqueueing one idempotent annotation message', async () => {
     const ctx = new Context()
     try {

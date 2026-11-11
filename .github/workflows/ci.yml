@@ -99,6 +99,10 @@ jobs:
         if: matrix.node == '24.x'
         run: pnpm test:profile
         working-directory: ${{ runner.temp }}/annotation-verification
+      - name: 验证实际 Web 配置中的侧栏注解
+        if: matrix.node == '24.x'
+        run: pnpm test:profile:side-chat
+        working-directory: ${{ runner.temp }}/annotation-verification
       - name: Run record attachment regressions
         if: matrix.node == '24.x'
         run: pnpm test:profile --record-attachments-only

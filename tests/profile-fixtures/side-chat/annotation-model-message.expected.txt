@@ -1,0 +1,26 @@
+[DSH 注解提交]
+Submission ID: {{submission}}
+Reply annotations: 1
+
+总体要求：
+请按注解说明。
+总体要求指定目标、范围与约束，交付方式指定输出形式；直接冲突时说明并请求澄清。
+
+交付方式：逐条回答
+按编号逐条回答，不合并；每段以「注解 N：」开头，段前原样输出对应隐藏关联标记（HTML 注释）。
+
+<!-- dsh-annotation-reply:{"submissionId":"{{submission}}","annotationId":"{{annotation}}","ordinal":1} -->
+注解 1
+Source session: annotation-side-chat-main-a
+Reply message: annotation-side-chat-main-a:assistant
+Reply event seq: 7
+被选中的原文：
+Alpha confirmed source.
+原文后文：
+ Beta confirmed source. Gamma co
+用户的注解：
+解释 Alpha 的前提
+
+处理确认：
+在回复末尾输出以下隐藏 HTML 注释，processed 仅列本次按交付方式实际完成的注解 ID：
+<!-- dsh-annotation:{"submissionId":"{{submission}}","processed":["annotation-id"]} -->

@@ -1,0 +1,22 @@
+以下引用来自主会话中用户明确选中的助手回复。根据这些引用和问题回答，不要假设能访问主会话的其他内容。
+
+引用 1 [{{reference:1}}]
+来源会话: annotation-side-chat-main-a
+助手消息: annotation-side-chat-main-a:assistant; seq=7; version=annotation-side-chat-main-a:assistant
+原文:
+Alpha confirmed source.
+
+引用 2 [{{reference:2}}]
+来源会话: annotation-side-chat-main-a
+助手消息: annotation-side-chat-main-a:assistant; seq=7; version=annotation-side-chat-main-a:assistant
+原文:
+Beta confirmed source.
+
+引用 3 [{{reference:3}}]
+来源会话: annotation-side-chat-main-a
+助手消息: annotation-side-chat-main-a:assistant; seq=7; version=annotation-side-chat-main-a:assistant
+原文:
+Gamma confirmed source.
+
+问题：
+Explain the three confirmed references in order.

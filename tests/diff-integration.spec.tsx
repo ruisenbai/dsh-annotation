@@ -74,6 +74,35 @@ afterEach(() => {
 })
 
 describe('official Diff integration', () => {
+  it('starts both snapshot reads together and handles cancelled parsing while the other response is pending', async () => {
+    const summary = Promise.withResolvers<Response>()
+    const diff = Promise.withResolvers<Response>()
+    const parsed = Promise.withResolvers<unknown>()
+    const summaryResponse = response({ turn: 3, files: [{ path: '/workspace/notes.md' }] })
+    vi.spyOn(summaryResponse, 'json').mockImplementation(() => parsed.promise)
+    const read = vi.fn((url: string | URL | Request) =>
+      String(url).includes('changes.summary') ? summary.promise : diff.promise,
+    )
+    const pending = loadOfficialDiff(actionUrl, read)
+    const outcome = pending.then(
+      (value) => value,
+      (error: unknown) => error,
+    )
+    try {
+      expect(read).toHaveBeenCalledTimes(2)
+      summary.resolve(summaryResponse)
+      await vi.waitFor(() => expect(summaryResponse.json).toHaveBeenCalledOnce())
+      const cancelled = new DOMException('Selection dismissed', 'AbortError')
+      parsed.reject(cancelled)
+      expect(await outcome).toBe(cancelled)
+    } finally {
+      summary.resolve(summaryResponse)
+      parsed.resolve({ turn: 3, files: [{ path: '/workspace/notes.md' }] })
+      diff.resolve(await fetcher('api/changes.diff'))
+      await outcome
+    }
+  })
+
   it('rejects contradictory comparison data before creating a source', async () => {
     const invalidHunks = (url: string | URL | Request): Promise<Response> =>
       String(url).includes('changes.summary')
