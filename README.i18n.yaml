@@ -1,29 +1,29 @@
 # README.en.md（英文）与 README.zh.md（简体中文）的章节摘要；README.md 同步展示中文。
 # 使用 DeepSeek Harness 的 scripts/translation-pairing-record.ts 按上述路径记录。
 /:
-  en: a17ffed310f6c89b
-  zh: 5ab887b6da1e1374
+  en: cb2185c3144d2a94
+  zh: c7fb3b26c8de954c
 /dsh-annotation:
   en: 0e1e2b3de05b287b
-  zh: f4aaedf83ea7aed1
+  zh: b935c82380f74499
 /dsh-annotation/summary:
-  en: e43dd5cff9a074c5
-  zh: 92f73c0efe0a5d81
+  en: e212a9e5463d7bb6
+  zh: d19c71b697da7e61
 /dsh-annotation/contents:
   en: fb5047d96b412d51
   zh: ff47a1d878c34d3b
 /dsh-annotation/install-and-upgrade:
-  en: 13692edd30f9b758
-  zh: 5be4c4b8a4226fd3
+  en: 1473c7612a5be175
+  zh: 4a87484eb414e86e
 /dsh-annotation/install-and-upgrade/manual-installation:
-  en: a6fff223a5ba0df6
-  zh: 1f0bfeb75af50c58
+  en: d242b2658f9dc94b
+  zh: 4bbaad22fd0e1742
 /dsh-annotation/install-and-upgrade/install-with-an-ai-agent:
   en: 21bb8ed5dc37727e
   zh: 7247c66c407d0570
 /dsh-annotation/install-and-upgrade/upgrading-from-an-older-host:
-  en: cc7d15c8528f5947
-  zh: 452f57bfb7692024
+  en: 5039fadf4c777cd0
+  zh: 1ba6caba92d2ad79
 /dsh-annotation/supported-sources:
   en: dc9c7e2d3ae08ffa
   zh: 9939c646f862aba8
@@ -34,8 +34,8 @@
   en: 9c4e96da23d2c693
   zh: 6733e31267f8f31f
 /dsh-annotation/side-chats:
-  en: 6088d029b1c59a0d
-  zh: 0b9635d06de70b0e
+  en: 6b36e5823f4f96a4
+  zh: a2188ec5f2a68a10
 /dsh-annotation/send-resend-and-retry:
   en: 963a748d6a5182c6
   zh: 0e64e0dd9aaa41bf

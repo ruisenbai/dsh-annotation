@@ -25,7 +25,7 @@ pnpm test:coverage
 
 ## 验证侧栏
 
-使用 `DSH_SIDE_CHAT_HARNESS_ROOT=/path/to/deepseek-harness pnpm test:profile:side-chat` 针对已构建的配套宿主运行侧聊验收，覆盖创建时的模型上下文、父子隔离、工作区列表、独立打开、刷新和从原主会话恢复归档。官方 master 和锁定的公开版宿主验证缺少扩展接口时的更新提示与历史回放。
+用 `pnpm test:profile:side-chat` 对官方宿主验证上下文隔离、正文起点、工作区列表、独立打开、归档恢复和发送途中重连。设置 `DSH_ANNOTATION_PACKAGED_DIR` 可验证本机 Linux 安装目录下的 Web，追加 `--desktop` 则运行同一安装目录中的 GUI。测试使用临时配置和离线模型。
 
 <a id="historical-diff-verification"></a>
 <a id="test-layout"></a>
@@ -57,11 +57,11 @@ pnpm test:coverage
 在锁文件对应的验证目录完成以上检查后，用 `pnpm --config.ignoreScripts=true pack --pack-destination artifacts` 打包。此选项只用于避免重复执行已经完成的检查。若在临时源码验证目录打包，先还原发布仓库的 `package.json`，不发布本机依赖覆盖。
 
 ```bash
-tar -tzf artifacts/dsh-annotation-1.3.0.tgz
-tar -xOf artifacts/dsh-annotation-1.3.0.tgz package/package.json
+tar -tzf artifacts/dsh-annotation-1.3.1.tgz
+tar -xOf artifacts/dsh-annotation-1.3.1.tgz package/package.json
 ```
 
-安装包应含 `lib/index.js`、`lib/client.js`、`lib/invariant.js`、类型、配置补丁、中文文档、截图及许可。用隔离的 `DSH_HOME` 将它安装到 `web` 配置；`dsh plugin --profile web why dsh-annotation` 应显示 1.3.0。再通过公开版宿主实际加载并核对安装包内的客户端内容。
+安装包应含 `lib/index.js`、`lib/client.js`、`lib/invariant.js`、类型、配置补丁、中文文档、截图及许可。用隔离的 `DSH_HOME` 将它安装到 `web` 配置；`dsh plugin --profile web why dsh-annotation` 应显示 1.3.1。再通过公开版宿主实际加载并核对安装包内的客户端内容。
 
 <a id="release-checklist"></a>
 

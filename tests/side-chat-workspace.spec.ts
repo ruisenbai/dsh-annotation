@@ -7,6 +7,8 @@ import type {
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ISessions, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import { describe, expect, it, vi } from 'vitest'
+import { preserveSideChatBlanks } from '../src/client/side-chat-blank-reuse.ts'
+import { ownedSideSessionId } from '../src/shared/side-session-id.ts'
 import { resolveSideChatWorkspace } from '../src/client/side-chat-workspace.ts'
 
 const mainId = SessionId('workspace-main')
@@ -260,5 +262,87 @@ describe('side-chat Workspace creation environment', () => {
     expect(fixture.listeners.size).toBe(0)
     expect(fixture.catalog.listeners.size).toBe(0)
     expect(fixture.catalog.releases[0]).toHaveBeenCalledOnce()
+  })
+})
+
+describe('workspace selection of an empty session', () => {
+  const owned = ownedSideSessionId(mainId, 'side-chat-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
+  const ordinary = SessionId('empty-main')
+  const archived = SessionId('archived-main')
+  const differentPreset = SessionId('other-preset')
+  const outside = SessionId('other-workspace')
+  const fresh = SessionId('fresh-main')
+  function blanks(includeOrdinary: boolean) {
+    const workspace = row('folder', [
+      owned,
+      archived,
+      differentPreset,
+      ...(includeOrdinary ? [ordinary] : []),
+    ])
+    const snapshot = catalog(
+      'ready',
+      [owned, outside, archived, differentPreset, ordinary].map((id) => ({ id, cwd: workspace.path })),
+    )
+    const list = observable<SessionListState>({
+      ...snapshot,
+      byId: Object.fromEntries(
+        Object.entries(snapshot.byId).map(([id, entry]) => [
+          id,
+          {
+            ...entry,
+            blank: true,
+            projectionValues: { agentPreset: id === differentPreset ? 'other' : 'chat' },
+          },
+        ]),
+      ),
+    }).list
+    const workspaces = observable({ ...state('ready', [workspace]), archivedSessionIds: [archived] })
+    const create = vi.fn<ISessions['create']>(async (options) => options?.sessionId ?? fresh)
+    const sessions = { list, create }
+    class Navigation {
+      connectWorkspace(target: WorkspaceId) {
+        return sessions.create({ workspaceId: target, sessionId: owned, agentPreset: 'chat' })
+      }
+      async openWorkspace(target: WorkspaceId) {
+        await this.connectWorkspace(target)
+      }
+    }
+    const navigation = new Navigation()
+    return { navigation, sessions, workspaces, create, target: workspace.workspaceId }
+  }
+
+  it('keeps an ordinary blank with the same workspace and preset when the first candidate is owned', async () => {
+    const { navigation, sessions, workspaces, create, target } = blanks(true)
+    const dispose = preserveSideChatBlanks(navigation, sessions, workspaces)
+    await navigation.openWorkspace(target)
+    expect(create).toHaveBeenCalledExactlyOnceWith({
+      workspaceId: target,
+      sessionId: ordinary,
+      agentPreset: 'chat',
+    })
+    expect(sessions.list.getSnapshot().ids).toContain(owned)
+    dispose()
+  })
+
+  it('creates a fresh blank while allowing an explicit open of the owned chat in the same tick', async () => {
+    const { navigation, sessions, workspaces, create, target } = blanks(false)
+    const dispose = preserveSideChatBlanks(navigation, sessions, workspaces)
+    const automatic = navigation.connectWorkspace(target)
+    const direct = sessions.create({ workspaceId: target, sessionId: owned })
+    await expect(automatic).resolves.toBe(fresh)
+    await expect(direct).resolves.toBe(owned)
+    expect(create.mock.calls[0]).toEqual([{ workspaceId: target, agentPreset: 'chat' }])
+    dispose()
+    expect(sessions.create).toBe(create)
+    expect(Object.hasOwn(navigation, 'openWorkspace')).toBe(false)
+    expect(Object.hasOwn(navigation, 'connectWorkspace')).toBe(false)
+    await expect(navigation.connectWorkspace(target)).resolves.toBe(owned)
+  })
+
+  it('releases already installed methods if the workspace service cannot be decorated', () => {
+    const { navigation, sessions, workspaces, create } = blanks(false)
+    Object.preventExtensions(navigation)
+    expect(() => preserveSideChatBlanks(navigation, sessions, workspaces)).toThrow(TypeError)
+    expect(sessions.create).toBe(create)
   })
 })

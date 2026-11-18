@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
+import { launchFixtureDesktop } from './profile-packaged-desktop.mjs'
 import { exerciseSideAnnotations } from './profile-side-annotations.mjs'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
@@ -40,7 +41,18 @@ await access(join(project, 'lib/index.js'))
 await mkdir(join(project, 'artifacts/browser'), { recursive: true })
 const artifacts = await mkdtemp(join(project, 'artifacts/browser/side-chat-'))
 const root = await mkdtemp(join(tmpdir(), 'dsh-annotation-side-chat-'))
+const packagedDir = process.env.DSH_ANNOTATION_PACKAGED_DIR
+const desktop = process.argv.includes('--desktop')
+if (desktop && !packagedDir) throw new Error('Pass DSH_ANNOTATION_PACKAGED_DIR for the Linux desktop build')
+let gui
+let authenticatedEntry
 const pending = new Map()
+function onReply(message) {
+  const waiter = pending.get(message?.id)
+  if (!waiter) return
+  if (message.error) waiter.reject(new Error(message.error))
+  else waiter.resolve(message.result)
+}
 let child
 let completion
 let browser
@@ -168,7 +180,12 @@ async function request(action, payload) {
   const id = ++nextId
   const reply = new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject })
-    child.send({ type: 'annotation-side-chat-smoke', id, action, payload }, (error) => {
+    const packet = { type: 'annotation-side-chat-smoke', id, action, payload }
+    if (gui) {
+      gui.send(packet)
+      return
+    }
+    child.send(packet, (error) => {
       if (error) reject(error)
     })
   })
@@ -286,11 +303,19 @@ async function selectText(body, exact, target = page) {
 }
 
 /** The active chat's browser-owned pending state, as the panel renders it. */
-async function association(sessionId) {
-  const handle = await page.waitForFunction((id) => {
-    const stored = JSON.parse(localStorage.getItem(`dsh-annotation:side-chat:v2:${id}`))
-    return stored?.chats.find((chat) => chat.sideChatId === stored.activeSideChatId && chat.sideSessionId)
-  }, sessionId)
+async function association(sessionId, previousTabs = []) {
+  const handle = await page.waitForFunction(
+    ({ id, previousTabs }) => {
+      const stored = JSON.parse(localStorage.getItem(`dsh-annotation:side-chat:v2:${id}`))
+      return stored?.chats.find(
+        (chat) =>
+          chat.sideChatId === stored.activeSideChatId &&
+          chat.sideSessionId &&
+          !previousTabs.includes(chat.sideChatId),
+      )
+    },
+    { id: sessionId, previousTabs },
+  )
   try {
     return await handle.jsonValue()
   } finally {
@@ -386,8 +411,11 @@ async function exerciseOwnedSideChats() {
   await openMain(parent, scenario.otherSource)
   let side = await openSide(parent)
   const newTab = async () => {
+    const previousTabs = await side
+      .locator('[data-dia-side-chat-select]')
+      .evaluateAll((tabs) => tabs.map((tab) => tab.dataset.diaSideChatSelect))
     await side.getByRole('button', { name: '新建侧边聊天', exact: true }).click()
-    const chat = await association(parent)
+    const chat = await association(parent, previousTabs)
     await composer(mainFlow(chat.sideSessionId)).waitFor()
     return chat
   }
@@ -459,7 +487,7 @@ async function exerciseOwnedSideChats() {
       (id) => localStorage.setItem('dsh.sessions.current', JSON.stringify({ sessionId: id })),
       parent,
     )
-    await page.goto(new URL(originalPage.url()).origin)
+    await page.goto(desktop ? authenticatedEntry : new URL(originalPage.url()).origin)
     await mainBody(parent).waitFor()
     const recovered = await openSide(parent)
     for (const chat of [one, two])
@@ -515,6 +543,29 @@ async function exerciseOwnedSideChats() {
   assert.deepEqual((await request('read-session', { sessionId: empty })).events, [])
   await exerciseDelegatedSideChats(parent)
   await exerciseMainBubbleReconnect(parent)
+  await page.getByRole('button', { name: '搜索会话', exact: true }).filter({ visible: true }).click()
+  const searchBox = page.getByPlaceholder('搜索会话名称')
+  await searchBox.fill('Side-chat source B')
+  await page
+    .getByRole('tree', { name: '搜索结果' })
+    .getByText('Side-chat source B', { exact: true })
+    .waitFor()
+  await searchBox.fill('仅侧聊记录：蓝桥')
+  await page.getByText('无匹配会话', { exact: true }).waitFor()
+  assert.equal(await page.getByRole('tree', { name: '搜索结果' }).getByRole('treeitem').count(), 0)
+  await searchBox.press('Escape')
+  const projectRow = page.getByRole('treeitem').filter({ hasText: 'Side-chat smoke' }).first()
+  await projectRow.hover()
+  await projectRow.getByRole('button', { name: '在“Side-chat smoke”中新建会话', exact: true }).click()
+  await page.waitForFunction((previous) => {
+    const id = JSON.parse(localStorage.getItem('dsh.sessions.current'))?.sessionId
+    return typeof id === 'string' && id !== previous
+  }, parent)
+  const newMain = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('dsh.sessions.current')).sessionId,
+  )
+  assert.ok(!newMain.startsWith('annotation-side-'), 'New Session must not reuse an empty owned side chat')
+  await composer(mainFlow(newMain)).waitFor()
   console.log(
     'PASS fork-time model context, independent parent and sibling updates, hidden rows, inactive-tab full page, reload, archive and parent-only restore',
   )
@@ -537,9 +588,12 @@ async function exerciseDelegatedSideChats(parent) {
   await selectConversation(source)
   let side = await openSide(source)
   const createTab = async (retry = false) => {
+    const previousTabs = await side
+      .locator('[data-dia-side-chat-select]')
+      .evaluateAll((tabs) => tabs.map((tab) => tab.dataset.diaSideChatSelect))
     if (retry) await request('fail-next-lifecycle', { kind: 'side-fork' })
     await side.getByRole('button', { name: '新建侧边聊天', exact: true }).click()
-    const chat = await association(source)
+    const chat = await association(source, previousTabs)
     const body = mainFlow(chat.sideSessionId)
     if (retry) {
       await side.getByRole('alert').waitFor()
@@ -622,6 +676,23 @@ async function exerciseMainBubbleReconnect(id) {
     await composer(flow).press('Enter')
     await request('wait-main-claim')
     await bubble.waitFor()
+    await flow.evaluate((element, text) => {
+      const counts = new Set()
+      const sample = () => {
+        counts.add(
+          Array.from(element.querySelectorAll('[data-submission-echo], [data-chat-flow-kind="user"]')).filter(
+            (row) => row.getClientRects().length && row.textContent.includes(text),
+          ).length,
+        )
+        frame = requestAnimationFrame(sample)
+      }
+      let frame
+      sample()
+      window.sideChatTransportCheck.finish = () => {
+        cancelAnimationFrame(frame)
+        return [...counts]
+      }
+    }, text)
     const before = await page.evaluate(() => {
       const p = window.sideChatTransportCheck
       const before = p.baselines
@@ -639,6 +710,41 @@ async function exerciseMainBubbleReconnect(id) {
   }
   await flow.locator('[data-chat-flow-kind="user"]').getByText(text, { exact: true }).waitFor()
   assert.equal(await bubble.count(), 1)
+  assert.deepEqual(await page.evaluate(() => window.sideChatTransportCheck.finish()), [1])
+  await request('wait-agent-idle', { id })
+  await composer(flow).fill(text)
+  await composer(flow).press('Enter')
+  await flow.locator('[data-chat-flow-kind="user"]').getByText(text, { exact: true }).nth(1).waitFor()
+  assert.equal(await bubble.count(), 2)
+  for (const outcome of ['reject', 'cancel']) {
+    await request('wait-agent-idle', { id })
+    const draft = '重连后终止的测试输入 ' + outcome
+    const stopped = flow.getByText(draft, { exact: true })
+    await request('hold-main-admission', { id })
+    try {
+      await composer(flow).fill(draft)
+      await composer(flow).press('Enter')
+      await request('wait-main-claim')
+      await stopped.waitFor()
+      const previous = await page.evaluate(() => {
+        const control = window.sideChatTransportCheck
+        control.disconnect()
+        return control.baselines
+      })
+      await page.waitForFunction((n) => window.sideChatTransportCheck.baselines > n, previous)
+      assert.equal(await stopped.count(), 1)
+    } finally {
+      await request('release-main-admission', { outcome })
+    }
+    await request('wait-agent-idle', { id })
+    await stopped.waitFor({ state: 'detached' })
+    const saved = await request('read-session', { sessionId: id })
+    assert.ok(
+      !saved.events.some(
+        (e) => e.type === 'user/message' && e.data.content.some((part) => part.text === draft),
+      ),
+    )
+  }
   console.log(
     'PASS main chat retains exactly one visible message across claim, reconnect, and durable admission',
   )
@@ -882,7 +988,7 @@ async function runRecordedSideChatSnapshot(workspace, annotations = false) {
 
 try {
   const home = join(root, 'home')
-  const profile = join(home, 'profiles/web')
+  const profile = join(home, 'profiles', desktop ? 'desktop' : 'web')
   const workspace = join(root, 'Side-chat smoke')
   await mkdir(join(profile, 'node_modules'), { recursive: true })
   await mkdir(workspace)
@@ -925,51 +1031,60 @@ try {
       delete env[key]
   }
   Object.assign(env, { DSH_HOME: home, DSH_AGENTS_HOME: join(root, 'agents'), DSH_TELEMETRY_DISABLED: '1' })
-  child = spawn(
-    process.execPath,
-    [
-      join(dirname(cliManifestPath), cliManifest.bin.dsh),
-      '--profile',
-      'web',
-      '--patch',
+  if (desktop) {
+    gui = await launchFixtureDesktop({
+      directory: packagedDir,
+      root,
+      profile,
       patch,
-      '--host',
-      '127.0.0.1',
-      '--port',
-      '0',
-      '--no-open',
-    ],
-    { cwd: workspace, env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] },
-  )
-  let resolveReady
-  let rejectReady
-  const ready = new Promise((resolve, reject) => {
-    resolveReady = resolve
-    rejectReady = reject
-  })
-  completion = new Promise((resolve) =>
-    child.once('close', (code, signal) => {
-      const error = new Error(`dsh exited: code=${code}, signal=${signal}\n${output}`)
-      rejectReady(error)
-      for (const waiter of pending.values()) waiter.reject(error)
-      resolve({ code, signal })
-    }),
-  )
-  child.once('error', rejectReady)
-  for (const stream of [child.stdout, child.stderr])
-    stream.on('data', (data) => {
-      output = (output + String(data).replace(/([?&]token=)[^\s&]+/g, '$1<redacted>')).slice(-60_000)
-      if (output.includes('dsh web: http://')) resolveReady()
+      workspace,
+      env,
+      onReply,
+      deadline,
     })
-  child.on('message', (message) => {
-    const waiter = pending.get(message?.id)
-    if (!waiter) return
-    if (message.error) waiter.reject(new Error(message.error))
-    else waiter.resolve(message.result)
-  })
-  await deadline(ready, 'Isolated Web readiness')
-  await request('prepare')
+  } else {
+    child = spawn(
+      packagedDir ? join(packagedDir, 'resources/runtime/cli/bin/dsh') : process.execPath,
+      [
+        ...(packagedDir ? [] : [join(dirname(cliManifestPath), cliManifest.bin.dsh)]),
+        '--profile',
+        'web',
+        '--patch',
+        patch,
+        '--host',
+        '127.0.0.1',
+        '--port',
+        '0',
+        '--no-open',
+      ],
+      { cwd: workspace, env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] },
+    )
+    let resolveReady
+    let rejectReady
+    const ready = new Promise((resolve, reject) => {
+      resolveReady = resolve
+      rejectReady = reject
+    })
+    completion = new Promise((resolve) =>
+      child.once('close', (code, signal) => {
+        const error = new Error(`dsh exited: code=${code}, signal=${signal}\n${output}`)
+        rejectReady(error)
+        for (const waiter of pending.values()) waiter.reject(error)
+        resolve({ code, signal })
+      }),
+    )
+    child.once('error', rejectReady)
+    for (const stream of [child.stdout, child.stderr])
+      stream.on('data', (data) => {
+        output = (output + String(data).replace(/([?&]token=)[^\s&]+/g, '$1<redacted>')).slice(-60_000)
+        if (output.includes('dsh web: http://')) resolveReady()
+      })
+    child.on('message', onReply)
+    await deadline(ready, 'Isolated Web readiness')
+  }
+  await request('prepare', { workspace })
   const initial = await request('inspect')
+  authenticatedEntry = initial.url
   assert.equal(initial.bundles.find((bundle) => bundle.name === 'dsh-annotation')?.enabled, true)
   console.log(`Isolated side-chat profile URL: ${new URL(initial.url).origin}`)
   const mainSeed = await seedMain(workspace, scenario.mainSessionId, scenario.source, 'Side-chat source A')
@@ -980,18 +1095,25 @@ try {
     'Side-chat source B',
   )
   const seeded = await request('inspect')
-  assert.deepEqual(seeded.sessionIds.sort(), [scenario.mainSessionId, scenario.otherSessionId].sort())
-  assert.deepEqual(
-    seeded.workspaceSessionIds.sort(),
-    [scenario.mainSessionId, scenario.otherSessionId].sort(),
-  )
+  const fixtureIds = [scenario.mainSessionId, scenario.otherSessionId].sort()
+  const initialBlanks = desktop ? seeded.sessionIds.filter((id) => !fixtureIds.includes(id)) : []
+  for (const id of initialBlanks) {
+    // The packaged desktop can open one empty conversation as soon as its first workspace appears.
+    assert.match(id, /^session-[0-9a-f-]{36}$/)
+    const initial = await request('read-session', { sessionId: id })
+    assert.ok(!initial.events.some((event) => event.type === 'user/message' || event.type === 'turn/start'))
+  }
+  for (const ids of [seeded.sessionIds, seeded.workspaceSessionIds])
+    assert.deepEqual(ids.filter((id) => !initialBlanks.includes(id)).sort(), fixtureIds)
   browser = await chromium.launch({ headless: true })
-  page = await browser.newPage({
-    // At this height, opening the sidebar can push the selected line above the scrolling band.
-    viewport: { width: 1440, height: 900 },
-    locale: 'zh-CN',
-    colorScheme: 'dark',
-  })
+  page =
+    gui?.window ??
+    (await browser.newPage({
+      // At this height, opening the sidebar can push the selected line above the scrolling band.
+      viewport: { width: 1440, height: 900 },
+      locale: 'zh-CN',
+      colorScheme: 'dark',
+    }))
   page.setDefaultTimeout(30_000)
   const pageErrors = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
@@ -1000,12 +1122,14 @@ try {
     if (localStorage.getItem('dsh.sessions.current') === null)
       localStorage.setItem('dsh.sessions.current', JSON.stringify({ sessionId }))
   }, scenario.mainSessionId)
-  await page.goto(initial.url, { waitUntil: 'domcontentloaded' })
+  if (gui) await page.reload({ waitUntil: 'domcontentloaded' })
+  else await page.goto(initial.url, { waitUntil: 'domcontentloaded' })
   await page.locator('style[data-dsh-annotation="true"]').waitFor({ state: 'attached' })
   await deadline(candidateLoaded.promise, 'Candidate client artifact bytes')
   const continueButton = page.getByRole('button', { name: '继续', exact: true })
   if (await continueButton.isVisible()) await continueButton.click()
-  console.log('PASS built plugin activates through the real Loader in an isolated Web instance')
+  console.log(`PASS built plugin activates in the isolated ${desktop ? 'desktop' : 'Web'} profile`)
+  if (gui) await openListedSession(scenario.mainSessionId)
   await mainBody(scenario.mainSessionId).waitFor({ state: 'visible' })
   if (process.argv.includes('--launch-only')) {
     await openMain(scenario.mainSessionId, scenario.source)
@@ -1013,25 +1137,6 @@ try {
     assert.equal(await composer(mainFlow(scenario.mainSessionId)).count(), 1)
     await page.screenshot({ path: join(artifacts, 'launch-only.png'), fullPage: true })
     console.log('PASS real seeded main Conversation and official composer are available')
-  } else if (
-    !hostCandidates.get('@deepseek-ai/dsh-client-ui-workspace').includes('registerSessionListFilter')
-  ) {
-    const side = await openSide(scenario.mainSessionId)
-    await side.getByRole('button', { name: '新建侧边聊天', exact: true }).click()
-    await side
-      .getByRole('alert')
-      .filter({ hasText: '当前客户端无法在工作区列表中隐藏侧聊' })
-      .first()
-      .waitFor()
-    assert.equal((await request('inspect')).modelRequests, 0)
-    const pendingSide = await association(scenario.mainSessionId)
-    assert.equal(pendingSide.created, false)
-    assert.equal(await page.locator(`[data-row-key="session:${pendingSide.sideSessionId}"]`).count(), 0)
-    console.log(
-      'PASS Workspace client without side-chat filtering explains the update before creating a child',
-    )
-    await runRecordedSideChatSnapshot(workspace)
-    await runRecordedSideChatSnapshot(workspace, true)
   } else if (process.argv.includes('--owned-only')) {
     await exerciseOwnedSideChats()
   } else if (process.argv.includes('--snapshot-only')) {
@@ -1076,6 +1181,7 @@ try {
   }
   assert.equal(pageErrors.length, 0, `Unexpected Client failures: ${JSON.stringify(pageErrors)}`)
 } catch (error) {
+  console.error(redact(error.stack ?? error))
   await writeFile(join(artifacts, 'launch-diagnostics.txt'), `${redact(output)}\n`)
   if (page && !page.isClosed()) {
     const visibleSide = page.locator('[data-dia-side-chat]:visible')
@@ -1096,11 +1202,14 @@ try {
       ),
     )
     console.error(await page.locator('body').innerText())
-    await page.screenshot({ path: join(artifacts, 'failure.png'), fullPage: true })
+    await page
+      .screenshot({ path: join(artifacts, 'failure.png'), fullPage: true, timeout: 3000 })
+      .catch((cause) => console.error(redact(cause.message)))
   }
   throw new Error(redact(error.stack ?? error))
 } finally {
   try {
+    await gui?.close()
     await browser?.close()
   } finally {
     if (child && completion) {

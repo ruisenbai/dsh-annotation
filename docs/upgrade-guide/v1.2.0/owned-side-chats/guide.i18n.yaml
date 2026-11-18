@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/upgrade-guide/v1.2.0/owned-side-chats/guide.md
 /:
-  en: a536b474b0b39b89
-  zh: 09cb9d2202cb9ee3
+  en: ed5ff889572cedf2
+  zh: f588085c3dbf7ab1
 /owned-side-chats:
   en: 790b340f1018ae3f
   zh: b719d60994ec7477
 /owned-side-chats/change:
-  en: c42c0d57563ea37f
-  zh: b2c2cea337a49bf9
+  en: 45203c5c763f801f
+  zh: df695fcb2b445d39
 /owned-side-chats/migration:
-  en: bf5c5fbeaa8b3f0c
-  zh: ee8ac54ae290f9a7
+  en: 8f0064aaacd85227
+  zh: 3c4b54a89813d793

@@ -4,6 +4,12 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-18
+
+- Open a sidebar chat on stock DSH with the main chat’s history at the time of creation. Its transcript starts empty and later messages stay in their respective chats. The owning conversation provides open, archive and restore actions. Workspace lists and search omit side chats.
+- Keep one bubble visible throughout a reconnect after a main-chat send. Two identical submissions remain separate. Failed and canceled submissions clear according to their outcome.
+- Requires DSH `0.2.2-rc.4` or later and Node.js `24.9.0` or later. Users of 1.3.0 can upgrade the plugin alone. Keep [1.2.0] on DSH `0.2.2-rc.1` through `rc.3`.
+
 ## [1.3.0] - 2026-11-18
 
 - Support DSH master `ca33fd6843` and require DSH `0.2.2-rc.4` and Node.js `24.9.0`. Read the Host’s synced configuration and retain the conversation data used by side chats.
@@ -407,7 +413,8 @@ Target host: DeepSeek Harness `0.1.6-alpha.2`, source tag `dsh-v0.1.6-alpha.2` a
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/ruisenbai/dsh-annotation/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/ruisenbai/dsh-annotation/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.7...v1.2.0
 [1.1.3]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.2...v1.1.3

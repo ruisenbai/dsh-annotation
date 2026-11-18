@@ -1,6 +1,6 @@
 ---
 kind: package-bundle
-description: Annotate selected text beside its source in the main chat or sidebar. Mark up files and diffs, send several notes with one message, and jump back to the source from the annotation list.
+description: Annotate chats, files and diffs in place, send several notes together, and open a separate sidebar chat with the main chat’s context.
 ---
 
 # DSH Annotation
@@ -9,15 +9,15 @@ description: Annotate selected text beside its source in the main chat or sideba
 
 ## Summary
 
-Annotate selected text beside its source in the main chat or sidebar. Mark up files and diffs, send several notes with one message, and jump back to the source from the annotation list. Each chat has its own annotation list. Choose which notes to attach, then send them with text, images, or files.
+Select text in a reply to annotate it in place. You can also mark up files and diffs, send several notes in one message, and return to the source from the annotation list. To discuss something separately, open a sidebar chat with the main chat’s history as of that moment.
 
 [Install or upgrade](#installation) · [Plugin market](https://awesome-dsh-plugin.com/p/ruisenbai/dsh-annotation/)
 
 ![Sidebar annotation: the floating editor stays at the original selection](docs/assets/annotation-sidebar.png)
 
-**The current source requires DSH `>=0.2.2-rc.4`; verification targets master commit `ca33fd6843`.** See [upgrading](#upgrading) before updating an older Host.
+**1.3.1 supports stock DSH `0.2.2-rc.4`.** Each new side chat shows only its own new messages. A sent message stays visible if the main chat reconnects during submission. [Release notes](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.3.1) · [Upgrading older Hosts](#upgrading)
 
-[Download the interactive prototype](https://github.com/ruisenbai/dsh-annotation/releases/download/v1.2.0/dsh-annotation-ui.html) and open it in a browser to explore 5 scenes and 42 states using sample data.
+[Download the Chinese interactive prototype (1.2.0 UI examples)](https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.1/dsh-annotation-ui.html) and open it in a browser to explore 5 scenes and 42 states using sample data.
 
 ## Contents
 
@@ -37,19 +37,21 @@ Annotate selected text beside its source in the main chat or sidebar. Mark up fi
 
 ## Install and upgrade
 
-The package is distributed through [GitHub Releases](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.3.0), not npm. In **dsh-market**, find `ruisenbai/dsh-annotation` under Sessions & Messages, then install or update it. The catalog uses the release's stable tarball alias; check the offered version and Host requirement before proceeding.
+Find `ruisenbai/dsh-annotation` under **Sessions & Messages** in the in-app plugin market to install or update it.
+
+Web users can also install a specific version with the commands below. [Download the 1.3.1 package](https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.1/dsh-annotation-1.3.1.tgz) · [Release notes](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.3.1)
 
 ### Manual installation
 
-**Desktop:** find `ruisenbai/dsh-annotation` in the app’s plugin market and install it there. Desktop exclusively manages its own profile; the CLI cannot install into it. **Web:** use the market or run the following commands:
+On **Desktop**, install through the in-app plugin market. On **Web**, use the same market or run the following commands.
 
 ```bash
 dsh --version
-dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.0/dsh-annotation.tgz
+dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.1/dsh-annotation-1.3.1.tgz
 dsh plugin --profile web why dsh-annotation
 ```
 
-The Host must satisfy `>=0.2.2-rc.4`; the final command must resolve `dsh-annotation@1.3.0`. For a custom profile, replace both occurrences of `web` with its name. Restart that profile's running Web Host, refresh the page, and check **Settings → Annotations**. Build instructions and executed verification results are in [Development](docs/development.md) and [Compatibility](docs/compatibility.md).
+The Host must satisfy `>=0.2.2-rc.4`; the final command must resolve `dsh-annotation@1.3.1`. For a custom profile, replace both occurrences of `web` with its name. Restart that profile's running Web Host, refresh the page, and check **Settings → Annotations**. Build instructions and executed verification results are in [Development](docs/development.md) and [Compatibility](docs/compatibility.md).
 
 When [Codex UI](https://github.com/MichengAI/dsh-codex-ui) is enabled, annotation compatibility activates automatically to keep attached notes clear of the input text. No setting is required; disabling Codex UI restores the standard layout. See [Codex UI compatibility](docs/compatibility.md#codex-ui).
 
@@ -60,14 +62,14 @@ Annotation controls follow the Host's theme, rounded corners, and panel material
 Give an agent with terminal access this prompt:
 
 ```text
-Install dsh-annotation 1.3.0 into my DeepSeek Harness Web profile. Use web unless I specify another profile. Run dsh --version and require >=0.2.2-rc.4 before continuing. Install https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.0/dsh-annotation.tgz with dsh plugin --profile <profile> add, then verify dsh plugin --profile <profile> why dsh-annotation resolves 1.3.0. Preserve Host dependencies, Sessions, settings, and browser data. Report the actual commands, versions, result, warnings, and whether a Host restart is needed.
+Install dsh-annotation 1.3.1 in my DeepSeek Harness. For Desktop, use the in-app plugin market. For Web, run dsh --version and check that it satisfies >=0.2.2-rc.4. Then run dsh plugin --profile <profile> add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.1/dsh-annotation-1.3.1.tgz and verify the version with dsh plugin --profile <profile> why dsh-annotation. Preserve my chats, settings and browser data. Report the installed version and how to load the update.
 ```
 
 <a id="upgrading"></a>
 
 ### Upgrading from an older Host
 
-Update the Host to `0.2.2-rc.4` or newer before installing 1.3.0. The supported Host family supplies the unified Quote text / Add annotation toolbar. Keep [1.2.0](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.2.0) on `0.2.2-rc.1` through `0.2.2-rc.3`, 1.1.7 on `0.2.2-alpha.3`, 1.1.6 on `0.2.2-alpha.2`, 1.1.5 on `0.2.1-rc.2`, and plugin 1.1.2 while using `0.2.1-alpha.2`, 1.1.1 on `0.2.1-alpha.1`, or 1.1.0 on the `0.2.0` family. Older records remain readable. Upgrade both halves together: protocol v6 and browser storage v7 are not readable by older plugin versions. See the [side-annotation migration](docs/upgrade-guide/v1.1.8/side-annotations/guide.md).
+Update the Host to `0.2.2-rc.4` or newer before installing 1.3.1. The supported Host family supplies the unified Quote text / Add annotation toolbar. Keep [1.2.0](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.2.0) on `0.2.2-rc.1` through `0.2.2-rc.3`, 1.1.7 on `0.2.2-alpha.3`, 1.1.6 on `0.2.2-alpha.2`, 1.1.5 on `0.2.1-rc.2`, and plugin 1.1.2 while using `0.2.1-alpha.2`, 1.1.1 on `0.2.1-alpha.1`, or 1.1.0 on the `0.2.0` family. Older records remain readable. Upgrade both halves together: protocol v6 and browser storage v7 are not readable by older plugin versions. See the [side-annotation migration](docs/upgrade-guide/v1.1.8/side-annotations/guide.md).
 
 <a id="sources"></a>
 
@@ -124,7 +126,7 @@ Choose **＋** under **Side chat** to continue from the main chat’s saved hist
 
 Main and side conversations share the same annotation records, attachment controls, source navigation, resend, and recycle bin. Each side chat owns its notes and unfinished edits. Switching Tabs hides its editor and keeps unfinished work with that chat, leaving the main draft and attachments intact. A source bubble opens the receiving chat's exact annotation and stays active while its card is visible; clicking a sent annotation's bubble again closes its card. **Locate source** returns to the original passage. Text selected in a side reply uses **Add annotation** in that same chat. Creating a note and reopening its source bubble both place the editor beside the original text, including sources in another visible conversation. If that source is unavailable, the editor stays above the receiving composer. The same placement rules apply when the side chat is opened as a full page. That main page also offers **Annotate in sidebar** for a separate receiving chat; the original association stays intact.
 
-Open side chats from their owning conversation’s right sidebar. The workspace list and its search omit them. Hover or focus a tab to **Archive conversation** or **Open independently**. Opening a tab independently shows the same chat in the main view. Archiving a side chat hides its annotation bubbles in the main conversation. Choose **Archived** in the side panel to restore the tab and its bubbles. Touch devices show the actions directly. Creating a side chat requires the [matching workspace client](docs/upgrade-guide/v1.2.0/owned-side-chats/guide.md). Download the [companion Host patch](https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.0/dsh-annotation-host-rc4.patch) for the pinned DSH master.
+Open side chats from their owning conversation’s right sidebar. The workspace list and its search omit them. Hover or focus a tab to **Archive conversation** or **Open independently**. Opening a tab independently shows the same chat in the main view. Archiving a side chat hides its annotation bubbles in the main conversation. Choose **Archived** in the side panel to restore the tab and its bubbles. Touch devices show the actions directly. Plugin 1.3.1 provides sidebar ownership and an empty initial transcript on stock DSH `0.2.2-rc.4`. If the main chat reconnects during a send, the accepted message stays visible until its saved counterpart appears. See the [compatibility guide](docs/upgrade-guide/v1.2.0/owned-side-chats/guide.md).
 
 On upgrade, unsent side references become annotations containing the original quote and no written opinion. Conversion saves the annotation before removing its old reference, and interrupted conversion can retry without duplication. A frozen retry or a request with an unknown delivery outcome keeps its original payload; sent history remains readable. Keep Host and Client builds matched and follow the [upgrade guide](docs/upgrade-guide/v1.1.8/side-annotations/guide.md).
 
