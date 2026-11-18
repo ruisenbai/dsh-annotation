@@ -93,6 +93,7 @@ describe('configuration', () => {
     const ctx = {
       fiber,
       commands: { register },
+      plugin: vi.fn(),
       sessionProjections: { register: vi.fn(async () => ({ dispose: vi.fn() })) },
       effect(install: () => () => void) {
         effects.push(install())
@@ -118,6 +119,7 @@ describe('configuration', () => {
     const register = vi.fn(() => () => undefined)
     const ctx = {
       commands: { register },
+      plugin: vi.fn(),
       sessionProjections: { register: vi.fn(async () => ({ dispose: vi.fn() })) },
       effect(install: () => unknown) {
         install()

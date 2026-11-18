@@ -1,7 +1,7 @@
 /** Built-package side-chat acceptance through an isolated official dsh web profile and Loader. */
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -26,10 +26,15 @@ if (installedIndex >= 0) {
 }
 const fixture = new URL('../tests/profile-fixtures/side-chat/', import.meta.url)
 const scenario = JSON.parse(await readFile(new URL('scenario.json', fixture), 'utf8'))
-const cliManifestPath = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh/package.json'))
+// Point to a built source checkout when testing workspace capabilities newer than the public CLI.
+const harnessRoot = process.env.DSH_SIDE_CHAT_HARNESS_ROOT
+const cliManifestPath = harnessRoot
+  ? join(harnessRoot, 'apps/cli/package.json')
+  : fileURLToPath(import.meta.resolve('@deepseek-ai/dsh/package.json'))
 const cliManifest = JSON.parse(await readFile(cliManifestPath, 'utf8'))
 const baseline = JSON.parse(await readFile(join(project, 'source-baseline.json'), 'utf8'))
-assert.equal(cliManifest.version, baseline.version, 'Use the matching current Harness build')
+if (!harnessRoot)
+  assert.equal(cliManifest.version, baseline.version, 'Use the matching current Harness build')
 await access(join(project, 'lib/client.js'))
 await access(join(project, 'lib/index.js'))
 await mkdir(join(project, 'artifacts/browser'), { recursive: true })
@@ -57,7 +62,14 @@ for (const name of [
   '@deepseek-ai/dsh-api-session-controller',
   '@deepseek-ai/dsh-client-ui-conversation',
 ]) {
-  const manifestPath = fileURLToPath(import.meta.resolve(`${name}/package.json`))
+  const hostPackage = {
+    '@deepseek-ai/dsh-client-ui-workspace': 'packages/client/ui-workspace',
+    '@deepseek-ai/dsh-api-session-controller': 'packages/api/session-controller',
+    '@deepseek-ai/dsh-client-ui-conversation': 'packages/client/ui-conversation',
+  }[name]
+  const manifestPath = harnessRoot
+    ? join(harnessRoot, hostPackage, 'package.json')
+    : fileURLToPath(import.meta.resolve(`${name}/package.json`))
   const dir = dirname(await realpath(manifestPath))
   const bytes = await readFile(join(dir, 'lib/client.js'))
   hostBuild.artifacts[name] = { path: join(dir, 'lib/client.js'), sha256: sha256(bytes) }
@@ -169,9 +181,7 @@ async function request(action, payload) {
 
 /** Use an existing current-format recording as the schema template, with explicit fixture-owned values. */
 async function seedMain(workspace, sessionId, source, title, attach = true) {
-  const template = (
-    await readFile(new URL('../snapshots/web/reading-first/session.v4.jsonl', import.meta.url), 'utf8')
-  )
+  const template = (await readFile(new URL('parent-session.v4.jsonl', fixture), 'utf8'))
     .trimEnd()
     .split('\n')
     .map((line) => JSON.parse(line))
@@ -223,7 +233,9 @@ async function openMain(sessionId, source) {
 }
 
 function mainBody(sessionId, target = page) {
-  return target.locator(`[data-dsh-annotation-message-id="${sessionId}:assistant"] .dia-assistant__body`)
+  return mainFlow(sessionId, target).locator(
+    `[data-dsh-annotation-message-id="${sessionId}:assistant"] .dia-assistant__body`,
+  )
 }
 
 function mainFlow(sessionId, target = page) {
@@ -255,7 +267,7 @@ async function selectText(body, exact, target = page) {
       if (owner !== undefined && start + text.length <= end) {
         range.setEnd(node, start + text.length - offset)
         const selected = window.getSelection()
-        owner.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+        owner.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' })
         owner.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
         selected.removeAllRanges()
         selected.addRange(range)
@@ -275,14 +287,15 @@ async function selectText(body, exact, target = page) {
 
 /** The active chat's browser-owned pending state, as the panel renders it. */
 async function association(sessionId) {
-  const stored = await page.evaluate(
-    (id) => JSON.parse(localStorage.getItem(`dsh-annotation:side-chat:v2:${id}`)),
-    sessionId,
-  )
-  assert.ok(stored !== null, 'The main Session keeps its side-chat association')
-  const active = stored.chats.find((chat) => chat.sideChatId === stored.activeSideChatId)
-  assert.ok(active, 'The stored association selects one of its chats')
-  return active
+  const handle = await page.waitForFunction((id) => {
+    const stored = JSON.parse(localStorage.getItem(`dsh-annotation:side-chat:v2:${id}`))
+    return stored?.chats.find((chat) => chat.sideChatId === stored.activeSideChatId && chat.sideSessionId)
+  }, sessionId)
+  try {
+    return await handle.jsonValue()
+  } finally {
+    await handle.dispose()
+  }
 }
 
 /**
@@ -334,6 +347,300 @@ async function waitForSideLayout(side) {
       )
     },
     await side.getAttribute('data-main-session'),
+  )
+}
+
+/** Check model input and navigation against the same retained Sessions after reload and restore. */
+async function exerciseOwnedSideChats() {
+  const parent = scenario.otherSessionId
+  const tokens = [
+    ['parent-before', scenario.otherSource],
+    ['side-only', '仅侧聊记录：蓝桥'],
+    ['parent-after', '主会话新增：荷叶'],
+    ['side-after-reopen', '重开侧聊：晴天'],
+    ['second-side', '另一个侧聊：白帆'],
+  ]
+  const expected = JSON.parse(await readFile(new URL('owned-context.expected.json', fixture), 'utf8'))
+  async function ask(id, key) {
+    const text = tokens.find(([name]) => name === key)[1]
+    const flow = mainFlow(id).filter({ visible: true }).first()
+    await composer(flow).fill(text)
+    await composer(flow).press('Enter')
+    const deadline = Date.now() + 20_000
+    while (Date.now() < deadline) {
+      const calls = await request('model-requests')
+      const sent = calls.findLast(
+        (call) =>
+          call.sessionId === id &&
+          call.messages.some((m) => m.role === 'user' && m.content.some((b) => b.text === text)),
+      )
+      if (sent)
+        return tokens
+          .filter(([, token]) => sent.messages.some((m) => m.content.some((b) => b.text === token)))
+          .map(([name]) => name)
+      await new Promise((resolve) => setTimeout(resolve, 75))
+    }
+    throw new Error('No model request for ' + key)
+  }
+  await page.setViewportSize({ width: 1440, height: 930 })
+  await openMain(parent, scenario.otherSource)
+  let side = await openSide(parent)
+  const newTab = async () => {
+    await side.getByRole('button', { name: '新建侧边聊天', exact: true }).click()
+    const chat = await association(parent)
+    await composer(mainFlow(chat.sideSessionId)).waitFor()
+    return chat
+  }
+  const verifyOwnTranscript = async (id, ownText) => {
+    const body = mainFlow(id).filter({ visible: true }).first().locator('[data-chat-flow]').first()
+    await body.waitFor({ state: 'attached' })
+    if (ownText) await body.getByText(ownText, { exact: true }).first().waitFor()
+    else assert.equal((await body.innerText()).trim(), '')
+    assert.equal(await body.getByText(scenario.otherSource, { exact: true }).count(), 0)
+  }
+  const one = await newTab()
+  await verifyOwnTranscript(one.sideSessionId)
+  assert.deepEqual(await ask(one.sideSessionId, 'side-only'), expected.firstSideRequest)
+  assert.deepEqual(await ask(parent, 'parent-after'), expected.nextParentRequest)
+  // Wait for the committed parent answer before taking the second snapshot.
+  await mainFlow(parent)
+    .getByText(/Side answer: Alpha/)
+    .last()
+    .waitFor()
+  const two = await newTab()
+  await verifyOwnTranscript(two.sideSessionId)
+  assert.deepEqual(await ask(two.sideSessionId, 'second-side'), expected.secondSideRequest)
+  const row = (id) => page.locator(`[data-row-key="session:${id}"]`)
+  assert.equal(await row(one.sideSessionId).count(), 0)
+  assert.equal(await row(two.sideSessionId).count(), 0)
+  await side.locator(`[data-dia-side-chat-select="${one.sideChatId}"]`).hover()
+  const firstTab = side.locator(`[role="tab"]:has([data-dia-side-chat-select="${one.sideChatId}"])`)
+  await firstTab.focus()
+  await page.keyboard.press('Tab')
+  assert.equal(
+    await side
+      .locator(`[data-dia-side-chat-archive="${one.sideChatId}"]`)
+      .evaluate((button) => button === document.activeElement),
+    true,
+  )
+  await page.screenshot({ path: join(artifacts, 'owned-tab-actions.png'), animations: 'disabled' })
+  await side.locator(`[data-dia-side-chat-open-alone="${one.sideChatId}"]`).click()
+  await page.waitForFunction(
+    (id) => JSON.parse(localStorage.getItem('dsh.sessions.current'))?.sessionId === id,
+    one.sideSessionId,
+  )
+  assert.equal(await row(one.sideSessionId).count(), 0)
+  await verifyOwnTranscript(one.sideSessionId, tokens[1][1])
+  await page.reload()
+  await composer(mainFlow(one.sideSessionId)).waitFor()
+  await verifyOwnTranscript(one.sideSessionId, tokens[1][1])
+  assert.equal(await row(one.sideSessionId).count(), 0)
+  assert.deepEqual(await ask(one.sideSessionId, 'side-after-reopen'), expected.reopenedSideRequest)
+  await openMain(parent, scenario.otherSource)
+  side = await openSide(parent)
+  await side.locator(`[data-dia-side-chat-select="${two.sideChatId}"]`).hover()
+  await side.locator(`[data-dia-side-chat-archive="${two.sideChatId}"]`).click()
+  await side.locator(`[data-dia-side-chat-select="${two.sideChatId}"]`).waitFor({ state: 'detached' })
+  await side.getByRole('button', { name: '已归档', exact: true }).click()
+  await page.getByRole('menuitem', { name: /恢复/ }).click()
+  await composer(mainFlow(two.sideSessionId)).waitFor()
+  assert.equal(await row(two.sideSessionId).count(), 0)
+  const originalPage = page
+  const clean = await browser.newContext({
+    locale: 'zh-CN',
+    viewport: { width: 390, height: 840 },
+    hasTouch: true,
+    colorScheme: 'light',
+    storageState: { cookies: await page.context().cookies(), origins: [] },
+  })
+  try {
+    page = await clean.newPage()
+    await page.addInitScript(
+      (id) => localStorage.setItem('dsh.sessions.current', JSON.stringify({ sessionId: id })),
+      parent,
+    )
+    await page.goto(new URL(originalPage.url()).origin)
+    await mainBody(parent).waitFor()
+    const recovered = await openSide(parent)
+    for (const chat of [one, two])
+      await recovered.locator(`[data-dia-side-chat-select="${chat.sideChatId}"]`).waitFor()
+    assert.equal(await recovered.getByRole('tab').count(), 2)
+    const touchButton = recovered.locator(`[data-dia-side-chat-open-alone="${one.sideChatId}"]`)
+    assert.ok(
+      await touchButton.evaluate((b) => {
+        const r = b.getBoundingClientRect()
+        return getComputedStyle(b.parentElement).opacity === '1' && r.left >= 0 && r.right <= innerWidth
+      }),
+    )
+    await page.screenshot({ path: join(artifacts, 'owned-tab-actions-touch.png'), animations: 'disabled' })
+    await touchButton.tap()
+    await page
+      .locator(
+        `[data-conversation-content][data-conversation-session="${one.sideSessionId}"]:not([data-dia-side-chat] *)`,
+      )
+      .waitFor()
+    assert.equal(await page.locator(`[data-row-key="session:${two.sideSessionId}"]`).count(), 0)
+  } finally {
+    page = originalPage
+    await clean.close()
+  }
+  // A lost acknowledgement retries the same child even after the parent continued.
+  const previous = await request('read-session', { sessionId: one.sideSessionId })
+  const repeat = await request('request-side-fork', {
+    parent,
+    request: { target: one.sideSessionId, at: -1, title: 'Retry' },
+  })
+  assert.equal(repeat.text, one.sideSessionId)
+  assert.deepEqual(await request('read-session', { sessionId: one.sideSessionId }), previous)
+  const otherOwner = await request('request-side-fork', {
+    parent,
+    request: { target: 'annotation-side-' + '0'.repeat(64) + '-' + randomUUID() },
+  })
+  assert.equal(otherOwner.kind, 'error')
+  const at = previous.events.find((e) => e.type === 'step/start').seq
+  const prefix = one.sideSessionId.slice(0, 'annotation-side-'.length + 64 + 1)
+  const partial = prefix + randomUUID()
+  assert.equal(
+    (await request('request-side-fork', { parent, request: { target: partial, at } })).text,
+    partial,
+  )
+  const cut = await request('read-session', { sessionId: partial })
+  assert.equal(cut.inheritedEventCount, at + 1)
+  assert.equal(cut.events.at(-1).data.reason.kind, 'forked')
+  const empty = prefix + randomUUID()
+  assert.equal(
+    (await request('request-side-fork', { parent, request: { target: empty, at: -1 } })).text,
+    empty,
+  )
+  assert.deepEqual((await request('read-session', { sessionId: empty })).events, [])
+  await exerciseDelegatedSideChats(parent)
+  await exerciseMainBubbleReconnect(parent)
+  console.log(
+    'PASS fork-time model context, independent parent and sibling updates, hidden rows, inactive-tab full page, reload, archive and parent-only restore',
+  )
+}
+
+/** Fork the same delegated source while it runs and after the child has settled. */
+async function exerciseDelegatedSideChats(parent) {
+  const prompt = '子会话独有的测试上下文'
+  await request('hold-next-model')
+  const source = await request('start-delegated-source', { parent, prompt })
+  await request('wait-model')
+  const selectConversation = async (sessionId) => {
+    await page.evaluate(
+      (id) => localStorage.setItem('dsh.sessions.current', JSON.stringify({ sessionId: id })),
+      sessionId,
+    )
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await mainFlow(sessionId).waitFor()
+  }
+  await selectConversation(source)
+  let side = await openSide(source)
+  const createTab = async (retry = false) => {
+    if (retry) await request('fail-next-lifecycle', { kind: 'side-fork' })
+    await side.getByRole('button', { name: '新建侧边聊天', exact: true }).click()
+    const chat = await association(source)
+    const body = mainFlow(chat.sideSessionId)
+    if (retry) {
+      await side.getByRole('alert').waitFor()
+      assert.equal(await side.getByRole('alert').count(), 1)
+      assert.equal(await side.getByRole('button', { name: '重试', exact: true }).count(), 1)
+      assert.equal((await side.getByRole('alert').innerText()).includes('已保留引用'), false)
+      await side.getByRole('button', { name: '重试', exact: true }).click()
+    }
+    await composer(body).waitFor({ timeout: 10000 })
+    assert.equal((await association(source)).sideSessionId, chat.sideSessionId)
+    assert.equal((await body.locator('[data-chat-flow]').first().innerText()).trim(), '')
+    const saved = await request('read-session', { sessionId: chat.sideSessionId })
+    assert.ok(
+      saved.events.some(
+        (e) => e.type === 'user/message' && e.data.content.some((part) => part.text === prompt),
+      ),
+    )
+    assert.equal(saved.header.origin, undefined)
+    assert.ok((await request('inspect')).workspaceSessionIds.includes(chat.sideSessionId))
+    assert.equal(await page.locator(`[data-row-key="session:${chat.sideSessionId}"]`).count(), 0)
+    return chat
+  }
+  const active = await createTab(true)
+  await request('release-model')
+  await request('settle-delegated-source')
+  await selectConversation(source)
+  side = await openSide(source)
+  const finished = await createTab()
+  assert.notEqual(active.sideSessionId, finished.sideSessionId)
+  await selectConversation(parent)
+  console.log(
+    'PASS running and settled subagent side chats retain their own history, workspace, and blank transcript',
+  )
+}
+
+/** Drop the real GUI transport while the Host has claimed an accepted, unrecorded message. */
+async function exerciseMainBubbleReconnect(id) {
+  await page.addInitScript(() => {
+    const Native = window.WebSocket
+    const sockets = new Set()
+    const tracker = {
+      baselines: 0,
+      disconnect() {
+        for (const socket of sockets) socket.close()
+      },
+    }
+    window.sideChatTransportCheck = tracker
+    window.WebSocket = class extends Native {
+      constructor(...args) {
+        super(...args)
+        if (!this.url.includes('/remote.mux')) return
+        sockets.add(this)
+        const follows = new Set()
+        const send = this.send.bind(this)
+        this.send = (frame) => {
+          if (typeof frame === 'string') {
+            const data = JSON.parse(frame)
+            if (data.type === 'open' && data.endpoint === 'session/follow') follows.add(data.streamId)
+          }
+          return send(frame)
+        }
+        this.addEventListener('message', (e) => {
+          if (typeof e.data !== 'string') return
+          const data = JSON.parse(e.data)
+          if (follows.has(data.streamId) && data.type === 'item' && data.value?.type === 'snapshot')
+            tracker.baselines++
+        })
+        this.addEventListener('close', () => sockets.delete(this))
+      }
+    }
+  })
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  const flow = mainFlow(id).filter({ visible: true }).first()
+  const text = '发送后重连仍显示这条消息'
+  const bubble = flow.getByText(text, { exact: true })
+  await composer(flow).waitFor()
+  await request('hold-main-admission', { id })
+  try {
+    await composer(flow).fill(text)
+    await composer(flow).press('Enter')
+    await request('wait-main-claim')
+    await bubble.waitFor()
+    const before = await page.evaluate(() => {
+      const p = window.sideChatTransportCheck
+      const before = p.baselines
+      p.disconnect()
+      return before
+    })
+    await page.waitForFunction((n) => window.sideChatTransportCheck.baselines > n, before, { timeout: 15000 })
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    )
+    assert.equal(await bubble.count(), 1)
+    assert.ok(await bubble.isVisible())
+  } finally {
+    await request('release-main-admission')
+  }
+  await flow.locator('[data-chat-flow-kind="user"]').getByText(text, { exact: true }).waitFor()
+  assert.equal(await bubble.count(), 1)
+  console.log(
+    'PASS main chat retains exactly one visible message across claim, reconnect, and durable admission',
   )
 }
 
@@ -706,6 +1013,27 @@ try {
     assert.equal(await composer(mainFlow(scenario.mainSessionId)).count(), 1)
     await page.screenshot({ path: join(artifacts, 'launch-only.png'), fullPage: true })
     console.log('PASS real seeded main Conversation and official composer are available')
+  } else if (
+    !hostCandidates.get('@deepseek-ai/dsh-client-ui-workspace').includes('registerSessionListFilter')
+  ) {
+    const side = await openSide(scenario.mainSessionId)
+    await side.getByRole('button', { name: '新建侧边聊天', exact: true }).click()
+    await side
+      .getByRole('alert')
+      .filter({ hasText: '当前客户端无法在工作区列表中隐藏侧聊' })
+      .first()
+      .waitFor()
+    assert.equal((await request('inspect')).modelRequests, 0)
+    const pendingSide = await association(scenario.mainSessionId)
+    assert.equal(pendingSide.created, false)
+    assert.equal(await page.locator(`[data-row-key="session:${pendingSide.sideSessionId}"]`).count(), 0)
+    console.log(
+      'PASS Workspace client without side-chat filtering explains the update before creating a child',
+    )
+    await runRecordedSideChatSnapshot(workspace)
+    await runRecordedSideChatSnapshot(workspace, true)
+  } else if (process.argv.includes('--owned-only')) {
+    await exerciseOwnedSideChats()
   } else if (process.argv.includes('--snapshot-only')) {
     await runRecordedSideChatSnapshot(workspace)
     await runRecordedSideChatSnapshot(workspace, true)
@@ -725,14 +1053,24 @@ try {
       assertComposerAtBottom,
       evidence,
     })
-    assert.deepEqual(
-      (await request('read-session', { sessionId: scenario.mainSessionId })).events,
-      mainSeed.events,
-    )
+    const parentEvents = (await request('read-session', { sessionId: scenario.mainSessionId })).events
+    assert.deepEqual(parentEvents.slice(0, mainSeed.events.length), mainSeed.events)
+    const forkIds = new Set()
+    for (const event of parentEvents.slice(mainSeed.events.length)) {
+      if (event.type === 'command/run' && event.data.name === 'annotation_side_chat_fork')
+        forkIds.add(event.data.commandId)
+      else
+        assert.ok(
+          event.type === 'command/done' && forkIds.delete(event.data.commandId),
+          `Unexpected parent event after side chat creation: ${event.type} (${event.data.name ?? ''})`,
+        )
+    }
+    assert.equal(forkIds.size, 0)
     assert.deepEqual(
       (await request('read-session', { sessionId: scenario.otherSessionId })).events,
       otherSeed.events,
     )
+    await exerciseOwnedSideChats()
     await runRecordedSideChatSnapshot(workspace)
     await runRecordedSideChatSnapshot(workspace, true)
   }

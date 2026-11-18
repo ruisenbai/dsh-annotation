@@ -53,6 +53,7 @@ async function exerciseIndependentOfficialMarkers(content, select, label) {
       .fill(`${label} independent ${number}`)
     await editor.getByRole('button', { name: '保存', exact: true }).click()
     await editor.waitFor({ state: 'hidden' })
+    await markers.nth(before.length + number - 1).waitFor({ state: 'visible' })
   }
   const all = await ids()
   assert.equal(all.length, before.length + 2)
@@ -131,11 +132,13 @@ async function exerciseIndependentOfficialMarkers(content, select, label) {
   }
   await page.screenshot({ path: join(artifacts, `${label}-independent-markers.png`), fullPage: true })
   for (const [index, id] of added.entries()) {
-    await content.locator(`.dia-marker[data-annotation-id="${id}"]`).click()
+    const marker = content.locator(`.dia-marker[data-annotation-id="${id}"]`)
+    await marker.click()
     const editor = page.locator('.dia-record-editor--detail')
     assert.equal(await editor.getByRole('textbox').inputValue(), `${label} independent ${index + 1}`)
     await editor.getByRole('button', { name: '删除', exact: true }).click()
     await editor.waitFor({ state: 'hidden' })
+    await marker.waitFor({ state: 'detached' })
   }
   assert.deepEqual(await ids(), before)
   console.log(
@@ -1724,25 +1727,28 @@ try {
     await review.waitFor({ state: 'visible' })
     await review.locator('[data-official-diff-annotate]').waitFor({ state: 'visible' })
     const selectChangedDiffText = async () => {
-      await review
-        .locator('[data-diff-line="add"]')
-        .last()
-        .evaluate((row) => {
-          const code = row.lastElementChild
-          if (code === null) throw new Error('Diff line code is missing')
-          const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT)
-          let text = walker.nextNode()
-          while (text !== null && !text.textContent.includes('changed')) text = walker.nextNode()
-          const start = text?.textContent.indexOf('changed') ?? -1
-          if (text === null || start < 0) throw new Error('Diff line text is missing')
-          const range = document.createRange()
-          range.setStart(text, start)
-          range.setEnd(text, start + 'changed'.length)
-          const selection = window.getSelection()
-          selection.removeAllRanges()
-          selection.addRange(range)
-          code.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
-        })
+      const row = review.locator('[data-diff-line="add"]').last()
+      await row.scrollIntoViewIfNeeded()
+      const rect = await row.evaluate((row) => {
+        window.getSelection()?.removeAllRanges()
+        const code = row.lastElementChild
+        if (code === null) throw new Error('Diff line code is missing')
+        const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT)
+        let text = walker.nextNode()
+        while (text !== null && !text.textContent.includes('changed')) text = walker.nextNode()
+        const start = text?.textContent.indexOf('changed') ?? -1
+        if (text === null || start < 0) throw new Error('Diff line text is missing')
+        const range = document.createRange()
+        range.setStart(text, start)
+        range.setEnd(text, start + 'changed'.length)
+        return range.getBoundingClientRect().toJSON()
+      })
+      // Native dragging gives the browser and Lexical the same focus transitions as a user selection.
+      const y = (rect.top + rect.bottom) / 2
+      await page.mouse.move(rect.left, y)
+      await page.mouse.down()
+      await page.mouse.move(rect.right, y, { steps: 4 })
+      await page.mouse.up()
       await page.locator('.dia-selection-bar').waitFor({ state: 'visible' })
     }
     await selectChangedDiffText()

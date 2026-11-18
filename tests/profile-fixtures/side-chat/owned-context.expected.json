@@ -1,0 +1,6 @@
+{
+  "firstSideRequest": ["parent-before", "side-only"],
+  "nextParentRequest": ["parent-before", "parent-after"],
+  "reopenedSideRequest": ["parent-before", "side-only", "side-after-reopen"],
+  "secondSideRequest": ["parent-before", "parent-after", "second-side"]
+}

@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: deepseek-ai/deepseek-harness
-          ref: fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159
+          ref: ca33fd6843b205e279c7ccb6cb73a472c78f5760
           path: .host-source
       - uses: pnpm/action-setup@v6
         with:
@@ -61,7 +61,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: deepseek-ai/deepseek-harness
-          ref: fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159
+          ref: ca33fd6843b205e279c7ccb6cb73a472c78f5760
           path: .host-source
       - uses: actions/download-artifact@v7
         with:

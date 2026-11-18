@@ -185,8 +185,12 @@ export function apply(ctx) {
       return true
     }
     if (action === 'inspect') {
+      const origin = `http://127.0.0.1:${ctx.webServer.port}/`
+      const entries = []
+      ctx.emit(ctx.webServer, 'webserver/entry-url', origin, entries)
+      const url = entries.find((entry) => entry.open)?.url ?? ctx.connection.authenticatedUrl(origin)
       return {
-        url: ctx.connection.authenticatedUrl(`http://127.0.0.1:${ctx.webServer.port}`),
+        url,
         bundles: await ctx.pluginManager.listBundles(),
         plugins: await ctx.pluginManager.listPlugins(),
         settings: ctx.settings.describe().find((item) => item.ns === 'dsh-annotation'),

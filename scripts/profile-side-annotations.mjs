@@ -29,6 +29,12 @@ export async function exerciseSideAnnotations(context) {
   const editor = () => page.locator('.dia-record-editor:visible[role="dialog"]')
   const side = page.locator('[data-dia-side-chat]:visible')
   const tab = (id) => page.locator(`[data-dockkit-tab="annotation-side-tab:${id}"]`)
+  const assertBlankTranscript = async (content) => {
+    const body = content.locator('[data-chat-flow]')
+    await body.waitFor({ state: 'attached' })
+    assert.equal((await body.innerText()).trim(), '')
+    assert.equal(await body.locator('[data-chat-flow-kind], [data-chat-history]').count(), 0)
+  }
   const assertCleanConversation = async (content) => {
     assert.equal(
       await content
@@ -251,6 +257,7 @@ export async function exerciseSideAnnotations(context) {
   await side.locator('[data-conversation-content]:visible [contenteditable="true"]').waitFor()
   const blank = await association(scenario.mainSessionId)
   await assertCleanConversation(flow(blank.sideSessionId))
+  await assertBlankTranscript(flow(blank.sideSessionId))
   assert.equal(
     await flow(blank.sideSessionId)
       .getByText(/^侧边聊天 \d+$/)
@@ -260,7 +267,8 @@ export async function exerciseSideAnnotations(context) {
   assert.equal(await side.getByRole('tab').count(), 2)
   await assertComposerAtBottom(flow(blank.sideSessionId), 'clean-new-side-chat')
   await page.screenshot({ path: join(artifacts, 'clean-new-side-chat.png'), fullPage: true })
-  await side.locator('[data-dia-side-chat-open-alone]').click()
+  await side.locator(`[data-dia-side-chat-select="${blank.sideChatId}"]`).hover()
+  await side.locator(`[data-dia-side-chat-open-alone="${blank.sideChatId}"]`).click()
   await composer(flow(blank.sideSessionId)).waitFor({ state: 'visible' })
   for (const [width, theme] of [
     [1440, 'dark'],
@@ -273,6 +281,7 @@ export async function exerciseSideAnnotations(context) {
       theme === 'dark',
     )
     await assertCleanConversation(flow(blank.sideSessionId))
+    await assertBlankTranscript(flow(blank.sideSessionId))
     assert.equal(
       await flow(blank.sideSessionId)
         .getByText(/^侧边聊天 \d+$/)
@@ -409,6 +418,13 @@ export async function exerciseSideAnnotations(context) {
   const requests = await request('model-requests')
   assert.equal(requests.length, 1)
   assert.equal(requests[0].sessionId, first.sideSessionId)
+  assert.ok(
+    requests[0].messages.some(
+      (message) =>
+        message.role === 'assistant' && message.content.some((block) => block.text === scenario.source),
+    ),
+    'The first side request includes the saved main answer',
+  )
   const sent = requests[0].messages.findLast((message) => message.source?.annotationSubmission)
   assert.ok(sent)
   assert.equal(sent.source.sideChatSubmission, undefined)
@@ -490,10 +506,26 @@ export async function exerciseSideAnnotations(context) {
     (note) => note.quote.exact === scenario.references[2],
   )
   assert.ok(foreignDraft)
-  await page.locator(`[role="treeitem"][data-row-key="session:${first.sideSessionId}"]`).click()
+  assert.equal(await page.locator(`[data-row-key="session:${first.sideSessionId}"]`).count(), 0)
+  await side.locator(`[data-dia-side-chat-select="${first.sideChatId}"]`).hover()
+  await side.locator(`[data-dia-side-chat-open-alone="${first.sideChatId}"]`).click()
   await composer(flow(first.sideSessionId)).waitFor({ state: 'visible' })
   await assertCleanConversation(flow(first.sideSessionId))
-  const standaloneSource = flow(first.sideSessionId).locator('.dia-assistant__body').last()
+  const standalone = page.locator(
+    `[data-conversation-content][data-conversation-session="${first.sideSessionId}"]:not([data-dia-side-chat] *)`,
+  )
+  await standalone.waitFor()
+  const standaloneSource = standalone.locator('.dia-assistant__body').last()
+  await standaloneSource.evaluate(async (el) => {
+    await Promise.allSettled(
+      document
+        .getAnimations()
+        .filter((a) => a.effect?.getTiming().iterations === 1)
+        .map((a) => a.finished),
+    )
+    el.scrollIntoView({ block: 'center', behavior: 'instant' })
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))
+  })
   const standaloneToolbar = await selectText(standaloneSource, 'Side note addressed.')
   const standaloneSideAction = standaloneToolbar.getByRole('button', { name: '在侧边添加注解', exact: true })
   assert.equal(
@@ -635,6 +667,23 @@ export async function exerciseSideAnnotations(context) {
     '补充后的注解文字',
   )
   await editor().getByRole('button', { name: '取消', exact: true }).click()
+  const sourceMarker = (note) =>
+    mainBody(scenario.mainSessionId)
+      .locator('..')
+      .locator(`.dia-marker[data-annotation-id="${note.annotationId}"]`)
+  await sourceMarker(secondNote).waitFor()
+  await side.locator(`[data-dia-side-chat-select="${second.sideChatId}"]`).hover()
+  await side.locator(`[data-dia-side-chat-archive="${second.sideChatId}"]`).click()
+  await sourceMarker(secondNote).waitFor({ state: 'detached' })
+  await sourceMarker(firstNote).waitFor()
+  await page.reload()
+  await openSide(scenario.mainSessionId)
+  await sourceMarker(firstNote).waitFor()
+  assert.equal(await sourceMarker(secondNote).count(), 0)
+  await side.getByRole('button', { name: '已归档', exact: true }).click()
+  await page.getByRole('menuitem', { name: /恢复/ }).click()
+  await sourceMarker(secondNote).waitFor()
+  await tab(first.sideChatId).click()
   evidence.checks.push({
     name: 'side annotations: captured target, synchronized source bubbles, sent-card toggle, readable titles, isolated drafts, recovery, matching compact editors, readable highlight-only summaries, model output and constrained themes',
     status: 'passed',

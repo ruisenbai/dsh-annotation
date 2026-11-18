@@ -1,9 +1,24 @@
+import ts from 'typescript'
 import { defineConfig } from 'vitest/config'
 
 /** Node ≥25 ships process-wide Web Storage that shadows jsdom storage; disable it when present. */
 const execArgv = process.allowedNodeEnvironmentFlags.has('--webstorage') ? ['--no-webstorage'] : []
 
 export default defineConfig({
+  plugins: [
+    {
+      name: 'standard-remote-decorators',
+      enforce: 'pre',
+      transform(source, id) {
+        if (!id.endsWith('.ts') || !/^\s*@Remote\b/m.test(source)) return
+        const result = ts.transpileModule(source, {
+          fileName: id,
+          compilerOptions: { target: ts.ScriptTarget.ES2024, module: ts.ModuleKind.ESNext, sourceMap: true },
+        })
+        return { code: result.outputText, map: result.sourceMapText ?? null }
+      },
+    },
+  ],
   resolve: { dedupe: ['react', 'react-dom'] },
   test: {
     execArgv,

@@ -92,6 +92,8 @@ export interface SideChatOutbox {
 export interface PersistedSideChatEntry {
   readonly sideChatId: SideChatId
   readonly sideSessionId: SessionId | null
+  /** Inclusive durable parent cut, or -1 when created in an empty main conversation. */
+  readonly forkAtSeq?: number
   readonly created: boolean
   readonly title?: string
   /** Official archive state; absent released records are active until Host reconciliation. */

@@ -1697,7 +1697,8 @@ export class AnnotationController {
     let latestAssistantMessageId: MessageIdentity | null = null
     for (const node of snapshot.chat.nodes.values()) {
       const { submission: payload, assistantId, acknowledgements: parsed } = this.parseHistoryNode(node)
-      if (payload !== null) submissions.set(payload.submissionId, payload)
+      // Forked history is readable, but its submitted notes still belong to the original receiver.
+      if (payload?.sessionId === this.sessionId) submissions.set(payload.submissionId, payload)
       if (assistantId !== null) latestAssistantMessageId = assistantId
       for (const acknowledgement of parsed) {
         const ids = acknowledgements.get(acknowledgement.submissionId) ?? new Set<AnnotationId>()

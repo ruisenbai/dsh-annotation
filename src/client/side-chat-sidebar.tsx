@@ -1,12 +1,12 @@
 /** Right-Sidebar navigation entry, per-main chat list, and embedded Conversation assembly. */
-import { useLayoutEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import { useLayoutEffect, useRef, useState } from 'react'
 import {
   DockLayout,
   type DockIntents,
   type LayoutState,
   type PaneId,
   type TabId,
-  type TabRenderer,
 } from '@deepseek-ai/dsh-client-ui-dockkit'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -22,9 +22,9 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   Button,
+  Menu,
   IconNewChatOutlineRegular,
   IconRightUpOutlineRegular,
-  IconTrashOutlineRegular,
   IconArchiveOutlineRegular,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -77,7 +77,7 @@ export interface SideChatSidebarOptions {
   readonly openStandalone: (sideSessionId: SessionId) => void
   /** Official confirmation and lifecycle paths, capturing the clicked Tab identity. */
   readonly archiveChat: (mainSessionId: SessionId, sideChatId: SideChatId) => Promise<void>
-  readonly deleteChat: (mainSessionId: SessionId, sideChatId: SideChatId) => Promise<void>
+  readonly restoreChat: (mainSessionId: SessionId, sideChatId: SideChatId) => Promise<void>
 }
 
 /** Navigation bridge owned by the plugin's install path. */
@@ -126,7 +126,7 @@ export interface SideChatPanelInjected extends SideChatInjected {
   readonly retryChat: (sideChatId: SideChatId) => void
   readonly archiveChat: (sideChatId: SideChatId) => Promise<void>
   /** @param sideChatId - exact Tab to delete through the official Session confirmation. */
-  readonly deleteChat: (sideChatId: SideChatId) => Promise<void>
+  readonly restoreChat: (sideChatId: SideChatId) => Promise<void>
   /** @param sideChatId - chat whose ready Session reference is wanted. @returns The owner-held reference, without a second lifetime. */
   readonly referenceFor: (sideChatId: SideChatId) => SessionReference | undefined
 }
@@ -178,7 +178,9 @@ export function SideChatTabContent(props: SideChatTabContentProps) {
               {props.t('sideChat.retry')}
             </Button>
           )}
-          {view.activeSideChatId === chat.sideChatId && <SideChatSubmissionNotice {...props} />}
+          {view.activeSideChatId === chat.sideChatId && (
+            <SideChatSubmissionNotice {...props} preparationShown />
+          )}
         </div>
       ) : (
         <props.SessionProvider session={reference}>
@@ -189,66 +191,67 @@ export function SideChatTabContent(props: SideChatTabContentProps) {
   )
 }
 
-/** A Tab's operation state survives hover and follows that Tab's captured identity. */
-function ChatTabActions({
-  chatId,
-  archiveChat,
-  deleteChat,
+/** Keep controls outside the DockKit title's clipping mask and target the tab that owns them. */
+function ChatTabTitle({
+  id,
+  title,
+  archive,
+  open,
   t,
 }: {
-  readonly chatId: SideChatId
-  readonly archiveChat: SideChatPanelInjected['archiveChat']
-  readonly deleteChat: SideChatPanelInjected['deleteChat']
-  readonly t: SideChatPanelProps['t']
+  id: SideChatId
+  title: string
+  archive: (id: SideChatId) => Promise<void>
+  open: (id: SideChatId) => void
+  t: SideChatPanelProps['t']
 }) {
-  const ref = useRef<HTMLSpanElement>(null)
+  const label = useRef<HTMLSpanElement>(null)
+  const [tab, setTab] = useState<HTMLElement | null>(null)
   useLayoutEffect(() => {
-    const actions = ref.current
-    const tab = actions?.closest<HTMLElement>('[data-dockkit-tab]')
-    if (actions == null || tab == null) return undefined
-    // The overlay's measured width also owns the title mask; icon sizes remain UI-owned.
-    const measure = (): void => {
-      tab.style.setProperty('--dia-tab-actions-width', `${actions.offsetWidth}px`)
-    }
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(actions)
-    return () => {
-      observer.disconnect()
-      tab.style.removeProperty('--dia-tab-actions-width')
-    }
+    setTab(label.current?.closest<HTMLElement>('[data-dockkit-tab]') ?? null)
   }, [])
   return (
-    <span ref={ref} className="dia-side-chat-tab-actions">
-      <Tooltip portal label={t('sideChat.archiveChat')} side="bottom">
-        <Button
-          size="sm"
-          variant="ghost"
-          className="dia-side-chat-tab-action"
-          aria-label={t('sideChat.archiveChat')}
-          data-dia-side-chat-archive={chatId}
-          onClick={() => {
-            void archiveChat(chatId)
-          }}
-        >
-          <IconArchiveOutlineRegular size={14} />
-        </Button>
-      </Tooltip>
-      <Tooltip portal label={t('sideChat.deleteChat')} side="bottom">
-        <Button
-          size="sm"
-          variant="ghost"
-          className="dia-side-chat-tab-action"
-          aria-label={t('sideChat.deleteChat')}
-          data-dia-side-chat-delete={chatId}
-          onClick={() => {
-            void deleteChat(chatId)
-          }}
-        >
-          <IconTrashOutlineRegular size={14} />
-        </Button>
-      </Tooltip>
-    </span>
+    <>
+      <span className="dia-side-chat-tab-title" title={title} ref={label} data-dia-side-chat-select={id}>
+        {title}
+      </span>
+      {tab &&
+        createPortal(
+          <span
+            className="dia-side-chat-tab-actions"
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <Tooltip portal label={t('sideChat.archiveChat')} side="bottom">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="dia-side-chat-tab-action"
+                aria-label={t('sideChat.archiveChat')}
+                data-dia-side-chat-archive={id}
+                onClick={() => void archive(id)}
+              >
+                <IconArchiveOutlineRegular size={14} />
+              </Button>
+            </Tooltip>
+            <Tooltip portal label={t('sideChat.openAlone')} side="bottom">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="dia-side-chat-tab-action"
+                aria-label={t('sideChat.openAlone')}
+                data-dia-side-chat-open-alone={id}
+                onClick={() => open(id)}
+              >
+                <IconRightUpOutlineRegular size={14} />
+              </Button>
+            </Tooltip>
+          </span>,
+          tab,
+        )}
+    </>
   )
 }
 
@@ -256,6 +259,7 @@ function ChatTabActions({
 export function SideChatPanel(props: SideChatPanelProps) {
   const view = props.useSideChat((value) => value)
   const summaries = props.useSessions((state) => state.byId)
+  const [showArchived, setShowArchived] = useState(false)
   const visible = props.useTabInfo().tab.visible
   const available = view !== null && view.status !== 'disposed'
   useLayoutEffect(() => {
@@ -270,6 +274,37 @@ export function SideChatPanel(props: SideChatPanelProps) {
     sideChatDisplayTitle(
       chat.sideSessionId === null ? undefined : summaries[chat.sideSessionId]?.title,
       chat.title ?? props.t('sideChat.untitled', { ordinal: index + 1 }),
+    )
+  const archived = view.chats.filter((chat) => chat.archived)
+  const archiveMenu =
+    archived.length === 0 ? null : (
+      <Menu
+        open={showArchived}
+        portal
+        align="end"
+        onClose={() => setShowArchived(false)}
+        items={archived.map((chat) => ({
+          id: chat.sideChatId,
+          label: props.t('sideChat.restoreChat', { title: label(chat, view.chats.indexOf(chat)) }),
+        }))}
+        onSelect={(id) => {
+          setShowArchived(false)
+          const target = archived.find((chat) => chat.sideChatId === id)
+          if (target) void props.restoreChat(target.sideChatId)
+        }}
+        anchor={
+          <Button
+            variant="ghost"
+            size="sm"
+            data-dia-side-chat-archives=""
+            aria-haspopup="menu"
+            aria-expanded={showArchived}
+            onClick={() => setShowArchived((value) => !value)}
+          >
+            {props.t('sideChat.archivedList')}
+          </Button>
+        }
+      />
     )
   const tabs = chats.map((chat, index) => ({
     id: tabId(chat.sideChatId),
@@ -315,6 +350,7 @@ export function SideChatPanel(props: SideChatPanelProps) {
     resizeFloat: noLayoutChange,
     resizeSplit: noLayoutChange,
   }
+  const fixedTabGestures = { canDragTab: () => false }
   const labels = {
     emptyPane: props.t('sideChat.guideEmpty'),
     addTab: props.t('sideChat.new'),
@@ -332,16 +368,6 @@ export function SideChatPanel(props: SideChatPanelProps) {
       right: props.t('sideChat.open'),
     },
   }
-  // Stock DockKit omits inline tab actions; enhanced hosts consume both optional props.
-  const renderTabActions: TabRenderer = (tab) => (
-    <ChatTabActions
-      chatId={tab.contentId as SideChatId}
-      archiveChat={props.archiveChat}
-      deleteChat={props.deleteChat}
-      t={props.t}
-    />
-  )
-  const enhancedTabControls = { canDragTab: () => false, renderTabActions }
   return (
     <div
       className="dia-side-chat-root"
@@ -361,6 +387,7 @@ export function SideChatPanel(props: SideChatPanelProps) {
           >
             {props.t('sideChat.new')}
           </Button>
+          {archiveMenu}
           <SideChatSubmissionNotice {...props} />
         </div>
       ) : (
@@ -368,38 +395,26 @@ export function SideChatPanel(props: SideChatPanelProps) {
           state={state}
           intents={intents}
           labels={labels}
+          chrome={archiveMenu}
+          {...fixedTabGestures}
           canSplit={false}
           hideSplitWhenBlocked
           canCloseTab={() => false}
           canAddTab={() => !view.storageOutdated && view.storageAvailable}
-          {...enhancedTabControls}
           keepMounted={() => true}
           active={view.visible}
           renderTab={(tab) =>
             props.renderSlot('annotation.side-chat.tab', { sideChatId: tab.contentId as SideChatId })
           }
           renderTabTitle={(tab) => (
-            <span className="dia-side-chat-tab-title" data-dia-side-chat-select={tab.contentId}>
-              {tab.title}
-            </span>
+            <ChatTabTitle
+              id={tab.contentId as SideChatId}
+              title={tab.title}
+              archive={props.archiveChat}
+              open={props.openSideChatAlone}
+              t={props.t}
+            />
           )}
-          chrome={
-            <Tooltip portal label={props.t('sideChat.openAlone')} side="bottom">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="dia-side-chat-tab-action"
-                aria-label={props.t('sideChat.openAlone')}
-                data-dia-side-chat-open-alone=""
-                disabled={view.active?.sideSessionId == null}
-                onClick={() => {
-                  if (view.active !== null) props.openSideChatAlone(view.active.sideChatId)
-                }}
-              >
-                <IconRightUpOutlineRegular size={14} />
-              </Button>
-            </Tooltip>
-          }
         />
       )}
     </div>
@@ -487,7 +502,7 @@ export function registerSideChatSidebar(
         void options.prepareChat(mainSessionId, sideChatId)
       },
       archiveChat: (sideChatId) => options.archiveChat(mainSessionId, sideChatId),
-      deleteChat: (sideChatId) => options.deleteChat(mainSessionId, sideChatId),
+      restoreChat: (sideChatId) => options.restoreChat(mainSessionId, sideChatId),
       openSideChatAlone: (sideChatId) =>
         run((owner) => {
           const snapshot = owner.getSnapshot()
@@ -546,7 +561,7 @@ export function registerSideChatSidebar(
         selectSideChat: () => {},
         retryChat: () => {},
         archiveChat: async () => {},
-        deleteChat: async () => {},
+        restoreChat: async () => {},
         openSideChatAlone: () => {},
         setReferencePanelOpen: () => {},
       }
