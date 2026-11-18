@@ -1,7 +1,7 @@
 {
   "name": "dsh-annotation",
-  "version": "1.3.0",
-  "description": "在会话中选中文字即可在原文旁写注解，也可标注文件和代码差异，把多条注解随消息一起发送，并从记录跳回原文。",
+  "version": "1.3.1",
+  "description": "在原文旁批注聊天内容、文件和代码差异，汇总发送多条注解，也可在侧栏沿用主会话上下文单独讨论。",
   "keywords": [
     "deepseek",
     "deepseek-harness",

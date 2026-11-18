@@ -1,5 +1,7 @@
 /** Test-only Loader observer; the real Session, input, command, and conversation services stay active. */
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import { connect } from 'node:net'
+import { createInterface } from 'node:readline'
 
 export const inject = [
   'pluginManager',
@@ -98,7 +100,9 @@ class SideChatAdapter extends LlmAdapter {
  * @param ctx - Loader-owned context with the official Host services.
  */
 export function apply(ctx) {
-  if (process.send === undefined) throw new Error('Side-chat observer requires owned child IPC')
+  const socketPath = process.env.DSH_ANNOTATION_FIXTURE_SOCKET
+  if (!socketPath && process.send === undefined)
+    throw new Error('Side-chat observer requires owned child IPC')
   const adapter = new SideChatAdapter()
   let workspace
   const lifecycle = new Map()
@@ -163,16 +167,28 @@ export function apply(ctx) {
   })
   ctx.effect(() => ctx.llm.registerAdapter(['annotation-side-chat-fixture'], adapter))
   ctx.effect(() => () => adapter.release())
-  const receive = (message) => {
+  const receive = (message, send) => {
     if (message?.type !== 'annotation-side-chat-smoke') return
     void inspect(message.action, message.payload).then(
-      (result) => process.send?.({ id: message.id, result }),
-      (error) => process.send?.({ id: message.id, error: String(error.stack ?? error) }),
+      (result) => send({ id: message.id, result }),
+      (error) => send({ id: message.id, error: String(error.stack ?? error) }),
     )
   }
   ctx.effect(() => {
-    process.on('message', receive)
-    return () => process.off('message', receive)
+    if (socketPath) {
+      const socket = connect(socketPath)
+      const lines = createInterface({ input: socket })
+      lines.on('line', (line) =>
+        receive(JSON.parse(line), (packet) => socket.write(JSON.stringify(packet) + '\n')),
+      )
+      return () => {
+        lines.close()
+        socket.destroy()
+      }
+    }
+    const onMessage = (packet) => receive(packet, (result) => process.send(result))
+    process.on('message', onMessage)
+    return () => process.off('message', onMessage)
   })
 
   async function readSession(sessionId) {
@@ -192,7 +208,8 @@ export function apply(ctx) {
   ctx.on('agent/pre-step', async ({ agent }, next) => {
     if (admission?.id === agent.id) {
       admission.entered.resolve()
-      await admission.release.promise
+      const decision = await admission.release.promise
+      if (decision === 'reject') return { kind: 'reject' }
     }
     return next()
   })
@@ -208,8 +225,13 @@ export function apply(ctx) {
       return true
     }
     if (action === 'release-main-admission') {
-      admission.release.resolve()
+      if (payload?.outcome === 'cancel') ctx.agents.get(admission.id).cancel({ kind: 'user' })
+      admission.release.resolve(payload?.outcome)
       admission = undefined
+      return true
+    }
+    if (action === 'wait-agent-idle') {
+      await ctx.agents.get(payload.id).whenIdle()
       return true
     }
     if (action === 'start-delegated-source') {
@@ -249,7 +271,7 @@ export function apply(ctx) {
     }
     if (action === 'prepare') {
       await ctx.settings.update('ui-settings-general', { welcomeNoticeVersion: '2026-09-28.1' })
-      workspace = await ctx.workspaceRegistry.create(process.cwd(), 'Side-chat smoke')
+      workspace = await ctx.workspaceRegistry.create(payload.workspace, 'Side-chat smoke')
       return true
     }
     if (action === 'seed-session') {

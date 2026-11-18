@@ -105,6 +105,7 @@ import {
   type SideChatId,
 } from '../shared/side-chat-types.ts'
 import { registerSideChatSidebar, SIDE_CHAT_KIND, type SideChatSidebar } from './side-chat-sidebar.tsx'
+import { installSideChatPresentation } from './side-chat-presentation.tsx'
 import { submitSideChat } from './side-chat-submit.ts'
 import {
   FORK_SIDE_CHAT_COMMAND,
@@ -727,11 +728,12 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     controllers.get(mainSessionId)?.controller.setSourceReferences(records)
   }
 
-  // Older workspace clients do not expose a row filter. Refuse new children there
-  // before publication, so an owner-only chat cannot leak into the main list.
+  // Keep the full catalog available for recovery and independent opening.
   const workspaceRows = ctx.get('uiWorkspace') as
     { registerSessionListFilter?: (visible: (id: SessionId) => boolean) => () => void } | undefined
   const registerRows = workspaceRows?.registerSessionListFilter
+  const presentation = installSideChatPresentation(ctx, sessions, typeof registerRows === 'function')
+  ctx.effect(() => presentation.dispose, 'dsh-annotation: workspace and chat views')
   if (registerRows)
     ctx.effect(
       () => registerRows.call(workspaceRows, (id) => !isSideSessionId(id)),
@@ -773,7 +775,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         retain: (...args) => sessions.retain(...args),
         create: async ({ sessionId, forkAtSeq, initialTitle }) => {
           if (!sessionId) throw new SideChatFailure('create')
-          if (!registerRows) throw new SideChatFailure('workspace-filter')
+          if (!presentation.listReady()) throw new SideChatFailure('workspace-filter')
           // A 1.2.0 preparation interrupted after Host creation may already have a Session.
           if (!isOwnedSideSession(mainSessionId, sessionId) && sessions.list.getSnapshot().byId[sessionId])
             return sessionId

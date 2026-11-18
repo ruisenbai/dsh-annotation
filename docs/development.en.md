@@ -4,7 +4,7 @@
 
 ## Prerequisites
 
-For owned side chats, run `DSH_SIDE_CHAT_HARNESS_ROOT=/path/to/deepseek-harness pnpm test:profile:side-chat` against a built matching Host. It checks fork-time model input, parent isolation, workspace rows, standalone navigation, reload and archive recovery. Official master and the pinned registry Host check the missing-capability update notice and historical replay.
+Run `pnpm test:profile:side-chat` against stock DSH to exercise context isolation, transcript filtering, workspace navigation, archive recovery and a reconnect during submission. Set `DSH_ANNOTATION_PACKAGED_DIR` to a Linux installation directory to exercise its packaged Web runtime. Add `--desktop` to test its GUI with a private profile and an offline model.
 
 - Node.js `>=24.9.0`;
 - Corepack;
@@ -102,7 +102,7 @@ The record count reads the collection length; source filters traverse annotation
 After [Packaging](#packaging), install the local tarball into a disposable Web profile on the declared DSH release:
 
 ```bash
-dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.3.0.tgz
+dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.3.1.tgz
 dsh --profile annotation-dev
 ```
 
@@ -122,8 +122,8 @@ pnpm --config.ignoreScripts=true pack --pack-destination artifacts
 Inspect the resulting tarball rather than invoking pack again:
 
 ```bash
-tar -tzf artifacts/dsh-annotation-1.3.0.tgz
-tar -xOf artifacts/dsh-annotation-1.3.0.tgz package/package.json
+tar -tzf artifacts/dsh-annotation-1.3.1.tgz
+tar -xOf artifacts/dsh-annotation-1.3.1.tgz package/package.json
 ```
 
 The package must contain `lib/index.js`, `lib/invariant.js`, `lib/client.js`, declarations under `lib/types`, `cordis.patch.yml`, `source-baseline.json`, README files and images under `docs/assets`, the changelog, and the license. Compare its version, Host requirement, dependency declarations and exports with the source manifest; pnpm removes package-manager metadata and development lifecycle hooks when packing.
