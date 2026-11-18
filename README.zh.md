@@ -11,7 +11,7 @@ description: 在原文旁批注聊天内容、文件和代码差异，汇总发�
 
 选中回复里的文字，就能在原文旁写注解。文件和代码差异也可以批注，多条意见可以放进同一条消息，之后还能从记录跳回原文。需要单独讨论时，从右侧栏新建侧聊即可沿用主会话当时的上下文。
 
-[安装与升级](#installation) · [插件市场](https://awesome-dsh-plugin.com/p/ruisenbai/dsh-annotation/)
+[安装与升级](#installation) · [插件市场](https://awesome-dsh-plugin.com/zh/p/ruisenbai/dsh-annotation/)
 
 ![在侧边添加注解时，编辑框仍跟随主会话中的原文](docs/assets/annotation-sidebar.png)
 
