@@ -40,6 +40,7 @@ for (const [name, range] of Object.entries(manifest.peerDependencies ?? {})) {
 const required = [
   'lib/index.js',
   'lib/invariant.js',
+  'lib/typert.js',
   'lib/client.js',
   'lib/types/index.d.ts',
   'lib/types/client/index.d.ts',

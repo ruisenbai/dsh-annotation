@@ -4,7 +4,8 @@ import platformModules from './client-platform.json' with { type: 'json' }
 const packageId = 'dsh-annotation'
 const platformModuleSet = new Set(platformModules)
 const isClientExternal = (specifier: string): boolean =>
-  platformModuleSet.has(specifier) || specifier.startsWith('@deepseek-ai/dsh-')
+  specifier !== '@deepseek-ai/dsh-typert-protocol/remote-info' &&
+  (platformModuleSet.has(specifier) || specifier.startsWith('@deepseek-ai/dsh-'))
 
 const shared = {
   outDir: 'lib',
@@ -18,7 +19,7 @@ const shared = {
 export default defineConfig([
   {
     ...shared,
-    entry: ['lib/types/index.js', 'lib/types/invariant.js'],
+    entry: ['lib/types/index.js', 'lib/types/invariant.js', 'lib/types/typert.js'],
     format: ['esm'],
     platform: 'node',
     deps: { neverBundle: [/^node:/, /^@deepseek-ai\//] },

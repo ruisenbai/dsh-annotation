@@ -100,6 +100,9 @@ function chat(
     sideChatId: local.sideChatId,
     sideSessionId,
     created: local.created || incoming.created,
+    ...((local.forkAtSeq ?? incoming.forkAtSeq) === undefined
+      ? {}
+      : { forkAtSeq: local.forkAtSeq ?? incoming.forkAtSeq }),
     ...(title === undefined ? {} : { title }),
     archived: value(before?.archived ?? false, local.archived ?? false, incoming.archived ?? false),
     panelOpen: local.panelOpen ?? false,

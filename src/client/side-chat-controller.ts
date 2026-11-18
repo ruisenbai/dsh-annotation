@@ -5,6 +5,7 @@ import type {
   SessionReference,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
+import { ownedSideSessionId } from '../shared/side-session-id.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { createSubmissionId } from '../shared/ids.ts'
 import {
@@ -46,6 +47,7 @@ declare module '@deepseek-ai/dsh-api-session-controller/client' {
 export type SideChatFailureCode =
   | 'create'
   | 'workspace'
+  | 'workspace-filter'
   | 'load'
   | 'unavailable'
   | 'storage'
@@ -115,6 +117,8 @@ export interface SideChatView {
 
 /** Session creation details belong to the current main Session's environment. */
 export interface SideChatControllerOptions {
+  /** Last durable parent event visible when the operator creates this tab. */
+  readonly sourceCursor?: () => number | undefined
   /** Creation options used when no asynchronous environment resolver is configured. */
   readonly createOptions?: Parameters<ISessions['create']>[0]
   /** @param ordinal - Creation slot, including archived/deleted chats. @returns A localized name saved in the existing title field. */
@@ -145,6 +149,9 @@ export interface SideChatSubmissionInput {
   readonly validate?: (payload: SideChatSubmissionPayload) => void
 }
 
+// Master folds Chat rows while this facet is held. The pinned registry build folds every retained Session.
+const RETAIN_CONVERSATION = { facets: { conversation: true } } as const
+
 const EMPTY_REFERENCES: readonly SideChatReference[] = Object.freeze([])
 
 /** Mutable per-chat state; the frozen view published above is derived from it. */
@@ -152,6 +159,7 @@ interface ChatState {
   readonly sideChatId: SideChatId
   sideSessionId: SessionId | null
   created: boolean
+  readonly forkAtSeq?: number
   title: string | null
   archived: boolean
   references: readonly SideChatReference[]
@@ -232,7 +240,11 @@ export class SideChatController {
   /** @param mainSessionId - Association owner. @param sessions - Ordinary Session lifecycle API. @param storage - Browser-local pending-state owner. @param options - Creation scope and deterministic test inputs. */
   constructor(
     readonly mainSessionId: SessionId,
-    private readonly sessions: Pick<ISessions, 'create' | 'retain'>,
+    private readonly sessions: Pick<ISessions, 'retain'> & {
+      create(
+        opts: NonNullable<Parameters<ISessions['create']>[0]> & { forkAtSeq?: number; initialTitle?: string },
+      ): Promise<SessionId>
+    },
     private readonly storage: SideChatStorage,
     private readonly options: SideChatControllerOptions = {},
   ) {
@@ -345,10 +357,43 @@ export class SideChatController {
     return () => this.listeners.delete(listener)
   }
 
+  /** Restore the parent's persisted child Sessions when this browser has no local tab association.
+   * @param entries - Host-catalogued tabs owned by this parent.
+   * @param archived - Authoritative archive membership.
+   */
+  discover(
+    entries: readonly { tab: SideChatId; sessionId: SessionId }[],
+    archived: ReadonlySet<SessionId>,
+  ): void {
+    if (this.closed || this.storageFailure || !this.storage.available || this.storage.outdated) return
+    const known = new Set(this.chats.map((chat) => chat.sideSessionId))
+    let changed = false
+    for (const { tab, sessionId } of entries) {
+      if (known.has(sessionId) || this.chat(tab) || this.deletedSideChatIds.has(tab)) continue
+      const chat = this.restore(
+        {
+          sideChatId: tab,
+          sideSessionId: sessionId,
+          created: true,
+          archived: archived.has(sessionId),
+          references: [],
+          outbox: null,
+        },
+        null,
+      )
+      this.chats.push(chat)
+      if (!chat.archived && this.activeSideChatId === null) this.activeSideChatId = tab
+      changed = true
+    }
+    if (changed) this.publish()
+  }
+
   /** @returns The newly created chat, already selected for subsequent confirmations. */
   createChat(): SideChatChatView {
     this.assertMutable()
+    const forkAtSeq = this.options.sourceCursor?.()
     const chat: ChatState = {
+      ...(forkAtSeq === undefined ? {} : { forkAtSeq }),
       sideChatId: `side-chat-${this.randomUUID()}` as SideChatId,
       sideSessionId: null,
       created: false,
@@ -529,7 +574,8 @@ export class SideChatController {
     chat.unsubscribeSession = null
     chat.reference?.release()
     chat.reference = null
-    if (chat.sideSessionId === null) chat.sideSessionId = `annotation-side-${this.randomUUID()}` as SessionId
+    if (chat.sideSessionId === null)
+      chat.sideSessionId = ownedSideSessionId(this.mainSessionId, chat.sideChatId)
     const epoch = ++chat.epoch
     const acquisition = new AbortController()
     chat.acquisition = acquisition
@@ -551,7 +597,12 @@ export class SideChatController {
               ? this.options.createOptions
               : await this.options.resolveCreateOptions(acquisition.signal)
           this.assertGeneration(chat, epoch)
-          sideSessionId = await this.sessions.create({ ...createOptions, sessionId: requestedId })
+          sideSessionId = await this.sessions.create({
+            ...createOptions,
+            sessionId: requestedId,
+            ...(chat.title === null ? {} : { initialTitle: chat.title }),
+            ...(chat.forkAtSeq === undefined ? {} : { forkAtSeq: chat.forkAtSeq }),
+          })
           if (sideSessionId === this.mainSessionId) throw new SideChatFailure('unavailable')
           // Record the Host identity before the generation check: a creation that lands
           // after suspension still exists, and a later attempt must reuse it.
@@ -564,6 +615,7 @@ export class SideChatController {
         this.assertGeneration(chat, epoch)
         const reference = this.sessions.retain(sideSessionId, {
           source: 'annotationSideChat',
+          ...RETAIN_CONVERSATION,
           signal: acquisition.signal,
         })
         chat.reference = reference
@@ -801,6 +853,7 @@ export class SideChatController {
       sideChatId: entry.sideChatId,
       sideSessionId: entry.sideSessionId,
       created: entry.created,
+      ...(entry.forkAtSeq === undefined ? {} : { forkAtSeq: entry.forkAtSeq }),
       title: entry.title ?? this.options.untitled?.(ordinal) ?? null,
       archived: entry.archived ?? false,
       references: entry.references,
@@ -881,6 +934,7 @@ export class SideChatController {
       this.mainAcquisition = new AbortController()
       reference = this.sessions.retain(this.mainSessionId, {
         source: 'annotationSideChatMain',
+        ...RETAIN_CONVERSATION,
         signal: this.mainAcquisition.signal,
       })
     } catch (cause: unknown) {
@@ -982,6 +1036,7 @@ export class SideChatController {
         sideChatId: chat.sideChatId,
         sideSessionId: chat.sideSessionId,
         created: chat.created,
+        ...(chat.forkAtSeq === undefined ? {} : { forkAtSeq: chat.forkAtSeq }),
         ...(chat.title === null ? {} : { title: chat.title }),
         archived: chat.archived,
         panelOpen: chat.panelOpen,

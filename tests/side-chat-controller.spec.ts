@@ -56,6 +56,8 @@ function lifecycle(sessionId: ReturnType<typeof SessionId>): SessionSnapshot {
     openState: 'open',
     openError: null,
     hasMore: false,
+    historyWasPartial: false,
+    historyLoadStatus: 'idle',
     loadingOlder: false,
     promptError: null,
     blank: true,
@@ -91,6 +93,7 @@ function harness(
     cancel: unused,
     rename: unused,
     loadOlder: unused,
+    consumeOlder: () => false,
     loadThrough: unused,
     command: vi.fn(unused),
   }
@@ -234,7 +237,10 @@ describe('side-chat lifecycle and immutable collection', () => {
     expect(fixture.sessions.retain).toHaveBeenCalledOnce()
     expect(fixture.sessions.retain).toHaveBeenCalledWith(
       fixture.controller.mainSessionId,
-      expect.objectContaining({ source: 'annotationSideChatMain' }),
+      expect.objectContaining({
+        source: 'annotationSideChatMain',
+        facets: { conversation: true },
+      }),
     )
     await started.promise
     const allocatedId = fixture.controller.getSnapshot().sideSessionId
@@ -249,6 +255,10 @@ describe('side-chat lifecycle and immutable collection', () => {
     })
     fixture.creation.resolve(fixture.sideId)
     await fixture.retainStarted.promise
+    expect(fixture.sessions.retain).toHaveBeenCalledWith(
+      fixture.sideId,
+      expect.objectContaining({ source: 'annotationSideChat', facets: { conversation: true } }),
+    )
     fixture.opening.resolve(fixture.binding)
     await preparation
     fixture.controller.suspend()
@@ -473,7 +483,10 @@ describe('side-chat lifecycle and immutable collection', () => {
       expect(fixture.sessions.retain).toHaveBeenCalledOnce()
       expect(fixture.sessions.retain).toHaveBeenCalledWith(
         fixture.controller.mainSessionId,
-        expect.objectContaining({ source: 'annotationSideChatMain' }),
+        expect.objectContaining({
+          source: 'annotationSideChatMain',
+          facets: { conversation: true },
+        }),
       )
       expect(fixture.mainRelease).toHaveBeenCalledOnce()
       expect(fixture.controller.getSnapshot()).toBe(stopped)

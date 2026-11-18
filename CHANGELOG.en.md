@@ -4,6 +4,14 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-18
+
+- Support DSH master `ca33fd6843` and require DSH `0.2.2-rc.4` and Node.js `24.9.0`. Read the Host’s synced configuration and retain the conversation data used by side chats.
+- With the [companion Host patch](https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.0/dsh-annotation-host-rc4.patch), new side chats start with an empty transcript and inherit a snapshot of the parent conversation for the model. Each side chat sends independently and belongs to its original conversation’s sidebar.
+- Open a side chat independently, archive it, or restore it from the owning sidebar. Archiving hides its annotation bubbles in the parent conversation.
+- Preserve the original side chat and its references when retrying creation. The companion Host keeps one visible message during the transition from sending to confirmed history across a reconnect.
+- See the [upgrade guide](docs/upgrade-guide/v1.2.0/owned-side-chats/guide.md) for the current Host requirements and steps.
+
 ## [1.2.0] - 2026-11-11
 
 - Capture highlights or notes in a sidebar chat using the same editor as the main conversation. The editor opens beside the original text, including when reopened from a bubble.
@@ -399,7 +407,8 @@ Target host: DeepSeek Harness `0.1.6-alpha.2`, source tag `dsh-v0.1.6-alpha.2` a
 - The first Locate source action after creating a comment resolves updated comment geometry and centers the source immediately.
 - Editing a comment from its numbered marker anchors the editor to the right of the marker, flips left in narrow viewports, and exposes a draft delete action backed by undo.
 
-[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/ruisenbai/dsh-annotation/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/ruisenbai/dsh-annotation/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.7...v1.2.0
 [1.1.3]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/ruisenbai/dsh-annotation/compare/v1.1.1...v1.1.2

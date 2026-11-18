@@ -68,6 +68,14 @@ const server = await createServer({
   root,
   logLevel: 'error',
   appType: 'custom',
+  optimizeDeps: { entries: ['tests/browser/fixture.tsx'] },
+  resolve: {
+    alias: {
+      '@deepseek-ai/dsh-client-ui-primitives': fileURLToPath(
+        import.meta.resolve('@deepseek-ai/dsh-client-ui-primitives/src/index.ts'),
+      ),
+    },
+  },
   server: { host: '127.0.0.1', port: 0, strictPort: false },
   plugins: [
     {

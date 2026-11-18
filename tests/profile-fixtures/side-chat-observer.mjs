@@ -10,6 +10,8 @@ export const inject = [
   'sessionPersistence',
   'workspaceRegistry',
   'commands',
+  'agents',
+  'subagents',
 ]
 
 class SideChatAdapter extends LlmAdapter {
@@ -135,6 +137,11 @@ export function apply(ctx) {
           )
         : execute.call(commands, agent, line, attachments, signal)
     const persistence = ctx.sessionPersistence
+    const creation = persistence.create
+    persistence.create = (header, options) =>
+      failures.has('side-fork') && String(header.id).startsWith('annotation-side-')
+        ? intercept('side-fork', header.id, () => creation.call(persistence, header, options))
+        : creation.call(persistence, header, options)
     const deletion = persistence.delete
     const registry = ctx.workspaceRegistry
     const archival = registry.archiveSession
@@ -147,6 +154,7 @@ export function apply(ctx) {
       intercept('cleanup', sessionId, () => accounting.call(registry, sessionId))
     return () => {
       commands.execute = execute
+      persistence.create = creation
       persistence.delete = deletion
       registry.archiveSession = archival
       registry.forgetSession = accounting
@@ -180,10 +188,55 @@ export function apply(ctx) {
     }
   }
 
+  let admission
+  ctx.on('agent/pre-step', async ({ agent }, next) => {
+    if (admission?.id === agent.id) {
+      admission.entered.resolve()
+      await admission.release.promise
+    }
+    return next()
+  })
+  ctx.effect(() => () => admission?.release.resolve())
+  let delegated
   async function inspect(action, payload) {
+    if (action === 'hold-main-admission') {
+      admission = { id: payload.id, entered: Promise.withResolvers(), release: Promise.withResolvers() }
+      return true
+    }
+    if (action === 'wait-main-claim') {
+      await admission.entered.promise
+      return true
+    }
+    if (action === 'release-main-admission') {
+      admission.release.resolve()
+      admission = undefined
+      return true
+    }
+    if (action === 'start-delegated-source') {
+      const parent = ctx.agents.get(payload.parent)
+      if (!parent) throw new Error('Fixture parent is not live')
+      delegated = await ctx.subagents.startActivation({
+        delivery: 'caller',
+        provider: 'spawn',
+        label: 'Side chat source',
+        prompt: [{ type: 'text', text: payload.prompt }],
+        parent,
+        signal: new AbortController().signal,
+      })
+      return delegated.childId
+    }
+    if (action === 'settle-delegated-source') {
+      await delegated.result
+      await delegated.dispose()
+      return true
+    }
     if (action === 'inspect') {
+      const origin = `http://127.0.0.1:${ctx.webServer.port}/`
+      const entries = []
+      ctx.emit(ctx.webServer, 'webserver/entry-url', origin, entries)
+      const url = entries.find((entry) => entry.open)?.url ?? ctx.connection.authenticatedUrl(origin)
       return {
-        url: ctx.connection.authenticatedUrl(`http://127.0.0.1:${ctx.webServer.port}`),
+        url,
         bundles: await ctx.pluginManager.listBundles(),
         plugins: await ctx.pluginManager.listPlugins(),
         modelRequests: adapter.requests.length,
@@ -226,6 +279,17 @@ export function apply(ctx) {
     }
     if (action === 'is-deleted') return ctx.sessionPersistence.isDeleted(payload.sessionId)
     if (action === 'read-session') return readSession(payload.sessionId)
+    if (action === 'request-side-fork') {
+      const agent = ctx.agents.get(payload.parent)
+      if (!agent) throw new Error('Test parent is not live')
+      const response = await ctx.commands.execute(
+        agent,
+        '/annotation_side_chat_fork ' + JSON.stringify(payload.request),
+        [],
+        new AbortController().signal,
+      )
+      return response.result
+    }
     if (action === 'model-requests') return adapter.requests
     if (action === 'hold-next-model') {
       if (adapter.pending !== null || adapter.holdNext) throw new Error('A model barrier is already armed')

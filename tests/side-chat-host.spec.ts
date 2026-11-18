@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import Commands, { CommandId } from '@deepseek-ai/dsh-commands'
-import { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import { MessageId } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
   SessionId,
   SessionLogOffset,

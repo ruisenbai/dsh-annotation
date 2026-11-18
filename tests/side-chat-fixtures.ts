@@ -93,6 +93,8 @@ export function sideChatSessionFixture(
     openState: 'open',
     openError: null,
     hasMore: false,
+    historyWasPartial: false,
+    historyLoadStatus: 'idle',
     loadingOlder: false,
     promptError: null,
     blank: true,
@@ -119,6 +121,7 @@ export function sideChatSessionFixture(
     cancel: unused,
     rename: unused,
     loadOlder: unused,
+    consumeOlder: () => false,
     loadThrough: unused,
     command: unused,
   }

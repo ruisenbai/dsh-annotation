@@ -1,3 +1,4 @@
+import { sideChatForkRemote } from '../shared/side-chat-fork-remote.ts'
 /** Browser selection, independent side conversations, annotation records, and draft recovery. */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -15,7 +16,7 @@ import type {
   SubmitAttachment,
   SubmitOutcome,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -105,6 +106,14 @@ import {
 } from '../shared/side-chat-types.ts'
 import { registerSideChatSidebar, SIDE_CHAT_KIND, type SideChatSidebar } from './side-chat-sidebar.tsx'
 import { submitSideChat } from './side-chat-submit.ts'
+import {
+  FORK_SIDE_CHAT_COMMAND,
+  isOwnedSideSession,
+  isSideSessionId,
+  ownedSideSessionId,
+  sideParentKey,
+  sideSessionAddress,
+} from '../shared/side-session-id.ts'
 import { resolveSideChatWorkspace } from './side-chat-workspace.ts'
 import { migrateSideReferences, sideAnnotationCapture } from './side-chat-annotations.ts'
 import { sideChatDisplayTitle } from './side-chat-title.ts'
@@ -141,6 +150,7 @@ export const inject = [
   'slots',
   'sessions',
   'workspaces',
+  'uiWorkspace',
   'uiConversation',
   'locale',
   'conversation',
@@ -239,7 +249,8 @@ function attachmentMetadata(attachments: readonly SubmitAttachment[]): OutboxAtt
 
 /** Mount every UI contribution and bind one controller to each encountered Session. */
 export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): void {
-  const config = resolveConfig(input)
+  // The synced Config can return a reference even when the requested field is absent.
+  const config = resolveConfig({ ...input })
   const sessions: ISessions & { isDeleted?(id: SessionId): Promise<boolean> } =
     ctx.sessions as unknown as ISessions
   const conversation = ctx.conversation as unknown as IConversation
@@ -443,6 +454,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     const markers = new Map<string, SourceAnnotationMarker[]>()
     for (const [targetId, entry] of controllers) {
       const owner = sideOwners.get(targetId)
+      if (owner?.chatForSideSession(targetId)?.archived) continue
       const side = owner?.getSnapshot()
       const visible =
         side === undefined ||
@@ -696,14 +708,17 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   }
 
   const refreshSourceReferences = (mainSessionId: SessionId, owner: SideChatController): void => {
-    const records = owner.getSnapshot().chats.flatMap((chat) =>
-      chat.referenceRecords.map((reference) => ({
-        reference,
-        sideChatId: chat.sideChatId,
-        ordinal: (chat.referenceRecordIds ?? []).indexOf(reference.referenceId) + 1,
-        disabled: chat.saveState === 'conflict' || chat.saveState === 'unavailable',
-      })),
-    )
+    const records = owner
+      .getSnapshot()
+      .chats.filter((chat) => !chat.archived)
+      .flatMap((chat) =>
+        chat.referenceRecords.map((reference) => ({
+          reference,
+          sideChatId: chat.sideChatId,
+          ordinal: (chat.referenceRecordIds ?? []).indexOf(reference.referenceId) + 1,
+          disabled: chat.saveState === 'conflict' || chat.saveState === 'unavailable',
+        })),
+      )
     records.sort(
       (left, right) =>
         left.reference.createdAt - right.reference.createdAt ||
@@ -712,6 +727,39 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     controllers.get(mainSessionId)?.controller.setSourceReferences(records)
   }
 
+  // Older workspace clients do not expose a row filter. Refuse new children there
+  // before publication, so an owner-only chat cannot leak into the main list.
+  const workspaceRows = ctx.get('uiWorkspace') as
+    { registerSessionListFilter?: (visible: (id: SessionId) => boolean) => () => void } | undefined
+  const registerRows = workspaceRows?.registerSessionListFilter
+  if (registerRows)
+    ctx.effect(
+      () => registerRows.call(workspaceRows, (id) => !isSideSessionId(id)),
+      'dsh-annotation: side-only navigation',
+    )
+
+  let catalogIds: readonly SessionId[] | undefined
+  const sideCatalog = new Map<string, NonNullable<ReturnType<typeof sideSessionAddress>>[]>()
+  const discoverSideChats = (owner: SideChatController): void => {
+    const { ids, phase } = sessions.list.getSnapshot()
+    const workspaces = ctx.workspaces.list.getSnapshot()
+    if (phase !== 'ready' || workspaces.phase !== 'ready') return
+    if (ids !== catalogIds) {
+      catalogIds = ids
+      sideCatalog.clear()
+      for (const id of ids) {
+        const addr = sideSessionAddress(id)
+        if (!addr) continue
+        const entries = sideCatalog.get(addr.owner)
+        if (entries) entries.push(addr)
+        else sideCatalog.set(addr.owner, [addr])
+      }
+    }
+    const entries = sideCatalog.get(sideParentKey(owner.mainSessionId))
+    if (entries) owner.discover(entries, new Set(workspaces.archivedSessionIds))
+  }
+  // The gateway releases the mounted namespace with this client plugin's fiber.
+  let forkRemoteReady: ReturnType<typeof ctx.remote.$mount> | undefined
   const sideChatFor = (mainSessionId: SessionId): SideChatController => {
     const existing = sideChats.get(mainSessionId)
     if (existing !== undefined) return existing
@@ -721,12 +769,73 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     }
     const owner: SideChatController = new SideChatController(
       mainSessionId,
-      sessions,
+      {
+        retain: (...args) => sessions.retain(...args),
+        create: async ({ sessionId, forkAtSeq, initialTitle }) => {
+          if (!sessionId) throw new SideChatFailure('create')
+          if (!registerRows) throw new SideChatFailure('workspace-filter')
+          // A 1.2.0 preparation interrupted after Host creation may already have a Session.
+          if (!isOwnedSideSession(mainSessionId, sessionId) && sessions.list.getSnapshot().byId[sessionId])
+            return sessionId
+          const target = isOwnedSideSession(mainSessionId, sessionId)
+            ? sessionId
+            : ownedSideSessionId(mainSessionId, sessionId)
+          const row = sessions.list.getSnapshot().byId[mainSessionId]
+          const subagent = sessions.binding(mainSessionId)?.session.getSnapshot().subagent
+          if (row?.origin === 'subagent' || subagent != null) {
+            forkRemoteReady ??= ctx.remote.$mount(sideChatForkRemote).catch((cause: unknown) => {
+              forkRemoteReady = undefined
+              throw cause
+            })
+            await forkRemoteReady
+            const endpoint = ctx.get('remote.annotationSideChats') as
+              typeof ctx.remote.annotationSideChats | undefined
+            if (!endpoint) throw new SideChatFailure('create', 'Side chat creation service is unavailable')
+            const result = await endpoint.fork({
+              sessionId: mainSessionId,
+              target,
+              at: forkAtSeq,
+              title: initialTitle,
+            })
+            if (!result.ok || result.value !== target)
+              throw new SideChatFailure(
+                'create',
+                result.ok ? 'Missing side conversation receipt' : result.error,
+              )
+          } else {
+            if (!ctx.get('remote.commands'))
+              throw new SideChatFailure('create', 'The Host cannot return a fork receipt')
+            const line =
+              '/' +
+              FORK_SIDE_CHAT_COMMAND +
+              ' ' +
+              JSON.stringify({ target, at: forkAtSeq, title: initialTitle })
+            const result = await executeCommand(mainSessionId, line, [])
+            if (!result.ok || result.text !== target)
+              throw new SideChatFailure('create', result.errorText || 'Missing side conversation receipt')
+          }
+          await sessions.refresh()
+          return target
+        },
+      },
       new SideChatStorage(browserStorage, mainSessionId, storageCoordination),
       {
+        sourceCursor: () => {
+          const parent = sessions.binding(mainSessionId)
+          if (!parent || parent.session.getSnapshot().openState !== 'open') return undefined
+          const last = parent.eventSource.getSnapshot().entries.findLast((entry) => entry.type === 'event')
+          return last?.event.seq ?? (parent.session.getSnapshot().blank ? -1 : undefined)
+        },
         untitled: (ordinal) => annotationT('sideChat.untitled', { ordinal }),
-        resolveCreateOptions: (signal) =>
-          resolveSideChatWorkspace(ctx.workspaces, sessions, mainSessionId, signal),
+        resolveCreateOptions: (signal) => {
+          // Catalog-only children may have no local cwd. The fork Host resolves their saved lineage.
+          if (
+            sessions.list.getSnapshot().byId[mainSessionId]?.origin === 'subagent' ||
+            sessions.binding(mainSessionId)?.session.getSnapshot().subagent != null
+          )
+            return Promise.resolve({})
+          return resolveSideChatWorkspace(ctx.workspaces, sessions, mainSessionId, signal)
+        },
         onReady: (binding, chatId) => {
           if (disposed || !featureEnabled.getSnapshot()) throw new SideChatFailure('disposed')
           if (unavailableMains.has(mainSessionId)) throw new SideChatFailure('unavailable')
@@ -784,6 +893,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       }),
     )
     refreshSourceReferences(mainSessionId, owner)
+    discoverSideChats(owner)
     return owner
   }
 
@@ -798,8 +908,12 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     if (owner.chatView(sideChatId) === null) return
     await owner.prepare(sideChatId).catch((cause: unknown) => {
       if (cause instanceof SideChatFailure && cause.code === 'disposed') return
-      if (!disposed && sideChats.get(mainSessionId) === owner)
-        controllers.get(mainSessionId)?.controller.setNotice('error', 'sideChat.error')
+      if (!disposed && sideChats.get(mainSessionId) === owner) {
+        ctx.logger.warn(
+          'Side chat preparation failed',
+          cause instanceof SideChatFailure ? cause.cause : cause,
+        )
+      }
     })
   }
 
@@ -1739,29 +1853,38 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   const manageSideChat = async (
     mainSessionId: SessionId,
     chatId: SideChatId,
-    operation: 'archive' | 'delete',
+    operation: 'archive' | 'restore',
   ): Promise<void> => {
     const owner = sideChats.get(mainSessionId)
     const chat = owner?.chatView(chatId)
     if (owner === undefined || chat === null || chat === undefined || disposed) return
     const actions = ctx.get('sessionActions')
-    if (actions === undefined) {
-      controllerFor(mainSessionId).setNotice('error', 'sideChat.hostUpgrade')
-      return
-    }
     try {
-      if (chat.sideSessionId === null || chat.status !== 'ready') await owner.prepare(chatId)
+      if (chat.sideSessionId === null || (operation === 'archive' && chat.status !== 'ready'))
+        await owner.prepare(chatId)
       const target = owner.chatView(chatId)?.sideSessionId
       if (target == null) throw new SideChatFailure('unavailable')
-      const outcome = await actions[operation](target)
-      if (disposed || outcome !== 'completed') return
-      if (operation === 'archive') owner.setArchived(chatId, true)
-      else owner.removeChat(chatId)
+      if (operation === 'restore') await ctx.workspaces.unarchiveSession(target)
+      else if (actions !== undefined) {
+        if ((await actions.archive(target)) !== 'completed') return
+      } else await ctx.workspaces.archiveSession(target)
+      if (disposed) return
+      owner.setArchived(chatId, operation === 'archive')
+      if (operation === 'restore') {
+        owner.selectChat(chatId)
+        sideChatSidebar?.open(mainSessionId)
+      }
       const next = owner.getSnapshot().activeSideChatId
       if (next !== null) void prepareSideChat(mainSessionId, next)
     } catch (cause: unknown) {
       if (disposed) return
-      controllerFor(mainSessionId).setNotice('error', 'sideChat.actionFailed')
+      const detail = cause instanceof Error && 'rpcError' in cause ? cause.rpcError : null
+      const busy =
+        detail !== null &&
+        typeof detail === 'object' &&
+        'code' in detail &&
+        detail.code === 'workspace/session-active'
+      controllerFor(mainSessionId).setNotice('error', busy ? 'sideChat.archiveBusy' : 'sideChat.actionFailed')
       ctx.logger.warn('Side-chat Session operation failed', cause)
     }
   }
@@ -1785,7 +1908,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       controllerForSide: (sideSessionId) => sideOwners.get(sideSessionId),
       locateReference: locateSideChatReference,
       archiveChat: (mainSessionId, chatId) => manageSideChat(mainSessionId, chatId, 'archive'),
-      deleteChat: (mainSessionId, chatId) => manageSideChat(mainSessionId, chatId, 'delete'),
+      restoreChat: (mainSessionId, chatId) => manageSideChat(mainSessionId, chatId, 'restore'),
       openPanel: (mainSessionId) => {
         if (disposed || unavailableMains.has(mainSessionId)) return
         const owner = sideChatFor(mainSessionId)
@@ -2026,7 +2149,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
           },
           HiddenCommandRow,
         ),
-        ...[SIDE_CHAT_COMMAND_NAME, ...LEGACY_COMMAND_NAMES]
+        ...[FORK_SIDE_CHAT_COMMAND, SIDE_CHAT_COMMAND_NAME, ...LEGACY_COMMAND_NAMES]
           .filter((name) => name !== config.commandName)
           .map((name) =>
             ctx.slots.register(
@@ -2175,16 +2298,30 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       const archived = new Set(ctx.workspaces.list.getSnapshot().archivedSessionIds)
       for (const owner of sideChats.values()) {
         for (const chat of owner.getSnapshot().chats) {
-          if (chat.sideSessionId !== null)
-            owner.setArchived(chat.sideChatId, archived.has(chat.sideSessionId))
+          if (chat.sideSessionId === null) continue
+          const isArchived = archived.has(chat.sideSessionId)
+          owner.setArchived(chat.sideChatId, isArchived)
+          if (chat.archived && !isArchived && featureEnabled.getSnapshot())
+            void prepareSideChat(owner.mainSessionId, chat.sideChatId)
         }
         const target = owner.getSnapshot().activeSideChatId
         if (target !== null && featureEnabled.getSnapshot()) void prepareSideChat(owner.mainSessionId, target)
       }
     }
-    const release = ctx.workspaces.list.subscribe(reconcile)
+    const discover = () => {
+      for (const owner of sideChats.values()) discoverSideChats(owner)
+    }
+    const releaseCatalog = sessions.list.subscribe(discover)
+    const release = ctx.workspaces.list.subscribe(() => {
+      discover()
+      reconcile()
+    })
+    discover()
     reconcile()
-    return release
+    return () => {
+      releaseCatalog()
+      release()
+    }
   }, 'dsh-annotation: official side-chat archive state')
 
   // Only hosts with durable deletion inspection also publish this lifecycle event.

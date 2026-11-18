@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-settings'
 import { installSettingsMigration } from './host/settings-migration.ts'
 import { createAnnotationCommand, createLegacyAnnotationAliases } from './host/command.ts'
+import { AnnotationSideChats, sideChatTranscriptStart } from './host/side-chat-fork.ts'
 import { installSideChatCommand } from './host/side-chat-command.ts'
 import { DEFAULT_CONFIG, resolveConfig } from './shared/config.ts'
 import {
@@ -75,7 +76,9 @@ export async function apply(ctx: Context, input: AnnotationConfig): Promise<void
   for (const alias of createLegacyAnnotationAliases(config)) {
     ctx.effect(() => ctx.commands.register(alias), `dsh-annotation: legacy alias /${alias.name}`)
   }
+  await ctx.sessionProjections.register(sideChatTranscriptStart)
   await installSideChatCommand(ctx, config)
+  ctx.plugin(AnnotationSideChats)
   ctx.inject(['settings'], (child) => {
     child.effect(() => child.settings.configure({ auto: false }, ctx.fiber), 'dsh-annotation: settings page')
   })

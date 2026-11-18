@@ -13,43 +13,16 @@ export const styles: string = `
 }
 
 .dia-side-chat-tab-action { width: 26px; min-width: 26px; height: 26px; padding: 0; }
-.dia-side-chat-tab-title { flex: none; }
-.dia-side-chat-tab-actions { display: flex; align-items: center; gap: 2px; }
-/* Only the side-chat embedder overlays actions; other DockKit consumers retain their layout. */
-.dia-side-chat-root [data-dockkit-tab-action-bar] {
-  position: absolute;
-  inset-inline-end: 4px;
-  margin: 0;
-  opacity: 1;
-  pointer-events: auto;
-  clip-path: inset(0);
-  transition: clip-path 120ms ease, opacity 120ms ease;
-}
-.dia-side-chat-root [data-dockkit-tab-actions] [data-dockkit-tab-title] {
-  mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
-  mask-repeat: no-repeat;
-  mask-size: calc(100% - var(--dia-tab-actions-width) + 6px) 100%;
-  transition: mask-size 120ms ease;
-}
+.dia-side-chat-root [data-dockkit-tab]:has(.dia-side-chat-tab-title) { position: relative; min-width: calc(5.5em + 54px); }
+.dia-side-chat-tab-actions { position: absolute; z-index: 1; inset-inline-end: 3px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 2px; }
+.dia-side-chat-root [data-dockkit-tab]:has(.dia-side-chat-tab-actions) [data-dockkit-tab-title] { mask-image: linear-gradient(to right, black calc(100% - 59px), transparent calc(100% - 51px)); }
 @media (hover: hover) {
-  .dia-side-chat-root [data-dockkit-tab][data-dockkit-tab-actions] [data-dockkit-tab-action-bar] { opacity: 0; pointer-events: none; clip-path: inset(0 0 0 100%); }
-  .dia-side-chat-root [data-dockkit-tab-actions] [data-dockkit-tab-title] { mask-image: none; mask-size: 100% 100%; }
-  .dia-side-chat-root [data-dockkit-tab-actions] [data-dockkit-tab-title][data-dockkit-tab-clipped] { mask-image: linear-gradient(to right, black calc(100% - 16px), transparent); }
-  .dia-side-chat-root [data-dockkit-tab][data-dockkit-tab-actions]:hover [data-dockkit-tab-action-bar] { opacity: 1; pointer-events: auto; clip-path: inset(0); }
-  .dia-side-chat-root [data-dockkit-tab-actions]:hover [data-dockkit-tab-title] {
-    mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
-    mask-size: calc(100% - var(--dia-tab-actions-width) + 6px) 100%;
-  }
-}
-/* A clicked Tab can retain :focus-visible; the theme's modality also tracks same-Tab clicks. */
-html:not([data-input-modality='pointer']) .dia-side-chat-root [data-dockkit-tab-actions]:focus-within [data-dockkit-tab-action-bar] { opacity: 1; pointer-events: auto; clip-path: inset(0); }
-html:not([data-input-modality='pointer']) .dia-side-chat-root [data-dockkit-tab-actions]:focus-within [data-dockkit-tab-title] {
-  mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
-  mask-size: calc(100% - var(--dia-tab-actions-width) + 6px) 100%;
-}
-@media (prefers-reduced-motion: reduce) {
-  .dia-side-chat-root [data-dockkit-tab-action-bar],
-  .dia-side-chat-root [data-dockkit-tab-actions] [data-dockkit-tab-title] { transition: none; }
+  .dia-side-chat-root [data-dockkit-tab]:not(:hover):not(:focus-within) .dia-side-chat-tab-actions,
+  html[data-input-modality="pointer"] .dia-side-chat-root [data-dockkit-tab]:not(:hover) .dia-side-chat-tab-actions { opacity: 0; pointer-events: none; }
+  .dia-side-chat-root [data-dockkit-tab]:not(:hover):not(:focus-within) [data-dockkit-tab-title]:not([data-dockkit-tab-clipped]),
+  html[data-input-modality="pointer"] .dia-side-chat-root [data-dockkit-tab]:not(:hover) [data-dockkit-tab-title]:not([data-dockkit-tab-clipped]) { mask-image: none; }
+  .dia-side-chat-root [data-dockkit-tab]:not(:hover):not(:focus-within) [data-dockkit-tab-clipped],
+  html[data-input-modality="pointer"] .dia-side-chat-root [data-dockkit-tab]:not(:hover) [data-dockkit-tab-clipped] { mask-image: linear-gradient(to right, black calc(100% - 12px), transparent); }
 }
 .dia-side-chat-root > [data-dockkit-surface] { flex: 1; min-height: 0; }
 .dia-side-chat-body {

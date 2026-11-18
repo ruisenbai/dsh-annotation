@@ -2,6 +2,14 @@
 
 [版本下载](https://github.com/ruisenbai/dsh-annotation/releases) · [详细英文记录](CHANGELOG.en.md)
 
+## 1.3.0 · 2026-11-18
+
+- **适配 DSH master `ca33fd6843`。** 最低宿主为 `0.2.2-rc.4`，最低 Node.js 为 `24.9.0`。更新了配置读取和侧聊加载，官方宿主可继续使用主会话注解、已有侧聊和历史记录。
+- **侧聊可继承主会话上下文。** 使用[配套宿主补丁](https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.0/dsh-annotation-host-rc4.patch)后，新建侧聊时正文从空白开始，模型可使用创建时的主会话历史。各侧聊独立发送，入口在所属主会话的右侧栏。
+- **独立打开与归档。** 悬停侧聊标签可独立打开同一会话或归档。归档后主会话的对应注解气泡随之隐藏，从侧栏恢复后会重新显示。
+- **改善失败恢复。** 侧聊创建失败后可沿用原引用和会话重试。配套宿主修复了主会话发送后恰遇重连时气泡消失的问题。
+- **升级。** 旧宿主请继续使用 [1.2.0](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.2.0)。升级方式见[迁移说明](docs/upgrade-guide/v1.2.0/owned-side-chats/guide.zh.md)。
+
 ## 1.2.0 · 2026-11-11
 
 - **侧栏也能添加注解。** 在主会话选中文字，点击“在侧边添加注解”，即可把记录保存到当前侧边聊天。主会话和不同侧栏各有自己的草稿、附加选择和发送目标。

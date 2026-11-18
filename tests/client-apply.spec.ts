@@ -12,11 +12,12 @@ import type {
   SessionSnapshot,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceSnapshot, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type {
   SidebarRightCloseHandler,
   SidebarRightTabDefinition,
 } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
+import * as sideIdentity from '../src/shared/side-session-id.ts'
 import { SIDE_CHAT_RECEIPTS_PROJECTION } from '../src/shared/side-chat-types.ts'
 import type { SideChatReceiptState } from '../src/shared/side-chat-types.ts'
 import { SIDE_CHAT_KIND, SIDE_CHAT_TAB_ID } from '../src/client/side-chat-sidebar.tsx'
@@ -108,6 +109,12 @@ function fileAttachment(receiptId = 'upload-receipt-1'): SubmitAttachment {
 
 function remoteSuccess() {
   return { ok: true, value: { result: { kind: 'success' as const } } }
+}
+
+function ownedSideFixture(parent: SessionId) {
+  const id = sideIdentity.ownedSideSessionId(parent, 'fixed-test-tab')
+  vi.spyOn(sideIdentity, 'ownedSideSessionId').mockReturnValue(id)
+  return sideChatSessionFixture(parent, id)
 }
 
 function fixtureContext(
@@ -393,10 +400,23 @@ function fixtureContext(
       },
     }),
   )
-  const execute = (sessionId: SessionId, line: string, attachments: readonly SubmitAttachment[]) =>
-    line.endsWith(` ${ATTACHMENT_PREPARE_INPUT}`)
+  const execute = async (sessionId: SessionId, line: string, attachments: readonly SubmitAttachment[]) => {
+    if (line.startsWith('/' + sideIdentity.FORK_SIDE_CHAT_COMMAND + ' ')) {
+      if (!sideSessions) throw new Error('Unexpected side conversation fork')
+      const workspace = workspaceSnapshot.items.find((w) => w.sessionIds.includes(sessionId))
+      await sideSessions.create({
+        sessionId: JSON.parse(line.slice(line.indexOf(' '))).target as SessionId,
+        ...(workspace ? { workspaceId: workspace.workspaceId } : {}),
+      })
+      return {
+        ok: true,
+        value: { result: { kind: 'success', text: JSON.parse(line.slice(line.indexOf(' '))).target } },
+      }
+    }
+    return line.endsWith(` ${ATTACHMENT_PREPARE_INPUT}`)
       ? prepareAttachments(sessionId, line, attachments)
       : Reflect.apply(command, undefined, [sessionId, line, attachments])
+  }
   const ctx = {
     remote: {
       $on: (_event: string, listener: (sessionId: SessionId) => void) => {
@@ -406,6 +426,8 @@ function fixtureContext(
     },
     logger: { warn: vi.fn(), error: vi.fn() },
     get(name: string) {
+      if (name === 'uiWorkspace' && sideSessions)
+        return { registerSessionListFilter: () => () => {}, openSession: vi.fn() }
       if (name === 'remote.commands' && remoteCommandsAvailable) return { execute }
       return undefined
     },
@@ -415,10 +437,15 @@ function fixtureContext(
       getLocale: () => ({ active: 'zh' as const, locales: [], revision: 0 }),
     },
     sessions: {
+      refresh: vi.fn(async () => {}),
       delete: vi.fn(async () => {}),
       isDeleted: vi.fn(async () => false),
       list: {
-        getSnapshot: () => ({ phase: 'ready', byId: listed ? { 'session-test': {} } : {} }),
+        getSnapshot: () => ({
+          phase: 'ready',
+          ids: listed ? ['session-test'] : [],
+          byId: listed ? { 'session-test': {} } : {},
+        }),
         subscribe(listener: () => void) {
           listListeners.add(listener)
           return () => listListeners.delete(listener)
@@ -427,7 +454,12 @@ function fixtureContext(
       binding: (sessionId: SessionId) =>
         sessionId === sideReference?.sessionId
           ? sideReference.binding
-          : { sessionId: 'session-test', session, ctx: actx },
+          : {
+              sessionId: 'session-test',
+              session,
+              ctx: actx,
+              eventSource: { getSnapshot: () => ({ entries: [] }) },
+            },
       scopeOf: (candidate: unknown) => (candidate === actx ? ('session-test' as SessionId) : undefined),
       create: (...args: Parameters<ISessions['create']>) => {
         if (sideSessions === undefined) throw new Error('Unexpected side Session creation')
@@ -888,7 +920,7 @@ describe('Client plugin composer attachment lifecycle', () => {
   }) => {
     const mainId = 'session-test' as SessionId
     const fixture = fixtureContext(vi.fn())
-    const side = sideChatSessionFixture(mainId)
+    const side = ownedSideFixture(mainId)
     const events: string[] = []
     const stopped = vi.fn(() => events.push('resource-stop'))
     const release = vi.fn(() => events.push('side-release'))
@@ -951,7 +983,7 @@ describe('Client plugin composer attachment lifecycle', () => {
   }) => {
     const mainId = 'session-test' as SessionId
     const fixture = fixtureContext(vi.fn())
-    const side = sideChatSessionFixture(mainId)
+    const side = ownedSideFixture(mainId)
     const create = vi.fn<ISessions['create']>(side.sessions.create)
     const retain = vi.fn<ISessions['retain']>(side.sessions.retain)
     fixture.setSideSessions({ create, retain })
@@ -984,7 +1016,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     onTestFinished,
   }) => {
     const fixture = fixtureContext(vi.fn())
-    const side = sideChatSessionFixture('session-test' as SessionId)
+    const side = ownedSideFixture('session-test' as SessionId)
     const creation = Promise.withResolvers<SessionId>()
     const create = vi.fn<ISessions['create']>(() => creation.promise)
     fixture.setSideSessions({ ...side.sessions, create })
@@ -1099,7 +1131,7 @@ describe('Client plugin composer attachment lifecycle', () => {
   it('projects a side editor onto its source bubble and clears that state when its panel is hidden', async ({
     onTestFinished,
   }) => {
-    const side = sideChatSessionFixture('session-test' as SessionId)
+    const side = ownedSideFixture('session-test' as SessionId)
     const fixture = fixtureContext(vi.fn())
     fixture.setSideSessions(side.sessions)
     fixture.setWorkspaces({
@@ -1160,7 +1192,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     onTestFinished,
   }) => {
     const command = vi.fn()
-    const side = sideChatSessionFixture('session-test' as SessionId)
+    const side = ownedSideFixture('session-test' as SessionId)
     const fixture = fixtureContext(command, true, false, side.sideId)
     const editorContext = side.sessions.retain(side.sideId, { source: 'annotationSideChat' }).binding.ctx
     editorContext.on('slash/input-begin-command', (request) =>
@@ -1356,6 +1388,19 @@ describe('Client plugin composer attachment lifecycle', () => {
       add.mockRestore()
       remove.mockRestore()
     }
+  })
+
+  it('uses default Client command settings when the Host exposes only synced references', ({
+    onTestFinished,
+  }) => {
+    const fixture = fixtureContext(vi.fn())
+    onTestFinished(fixture.dispose)
+    // The synced Config creates a reference even for a field absent from the graph.
+    const input = new Proxy({}, { get: () => ({ get: () => undefined }) })
+
+    apply(fixture.ctx, input)
+
+    expect(fixture.hasRegistration('settings.section')).toBe(true)
   })
 
   it('registers one dedicated annotation section in main Settings', async () => {

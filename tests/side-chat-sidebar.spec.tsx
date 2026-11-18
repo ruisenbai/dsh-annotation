@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import * as dockKit from '@deepseek-ai/dsh-client-ui-dockkit'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SidebarRightTabDefinition } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import { Context } from '@deepseek-ai/cordis'
@@ -21,6 +20,7 @@ import {
 } from '../src/client/side-chat-sidebar.tsx'
 import {
   SideChatController,
+  SideChatFailure,
   type SideChatChatView,
   type SideChatView,
 } from '../src/client/side-chat-controller.ts'
@@ -126,7 +126,7 @@ function panelProps(snapshot: SideChatView, overrides: Record<string, unknown> =
     createSideChat: vi.fn(),
     selectSideChat: vi.fn(),
     archiveChat: vi.fn(async () => {}),
-    deleteChat: vi.fn(async () => {}),
+    restoreChat: vi.fn(async () => {}),
     retryChat: vi.fn(),
     openSideChatAlone: vi.fn(),
     setReferencePanelOpen: vi.fn(),
@@ -231,7 +231,7 @@ function options(overrides: Partial<SideChatSidebarOptions> = {}): SideChatSideb
     prepareChat: vi.fn(async () => {}),
     openStandalone,
     archiveChat: vi.fn(async () => {}),
-    deleteChat: vi.fn(async () => {}),
+    restoreChat: vi.fn(async () => {}),
     ...overrides,
   }
 }
@@ -286,6 +286,15 @@ describe('independent side-chat Host integration', () => {
     },
   )
 
+  it('shows one creation failure and one retry for the selected tab', () => {
+    const retryChat = vi.fn()
+    const failed = chat(chatA, { status: 'error', failure: new SideChatFailure('create') })
+    render(<SideChatPanel {...panelProps(view([failed]), { retryChat })} />)
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.getByRole('alert').textContent).toBe(t('sideChat.failure.create'))
+    fireEvent.click(screen.getByRole('button', { name: t('sideChat.retry') }))
+    expect(retryChat).toHaveBeenCalledExactlyOnceWith(chatA)
+  })
   it('keeps the embedded Conversation in the ordinary chat View', () => {
     const renderSlot = vi.fn(() => null)
     FixedSideChatView({ renderSlot } as never)
@@ -374,22 +383,15 @@ describe('independent side-chat Host integration', () => {
     expect(props.closeSideChat).not.toHaveBeenCalled()
   })
 
-  it('binds enhanced Host tab actions to the clicked tab, independently of the active chat', () => {
-    vi.spyOn(dockKit, 'DockLayout').mockImplementation((layout) => {
-      const enhanced = layout as typeof layout & { renderTabActions: dockKit.TabRenderer }
-      return (
-        <>
-          {Object.values(layout.state.tabs).map((tab) => (
-            <div key={tab.id}>{enhanced.renderTabActions(tab)}</div>
-          ))}
-        </>
-      )
-    })
+  it('opens or archives the hovered tab without selecting it', () => {
     const props = panelProps(view([chat(chatA), chat(chatB)], chatB))
     render(<SideChatPanel {...props} />)
-    fireEvent.click(screen.getAllByRole('button', { name: en['sideChat.deleteChat'] })[0]!)
-    expect(props.deleteChat).toHaveBeenCalledExactlyOnceWith(chatA)
-    expect(props.closeSideChat).not.toHaveBeenCalled()
+    const first = screen.getAllByRole('tab')[0]!
+    fireEvent.click(within(first).getByRole('button', { name: en['sideChat.openAlone'] }))
+    fireEvent.click(within(first).getByRole('button', { name: en['sideChat.archiveChat'] }))
+    expect(props.openSideChatAlone).toHaveBeenCalledExactlyOnceWith(chatA)
+    expect(props.archiveChat).toHaveBeenCalledExactlyOnceWith(chatA)
+    expect(props.selectSideChat).not.toHaveBeenCalled()
   })
 
   it('opens the selected chat as an ordinary full Conversation page', () => {

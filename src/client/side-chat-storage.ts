@@ -1,4 +1,5 @@
 /** Browser-local association and pending-reference persistence, separate from annotation records. */
+import { isOwnedSideSession, sideSessionAddress } from '../shared/side-session-id.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   parseSideChatReference,
@@ -49,6 +50,7 @@ function sameState(left: PersistedSideChatState, right: PersistedSideChatState):
       entry.sideChatId,
       entry.sideSessionId,
       entry.created,
+      entry.forkAtSeq,
       entry.archived ?? false,
       entry.title ?? null,
       entry.panelOpen ?? false,
@@ -128,6 +130,8 @@ function optionalSessionId(value: unknown, mainSessionId: SessionId): SessionId 
   if (value === null) return null
   if (typeof value !== 'string' || value.trim() === '') throw new Error('invalid side-chat Session identity')
   if (value === mainSessionId) throw new Error('side chat targets its main Session')
+  if (sideSessionAddress(value as SessionId) && !isOwnedSideSession(mainSessionId, value))
+    throw new Error('Stored side conversation belongs to another parent')
   return value as SessionId
 }
 
@@ -165,6 +169,12 @@ function parseEntry(value: unknown, mainSessionId: SessionId, restoring: boolean
   if (typeof sideChatId !== 'string' || sideChatId.trim() === '')
     throw new Error('invalid side-chat identity')
   const sideSessionId = optionalSessionId(source.sideSessionId, mainSessionId)
+  const forkAtSeq = source.forkAtSeq
+  if (
+    forkAtSeq !== undefined &&
+    (typeof forkAtSeq !== 'number' || !Number.isSafeInteger(forkAtSeq) || forkAtSeq < -1)
+  )
+    throw new Error('Invalid side chat history boundary')
   const created = source.created
   if (typeof created !== 'boolean') throw new Error('invalid side-chat creation flag')
   if (created && sideSessionId === null) throw new Error('created side chat has no Session identity')
@@ -215,6 +225,7 @@ function parseEntry(value: unknown, mainSessionId: SessionId, restoring: boolean
     created,
     ...(source.title === undefined ? {} : { title: source.title }),
     ...(source.panelOpen === undefined ? {} : { panelOpen: source.panelOpen }),
+    ...(forkAtSeq === undefined ? {} : { forkAtSeq }),
     ...(source.archived === undefined ? {} : { archived: source.archived }),
     references: Object.freeze(references.filter((item) => !removedReferenceIds.includes(item.referenceId))),
     referenceRecords: Object.freeze(

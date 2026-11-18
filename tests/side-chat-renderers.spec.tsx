@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { Context } from '@deepseek-ai/cordis'
-import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import type { MessageId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ChatNodeViewProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'

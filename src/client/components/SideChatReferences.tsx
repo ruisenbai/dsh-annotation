@@ -589,17 +589,18 @@ export function SideChatRecordPanel({
 
 /** Retained submission failure, save feedback, and its frozen question, above the composer. */
 export function SideChatSubmissionNotice({
+  preparationShown = false,
   useSideChat,
   retrySideChat,
   retrySideChatSave,
   exportSideChatRecovery,
   t,
-}: SideChatControlsProps) {
+}: SideChatControlsProps & { preparationShown?: boolean }) {
   const view = useSideChat((value) => value)
   const active = view?.active ?? null
   if (view === null || view.status === 'disposed') return null
   const saveProblem = view.saveState !== 'saved'
-  const failure = active?.failure ?? view.failure
+  const failure = preparationShown ? null : (active?.failure ?? view.failure)
   if (failure === null && active?.outbox == null && !saveProblem) return null
   const frozen =
     active != null &&
