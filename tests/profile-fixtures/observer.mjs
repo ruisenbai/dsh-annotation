@@ -180,6 +180,22 @@ export function apply(ctx) {
         }
       })
     }
+    if (action === 'limit-annotation-batch') {
+      await ctx.settings.update('dsh-annotation', {
+        maxAnnotationsPerSubmission: 2,
+        maxPayloadBytes: 32000,
+        warnSelectionChars: 500,
+        locateHistoryPages: 3,
+      })
+      return true
+    }
+    if (action === 'raise-annotation-limit') {
+      await ctx.settings.update('dsh-annotation', {
+        maxAnnotationsPerSubmission: 4,
+        commandName: 'review_submit',
+      })
+      return ctx.settings.describe().find((item) => item.ns === 'dsh-annotation').value
+    }
     if (action === 'prepare') {
       await ctx.settings.update('ui-settings-general', { welcomeNoticeVersion: '2026-09-28.1' })
       return true
@@ -210,7 +226,7 @@ export function apply(ctx) {
       const before = adapter.requests.length
       const result = await ctx.commands.execute(
         officialHandle.agent,
-        `/annotation_submit ${Buffer.from(JSON.stringify(payload)).toString('base64url')}`,
+        `/${ctx.settings.describe().find((item) => item.ns === 'dsh-annotation').value.commandName} ${Buffer.from(JSON.stringify(payload)).toString('base64url')}`,
         [],
         new AbortController().signal,
       )

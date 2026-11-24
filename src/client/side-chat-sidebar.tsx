@@ -1,13 +1,6 @@
-/** Right-Sidebar navigation entry, per-main chat list, and embedded Conversation assembly. */
-import { createPortal } from 'react-dom'
-import { useLayoutEffect, useRef, useState } from 'react'
-import {
-  DockLayout,
-  type DockIntents,
-  type LayoutState,
-  type PaneId,
-  type TabId,
-} from '@deepseek-ai/dsh-client-ui-dockkit'
+/** Right-Sidebar tabs and embedded Conversations for chats owned by one main Session. */
+import { useLayoutEffect, useState } from 'react'
+import type { TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ConversationViewsProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -23,6 +16,7 @@ import type {
 import {
   Button,
   Menu,
+  MenuItemButton,
   IconNewChatOutlineRegular,
   IconRightUpOutlineRegular,
   IconArchiveOutlineRegular,
@@ -42,19 +36,23 @@ import { sideChatDisplayTitle } from './side-chat-title.ts'
 
 /** Stable implementation identity used by the Host tab registry. */
 export const SIDE_CHAT_TAB_ID = 'dsh-annotation/side-chat'
-/** Page kind: the panel is one page per main Session's right Sidebar. */
+/** Shared kind for side-chat resources and the empty guide destination. */
 export const SIDE_CHAT_KIND = 'annotationsidechat'
+
+const SIDE_CHAT_ADDRESS = 'dsh-resource://annotationsidechat/'
+
+function chatAddress(chatId: SideChatId): string {
+  return SIDE_CHAT_ADDRESS + encodeURIComponent(chatId)
+}
+
+function chatForTab(view: SideChatView | null, address: string): SideChatChatView | undefined {
+  return view?.chats.find((chat) => chatAddress(chat.sideChatId) === address)
+}
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /** Embedded side Conversation binds its independent Session through SessionProvider. */
     'annotation.side-chat.conversation': { kind: 'single'; scope: 'session' }
-    /** Retained Tab body reads one exact chat while its parent remains scoped to the main Session. */
-    'annotation.side-chat.tab': {
-      kind: 'single'
-      scope: 'session'
-      owner: { readonly sideChatId: SideChatId }
-    }
   }
 }
 
@@ -67,8 +65,6 @@ export interface SideChatSidebarOptions {
   readonly locateReference: (
     reference: import('../shared/side-chat-types.ts').SideChatReference,
   ) => Promise<boolean>
-  /** @param mainSessionId - owner whose panel becomes visible. */
-  readonly openPanel: (mainSessionId: SessionId) => void
   /** @param mainSessionId - Owner of one visible panel occurrence. @returns Its visibility release. */
   readonly retainVisiblePanel: (mainSessionId: SessionId) => () => void
   /** Prepare exactly one chat's Session; the owner's own prepare deduplicates concurrent calls. */
@@ -86,6 +82,8 @@ export interface SideChatSidebar {
   open(mainSessionId: SessionId): void
   /** @param mainSessionId - owner whose panel presentation is hidden; chat state stays live. */
   hide(mainSessionId: SessionId): void
+  /** @param mainSessionId - owner of the archived or deleted chat. @param sideChatId - exact chat to remove from the tab strip. */
+  closeChatTab(mainSessionId: SessionId, sideChatId: SideChatId): void
   /** @param mainSessionId - owner receiving the injected face. @returns Observable state plus explicit chat actions. */
   face(mainSessionId: SessionId): SideChatInjected
   /** @param mainSessionId - removed owner. @returns After its tabs close and every resource observer finished. */
@@ -103,6 +101,8 @@ export function FixedSideChatView(props: ConversationViewsProps) {
 export type SideChatConversationProps = PropsRuntime<'annotation.side-chat.conversation'> &
   PropsRenderFactories
 
+const ignoreWorkspaceSelection = (): Promise<void> => Promise.resolve()
+
 /**
  * Render the shared Host conversation content inside one independent Session scope.
  * @param props - Standard Session hooks and the Host Conversation factory.
@@ -111,48 +111,45 @@ export type SideChatConversationProps = PropsRuntime<'annotation.side-chat.conve
 export function SideChatConversation({ useSession, renderFactorySlot }: SideChatConversationProps) {
   const session = useSession((value) => value)
   const phase = session.openState === 'loading' ? 'settling' : 'active'
-  return renderFactorySlot(
-    'conversation.content',
-    { variant: 'embedded', phase, hero: false },
-    { slots: { views: FixedSideChatView } },
-  )
+  const content = {
+    variant: 'embedded',
+    phase,
+    hero: false,
+    // The owning conversation fixes the Workspace. Master requires this callback for Hero pickers.
+    onWorkspaceSelected: ignoreWorkspaceSelection,
+  } as const
+  return renderFactorySlot('conversation.content', content, { slots: { views: FixedSideChatView } })
 }
 
 /** Observable chat list plus the explicit chat management actions. */
 export interface SideChatPanelInjected extends SideChatInjected {
   /** @returns A visibility release for this panel occurrence; call it on hide or unmount. */
   readonly retainVisiblePanel: () => () => void
-  /** @param sideChatId - exact Tab to archive through the official Session action. */
+  /** @param tabId - Host tab occurrence. @returns Whether it is the foreground tab. */
+  readonly isActiveTab: (tabId: TabId) => boolean
+  /** @param sideChatId - chat whose Session needs to load in a visible pane. */
   readonly retryChat: (sideChatId: SideChatId) => void
+  /** @param sideChatId - exact chat to archive through the official Session action. */
   readonly archiveChat: (sideChatId: SideChatId) => Promise<void>
-  /** @param sideChatId - exact Tab to delete through the official Session confirmation. */
+  /** @param sideChatId - archived chat to restore. */
   readonly restoreChat: (sideChatId: SideChatId) => Promise<void>
   /** @param sideChatId - chat whose ready Session reference is wanted. @returns The owner-held reference, without a second lifetime. */
   readonly referenceFor: (sideChatId: SideChatId) => SessionReference | undefined
 }
 
-/** Parent tab data, the child SessionProvider seat, and localized copy. */
+/** Host tab data, the embedded Conversation seat, and localized copy. */
 export type SideChatPanelProps = PropsRuntime<'sidebar.right.pane.tab'> &
-  PropsRenderSlots<'annotation.side-chat.tab'> &
-  InjectFace<SideChatPanelInjected> &
-  PropsLocale<'dshAnnotation'>
-
-/** Main-Session scope, exact chat projection, and the embedded conversation seat. */
-export type SideChatTabContentProps = PropsRuntime<'annotation.side-chat.tab'> &
   PropsRenderSlots<'annotation.side-chat.conversation'> &
   InjectFace<SideChatPanelInjected> &
   PropsLocale<'dshAnnotation'>
 
-/** @param props - Exact chat state and its retained Session reference. @returns The official conversation or an actionable preparation state. */
-export function SideChatTabContent(props: SideChatTabContentProps) {
-  const view = props.useSideChat((value) => value)
-  const mainViewSessions = props.useSessions((state) => state.byId)
-  if (view === null || view.status === 'disposed') return null
-  const chat = view.chats.find((chat) => chat.sideChatId === props.sideChatId)
-  if (chat === undefined || chat.archived) return null
+function SideChatTabContent({ chat, ...props }: SideChatPanelProps & { readonly chat: SideChatChatView }) {
+  const selected = props.useSideChat((view) => view?.activeSideChatId === chat.sideChatId)
+  const retainedInMain = props.useSessions((state) =>
+    chat.sideSessionId === null ? 0 : (state.byId[chat.sideSessionId]?.retainedBy.mainView ?? 0),
+  )
   // The Session owns one composer editor; its full page holds the DOM binding while open.
-  if (chat.sideSessionId !== null && (mainViewSessions[chat.sideSessionId]?.retainedBy.mainView ?? 0) > 0)
-    return null
+  if (retainedInMain > 0) return null
   const reference = props.referenceFor(chat.sideChatId)
   return (
     <div
@@ -178,9 +175,7 @@ export function SideChatTabContent(props: SideChatTabContentProps) {
               {props.t('sideChat.retry')}
             </Button>
           )}
-          {view.activeSideChatId === chat.sideChatId && (
-            <SideChatSubmissionNotice {...props} preparationShown />
-          )}
+          {selected && <SideChatSubmissionNotice {...props} preparationShown />}
         </div>
       ) : (
         <props.SessionProvider session={reference}>
@@ -191,247 +186,198 @@ export function SideChatTabContent(props: SideChatTabContentProps) {
   )
 }
 
-/** Keep controls outside the DockKit title's clipping mask and target the tab that owns them. */
-function ChatTabTitle({
-  id,
-  title,
-  archive,
-  open,
-  t,
-}: {
-  id: SideChatId
-  title: string
-  archive: (id: SideChatId) => Promise<void>
-  open: (id: SideChatId) => void
-  t: SideChatPanelProps['t']
-}) {
-  const label = useRef<HTMLSpanElement>(null)
-  const [tab, setTab] = useState<HTMLElement | null>(null)
-  useLayoutEffect(() => {
-    setTab(label.current?.closest<HTMLElement>('[data-dockkit-tab]') ?? null)
-  }, [])
-  return (
-    <>
-      <span className="dia-side-chat-tab-title" title={title} ref={label} data-dia-side-chat-select={id}>
-        {title}
-      </span>
-      {tab &&
-        createPortal(
-          <span
-            className="dia-side-chat-tab-actions"
-            onPointerDown={(e) => e.stopPropagation()}
-            onPointerUp={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-            onDoubleClick={(e) => e.stopPropagation()}
-          >
-            <Tooltip portal label={t('sideChat.archiveChat')} side="bottom">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="dia-side-chat-tab-action"
-                aria-label={t('sideChat.archiveChat')}
-                data-dia-side-chat-archive={id}
-                onClick={() => void archive(id)}
-              >
-                <IconArchiveOutlineRegular size={14} />
-              </Button>
-            </Tooltip>
-            <Tooltip portal label={t('sideChat.openAlone')} side="bottom">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="dia-side-chat-tab-action"
-                aria-label={t('sideChat.openAlone')}
-                data-dia-side-chat-open-alone={id}
-                onClick={() => open(id)}
-              >
-                <IconRightUpOutlineRegular size={14} />
-              </Button>
-            </Tooltip>
-          </span>,
-          tab,
-        )}
-    </>
-  )
-}
-
-/** @param props - Per-main chat state and official Session actions. @returns Official retained Tabs, or an empty state with a new-chat action. */
+/** @param props - One Host tab's owner state. @returns The retained chat, or the guide's empty destination. */
 export function SideChatPanel(props: SideChatPanelProps) {
   const view = props.useSideChat((value) => value)
-  const summaries = props.useSessions((state) => state.byId)
-  const [showArchived, setShowArchived] = useState(false)
-  const visible = props.useTabInfo().tab.visible
+  const { tab } = props.useTabInfo()
+  const isChat = tab.contentId.startsWith(SIDE_CHAT_ADDRESS)
+  const chat = chatForTab(view, tab.contentId)
+  const chatId = chat?.archived === false ? chat.sideChatId : undefined
   const available = view !== null && view.status !== 'disposed'
+  const visible = tab.visible && available && (!isChat || chatId !== undefined)
+  const focused = visible && props.isActiveTab(tab.id)
+  const needsLoad = chat?.status === 'idle'
+  const migrate = visible && !isChat && view?.activeSideChatId != null
   useLayoutEffect(() => {
-    if (visible && available) return props.retainVisiblePanel()
+    if (visible) return props.retainVisiblePanel()
     return undefined
-  }, [visible, available, props.retainVisiblePanel])
+  }, [visible, props.retainVisiblePanel])
+  useLayoutEffect(() => {
+    if (!visible || chatId === undefined) return
+    if (focused) props.selectSideChat(chatId)
+    else if (needsLoad) props.retryChat(chatId)
+  }, [visible, focused, chatId, needsLoad, props.selectSideChat, props.retryChat])
+  useLayoutEffect(() => {
+    if (migrate) props.openSideChat()
+  }, [migrate, props.openSideChat])
   if (view === null || view.status === 'disposed') return null
-  const chats = view.chats.filter((chat) => !chat.archived)
-  const paneId = `annotation-side-pane:${view.mainSessionId}` as PaneId
-  const tabId = (id: SideChatId): TabId => `annotation-side-tab:${id}` as TabId
-  const label = (chat: SideChatChatView, index: number): string =>
-    sideChatDisplayTitle(
-      chat.sideSessionId === null ? undefined : summaries[chat.sideSessionId]?.title,
-      chat.title ?? props.t('sideChat.untitled', { ordinal: index + 1 }),
-    )
-  const archived = view.chats.filter((chat) => chat.archived)
-  const archiveMenu =
-    archived.length === 0 ? null : (
-      <Menu
-        open={showArchived}
-        portal
-        align="end"
-        onClose={() => setShowArchived(false)}
-        items={archived.map((chat) => ({
-          id: chat.sideChatId,
-          label: props.t('sideChat.restoreChat', { title: label(chat, view.chats.indexOf(chat)) }),
-        }))}
-        onSelect={(id) => {
-          setShowArchived(false)
-          const target = archived.find((chat) => chat.sideChatId === id)
-          if (target) void props.restoreChat(target.sideChatId)
-        }}
-        anchor={
-          <Button
-            variant="ghost"
-            size="sm"
-            data-dia-side-chat-archives=""
-            aria-haspopup="menu"
-            aria-expanded={showArchived}
-            onClick={() => setShowArchived((value) => !value)}
-          >
-            {props.t('sideChat.archivedList')}
-          </Button>
-        }
-      />
-    )
-  const tabs = chats.map((chat, index) => ({
-    id: tabId(chat.sideChatId),
-    kind: SIDE_CHAT_KIND,
-    contentId: chat.sideChatId,
-    title: label(chat, index),
-  }))
-  const state: LayoutState = {
-    nodes: {
-      [paneId]: {
-        kind: 'pane',
-        id: paneId,
-        host: 'dock',
-        tabs: tabs.map((tab) => tab.id),
-        activeTabId: view.activeSideChatId === null ? undefined : tabId(view.activeSideChatId),
-        rect: undefined,
-      },
-    },
-    tabs: Object.fromEntries(tabs.map((tab) => [tab.id, tab])),
-    rootId: paneId,
-    activePaneId: paneId,
-    floats: [],
-    expanded: view.visible,
-    mode: 'push',
-  }
-  // This embedder has one fixed pane; layout gestures are disabled by the kit's admission props.
-  const noLayoutChange = (): void => {}
-  const intents: DockIntents = {
-    focusTab: (id) => {
-      const tab = tabs.find((item) => item.id === id)
-      if (tab !== undefined) props.selectSideChat(tab.contentId as SideChatId)
-    },
-    focusPane: noLayoutChange,
-    duplicateTab: noLayoutChange,
-    addTab: props.createSideChat,
-    closeTab: noLayoutChange,
-    splitPane: noLayoutChange,
-    floatTab: noLayoutChange,
-    unfloatPane: noLayoutChange,
-    placeTab: noLayoutChange,
-    dropTab: noLayoutChange,
-    moveFloat: noLayoutChange,
-    resizeFloat: noLayoutChange,
-    resizeSplit: noLayoutChange,
-  }
-  const fixedTabGestures = { canDragTab: () => false }
-  const labels = {
-    emptyPane: props.t('sideChat.guideEmpty'),
-    addTab: props.t('sideChat.new'),
-    closeTab: props.t('sideChat.close'),
-    splitPane: props.t('sideChat.openAlone'),
-    splitPaneDisabled: props.t('sideChat.openAlone'),
-    splitPaneNarrow: props.t('sideChat.openAlone'),
-    dockFloat: props.t('sideChat.open'),
-    closeFloat: props.t('sideChat.close'),
-    dropZone: {
-      center: props.t('sideChat.open'),
-      top: props.t('sideChat.open'),
-      bottom: props.t('sideChat.open'),
-      left: props.t('sideChat.open'),
-      right: props.t('sideChat.open'),
-    },
-  }
+  if (chat?.archived === true) return null
   return (
     <div
       className="dia-side-chat-root"
       data-dia-side-chat=""
       data-main-session={view.mainSessionId}
-      data-side-session={view.active?.sideSessionId ?? undefined}
+      data-side-session={chat?.sideSessionId ?? undefined}
     >
-      {chats.length === 0 ? (
-        <div className="dia-side-chat-preparation" data-dia-side-chat-empty="">
-          <p className="dia-side-chat-empty">{props.t('sideChat.guideEmpty')}</p>
-          <Button
-            size="sm"
-            data-dia-side-chat-new=""
-            disabled={view.storageOutdated || !view.storageAvailable}
-            icon={<IconNewChatOutlineRegular size={14} />}
-            onClick={props.createSideChat}
-          >
-            {props.t('sideChat.new')}
-          </Button>
-          {archiveMenu}
-          <SideChatSubmissionNotice {...props} />
-        </div>
+      {chat === undefined ? (
+        <EmptySideChatPanel {...props} view={view} />
       ) : (
-        <DockLayout
-          state={state}
-          intents={intents}
-          labels={labels}
-          chrome={archiveMenu}
-          {...fixedTabGestures}
-          canSplit={false}
-          hideSplitWhenBlocked
-          canCloseTab={() => false}
-          canAddTab={() => !view.storageOutdated && view.storageAvailable}
-          keepMounted={() => true}
-          active={view.visible}
-          renderTab={(tab) =>
-            props.renderSlot('annotation.side-chat.tab', { sideChatId: tab.contentId as SideChatId })
-          }
-          renderTabTitle={(tab) => (
-            <ChatTabTitle
-              id={tab.contentId as SideChatId}
-              title={tab.title}
-              archive={props.archiveChat}
-              open={props.openSideChatAlone}
-              t={props.t}
-            />
-          )}
-        />
+        <SideChatTabContent {...props} chat={chat} />
       )}
     </div>
   )
 }
 
-/**
- * Render the tab chip's glyph and localized title.
- * @param props - Typed annotation namespace translator.
- * @returns The side-chat glyph and label.
- */
-export function SideChatTabTitle({ t }: PropsLocale<'dshAnnotation'>) {
+function EmptySideChatPanel(props: SideChatPanelProps & { readonly view: SideChatView }) {
+  const [showArchived, setShowArchived] = useState(false)
+  const { view, t } = props
+  const summaries = props.useSessions((state) => state.byId)
+  const archived = view.chats.flatMap((chat, index) =>
+    chat.archived
+      ? [
+          {
+            id: chat.sideChatId,
+            label: t('sideChat.restoreChat', {
+              title: sideChatDisplayTitle(
+                chat.sideSessionId === null ? undefined : summaries[chat.sideSessionId]?.title,
+                chat.title ?? t('sideChat.untitled', { ordinal: index + 1 }),
+              ),
+            }),
+          },
+        ]
+      : [],
+  )
   return (
-    <>
-      <IconNewChatOutlineRegular size={14} className="dia-side-chat-tab-icon" />
-      {t('sideChat.title')}
-    </>
+    <div className="dia-side-chat-preparation" data-dia-side-chat-empty="">
+      <p className="dia-side-chat-empty">{t('sideChat.guideEmpty')}</p>
+      <Button
+        size="sm"
+        data-dia-side-chat-new=""
+        disabled={view.storageOutdated || !view.storageAvailable}
+        icon={<IconNewChatOutlineRegular size={14} />}
+        onClick={props.createSideChat}
+      >
+        {t('sideChat.new')}
+      </Button>
+      {archived.length > 0 && (
+        <Menu
+          open={showArchived}
+          portal
+          items={archived}
+          onClose={() => setShowArchived(false)}
+          onSelect={(id) => {
+            setShowArchived(false)
+            const entry = archived.find((item) => item.id === id)
+            if (entry !== undefined) void props.restoreChat(entry.id)
+          }}
+          anchor={
+            <Button
+              size="sm"
+              data-dia-side-chat-archives=""
+              aria-haspopup="menu"
+              aria-expanded={showArchived}
+              onClick={() => setShowArchived((value) => !value)}
+            >
+              {t('sideChat.archivedList')}
+            </Button>
+          }
+        />
+      )}
+      <SideChatSubmissionNotice {...props} />
+    </div>
+  )
+}
+
+/** Host title props with the exact chat's management actions. */
+export type SideChatTabTitleProps = PropsRuntime<'sidebar.right.pane.tab.title'> &
+  InjectFace<SideChatPanelInjected> &
+  PropsLocale<'dshAnnotation'>
+
+/** @param props - Sidebar tab identity, current title and actions. @returns The title and its inline controls. */
+export function SideChatTabTitle(props: SideChatTabTitleProps) {
+  const { tab } = props.useTabInfo()
+  const view = props.useSideChat((value) => value)
+  const chat = chatForTab(view, tab.contentId)
+  const summary = props.useSessions((state) =>
+    chat?.sideSessionId == null ? undefined : state.byId[chat.sideSessionId]?.title,
+  )
+  useLayoutEffect(() => {
+    if (chat?.archived === true) tab.actions.close()
+  }, [chat?.archived, tab.actions])
+  const { t } = props
+  if (chat === undefined || chat.archived)
+    return (
+      <>
+        <IconNewChatOutlineRegular size={14} className="dia-side-chat-tab-icon" />
+        {t('sideChat.title')}
+      </>
+    )
+  const id = chat.sideChatId
+  const ordinal = (view?.chats.indexOf(chat) ?? 0) + 1
+  const title = sideChatDisplayTitle(summary, chat.title ?? t('sideChat.untitled', { ordinal }))
+  return (
+    <span
+      className="dia-side-chat-tab-title"
+      onPointerDown={(event) => {
+        // Let a touch swipe scroll the strip without starting a dock drag.
+        if (event.pointerType === 'touch') event.stopPropagation()
+      }}
+    >
+      <span className="dia-side-chat-tab-label" title={title} data-dia-side-chat-select={id}>
+        {title}
+      </span>
+      <span
+        className="dia-side-chat-tab-actions"
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerUp={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+        onDoubleClick={(event) => event.stopPropagation()}
+      >
+        <Tooltip portal label={t('sideChat.archiveChat')} side="bottom">
+          <button
+            type="button"
+            className="dia-side-chat-tab-action"
+            aria-label={t('sideChat.archiveChat')}
+            data-dia-side-chat-archive={id}
+            onClick={() => void props.archiveChat(id)}
+          >
+            <IconArchiveOutlineRegular size={16} />
+          </button>
+        </Tooltip>
+        <Tooltip portal label={t('sideChat.openAlone')} side="bottom">
+          <button
+            type="button"
+            className="dia-side-chat-tab-action"
+            aria-label={t('sideChat.openAlone')}
+            data-dia-side-chat-open-alone={id}
+            onClick={() => props.openSideChatAlone(id)}
+          >
+            <IconRightUpOutlineRegular size={16} />
+          </button>
+        </Tooltip>
+      </span>
+    </span>
+  )
+}
+
+type SideChatTabMenuProps = PropsRuntime<'sidebar.right.tab.menu.item'> &
+  InjectFace<SideChatPanelInjected> &
+  PropsLocale<'dshAnnotation'>
+
+function SideChatTabMenu({ tab, dismiss, useSideChat, createSideChat, t }: SideChatTabMenuProps) {
+  const canCreate = useSideChat((view) => view !== null && view.storageAvailable && !view.storageOutdated)
+  if (tab.kind !== SIDE_CHAT_KIND) return null
+  return (
+    <MenuItemButton
+      icon={<IconNewChatOutlineRegular size={16} />}
+      disabled={!canCreate}
+      onSelect={() => {
+        dismiss()
+        createSideChat()
+      }}
+    >
+      {t('sideChat.new')}
+    </MenuItemButton>
   )
 }
 
@@ -454,6 +400,41 @@ export function registerSideChatSidebar(
     subscribe: () => () => {},
   }
 
+  const tabsFor = (mainSessionId: SessionId) =>
+    ctx.sidebarRight.tabsIn(mainSessionId).filter((tab) => tab.kind === SIDE_CHAT_KIND)
+
+  const open = (mainSessionId: SessionId): void => {
+    const owner = disposed ? undefined : options.controllerFor(mainSessionId)
+    if (owner === undefined) return
+    owner.show()
+    const { chats, active } = owner.getSnapshot()
+    if (active === null || active.archived) {
+      ctx.sidebarRight.openTabIn(mainSessionId, SIDE_CHAT_KIND)
+      return
+    }
+    const tabs = tabsFor(mainSessionId)
+    const pages = tabs.filter((tab) => !tab.contentId.startsWith(SIDE_CHAT_ADDRESS))
+    const openChat = (chat: SideChatChatView): void =>
+      ctx.sidebarRight.openResourceIn(mainSessionId, chatAddress(chat.sideChatId), { kind: SIDE_CHAT_KIND })
+    // On first open or upgrade, admit the saved chats in creation order.
+    // Subsequent opens reveal just the requested chat, including an explicitly closed tab.
+    if (tabs.length === 0 || pages.length > 0) {
+      const saved = chats.filter((chat) => !chat.archived)
+      if (saved.at(-1) === active) saved.pop()
+      for (const chat of saved) openChat(chat)
+    }
+    openChat(active)
+    for (const tab of pages) ctx.sidebarRight.closeIn(mainSessionId, tab.id)
+    void options.prepareChat(mainSessionId, active.sideChatId)
+  }
+
+  const hide = (mainSessionId: SessionId): void => {
+    if (disposed || ctx.sidebarRight.mounted.getSnapshot() !== mainSessionId) return
+    const active = ctx.sidebarRight.active()
+    const tab = active?.kind === SIDE_CHAT_KIND ? active : tabsFor(mainSessionId)[0]
+    if (tab !== undefined) ctx.sidebarRight.hide(tab.id)
+  }
+
   const face = (mainSessionId: SessionId): SideChatPanelInjected => {
     const controller = (): SideChatController | undefined =>
       disposed ? undefined : options.controllerFor(mainSessionId)
@@ -473,6 +454,7 @@ export function registerSideChatSidebar(
       removeReference: (referenceId) => run((owner) => owner.removeReference(referenceId)),
       referenceFor: (sideChatId) => controller()?.getReference(sideChatId),
       retainVisiblePanel: () => options.retainVisiblePanel(mainSessionId),
+      isActiveTab: (tabId) => ctx.sidebarRight.active()?.id === tabId,
       removeAllReferences: () => run((owner) => owner.removeAllReferences()),
       locateReference: options.locateReference,
       retrySideChat: () =>
@@ -482,21 +464,18 @@ export function registerSideChatSidebar(
           if (target === null) return
           void options.prepareChat(mainSessionId, target)
         }),
-      openSideChat: () => options.openPanel(mainSessionId),
-      closeSideChat: () => {
-        const tab = ctx.sidebarRight.tabsIn(mainSessionId).find((item) => item.kind === SIDE_CHAT_KIND)
-        if (tab !== undefined) ctx.sidebarRight.hide(tab.id)
-      },
+      openSideChat: () => open(mainSessionId),
+      closeSideChat: () => hide(mainSessionId),
       createSideChat: () =>
         run((owner) => {
-          const created = owner.createChat()
-          options.openPanel(mainSessionId)
-          void options.prepareChat(mainSessionId, created.sideChatId)
+          owner.createChat()
+          open(mainSessionId)
         }),
       selectSideChat: (sideChatId) =>
         run((owner) => {
           owner.selectChat(sideChatId)
-          void options.prepareChat(mainSessionId, sideChatId)
+          if (owner.chatView(sideChatId)?.status === 'idle')
+            void options.prepareChat(mainSessionId, sideChatId)
         }),
       retryChat: (sideChatId) => {
         void options.prepareChat(mainSessionId, sideChatId)
@@ -547,6 +526,7 @@ export function registerSideChatSidebar(
     if (owner === undefined || chat === null) {
       return {
         retainVisiblePanel: () => () => {},
+        isActiveTab: () => false,
         hooks: { sideChat: absent },
         removeReference: () => {},
         referenceFor: () => undefined,
@@ -598,6 +578,7 @@ export function registerSideChatSidebar(
           kind: SIDE_CHAT_KIND,
           priority: 'extension',
           keepMounted: true,
+          patterns: [SIDE_CHAT_ADDRESS + '*'],
           title: () => t('sideChat.title'),
           guide: [
             {
@@ -621,7 +602,7 @@ export function registerSideChatSidebar(
               name: 'sidebar.right.pane.tab',
               key: SIDE_CHAT_TAB_ID,
               locale: 'dshAnnotation',
-              children: { 'annotation.side-chat.tab': { kind: 'single', scope: 'session' } },
+              children: { 'annotation.side-chat.conversation': { kind: 'single', scope: 'session' } },
               inject: (mainSessionId: SessionId) => face(mainSessionId),
             },
             SideChatPanel,
@@ -635,7 +616,12 @@ export function registerSideChatSidebar(
       () =>
         ctx.slots.inject('sidebar.right.pane.tab.title', () =>
           ctx.slots.register(
-            { name: 'sidebar.right.pane.tab.title', key: SIDE_CHAT_TAB_ID, locale: 'dshAnnotation' },
+            {
+              name: 'sidebar.right.pane.tab.title',
+              key: SIDE_CHAT_TAB_ID,
+              locale: 'dshAnnotation',
+              inject: (mainSessionId: SessionId) => face(mainSessionId),
+            },
             SideChatTabTitle,
           ),
         ),
@@ -662,18 +648,18 @@ export function registerSideChatSidebar(
   effects.push(
     ctx.effect(
       () =>
-        ctx.slots.inject('annotation.side-chat.tab', () =>
+        ctx.slots.inject('sidebar.right.tab.menu.item', () =>
           ctx.slots.register(
             {
-              name: 'annotation.side-chat.tab',
+              name: 'sidebar.right.tab.menu.item',
+              id: 'dsh-annotation-side-chat-new',
               locale: 'dshAnnotation',
-              children: { 'annotation.side-chat.conversation': { kind: 'single', scope: 'session' } },
               inject: (mainSessionId: SessionId) => face(mainSessionId),
             },
-            SideChatTabContent,
+            SideChatTabMenu,
           ),
         ),
-      'dsh-annotation: retained side-chat body',
+      'dsh-annotation: side-chat tab menu',
     ),
   )
   effects.push(
@@ -740,20 +726,19 @@ export function registerSideChatSidebar(
     ),
   )
   return {
-    open: (mainSessionId) => {
+    open,
+    hide,
+    closeChatTab: (mainSessionId, sideChatId) => {
       if (disposed) return
-      options.openPanel(mainSessionId)
-    },
-    hide: (mainSessionId) => {
-      if (disposed) return
-      const tab = ctx.sidebarRight.tabsIn(mainSessionId).find((item) => item.kind === SIDE_CHAT_KIND)
-      if (tab !== undefined) ctx.sidebarRight.hide(tab.id)
+      const address = chatAddress(sideChatId)
+      for (const tab of tabsFor(mainSessionId)) {
+        if (tab.contentId === address) ctx.sidebarRight.closeIn(mainSessionId, tab.id)
+      }
     },
     face,
     async retire(mainSessionId) {
       const failures: unknown[] = []
-      for (const tab of ctx.sidebarRight.tabsIn(mainSessionId)) {
-        if (tab.kind !== SIDE_CHAT_KIND) continue
+      for (const tab of tabsFor(mainSessionId)) {
         try {
           ctx.sidebarRight.closeIn(mainSessionId, tab.id)
         } catch (cause: unknown) {

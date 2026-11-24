@@ -17,6 +17,8 @@ export async function exerciseSideAnnotations(context) {
     mainFlow,
     openMain,
     openSide,
+    createFromSideTab,
+    restoreFromGuide,
     selectText,
     composer,
     association,
@@ -28,7 +30,10 @@ export async function exerciseSideAnnotations(context) {
   const flow = (id) => page.locator(`[data-conversation-content][data-conversation-session="${id}"]:visible`)
   const editor = () => page.locator('.dia-record-editor:visible[role="dialog"]')
   const side = page.locator('[data-dia-side-chat]:visible')
-  const tab = (id) => page.locator(`[data-dockkit-tab="annotation-side-tab:${id}"]`)
+  const sidebar = page.locator(
+    '[data-sidebar-right-panel][data-sidebar-right-session="' + scenario.mainSessionId + '"]',
+  )
+  const tab = (id) => sidebar.locator(`[data-dia-side-chat-select="${id}"]`)
   const assertBlankTranscript = async (content) => {
     const body = content.locator('[data-chat-flow]')
     await body.waitFor({ state: 'attached' })
@@ -253,7 +258,7 @@ export async function exerciseSideAnnotations(context) {
     await mainFlow(scenario.mainSessionId).getByText('main-attachment.txt', { exact: true }).isVisible(),
   )
 
-  await side.getByRole('button', { name: '新建侧边聊天', exact: true }).click()
+  await createFromSideTab(scenario.mainSessionId)
   await side.locator('[data-conversation-content]:visible [contenteditable="true"]').waitFor()
   const blank = await association(scenario.mainSessionId)
   await assertCleanConversation(flow(blank.sideSessionId))
@@ -264,11 +269,11 @@ export async function exerciseSideAnnotations(context) {
       .count(),
     0,
   )
-  assert.equal(await side.getByRole('tab').count(), 2)
+  assert.equal(await sidebar.locator('[data-dia-side-chat-select]').count(), 2)
   await assertComposerAtBottom(flow(blank.sideSessionId), 'clean-new-side-chat')
   await page.screenshot({ path: join(artifacts, 'clean-new-side-chat.png'), fullPage: true })
-  await side.locator(`[data-dia-side-chat-select="${blank.sideChatId}"]`).hover()
-  await side.locator(`[data-dia-side-chat-open-alone="${blank.sideChatId}"]`).click()
+  await tab(blank.sideChatId).hover()
+  await sidebar.locator(`[data-dia-side-chat-open-alone="${blank.sideChatId}"]`).click()
   await composer(flow(blank.sideSessionId)).waitFor({ state: 'visible' })
   for (const [width, theme] of [
     [1440, 'dark'],
@@ -502,13 +507,14 @@ export async function exerciseSideAnnotations(context) {
   )
   assert.ok(localNote)
   await annotate(scenario.references[2], '核对同一侧边聊天的两种来源')
+  await waitForNotes(first.sideSessionId, 3)
   const foreignDraft = (await readNotes(first.sideSessionId)).annotations.find(
     (note) => note.quote.exact === scenario.references[2],
   )
   assert.ok(foreignDraft)
   assert.equal(await page.locator(`[data-row-key="session:${first.sideSessionId}"]`).count(), 0)
-  await side.locator(`[data-dia-side-chat-select="${first.sideChatId}"]`).hover()
-  await side.locator(`[data-dia-side-chat-open-alone="${first.sideChatId}"]`).click()
+  await tab(first.sideChatId).hover()
+  await sidebar.locator(`[data-dia-side-chat-open-alone="${first.sideChatId}"]`).click()
   await composer(flow(first.sideSessionId)).waitFor({ state: 'visible' })
   await assertCleanConversation(flow(first.sideSessionId))
   const standalone = page.locator(
@@ -672,16 +678,15 @@ export async function exerciseSideAnnotations(context) {
       .locator('..')
       .locator(`.dia-marker[data-annotation-id="${note.annotationId}"]`)
   await sourceMarker(secondNote).waitFor()
-  await side.locator(`[data-dia-side-chat-select="${second.sideChatId}"]`).hover()
-  await side.locator(`[data-dia-side-chat-archive="${second.sideChatId}"]`).click()
+  await tab(second.sideChatId).hover()
+  await sidebar.locator(`[data-dia-side-chat-archive="${second.sideChatId}"]`).click()
   await sourceMarker(secondNote).waitFor({ state: 'detached' })
   await sourceMarker(firstNote).waitFor()
   await page.reload()
   await openSide(scenario.mainSessionId)
   await sourceMarker(firstNote).waitFor()
   assert.equal(await sourceMarker(secondNote).count(), 0)
-  await side.getByRole('button', { name: '已归档', exact: true }).click()
-  await page.getByRole('menuitem', { name: /恢复/ }).click()
+  await restoreFromGuide(scenario.mainSessionId)
   await sourceMarker(secondNote).waitFor()
   await tab(first.sideChatId).click()
   evidence.checks.push({

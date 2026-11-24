@@ -15,7 +15,9 @@ Select text in a reply to annotate it in place. You can also mark up files and d
 
 ![Sidebar annotation: the floating editor stays at the original selection](docs/assets/annotation-sidebar.png)
 
-**1.3.1 supports stock DSH `0.2.2-rc.4`.** Each new side chat shows only its own new messages. A sent message stays visible if the main chat reconnects during submission. [Release notes](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.3.1) · [Upgrading older Hosts](#upgrading)
+**The 1.3.3 source build supports stock DSH `0.2.3-alpha.2`.** The marketplace and the links below install the public 1.3.1 release. Follow the [development guide](docs/development.en.md#packaging) to build and test 1.3.3.
+
+The Host and browser share the submission command, batch and payload limits, long-selection warning and history lookup depth. Changes apply without reopening the conversation.
 
 [Download the Chinese interactive prototype (1.2.0 UI examples)](https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.1/dsh-annotation-ui.html) and open it in a browser to explore 5 scenes and 42 states using sample data.
 
@@ -69,7 +71,7 @@ Install dsh-annotation 1.3.1 in my DeepSeek Harness. For Desktop, use the in-app
 
 ### Upgrading from an older Host
 
-Update the Host to `0.2.2-rc.4` or newer before installing 1.3.1. The supported Host family supplies the unified Quote text / Add annotation toolbar. Keep [1.2.0](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.2.0) on `0.2.2-rc.1` through `0.2.2-rc.3`, 1.1.7 on `0.2.2-alpha.3`, 1.1.6 on `0.2.2-alpha.2`, 1.1.5 on `0.2.1-rc.2`, and plugin 1.1.2 while using `0.2.1-alpha.2`, 1.1.1 on `0.2.1-alpha.1`, or 1.1.0 on the `0.2.0` family. Older records remain readable. Upgrade both halves together: protocol v6 and browser storage v7 are not readable by older plugin versions. See the [side-annotation migration](docs/upgrade-guide/v1.1.8/side-annotations/guide.md).
+To install the 1.3.3 source build, use stock DSH `0.2.3-alpha.2` and Node.js `^24.22.3 || >=26.13.1`. Keep [1.3.1](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.3.1) on `0.2.2-rc.4`. The [upgrade guide](docs/upgrade-guide/v1.3.3/host-baseline/guide.md) gives the version checks, and [Compatibility](docs/compatibility.en.md#host-requirement) lists versions for earlier Hosts. Existing annotations remain readable. See the [side-annotation migration guide](docs/upgrade-guide/v1.1.8/side-annotations/guide.md) for older sidebar notes.
 
 <a id="sources"></a>
 
@@ -126,7 +128,7 @@ Choose **＋** under **Side chat** to continue from the main chat’s saved hist
 
 Main and side conversations share the same annotation records, attachment controls, source navigation, resend, and recycle bin. Each side chat owns its notes and unfinished edits. Switching Tabs hides its editor and keeps unfinished work with that chat, leaving the main draft and attachments intact. A source bubble opens the receiving chat's exact annotation and stays active while its card is visible; clicking a sent annotation's bubble again closes its card. **Locate source** returns to the original passage. Text selected in a side reply uses **Add annotation** in that same chat. Creating a note and reopening its source bubble both place the editor beside the original text, including sources in another visible conversation. If that source is unavailable, the editor stays above the receiving composer. The same placement rules apply when the side chat is opened as a full page. That main page also offers **Annotate in sidebar** for a separate receiving chat; the original association stays intact.
 
-Open side chats from their owning conversation’s right sidebar. The workspace list and its search omit them. Hover or focus a tab to **Archive conversation** or **Open independently**. Opening a tab independently shows the same chat in the main view. Archiving a side chat hides its annotation bubbles in the main conversation. Choose **Archived** in the side panel to restore the tab and its bubbles. Touch devices show the actions directly. Plugin 1.3.1 provides sidebar ownership and an empty initial transcript on stock DSH `0.2.2-rc.4`. If the main chat reconnects during a send, the accepted message stays visible until its saved counterpart appears. See the [compatibility guide](docs/upgrade-guide/v1.2.0/owned-side-chats/guide.md).
+Side chats share the owning conversation’s right sidebar tab strip with the guide and file previews. Right-click a side chat tab and choose **New side chat** to create another chat. Hover or focus a tab to **Archive conversation** or **Open independently**. Touch devices show both buttons directly and can swipe along the tab strip to reach off-screen tabs. Opening a tab independently shows the same chat in the main view. The workspace list and its search omit side chats. Archiving hides the tab and its annotation bubbles in the main conversation. Restore the chat from the **Side chat** card’s dropdown on the guide page to show them again. Plugin 1.3.3 provides these features on stock DSH `0.2.3-alpha.2`. If the main chat reconnects during a send, the accepted message stays visible until its saved counterpart appears. See the [compatibility guide](docs/compatibility.en.md#side-chat-host-build).
 
 On upgrade, unsent side references become annotations containing the original quote and no written opinion. Conversion saves the annotation before removing its old reference, and interrupted conversion can retry without duplication. A frozen retry or a request with an unknown delivery outcome keeps its original payload; sent history remains readable. Keep Host and Client builds matched and follow the [upgrade guide](docs/upgrade-guide/v1.1.8/side-annotations/guide.md).
 

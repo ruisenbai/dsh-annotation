@@ -12,19 +12,79 @@ export const styles: string = `
   overflow: hidden;
 }
 
-.dia-side-chat-tab-action { width: 26px; min-width: 26px; height: 26px; padding: 0; }
-.dia-side-chat-root [data-dockkit-tab]:has(.dia-side-chat-tab-title) { position: relative; min-width: calc(5.5em + 54px); }
-.dia-side-chat-tab-actions { position: absolute; z-index: 1; inset-inline-end: 3px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 2px; }
-.dia-side-chat-root [data-dockkit-tab]:has(.dia-side-chat-tab-actions) [data-dockkit-tab-title] { mask-image: linear-gradient(to right, black calc(100% - 59px), transparent calc(100% - 51px)); }
-@media (hover: hover) {
-  .dia-side-chat-root [data-dockkit-tab]:not(:hover):not(:focus-within) .dia-side-chat-tab-actions,
-  html[data-input-modality="pointer"] .dia-side-chat-root [data-dockkit-tab]:not(:hover) .dia-side-chat-tab-actions { opacity: 0; pointer-events: none; }
-  .dia-side-chat-root [data-dockkit-tab]:not(:hover):not(:focus-within) [data-dockkit-tab-title]:not([data-dockkit-tab-clipped]),
-  html[data-input-modality="pointer"] .dia-side-chat-root [data-dockkit-tab]:not(:hover) [data-dockkit-tab-title]:not([data-dockkit-tab-clipped]) { mask-image: none; }
-  .dia-side-chat-root [data-dockkit-tab]:not(:hover):not(:focus-within) [data-dockkit-tab-clipped],
-  html[data-input-modality="pointer"] .dia-side-chat-root [data-dockkit-tab]:not(:hover) [data-dockkit-tab-clipped] { mask-image: linear-gradient(to right, black calc(100% - 12px), transparent); }
+.dia-side-chat-tab-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
 }
-.dia-side-chat-root > [data-dockkit-surface] { flex: 1; min-height: 0; }
+
+.dia-side-chat-tab-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dia-side-chat-tab-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.dia-side-chat-tab-action {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.dia-side-chat-tab-action:focus-visible {
+  outline-offset: -2px;
+}
+
+/* These two controls occupy their own space inside the Host title slot. */
+:is([data-dockkit-tab], [data-dockkit-float-title]):has(.dia-side-chat-tab-title) {
+  min-width: calc(56px + 5.5em);
+  padding-inline-end: 2px;
+}
+
+[data-sidebar-right-panel][data-sidebar-right-session] :is([data-dockkit-tab], [data-dockkit-float-title]):has(.dia-side-chat-tab-title) [data-dockkit-tab-title] {
+  mask-image: none;
+}
+
+[data-dockkit-tab]:has(.dia-side-chat-tab-title) > [data-dockkit-tab-close] {
+  display: none;
+}
+
+@media (hover: hover) {
+  [data-dockkit-tab]:not(:hover):not(:focus-within) .dia-side-chat-tab-actions {
+    visibility: hidden;
+  }
+
+  .dia-side-chat-tab-action:hover {
+    color: var(--dsw-alias-label-primary);
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+@media (pointer: coarse) {
+  /* Keep the hidden end of the Host's single tab row reachable by swiping. */
+  [data-dockkit-strip]:has([data-dockkit-strip-tabs] .dia-side-chat-tab-title),
+  [data-dockkit-strip-tabs]:has(.dia-side-chat-tab-title),
+  [data-dockkit-tab]:has(.dia-side-chat-tab-title) {
+    touch-action: pan-x;
+  }
+}
+
 .dia-side-chat-body {
   display: flex;
   flex: 1;
@@ -116,7 +176,11 @@ export const styles: string = `
   inset: 0;
   width: 100%;
   height: 100%;
-  border-radius: 0;
+  padding: 0;
+  border: none;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
 }
 
 .dia-side-chat-guide__main:focus-visible {
@@ -188,37 +252,29 @@ export const styles: string = `
   font-size: 10px;
 }
 
-.dia-side-chat-guide__menu {
+/* The stock guide's 26px icon box determines the title-only row height. */
+.dia-side-chat-guide__actions {
   position: relative;
+  z-index: 1;
   display: flex;
   flex: none;
-  pointer-events: auto;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
 }
 
-.dia-side-chat-guide__new { position: relative; z-index: 1; flex: 0 0 auto; width: 28px; height: 28px; padding: 0; }
-.dia-side-chat-guide__caret {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
+.dia-side-chat-guide .dia-side-chat-guide__action {
+  flex: none;
+  width: 28px;
+  height: 28px;
   padding: 0;
-  border-radius: var(--dsw-radius-xs);
-  color: var(--dsw-alias-label-tertiary);
+  line-height: 1;
+  color: var(--dsw-alias-label-secondary);
 }
 
-.dia-side-chat-guide__caret svg {
-  width: 14px;
-  height: 14px;
-}
-
-@media (max-width: 860px) {
-  .dia-side-chat-guide {
-    min-height: 44px;
-    padding: 10px 12px;
-  }
-
-  .dia-side-chat-guide__description {
-    display: none;
+@media (hover: hover) {
+  .dia-side-chat-guide .dia-side-chat-guide__action:hover:not(:disabled) {
+    color: var(--dsw-alias-label-primary);
   }
 }
 

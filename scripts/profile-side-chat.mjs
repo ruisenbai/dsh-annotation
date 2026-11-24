@@ -323,29 +323,123 @@ async function association(sessionId, previousTabs = []) {
   }
 }
 
-/**
- * Open the side chat from the Host right Sidebar's navigation area.
- *
- * The launcher is the guide card `data-sidebar-right-guide-entry`, exactly like
- * every other right-Sidebar entry: there is no composer button to click.
- */
-async function openSide(sessionId) {
+async function addControlSize(button) {
+  return button.evaluate((element) => {
+    const { width, height } = element.getBoundingClientRect()
+    const glyph = element.querySelector('svg').getBoundingClientRect()
+    return [width, height, glyph.width, glyph.height].map((value) => Math.round(value * 10) / 10)
+  })
+}
+
+/** Compare the guide card with the official file entry in the same pane. */
+async function verifyGuideCard(card, hasChats) {
+  const add = card.locator('[data-dia-side-chat-guide-new]')
+  const toggle = card.locator('[data-dia-side-chat-guide-switch]')
+  if (hasChats) await toggle.waitFor()
+  await add.click({ trial: true })
+  const { row, stockRow, title, stockTitle, plus, switcher, endInset } = await card.evaluate((element) => {
+    const peer = element
+      .closest('[data-sidebar-right-guide]')
+      .querySelector('button[data-sidebar-right-guide-entry="files"]')
+    const style = getComputedStyle(peer)
+    const switchButton = element.querySelector('[data-dia-side-chat-guide-switch]')
+    const rect = (target) => {
+      const { x, y, width, height, right } = target.getBoundingClientRect()
+      return { x, y, width, height, right }
+    }
+    return {
+      row: rect(element),
+      stockRow: rect(peer),
+      title: rect(element.querySelector('.dia-side-chat-guide__title')),
+      stockTitle: rect(peer.querySelector(':scope > span:nth-child(2)')),
+      plus: rect(element.querySelector('[data-dia-side-chat-guide-new]')),
+      switcher: switchButton === null ? undefined : rect(switchButton),
+      endInset: parseFloat(style.paddingInlineEnd) + parseFloat(style.borderInlineEndWidth),
+    }
+  })
+  const same = (actual, expected, name) =>
+    assert.ok(Math.abs(actual - expected) <= 1, name + ': ' + actual + ' vs ' + expected)
+  same(row.width, stockRow.width, 'guide card width')
+  same(row.height, stockRow.height, 'guide card height')
+  same(title.x - row.x, stockTitle.x - stockRow.x, 'guide label inset')
+  same(row.right - plus.right, endInset, 'add button end inset')
+  same(plus.y + plus.height / 2, row.y + row.height / 2, 'add button vertical center')
+  assert.equal(switcher !== undefined, hasChats)
+  if (switcher !== undefined) {
+    same(switcher.right + 4, plus.x, 'switch and add button gap')
+    same(switcher.y + switcher.height / 2, plus.y + plus.height / 2, 'guide action centers')
+  }
+  return addControlSize(add)
+}
+
+function sidebarFor(sessionId) {
+  return page.locator('[data-sidebar-right-panel][data-sidebar-right-session="' + sessionId + '"]').first()
+}
+
+async function openGuideCard(sidebar) {
+  const card = sidebar.locator('[data-sidebar-right-guide-entry="annotationsidechat"]:visible').first()
+  if (!(await card.isVisible())) {
+    const guide = sidebar.getByRole('tab', { name: /^开始/u }).first()
+    if ((await guide.count()) > 0) await guide.click()
+    else await sidebar.locator('[data-dockkit-add-tab]:visible').first().click()
+  }
+  await card.waitFor()
+  return card
+}
+
+async function createFromSideTab(sessionId) {
+  const sidebar = sidebarFor(sessionId)
+  const empty = sidebar.locator('[data-dia-side-chat-new]:visible')
+  if (await empty.isVisible()) {
+    await empty.click()
+    return
+  }
+  await sidebar.locator('[data-dockkit-tab][aria-selected="true"] [data-dia-side-chat-select]').click({
+    button: 'right',
+  })
+  await page.getByRole('menuitem', { name: '新建侧边聊天', exact: true }).click()
+}
+
+async function restoreFromGuide(sessionId) {
+  const card = await openGuideCard(sidebarFor(sessionId))
+  await card.locator('[data-dia-side-chat-guide-switch]').click()
+  await page.getByRole('menuitem', { name: /^恢复/u }).click()
+}
+
+/** Open the side chat through the Host right Sidebar's guide. */
+async function openSide(sessionId, guideAction) {
   await mainFlow(sessionId).waitFor({ state: 'visible' })
   // A narrow layout collapses the right column; its chrome toggle re-expands it
   // before the guide page and its entry capsules mount.
-  const sidePanel = page
-    .locator(`[data-sidebar-right-session="${sessionId}"][data-sidebar-right-panel]`)
-    .first()
+  const sidePanel = sidebarFor(sessionId)
   if ((await sidePanel.getAttribute('data-sidebar-right-open')) !== 'true') {
     await page.locator('[data-sidebar-right-expand]:visible').click()
     await sidePanel.waitFor({ state: 'visible' })
   }
-  const card = page.locator('[data-sidebar-right-guide-entry="annotationsidechat"]')
-  const panel = page.locator(`[data-dia-side-chat][data-main-session="${sessionId}"]`)
-  if ((await panel.count()) === 0 || !(await panel.first().isVisible())) {
-    await card.first().click()
+  const side = sidePanel.locator('[data-dia-side-chat]:visible').first()
+  if (guideAction !== undefined || !(await side.isVisible())) {
+    const card = await openGuideCard(sidePanel)
+    if (guideAction !== undefined) {
+      await page.waitForFunction(
+        (id) =>
+          document
+            .querySelector('[data-sidebar-right-panel][data-sidebar-right-session="' + id + '"]')
+            ?.getAttribute('data-sidebar-right-opening') !== 'true',
+        sessionId,
+      )
+      assert.deepEqual(await verifyGuideCard(card, guideAction === 'switch'), [28, 28, 14, 14])
+      console.log(
+        'PASS guide card and add button match stock controls at ' + page.viewportSize().width + 'px',
+      )
+      await page.screenshot({ path: join(artifacts, 'side-chat-guide-' + guideAction + '.png') })
+    }
+    if (guideAction === 'create') {
+      await card.locator('[data-dia-side-chat-guide-new]').click()
+    } else if (guideAction === 'switch') {
+      await card.locator('[data-dia-side-chat-guide-switch]').tap()
+      await page.getByRole('menuitem').first().tap()
+    } else await card.click()
   }
-  const side = page.locator(`[data-dia-side-chat][data-main-session="${sessionId}"]`)
   await side.waitFor({ state: 'visible' })
   await side
     .locator('[data-conversation-content]:visible, [data-dia-side-chat-empty]:visible')
@@ -364,7 +458,9 @@ async function waitForSideLayout(side) {
   })
   await page.waitForFunction(
     (id) => {
-      const side = document.querySelector(`[data-dia-side-chat][data-main-session="${id}"]`)
+      const side = [...document.querySelectorAll(`[data-dia-side-chat][data-main-session="${id}"]`)].find(
+        (panel) => panel.checkVisibility(),
+      )
       return (
         side !== null &&
         side.closest('[data-sidebar-right-opening="true"]') === null &&
@@ -373,6 +469,72 @@ async function waitForSideLayout(side) {
     },
     await side.getAttribute('data-main-session'),
   )
+}
+
+/** Measure the controls within the Host strip, including its own clipping edge. */
+async function verifyNativeTab(tab, side) {
+  assert.equal(await side.locator('[data-dockkit-strip]').count(), 0)
+  const actions = tab.locator('.dia-side-chat-tab-action')
+  assert.equal(await actions.count(), 2)
+  for (const button of await actions.all()) assert.deepEqual(await addControlSize(button), [28, 28, 16, 16])
+  const placement = await tab.evaluate((element) => {
+    const strip = element.closest('[data-dockkit-strip]')
+    const scroll = element.closest('[data-dockkit-strip-tabs]').getBoundingClientRect()
+    const buttons = [...element.querySelectorAll('.dia-side-chat-tab-action')]
+    return {
+      hostControls: strip.querySelector('[data-sidebar-right-toggle]') !== null,
+      guide: [...strip.querySelectorAll('[role="tab"]')].some((tab) => tab.textContent.trim() === '开始'),
+      titleMask: getComputedStyle(element.querySelector('[data-dockkit-tab-title]')).maskImage,
+      fits: buttons.every((button) => {
+        const rect = button.getBoundingClientRect()
+        return (
+          rect.left >= Math.max(0, scroll.left) - 1 &&
+          rect.right <= Math.min(innerWidth, scroll.right) + 1 &&
+          getComputedStyle(button).visibility === 'visible'
+        )
+      }),
+      overflow: document.documentElement.scrollWidth > innerWidth + 1,
+    }
+  })
+  assert.deepEqual(placement, {
+    hostControls: true,
+    guide: true,
+    titleMask: 'none',
+    fits: true,
+    overflow: false,
+  })
+}
+
+async function swipeSideTabs(sidebar, tab) {
+  const row = sidebar.locator('[data-dockkit-strip-tabs]:visible').first()
+  const id = await row.evaluate((element) => {
+    const previous = element.scrollLeft
+    const settled = () => {
+      if (element.scrollLeft <= previous + 20) return
+      element.dataset.testTabSwipeSettled = 'true'
+      element.removeEventListener('scrollend', settled)
+    }
+    element.addEventListener('scrollend', settled)
+    return element.getAttribute('data-dockkit-strip-tabs')
+  })
+  const label = await tab.locator('[data-dia-side-chat-select]').boundingBox()
+  assert.ok(label)
+  const x = Math.round(label.x + label.width / 2)
+  const y = Math.round(label.y + label.height / 2)
+  const input = await page.context().newCDPSession(page)
+  try {
+    await input.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+    for (const travel of [20, 45, 75, 110]) {
+      await input.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x: x - travel, y }],
+      })
+    }
+    await input.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await sidebar.locator('[data-dockkit-strip-tabs="' + id + '"][data-test-tab-swipe-settled]').waitFor()
+  } finally {
+    await input.detach()
+  }
 }
 
 /** Check model input and navigation against the same retained Sessions after reload and restore. */
@@ -409,12 +571,14 @@ async function exerciseOwnedSideChats() {
   }
   await page.setViewportSize({ width: 1440, height: 930 })
   await openMain(parent, scenario.otherSource)
-  let side = await openSide(parent)
+  await page.emulateMedia({ colorScheme: 'dark' })
+  const side = await openSide(parent, 'create')
+  const sidebar = sidebarFor(parent)
   const newTab = async () => {
-    const previousTabs = await side
+    const previousTabs = await sidebar
       .locator('[data-dia-side-chat-select]')
       .evaluateAll((tabs) => tabs.map((tab) => tab.dataset.diaSideChatSelect))
-    await side.getByRole('button', { name: '新建侧边聊天', exact: true }).click()
+    await createFromSideTab(parent)
     const chat = await association(parent, previousTabs)
     await composer(mainFlow(chat.sideSessionId)).waitFor()
     return chat
@@ -426,7 +590,8 @@ async function exerciseOwnedSideChats() {
     else assert.equal((await body.innerText()).trim(), '')
     assert.equal(await body.getByText(scenario.otherSource, { exact: true }).count(), 0)
   }
-  const one = await newTab()
+  const one = await association(parent)
+  await composer(mainFlow(one.sideSessionId)).waitFor()
   await verifyOwnTranscript(one.sideSessionId)
   assert.deepEqual(await ask(one.sideSessionId, 'side-only'), expected.firstSideRequest)
   assert.deepEqual(await ask(parent, 'parent-after'), expected.nextParentRequest)
@@ -441,18 +606,20 @@ async function exerciseOwnedSideChats() {
   const row = (id) => page.locator(`[data-row-key="session:${id}"]`)
   assert.equal(await row(one.sideSessionId).count(), 0)
   assert.equal(await row(two.sideSessionId).count(), 0)
-  await side.locator(`[data-dia-side-chat-select="${one.sideChatId}"]`).hover()
-  const firstTab = side.locator(`[role="tab"]:has([data-dia-side-chat-select="${one.sideChatId}"])`)
+  await sidebar.locator(`[data-dia-side-chat-select="${one.sideChatId}"]`).hover()
+  const firstTab = sidebar.locator(`[role="tab"]:has([data-dia-side-chat-select="${one.sideChatId}"])`)
   await firstTab.focus()
   await page.keyboard.press('Tab')
   assert.equal(
-    await side
+    await sidebar
       .locator(`[data-dia-side-chat-archive="${one.sideChatId}"]`)
       .evaluate((button) => button === document.activeElement),
     true,
   )
+  assert.equal(await firstTab.getAttribute('aria-selected'), 'false')
+  await verifyNativeTab(firstTab, side)
   await page.screenshot({ path: join(artifacts, 'owned-tab-actions.png'), animations: 'disabled' })
-  await side.locator(`[data-dia-side-chat-open-alone="${one.sideChatId}"]`).click()
+  await sidebar.locator(`[data-dia-side-chat-open-alone="${one.sideChatId}"]`).click()
   await page.waitForFunction(
     (id) => JSON.parse(localStorage.getItem('dsh.sessions.current'))?.sessionId === id,
     one.sideSessionId,
@@ -465,12 +632,11 @@ async function exerciseOwnedSideChats() {
   assert.equal(await row(one.sideSessionId).count(), 0)
   assert.deepEqual(await ask(one.sideSessionId, 'side-after-reopen'), expected.reopenedSideRequest)
   await openMain(parent, scenario.otherSource)
-  side = await openSide(parent)
-  await side.locator(`[data-dia-side-chat-select="${two.sideChatId}"]`).hover()
-  await side.locator(`[data-dia-side-chat-archive="${two.sideChatId}"]`).click()
-  await side.locator(`[data-dia-side-chat-select="${two.sideChatId}"]`).waitFor({ state: 'detached' })
-  await side.getByRole('button', { name: '已归档', exact: true }).click()
-  await page.getByRole('menuitem', { name: /恢复/ }).click()
+  await openSide(parent)
+  await sidebar.locator(`[data-dia-side-chat-select="${two.sideChatId}"]`).hover()
+  await sidebar.locator(`[data-dia-side-chat-archive="${two.sideChatId}"]`).click()
+  await sidebar.locator(`[data-dia-side-chat-select="${two.sideChatId}"]`).waitFor({ state: 'detached' })
+  await restoreFromGuide(parent)
   await composer(mainFlow(two.sideSessionId)).waitFor()
   assert.equal(await row(two.sideSessionId).count(), 0)
   const originalPage = page
@@ -489,25 +655,37 @@ async function exerciseOwnedSideChats() {
     )
     await page.goto(desktop ? authenticatedEntry : new URL(originalPage.url()).origin)
     await mainBody(parent).waitFor()
-    const recovered = await openSide(parent)
+    const recovered = await openSide(parent, 'switch')
+    const recoveredSidebar = sidebarFor(parent)
     for (const chat of [one, two])
-      await recovered.locator(`[data-dia-side-chat-select="${chat.sideChatId}"]`).waitFor()
-    assert.equal(await recovered.getByRole('tab').count(), 2)
-    const touchButton = recovered.locator(`[data-dia-side-chat-open-alone="${one.sideChatId}"]`)
-    assert.ok(
-      await touchButton.evaluate((b) => {
-        const r = b.getBoundingClientRect()
-        return getComputedStyle(b.parentElement).opacity === '1' && r.left >= 0 && r.right <= innerWidth
-      }),
+      await recoveredSidebar.locator(`[data-dia-side-chat-select="${chat.sideChatId}"]`).waitFor()
+    assert.equal(await recoveredSidebar.locator('[data-dia-side-chat-select]').count(), 2)
+    const touchTab = recoveredSidebar.locator(
+      `[role="tab"]:has([data-dia-side-chat-select="${one.sideChatId}"])`,
     )
+    await verifyNativeTab(touchTab, recovered)
     await page.screenshot({ path: join(artifacts, 'owned-tab-actions-touch.png'), animations: 'disabled' })
+    await swipeSideTabs(recoveredSidebar, touchTab)
+    assert.equal(await touchTab.getAttribute('aria-selected'), 'true')
+    const other = recoveredSidebar.locator('[data-dia-side-chat-select="' + two.sideChatId + '"]')
+    const position = await other.evaluate((element) => {
+      const rect = element.getBoundingClientRect()
+      const x = Math.round(rect.x + rect.width / 2)
+      const y = Math.round(rect.y + rect.height / 2)
+      return { x, y, hit: element.contains(document.elementFromPoint(x, y)) }
+    })
+    assert.ok(position.hit, 'A swipe must expose the next tab in the Host strip')
+    await page.touchscreen.tap(position.x, position.y)
+    await composer(mainFlow(two.sideSessionId)).waitFor()
+    const touchButton = recoveredSidebar.locator('[data-dia-side-chat-open-alone="' + two.sideChatId + '"]')
     await touchButton.tap()
     await page
       .locator(
-        `[data-conversation-content][data-conversation-session="${one.sideSessionId}"]:not([data-dia-side-chat] *)`,
+        `[data-conversation-content][data-conversation-session="${two.sideSessionId}"]:not([data-dia-side-chat] *)`,
       )
       .waitFor()
-    assert.equal(await page.locator(`[data-row-key="session:${two.sideSessionId}"]`).count(), 0)
+    assert.equal(await page.locator(`[data-row-key="session:${one.sideSessionId}"]`).count(), 0)
+    console.log('PASS swipe the Host strip, select the next side chat, and open it independently at 390px')
   } finally {
     page = originalPage
     await clean.close()
@@ -588,11 +766,11 @@ async function exerciseDelegatedSideChats(parent) {
   await selectConversation(source)
   let side = await openSide(source)
   const createTab = async (retry = false) => {
-    const previousTabs = await side
+    const previousTabs = await sidebarFor(source)
       .locator('[data-dia-side-chat-select]')
       .evaluateAll((tabs) => tabs.map((tab) => tab.dataset.diaSideChatSelect))
     if (retry) await request('fail-next-lifecycle', { kind: 'side-fork' })
-    await side.getByRole('button', { name: '新建侧边聊天', exact: true }).click()
+    await createFromSideTab(source)
     const chat = await association(source, previousTabs)
     const body = mainFlow(chat.sideSessionId)
     if (retry) {
@@ -789,7 +967,7 @@ async function inspectLayout(side, label) {
       )
     }
     const input = element.querySelector('[data-composer-card]')
-    const close = element.closest('[data-dockkit-pane]')?.querySelector('[data-dockkit-tab-close]')
+    const close = element.closest('[data-sidebar-right-panel]')?.querySelector('[data-sidebar-right-toggle]')
     const references = element.querySelector('.dia-side-chat-record-panel')
     const conversation = element.querySelector('[data-conversation-content]')
     const ancestry = (target) => {
@@ -1152,6 +1330,8 @@ try {
       mainFlow,
       openMain,
       openSide,
+      createFromSideTab,
+      restoreFromGuide,
       selectText,
       composer,
       association,

@@ -6,12 +6,13 @@ import {
   TRANSCRIPT_VISIBILITY_KEYS,
   type AnnotationSettings,
 } from '../src/shared/settings.ts'
+import { syncedDeployment } from './deployment-fixture.ts'
 import { apply, Config } from '../src/index.ts'
-import { DEFAULT_CONFIG, LEGACY_COMMAND_NAMES, resolveConfig } from '../src/shared/config.ts'
+import { DEFAULT_CONFIG, LEGACY_COMMAND_NAMES, deploymentConfig } from '../src/shared/config.ts'
 
 describe('configuration', () => {
   it('resolves all defaults explicitly', () => {
-    expect(resolveConfig(undefined)).toEqual(DEFAULT_CONFIG)
+    expect(deploymentConfig()).toEqual(DEFAULT_CONFIG)
   })
 
   it('keeps all transcript filters off by default', () => {
@@ -43,16 +44,20 @@ describe('configuration', () => {
     expect(LEGACY_COMMAND_NAMES).toEqual(['inline_comments_submit', 'inline_annotations_submit'])
   })
 
-  it('accepts deployment overrides', () => {
-    expect(
-      resolveConfig({
-        commandName: 'review_submit',
-        locateHistoryPages: 3,
-      }),
-    ).toMatchObject({
+  it('reads all five non-default fields identically on Host and Web and follows live changes', () => {
+    const overrides = {
       commandName: 'review_submit',
+      maxPayloadBytes: 4096,
+      maxAnnotationsPerSubmission: 2,
+      warnSelectionChars: 75,
       locateHistoryPages: 3,
-    })
+    }
+    const client = syncedDeployment(overrides)
+    const browser = deploymentConfig(client.fields)
+    expect({ ...browser }).toEqual(overrides)
+    expect({ ...deploymentConfig(Config(overrides)) }).toEqual(overrides)
+    client.update(DEFAULT_CONFIG)
+    expect({ ...browser }).toEqual(DEFAULT_CONFIG)
   })
 
   it.each([
@@ -60,10 +65,10 @@ describe('configuration', () => {
     [{ maxPayloadBytes: 0 }, 'maxPayloadBytes'],
     [{ maxAnnotationsPerSubmission: 1.5 }, 'maxAnnotationsPerSubmission'],
   ])('rejects invalid config %#', (value, message) => {
-    expect(() => resolveConfig(value)).toThrow(message)
+    expect(() => deploymentConfig(syncedDeployment(value).fields)).toThrow(message)
   })
 
-  it('exposes only preferences as volatile form fields', () => {
+  it('projects the five deployment fields and user preferences as live references', () => {
     const defaults: AnnotationSettings = {
       enabled: true,
       autoAttach: true,
@@ -79,7 +84,10 @@ describe('configuration', () => {
       expect(Config({ [field]: false })[field].get()).toBe(false)
       expect(() => Config({ [field]: 'true' })).toThrow()
     }
-    expect(Config.dict?.commandName?.meta.volatile).not.toBe(true)
+    for (const key of Object.keys(DEFAULT_CONFIG) as (keyof typeof DEFAULT_CONFIG)[]) {
+      expect(Config.dict?.[key]?.meta.volatile).toBe(true)
+      expect(resolved[key].get()).toEqual(DEFAULT_CONFIG[key])
+    }
     expect(resolved.archivedPreferencesImported.get()).toBe(false)
     expect(Config.dict).not.toHaveProperty('localTools')
   })
@@ -92,6 +100,7 @@ describe('configuration', () => {
     const fiber = {}
     const ctx = {
       fiber,
+      on: () => () => {},
       commands: { register },
       plugin: vi.fn(),
       sessionProjections: { register: vi.fn(async () => ({ dispose: vi.fn() })) },
@@ -103,7 +112,7 @@ describe('configuration', () => {
         install({ settings: { configure }, effect: ctx.effect })
       },
     } as unknown as Context
-    await apply(ctx, DEFAULT_CONFIG)
+    await apply(ctx, Config({}))
     expect(configure).toHaveBeenCalledWith({ auto: false }, fiber)
     expect(register.mock.calls.map((call) => (call as unknown as [{ name: string }])[0].name)).toEqual([
       'annotation_submit',
@@ -118,6 +127,7 @@ describe('configuration', () => {
   it('keeps command registration available without optional settings services', async () => {
     const register = vi.fn(() => () => undefined)
     const ctx = {
+      on: () => () => {},
       commands: { register },
       plugin: vi.fn(),
       sessionProjections: { register: vi.fn(async () => ({ dispose: vi.fn() })) },
@@ -126,7 +136,7 @@ describe('configuration', () => {
       },
       inject: vi.fn(),
     } as unknown as Context
-    await apply(ctx, DEFAULT_CONFIG)
+    await apply(ctx, Config({}))
     expect(register).toHaveBeenCalledTimes(4)
   })
 })

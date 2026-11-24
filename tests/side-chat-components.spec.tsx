@@ -143,6 +143,7 @@ function controls(snapshot: SideChatView | null): SideChatControlsProps {
 function guideProps(snapshot: SideChatView | null) {
   return {
     ...controls(snapshot),
+    restoreChat: vi.fn(async () => {}),
     useSessions: (selector: (state: { byId: Record<string, never> }) => unknown) => selector({ byId: {} }),
     entryId: 'side-chat',
     kind: 'annotationsidechat',
@@ -152,6 +153,23 @@ function guideProps(snapshot: SideChatView | null) {
 }
 
 describe('side-chat guide entry', () => {
+  it('creates the first chat through the plus and shows the switch once a chat exists', () => {
+    const empty = { ...view(), chats: [], active: null, activeSideChatId: null }
+    const props = guideProps(empty)
+    const { rerender } = render(<SideChatGuideEntry {...props} />)
+    expect(screen.queryByRole('button', { name: en['sideChat.guideSwitch'] })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: en['sideChat.new'] }))
+    expect(props.createSideChat).toHaveBeenCalledOnce()
+    expect(props.openSideChat).not.toHaveBeenCalled()
+
+    rerender(<SideChatGuideEntry {...guideProps(view())} />)
+    expect(screen.getByRole('button', { name: en['sideChat.guideSwitch'] })).toBeVisible()
+    expect(screen.getByRole('button', { name: en['sideChat.new'] })).toBeEnabled()
+
+    rerender(<SideChatGuideEntry {...guideProps({ ...empty, storageAvailable: false })} />)
+    expect(screen.getByRole('button', { name: en['sideChat.new'] })).toBeDisabled()
+  })
+
   it('shows one fixed-meaning pending badge across parallel chats', () => {
     const base = view()
     const second = {
@@ -186,7 +204,22 @@ describe('side-chat guide entry', () => {
     fireEvent.click(screen.getByRole('button', { name: en['sideChat.guideSwitch'] }))
     fireEvent.click(screen.getByRole('menuitem', { name: en['sideChat.guideNew'] }))
     expect(props.createSideChat).toHaveBeenCalledOnce()
-    expect(props.openSideChat).toHaveBeenCalledOnce()
+    expect(props.openSideChat).not.toHaveBeenCalled()
+  })
+
+  it('restores the exact chat from the guide when all chats are archived', () => {
+    const saved = view()
+    const props = guideProps({
+      ...saved,
+      active: null,
+      activeSideChatId: null,
+      chats: saved.chats.map((chat) => ({ ...chat, archived: true })),
+    })
+    render(<SideChatGuideEntry {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: en['sideChat.guideSwitch'] }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Restore.*Side chat 1/u }))
+    expect(props.restoreChat).toHaveBeenCalledExactlyOnceWith(chatId)
+    expect(props.selectSideChat).not.toHaveBeenCalled()
   })
 
   it('opens the panel from the capsule itself', () => {

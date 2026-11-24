@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import './host-styles.mjs'
 import { createRoot } from 'react-dom/client'
 import { TestAnnotatedAssistantNode as AnnotatedAssistantNode } from '../assistant-host-fixture.tsx'
 import {

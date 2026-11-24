@@ -17,7 +17,7 @@ import { DEFAULT_CONFIG } from '../src/shared/config.ts'
 import { fixturePayload } from './fixtures.ts'
 import { parseAttachmentIdentities } from '../src/shared/protocol.ts'
 import { ATTACHMENT_PREPARE_INPUT, ATTACHMENT_IDENTITY_MISMATCH } from '../src/shared/types.ts'
-import { apply, inject } from '../src/index.ts'
+import { apply, inject, Config } from '../src/index.ts'
 import { ownedSideSessionId } from '../src/shared/side-session-id.ts'
 import { sideChatTranscriptStart } from '../src/host/side-chat-fork.ts'
 import { SIDE_CHAT_COMMAND_NAME, SIDE_CHAT_RECEIPTS_PROJECTION } from '../src/shared/side-chat-types.ts'
@@ -34,7 +34,7 @@ describe('official Host command attachment admission', () => {
       const plugin = await ctx.plugin({
         name: 'annotation-runtime-test',
         inject,
-        apply: (scope: Context) => apply(scope, DEFAULT_CONFIG),
+        apply: (scope: Context) => apply(scope, Config({})),
       })
       expect(ctx.commands.list(agent).map((command) => command.name)).toEqual(
         expect.arrayContaining([

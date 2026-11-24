@@ -22,14 +22,19 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-deliverables/client'
-import { resolveConfig, LEGACY_COMMAND_NAMES } from '../shared/config.ts'
+import type { SyncedConfig } from '@deepseek-ai/dsh-client-config/types'
+import {
+  deploymentConfig,
+  bindCommandName,
+  LEGACY_COMMAND_NAMES,
+  type DeploymentFields,
+} from '../shared/config.ts'
 import { encodeSubmissionCommand } from '../shared/codec.ts'
 import { parseAttachmentIdentities, sameAttachmentIdentities } from '../shared/protocol.ts'
 import { isOutboxPayloadEntry, outboxSubmissionId } from '../shared/outbox-redaction.ts'
 import { ATTACHMENT_PREPARE_INPUT, ATTACHMENT_IDENTITY_MISMATCH } from '../shared/types.ts'
 import { ANNOTATION_SETTINGS_NAMESPACE, type AnnotationSettings } from '../shared/settings.ts'
 import type {
-  AnnotationConfig,
   MessageIdentity,
   OutboxAttachments,
   OutboxPayloadEntry,
@@ -104,7 +109,7 @@ import {
   SIDE_CHAT_RECEIPTS_PROJECTION,
   type SideChatId,
 } from '../shared/side-chat-types.ts'
-import { registerSideChatSidebar, SIDE_CHAT_KIND, type SideChatSidebar } from './side-chat-sidebar.tsx'
+import { registerSideChatSidebar, type SideChatSidebar } from './side-chat-sidebar.tsx'
 import { installSideChatPresentation } from './side-chat-presentation.tsx'
 import { submitSideChat } from './side-chat-submit.ts'
 import {
@@ -249,9 +254,8 @@ function attachmentMetadata(attachments: readonly SubmitAttachment[]): OutboxAtt
 }
 
 /** Mount every UI contribution and bind one controller to each encountered Session. */
-export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): void {
-  // The synced Config can return a reference even when the requested field is absent.
-  const config = resolveConfig({ ...input })
+export function apply(ctx: ClientContext, input?: SyncedConfig<DeploymentFields>): void {
+  const config = deploymentConfig(input)
   const sessions: ISessions & { isDeleted?(id: SessionId): Promise<boolean> } =
     ctx.sessions as unknown as ISessions
   const conversation = ctx.conversation as unknown as IConversation
@@ -853,9 +857,22 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     for (const chat of owner.getSnapshot().chats) {
       if (chat.sideSessionId !== null) registerSideSession(chat.sideSessionId, chat.sideChatId)
     }
+    const openableIds = () =>
+      new Set(
+        owner
+          .getSnapshot()
+          .chats.filter((chat) => !chat.archived)
+          .map((chat) => chat.sideChatId),
+      )
+    let knownChatIds = openableIds()
     sideChatObservers.set(
       mainSessionId,
       owner.subscribe(() => {
+        const currentChatIds = openableIds()
+        for (const chatId of knownChatIds) {
+          if (!currentChatIds.has(chatId)) sideChatSidebar?.closeChatTab(mainSessionId, chatId)
+        }
+        knownChatIds = currentChatIds
         refreshSourceReferences(mainSessionId, owner)
         const known = new Set(
           owner
@@ -1093,10 +1110,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         if (!(await awaitSourceSession(sourceId, navigation.signal))) return false
       }
       // A fullscreen panel would cover the restored quote; a docked one stays while the body shows.
-      if (narrow()) {
-        const tab = ctx.sidebarRight.tabsIn(sourceId).find((item) => item.kind === SIDE_CHAT_KIND)
-        if (tab !== undefined) ctx.sidebarRight.hide(tab.id)
-      }
+      if (narrow()) sideChatSidebar?.hide(sourceId)
       const result = await controllerFor(sourceId).locateMessageQuote(reference, navigation.signal)
       const found =
         !navigation.signal.aborted &&
@@ -1911,16 +1925,6 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       locateReference: locateSideChatReference,
       archiveChat: (mainSessionId, chatId) => manageSideChat(mainSessionId, chatId, 'archive'),
       restoreChat: (mainSessionId, chatId) => manageSideChat(mainSessionId, chatId, 'restore'),
-      openPanel: (mainSessionId) => {
-        if (disposed || unavailableMains.has(mainSessionId)) return
-        const owner = sideChatFor(mainSessionId)
-        owner.show()
-        // A page kind is one tab per pane, so opening it again reveals the same panel
-        // instead of stacking duplicates; a first open creates the page.
-        const target = owner.getSnapshot().activeSideChatId
-        ctx.sidebarRight.openTabIn(mainSessionId, SIDE_CHAT_KIND)
-        if (target !== null) void prepareSideChat(mainSessionId, target)
-      },
       prepareChat: prepareSideChat,
       openStandalone: (sideSessionId) => {
         const workspace = ctx.get('uiWorkspace')
@@ -2142,28 +2146,26 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
           AssistantAnnotationAction,
         ),
       ),
-      ctx.slots.inject('conversation.chat.commandview', () => [
-        ctx.slots.register(
-          {
-            name: 'conversation.chat.commandview',
-            key: config.commandName,
-            inject: faceFor,
-          },
-          HiddenCommandRow,
-        ),
-        ...[FORK_SIDE_CHAT_COMMAND, SIDE_CHAT_COMMAND_NAME, ...LEGACY_COMMAND_NAMES]
-          .filter((name) => name !== config.commandName)
-          .map((name) =>
-            ctx.slots.register(
-              {
-                name: 'conversation.chat.commandview',
-                key: name,
-                inject: faceFor,
-              },
-              HiddenCommandRow,
-            ),
+      ctx.slots.inject('conversation.chat.commandview', () => {
+        const fixed: readonly string[] = [
+          FORK_SIDE_CHAT_COMMAND,
+          SIDE_CHAT_COMMAND_NAME,
+          ...LEGACY_COMMAND_NAMES,
+        ]
+        const register = (name: string) =>
+          ctx.slots.register(
+            { name: 'conversation.chat.commandview', key: name, inject: faceFor },
+            HiddenCommandRow,
+          )
+        return [
+          bindCommandName(
+            () => config.commandName,
+            (changed) => input?.commandName.subscribe(changed) ?? (() => {}),
+            (name) => (fixed.includes(name) ? () => {} : register(name)),
           ),
-      ]),
+          ...fixed.map(register),
+        ]
+      }),
     ]
     return async () => {
       if (sideChatSidebar === sidebar) sideChatSidebar = undefined
@@ -2461,4 +2463,5 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   }, 'dsh-annotation: dynamic conversation integrations')
 }
 
-export type { AnnotationConfig, MessageIdentity }
+export type { AnnotationConfig } from '../shared/types.ts'
+export type { MessageIdentity }

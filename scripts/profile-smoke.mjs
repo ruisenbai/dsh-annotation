@@ -927,6 +927,7 @@ try {
   })
   await deadline(ready, 'Official web readiness')
   await request('settings-ready')
+  if (process.argv.includes('--deployment-limits')) await request('limit-annotation-batch')
   const initial = await request('inspect')
   assert.equal(initial.settings.user.archivedPreferencesImported, true)
   assert.equal(initial.settings.user.autoAttach, true)
@@ -2067,6 +2068,26 @@ try {
     await page.screenshot({ path: join(artifacts, 'official-code-editor-profile.png'), fullPage: true })
     await cancelBlankNewEditor(page, fileEditor, 'Code file selection')
     console.log('PASS native multiline code selection shows the shared action and blank cancellation')
+    if (process.argv.includes('--deployment-limits')) {
+      assert.equal(initial.settings.value.maxAnnotationsPerSubmission, 2)
+      const input = page.locator('[data-composer-card] [contenteditable="true"]')
+      await input.fill('Three notes exceed two.')
+      await input.press('Enter')
+      await page.getByText('注解数量超过当前部署允许的单批上限。', { exact: true }).last().waitFor()
+      const unchanged = await request('read-session', { sessionId: official.sessionId })
+      assert.equal(
+        unchanged.events.filter((e) => e.type === 'user/message' && e.data.source?.annotationSubmission)
+          .length,
+        0,
+      )
+      const updated = await request('raise-annotation-limit')
+      assert.equal(updated.commandName, 'review_submit')
+      assert.equal(updated.maxAnnotationsPerSubmission, 4)
+      await input.fill('')
+      console.log(
+        'PASS browser rejects three drafts at the Host limit of two; no annotation message was admitted',
+      )
+    }
     await page.evaluate(() => window.getSelection()?.removeAllRanges())
     await selectReadingSource(page, 'Review the changed ')
     await page

@@ -2,7 +2,16 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and releases follow Semantic Versioning while DeepSeek Harness compatibility remains pre-release.
 
-## [Unreleased]
+## 1.3.3 (local build)
+
+- Target official DSH `0.2.3-alpha.2`. The Host and Web client share the live command name and four deployment limits. An oversized batch stays in drafts without calling the Host. No annotation, side-chat or settings migration is required. [Upgrade guide](docs/upgrade-guide/v1.3.3/host-baseline/guide.md)
+
+## 1.3.2 (unreleased)
+
+- Put side chats in the host’s right sidebar tab strip. Enlarge the archive and open independently controls. Restore archived chats from the side chat menu on the guide page.
+- Match the stock guide card dimensions in the right sidebar and align the new side-chat button with the card’s trailing edge.
+- Plugin 1.3.2 targets DSH master commit `2e39e70496`. Embedded side chats use the current conversation component and keep the workspace of their owning conversation.
+- Requires DSH `0.2.2-rc.5` and Node.js `24.9.0` or later. Keep 1.3.1 on `rc.4`. [Host upgrade guide](docs/upgrade-guide/v1.3.2/host-baseline/guide.md)
 
 ## [1.3.1] - 2026-11-18
 
