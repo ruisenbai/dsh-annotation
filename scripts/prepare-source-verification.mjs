@@ -78,7 +78,8 @@ const subprocessPath = relative(output, fileURLToPath(overrides[subprocessName])
 const subprocessBuild = `${subprocessName}@file:${subprocessPath}`
 const workspaceSource = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8').replace(
   /^allowBuilds:$/m,
-  `allowBuilds:\n  ${JSON.stringify(subprocessBuild)}: true`,
+  // External collaboration CLIs are not invoked by annotation verification.
+  `allowBuilds:\n  '@larksuite/cli': false\n  '@tencentcloud/tmeet': false\n  ${JSON.stringify(subprocessBuild)}: true`,
 )
 const workspace = `${workspaceSource}\n# Optional external model CLIs are outside annotation verification.\nignoredOptionalDependencies:\n  - '@anthropic-ai/claude-agent-sdk-*'\n  - '@openai/codex-*'\n`
 writeFileSync(
