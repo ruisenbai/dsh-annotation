@@ -13,9 +13,9 @@ import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-renderer/c
 import type { StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { createElement, useMemo, useSyncExternalStore, type ComponentType } from 'react'
-import { isSideSessionId, sideSessionAddress } from '../shared/side-session-id.ts'
+import { PROMOTE_SIDE_CHAT_COMMAND, sideParentKey, sideSessionAddress } from '../shared/side-session-id.ts'
 import { ChatSubmissionHandoff } from './chat-submission-handoff.ts'
-import { preserveSideChatBlanks } from './side-chat-blank-reuse.ts'
+import { preserveSideChatBlanks, sideOnly } from './side-chat-blank-reuse.ts'
 
 function selectThrough<T>(
   useOriginal: SnapshotSelectorHook<T>,
@@ -26,10 +26,39 @@ function selectThrough<T>(
 
 /** Remove owned side rows only from the Workspace browser's local view of the catalog. */
 export function workspaceMainSessions(list: SessionListState): SessionListState {
-  if (!Object.keys(list.byId).some(isSideSessionId)) return list
+  const hidden = Object.keys(list.byId).filter((id) => sideOnly(list, id as SessionId)) as SessionId[]
+  if (!hidden.length) return list
   const byId = { ...list.byId }
-  for (const id of Object.keys(byId)) if (isSideSessionId(id)) delete byId[id as SessionId]
-  return { ...list, byId, ids: list.ids.filter((id) => !isSideSessionId(id)) }
+  for (const id of hidden) delete byId[id]
+  return { ...list, byId, ids: list.ids.filter((id) => !!byId[id]) }
+}
+
+type RowStatuses = Parameters<Parameters<WorkspaceBrowserProps['useSessionStatus']>[0]>[0]
+
+/** Only the workspace row inherits activity; submission and cancellation still address their own Session. */
+export function workspaceActivity(
+  list: SessionListState,
+  statuses: RowStatuses,
+  parents: ReadonlyMap<string, SessionId>,
+): RowStatuses {
+  let result: Map<SessionId, NonNullable<ReturnType<RowStatuses['get']>>> | undefined
+  for (const id of list.ids) {
+    if (!sideOnly(list, id) || !(statuses.get(id)?.running ?? list.byId[id]?.running)) continue
+    const address = sideSessionAddress(id)
+    const parent = address && parents.get(address.owner)
+    if (!parent || result?.get(parent)?.running) continue
+    const own = statuses.get(parent)
+    if (own?.running) continue
+    result ??= new Map(statuses)
+    result.set(parent, {
+      pendingInteraction: undefined,
+      completionUnread: false,
+      completionFailed: false,
+      ...own,
+      running: true,
+    })
+  }
+  return result ?? statuses
 }
 
 function workspaceBrowser(Inner: ComponentType<WorkspaceBrowserProps>) {
@@ -44,7 +73,19 @@ function workspaceBrowser(Inner: ComponentType<WorkspaceBrowserProps>) {
         return visible
       })
     }, [props.useSessions])
-    return createElement(Inner, { ...props, useSessions })
+    const list = props.useSessions((value) => value)
+    const parents = useMemo(() => new Map(list.ids.map((id) => [sideParentKey(id), id])), [list.ids])
+    const useSessionStatus = useMemo(() => {
+      const cache = new WeakMap<RowStatuses, RowStatuses>()
+      return selectThrough(props.useSessionStatus, (statuses) => {
+        const prior = cache.get(statuses)
+        if (prior) return prior
+        const activity = workspaceActivity(list, statuses, parents)
+        cache.set(statuses, activity)
+        return activity
+      })
+    }, [props.useSessionStatus, list, parents])
+    return createElement(Inner, { ...props, useSessions, useSessionStatus })
   }
 }
 
@@ -72,7 +113,16 @@ function SideTranscript({
   const nodes = view.useChat((chat) => chat.nodes)
   const navigation = view.useChat((chat) => chat.navigation.items())
   const keys = useMemo(
-    () => new Set(order.filter((key) => (nodes.get(key)?.anchorSeq ?? -1) >= start)),
+    () =>
+      new Set(
+        order.filter((key) => {
+          const node = nodes.get(key)
+          if (!node || node.anchorSeq < start) return false
+          return (
+            node.kind !== 'command' || (node.data as { name?: string }).name !== PROMOTE_SIDE_CHAT_COMMAND
+          )
+        }),
+      ),
     [order, nodes, start],
   )
   const useChat = useMemo(() => {
@@ -255,9 +305,7 @@ export function installSideChatPresentation(ctx: Context, sessions: ISessions, n
   const navigation = ctx.get('uiWorkspace')
   const restoreNavigation =
     nativeFilter || !navigation ? undefined : preserveSideChatBlanks(navigation, sessions, ctx.workspaces)
-  const workspace = nativeFilter
-    ? undefined
-    : decorate(ctx, 'sidebar.workspaces', () => true, workspaceBrowser)
+  const workspace = decorate(ctx, 'sidebar.workspaces', () => true, workspaceBrowser)
   const chat = decorate<ChatViewSlotProps>(
     ctx,
     'conversation.view',
@@ -265,12 +313,12 @@ export function installSideChatPresentation(ctx: Context, sessions: ISessions, n
     (inner) => withHandoff(inner, ctx, sessions, lifetime.signal),
   )
   return {
-    listReady: () => nativeFilter || workspace?.ready() === true,
+    listReady: () => nativeFilter || workspace.ready(),
     dispose: () => {
       lifetime.abort()
       restoreNavigation?.()
       chat.dispose()
-      workspace?.dispose()
+      workspace.dispose()
     },
   }
 }

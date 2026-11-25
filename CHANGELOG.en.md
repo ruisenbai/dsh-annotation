@@ -2,6 +2,14 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and releases follow Semantic Versioning while DeepSeek Harness compatibility remains pre-release.
 
+## 1.3.4
+
+- Upgrade from 1.3.3 without refreshing or restarting. The main transcript stays visible. An open side chat may briefly show its preparation notice before restoring the original text and draft automatically.
+
+- Drag to quote or annotate completed replies in the main conversation or a side chat when smooth streaming is enabled.
+- Side chats follow keyboard zoom, show activity in the workspace and keep an 8 px gap between tabs. Opening a side chat independently keeps its Session and history in the original workspace.
+- Expanded references in sent annotations follow the configured text size.
+
 ## 1.3.3 (local build)
 
 - Target official DSH `0.2.3-alpha.2`. The Host and Web client share the live command name and four deployment limits. An oversized batch stays in drafts without calling the Host. No annotation, side-chat or settings migration is required. [Upgrade guide](docs/upgrade-guide/v1.3.3/host-baseline/guide.md)

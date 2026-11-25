@@ -1,6 +1,6 @@
 {
   "name": "dsh-annotation",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "description": "在原文旁批注聊天内容、文件和代码差异，汇总发送多条注解，也可在侧栏沿用主会话上下文单独讨论。",
   "keywords": [
     "deepseek",

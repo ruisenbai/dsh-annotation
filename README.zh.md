@@ -15,11 +15,11 @@ description: 在原文旁批注聊天内容、文件和代码差异，汇总发�
 
 ![在侧边添加注解时，编辑框仍跟随主会话中的原文](docs/assets/annotation-sidebar.png)
 
-**源码版 1.3.3 适配原版 DSH `0.2.3-alpha.2`。** 公开版 1.3.1 仍可从市场和下方链接安装。需要测试新版时，按[开发说明](docs/development.md#packaging)从源码构建。
+**1.3.4 适配原版 DSH `0.2.3-alpha.2`。** 从 1.3.3 原地升级无需重启。已打开的侧聊可能短暂显示准备提示，然后自动恢复原文。
 
 宿主和浏览器使用同一个提交命令、单批数量上限、载荷大小上限、长选区提醒阈值和历史定位页数。修改这些配置后，无需重新打开会话。
 
-[下载中文组件原型（1.2.0 界面示例）](https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.1/dsh-annotation-ui.html)，用浏览器打开即可试用 5 个场景、42 种组件状态。示例数据不会写入你的聊天。
+[下载中文组件原型（1.2.0 界面示例）](https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.4/dsh-annotation-ui.html)，用浏览器打开即可试用 5 个场景、42 种组件状态。示例数据不会写入你的聊天。
 
 ## 目录
 
@@ -41,7 +41,7 @@ description: 在原文旁批注聊天内容、文件和代码差异，汇总发�
 
 在 **插件 → 插件市场** 的“会话与消息”分类中搜索 `ruisenbai/dsh-annotation`，即可安装或更新。较早版本的市场入口位于 **设置 → 插件市场**。
 
-Web 版也可以使用下方命令安装指定版本。[下载 1.3.1 安装包](https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.1/dsh-annotation-1.3.1.tgz) · [查看发行说明](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.3.1)
+Web 版也可以使用下方命令安装指定版本。[下载 1.3.4 安装包](https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.4/dsh-annotation-1.3.4.tgz) · [查看发行说明](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.3.4)
 
 ### 手动安装
 
@@ -49,11 +49,11 @@ Web 版也可以使用下方命令安装指定版本。[下载 1.3.1 安装包](
 
 ```bash
 dsh --version
-dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.1/dsh-annotation-1.3.1.tgz
+dsh plugin --profile web add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.4/dsh-annotation-1.3.4.tgz
 dsh plugin --profile web why dsh-annotation
 ```
 
-宿主必须满足 `>=0.2.2-rc.4`，最后一条命令应解析到 `dsh-annotation@1.3.1`。使用自定义 profile 时，将两处 `web` 改为实际名称。安装后重新打开对应的桌面应用，或重启 Web 服务并刷新页面，然后在 **设置 → 注解** 中确认插件可用。构建方法和实际验证结果见[开发说明](docs/development.md)及[兼容性说明](docs/compatibility.md)。
+宿主必须满足 `>=0.2.3-alpha.2`，最后一条命令应解析到 `dsh-annotation@1.3.4`。使用自定义 profile 时，将两处 `web` 改为实际名称。在运行中通过应用内市场升级后，可直接在 **设置 → 注解** 中确认插件可用。构建方法和实际验证结果见[开发说明](docs/development.md)及[兼容性说明](docs/compatibility.md)。
 
 启用 [Codex UI](https://github.com/MichengAI/dsh-codex-ui) 时，注解插件会自动开启兼容模式，避免已附加的注解遮挡输入文字。无需手动设置；停用 Codex UI 后恢复标准布局。详见 [Codex UI 兼容说明](docs/compatibility.md#codex-ui)。
 
@@ -64,14 +64,14 @@ dsh plugin --profile web why dsh-annotation
 将下面的提示词交给能够操作本机终端的助手：
 
 ```text
-请为我的 DeepSeek Harness 安装 dsh-annotation 1.3.1。桌面版通过应用内插件市场安装。Web 版先运行 dsh --version，确认宿主满足 >=0.2.2-rc.4，再运行 dsh plugin --profile <配置名> add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.1/dsh-annotation-1.3.1.tgz。用 dsh plugin --profile <配置名> why dsh-annotation 核对版本。保留现有会话、设置和浏览器数据，告知实际安装结果和生效方式。
+请为我的 DeepSeek Harness 安装 dsh-annotation 1.3.4。桌面版通过应用内插件市场安装。Web 版先运行 dsh --version，确认宿主满足 >=0.2.3-alpha.2，再运行 dsh plugin --profile <配置名> add https://github.com/ruisenbai/dsh-annotation/releases/download/v1.3.4/dsh-annotation-1.3.4.tgz。用 dsh plugin --profile <配置名> why dsh-annotation 核对版本。保留现有会话、设置和浏览器数据，告知实际安装结果和生效方式。
 ```
 
 <a id="upgrading"></a>
 
 ### 从旧宿主升级
 
-使用原版 DSH `0.2.3-alpha.2` 和 Node.js `^24.22.3 || >=26.13.1`，可安装从源码构建的 1.3.3。使用 `0.2.2-rc.4` 时可继续使用 [1.3.1](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.3.1)。[升级指南](docs/upgrade-guide/v1.3.3/host-baseline/guide.zh.md)列出了检查步骤，[兼容性说明](docs/compatibility.md#host-requirement)列出了更早的宿主对应的插件版本。旧注解仍可读取，较早版本的侧栏注解可参照[迁移指南](docs/upgrade-guide/v1.1.8/side-annotations/guide.zh.md)。
+使用原版 DSH `0.2.3-alpha.2` 和 Node.js `^24.22.3 || >=26.13.1`，可安装 1.3.4。使用 `0.2.2-rc.4` 时可继续使用 [1.3.1](https://github.com/ruisenbai/dsh-annotation/releases/tag/v1.3.1)。[升级指南](docs/upgrade-guide/v1.3.3/host-baseline/guide.zh.md)列出了检查步骤，[兼容性说明](docs/compatibility.md#host-requirement)列出了更早的宿主对应的插件版本。旧注解仍可读取，较早版本的侧栏注解可参照[迁移指南](docs/upgrade-guide/v1.1.8/side-annotations/guide.zh.md)。
 
 <a id="sources"></a>
 
@@ -128,7 +128,7 @@ dsh plugin --profile web why dsh-annotation
 
 主对话和侧边聊天共用注解记录、附加、定位原文、再次发送和回收站功能。每个侧边聊天独立保存注解和未完成的编辑；切换标签会隐藏编辑器并保留该聊天的未完成内容，主对话的草稿和附件也会保留。点击原文气泡会打开接收聊天中的对应注解，并在卡片可见时保持激活；再次点击已发送注解的气泡可收起卡片。点击 **定位原文** 可返回原来的文字。在侧边回复中选中文字，使用 **添加注解** 即可继续在该聊天中注解。首次添加和再次点击来源气泡时，编辑器都在原文旁浮动显示，包括另一可见会话中的原文。只有原文不可见或未加载时，才显示在接收聊天的输入框上方。侧边聊天单独打开为完整页面时也使用相同定位规则。在这个主页面中，选中文字也可使用 **在侧边添加注解**，保存到该页面自己的接收聊天，原有关联保持不变。
 
-侧聊和「开始」、文件预览共用所属主会话右侧栏顶部的标签栏。右键点击侧聊标签可选择 **新建侧边聊天**。鼠标悬停或键盘聚焦标签时可点击 **归档对话** 或 **独立打开会话**，触屏直接显示两个按钮，标签过多时可在标签栏横向滑动。独立打开会在主界面显示同一个侧聊，工作区会话列表和搜索会隐藏侧聊。归档会隐藏该侧聊的标签和主会话里的注解气泡。在 **开始 → 侧边聊天** 的下拉菜单中可恢复已归档聊天，标签和气泡会重新显示。插件 1.3.3 在原版 DSH `0.2.3-alpha.2` 上即可使用上述功能。主会话发送期间遇到重连时，已接收的消息会持续显示，直到同一条正式消息出现在正文中。
+侧聊和「开始」、文件预览共用所属主会话右侧栏顶部的标签栏。右键点击侧聊标签可选择 **新建侧边聊天**。鼠标悬停或键盘聚焦标签时可点击 **归档对话** 或 **独立打开会话**，触屏直接显示两个按钮，标签过多时可在标签栏横向滑动。独立打开会把这条侧聊转为所属工作区的主对话，保留原聊天记录和上下文，并移除原主对话中的对应标签。其他侧聊仍只显示在原侧栏。归档会隐藏该侧聊的标签和主会话里的注解气泡。在 **开始 → 侧边聊天** 的下拉菜单中可恢复已归档聊天，标签和气泡会重新显示。插件 1.3.4 在原版 DSH `0.2.3-alpha.2` 上即可使用上述功能。主会话发送期间遇到重连时，已接收的消息会持续显示，直到同一条正式消息出现在正文中。
 
 升级后，尚未发送的侧边引用会转为只含原文、尚未填写意见的注解。转换先保存注解，再移除旧引用；中断后可重试，不会重复生成。已冻结的重试请求和发送结果未知的请求保留原始内容，已发送的历史仍可查看。宿主和客户端插件应使用匹配构建，具体步骤见[升级指南](docs/upgrade-guide/v1.1.8/side-annotations/guide.zh.md)。
 

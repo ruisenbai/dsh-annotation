@@ -1,6 +1,6 @@
 /** Built-package side-chat acceptance through an isolated official dsh web profile and Loader. */
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -61,6 +61,15 @@ let nextId = 0
 let output = ''
 let forced = false
 const candidateClient = await readFile(join(project, 'lib/client.js'))
+const previousPackage = process.env.DSH_ANNOTATION_UPGRADE_FROM
+const previousArchive = process.env.DSH_ANNOTATION_PREVIOUS_ARCHIVE
+const upgradeArchive = process.env.DSH_ANNOTATION_UPGRADE_ARCHIVE
+assert.equal(Boolean(previousArchive), Boolean(upgradeArchive))
+assert.equal(Boolean(previousPackage), Boolean(upgradeArchive))
+if (upgradeArchive) assert.ok(desktop && process.argv.includes('--drag-only'))
+const previousClient = previousPackage && (await readFile(join(previousPackage, 'lib/client.js')))
+if (previousClient) assert.notDeepEqual(previousClient, candidateClient)
+const previousLoaded = Promise.withResolvers()
 const candidateLoaded = Promise.withResolvers()
 const hostBuild = {
   cliManifest: await realpath(cliManifestPath),
@@ -141,10 +150,15 @@ function observeCandidate(target) {
           if (bytes.indexOf(candidate) >= 0)
             hostBuild.loaded[name] = { path: new URL(response.url()).pathname, sha256: sha256(candidate) }
         }
+        if (previousClient && bytes.includes(previousClient)) {
+          evidence.previousClientSha256 = sha256(previousClient)
+          previousLoaded.resolve()
+        }
         const offset = bytes.indexOf(candidateClient)
         if (offset < 0) return
         evidence.loaded = {
           path: new URL(response.url()).pathname,
+          requestTiming: response.request().timing(),
           responseSha256: sha256(bytes),
           candidateOffset: offset,
           candidateBytes: candidateClient.length,
@@ -238,7 +252,9 @@ async function openListedSession(sessionId) {
   await workspace.waitFor()
   if ((await workspace.getAttribute('aria-expanded')) !== 'true')
     await workspace.getByText('Side-chat smoke', { exact: true }).click()
-  await row.waitFor()
+  const more = page.getByRole('button', { name: /^展开其余 \d+ 个会话$/u })
+  await row.or(more).first().waitFor()
+  while (!(await row.isVisible()) && (await more.isVisible())) await more.click()
   await row.click()
 }
 
@@ -261,6 +277,251 @@ function mainFlow(sessionId, target = page) {
 
 function composer(flow) {
   return flow.locator('[data-composer-card] [contenteditable="true"]').first()
+}
+
+async function exerciseDragSelection() {
+  await page.setViewportSize({ width: 1440, height: 930 })
+  const parent = scenario.otherSessionId
+  await openListedSession(parent)
+  const main = mainFlow(parent)
+  const first = main.locator('p').filter({ hasText: scenario.otherSource }).last()
+  await first.waitFor()
+  async function drag(textNode, exact, label) {
+    await textNode.evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }))
+    await textNode.click({ trial: true })
+    const loc = await textNode.evaluate((el, word) => {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const i = n.data.indexOf(word)
+        if (i < 0) continue
+        const r = document.createRange()
+        r.setStart(n, i)
+        r.setEnd(n, i + word.length)
+        const rect = r.getBoundingClientRect()
+        return {
+          x: rect.left + 0.5,
+          end: rect.right - 0.5,
+          y: rect.top + rect.height / 2,
+          marked: !!n.parentElement.closest('[data-text-interaction-source]'),
+          wrapped: !!n.parentElement.closest('.dia-assistant__body'),
+        }
+      }
+      throw Error(word)
+    }, exact)
+    await page.mouse.move(loc.x, loc.y)
+    await page.mouse.down()
+    await page.mouse.move(loc.end, loc.y, { steps: 12 })
+    await page.mouse.up()
+    assert.equal(await page.evaluate(() => getSelection().toString()), exact, `Native selection ${label}`)
+    const toolbar = page.getByRole('toolbar', { name: '选区操作', exact: true })
+    console.log('DRAG', label, loc)
+    await toolbar.waitFor({ timeout: 3500 })
+    for (const name of ['引用文本', '添加注解'])
+      await toolbar.getByRole('button', { name, exact: true }).click({ trial: true })
+    assert.equal(await toolbar.count(), 1)
+    const box = await toolbar.boundingBox()
+    assert.ok(
+      box &&
+        Math.abs(box.y + box.height / 2 - loc.y) < box.height + 40 &&
+        loc.end >= box.x - 12 &&
+        loc.x <= box.x + box.width + 12,
+      `Toolbar must stay beside ${label}`,
+    )
+    await page.screenshot({ path: join(artifacts, `toolbar-${label}.png`) })
+    return toolbar
+  }
+  if (!upgradeArchive) {
+    await drag(first, 'Alpha', 'main-alone')
+    await page.keyboard.press('Escape')
+  }
+  await openSide(parent, 'create')
+  const chat = await association(parent)
+  const embedded = mainFlow(chat.sideSessionId)
+  await composer(embedded).fill('检查侧聊选区')
+  await composer(embedded).press('Enter')
+  const answer = embedded.locator('p').filter({ hasText: 'This answer stays selectable.' }).last()
+  await answer.waitFor()
+  if (upgradeArchive) {
+    assert.ok(await first.isVisible())
+    assert.ok(await answer.isVisible())
+    const doc = await page.evaluateHandle(() => document)
+    const before = [await first.innerText(), await answer.innerText()]
+    const drafts = ['main draft before upgrade', 'side draft before upgrade']
+    await composer(main).fill(drafts[0])
+    await composer(embedded).fill(drafts[1])
+    assert.deepEqual([await composer(main).innerText(), await composer(embedded).innerText()], drafts)
+    await page.screenshot({ path: join(artifacts, 'before-upgrade.png') })
+    const monitor = await page.evaluateHandle(
+      ({ ids, texts }) => {
+        const result = { timeOrigin: performance.timeOrigin, frames: 0, missing: [], samples: [], gaps: [] }
+        const lastVisible = new Map()
+        const activeGaps = new Map()
+        let frame
+        const sample = () => {
+          result.frames++
+          for (const [i, id] of ids.entries()) {
+            const p = [
+              ...document.querySelectorAll(`[data-conversation-session="${CSS.escape(id)}"] p`),
+            ].find((el) => el.innerText === texts[i] && el.checkVisibility())
+            const time = performance.now()
+            if (p) {
+              const gap = activeGaps.get(id)
+              if (gap) {
+                gap.nextVisible = time
+                activeGaps.delete(id)
+              }
+              lastVisible.set(id, time)
+            } else {
+              let gap = activeGaps.get(id)
+              if (!gap) {
+                gap = { id, previousVisible: lastVisible.get(id), firstMissing: time, onlyPreparation: true }
+                activeGaps.set(id, gap)
+                result.gaps.push(gap)
+              }
+              const preparing = document.querySelector(
+                `[data-dia-side-chat][data-side-session="${CSS.escape(id)}"] [data-dia-side-chat-preparing][role=status]`,
+              )
+              gap.onlyPreparation &&=
+                i === 1 &&
+                preparing?.checkVisibility() === true &&
+                preparing.innerText === '正在准备侧边聊天…'
+              gap.lastMissing = time
+              if (!result.missing.includes(id)) result.missing.push(id)
+              if (result.samples.length < 25)
+                result.samples.push({
+                  frame: result.frames,
+                  time: performance.now(),
+                  id,
+                  panelMounted: !!document.querySelector('[data-dia-side-chat]'),
+                  panelText: document.querySelector('[data-dia-side-chat]')?.innerText.slice(0, 120),
+                  pluginStyled: !!document.querySelector('style[data-dsh-annotation="true"]'),
+                  sideMounted: !!document.querySelector(
+                    `[data-conversation-content][data-conversation-session="${CSS.escape(id)}"]`,
+                  ),
+                  paras: [
+                    ...document.querySelectorAll(
+                      `[data-conversation-content][data-conversation-session="${CSS.escape(id)}"] p`,
+                    ),
+                  ].map((el) => el.innerText.slice(0, 120)),
+                })
+            }
+          }
+          frame = requestAnimationFrame(sample)
+        }
+        sample()
+        return () => {
+          cancelAnimationFrame(frame)
+          return result
+        }
+      },
+      { ids: [parent, chat.sideSessionId], texts: before },
+    )
+    const result = await request('install-upgrade')
+    evidence.upgrade = result
+    console.log('Upgrade outcome:', result.application, result.packageResult?.exitCode)
+    assert.equal(result.application, 'applied', JSON.stringify(result))
+    const bundle = (await request('inspect')).bundles.find((entry) => entry.name === 'dsh-annotation')
+    assert.equal(bundle?.version, JSON.parse(await readFile(join(project, 'package.json'), 'utf8')).version)
+    const visible = { main: await first.isVisible(), side: await answer.isVisible() }
+    evidence.afterInstall = visible
+    await page.screenshot({ path: join(artifacts, 'after-install.png') })
+    assert.deepEqual(visible, { main: true, side: true }, 'Both original transcripts must remain visible')
+    await deadline(candidateLoaded.promise, 'Candidate loaded into the open window', 20000)
+    assert.ok(await doc.evaluate((old) => old === document), 'The original document must survive the update')
+    assert.deepEqual([await first.innerText(), await answer.innerText()], before)
+    assert.deepEqual([await composer(main).innerText(), await composer(embedded).innerText()], drafts)
+    evidence.checks.push({ name: 'Both open composer drafts preserved across upgrade', status: 'passed' })
+    const continuity = await monitor.evaluate((finish) => finish())
+    evidence.continuity = continuity
+    assert.ok(continuity.frames > 1)
+    console.log('Upgrade continuity:', JSON.stringify(continuity))
+    await monitor.dispose()
+    await doc.dispose()
+  }
+  for (const [key, factor] of [
+    [null, 1],
+    ...(desktop
+      ? [
+          ['Control+Shift+Equal', 1.1],
+          ['Control+Minus', 1],
+          ['Control+Minus', 0.9],
+        ]
+      : []),
+  ]) {
+    if (key) {
+      await composer(main).press(key)
+      await page.waitForFunction(
+        (n) => Number(document.documentElement.style.getPropertyValue('--dsh-conversation-zoom')) === n,
+        factor,
+      )
+    }
+    for (const [label, body] of [
+      ['main', first],
+      ['side', answer],
+    ]) {
+      await drag(body, 'Alpha', `${label}-${factor}`)
+      await page.keyboard.press('Escape')
+    }
+  }
+  for (const [body, pane] of [
+    [first, main],
+    [answer, embedded],
+  ]) {
+    const tag = pane === main ? 'main' : 'side'
+    await composer(pane).fill(`draft-${tag}`)
+    await (
+      await drag(body, 'Alpha', `${tag}-quote`)
+    )
+      .getByRole('button', { name: '引用文本', exact: true })
+      .click()
+    const quote = pane.locator('[data-quote-preview][data-removable] [data-quote-preview-text]')
+    await quote.waitFor()
+    assert.equal(await quote.innerText(), 'Alpha')
+    assert.match(await composer(pane).innerText(), new RegExp(`draft-${tag}`))
+    await (
+      await drag(body, 'Alpha', `${tag}-annotate`)
+    )
+      .getByRole('button', { name: '添加注解', exact: true })
+      .click()
+    const editor = page.locator('.dia-record-editor:visible[role=dialog]')
+    await editor.waitFor()
+    assert.equal(
+      await editor.getAttribute('data-dia-annotation-target'),
+      await pane.getAttribute('data-conversation-session'),
+    )
+    await editor.getByRole('textbox', { name: '你的注解', exact: true }).fill(`note-${tag}`)
+    await editor.getByRole('button', { name: '保存', exact: true }).click()
+    await editor.waitFor({ state: 'hidden' })
+    const sessionId = await pane.getAttribute('data-conversation-session')
+    await page.waitForFunction(
+      ({ sessionId, tag }) =>
+        JSON.parse(localStorage.getItem(`dsh-annotation:v1:${sessionId}`))?.annotations.some(
+          (row) => row.quote.exact === 'Alpha' && row.annotation === `note-${tag}`,
+        ),
+      { sessionId, tag },
+    )
+    evidence.checks.push({
+      name: `${tag}: quote in composer and note saved to its own Session`,
+      status: 'passed',
+    })
+  }
+  console.log('PASS real drag, quote and saved local annotation in completed main and embedded replies')
+  if (upgradeArchive) {
+    const { gaps } = evidence.continuity
+    assert.ok(gaps.length <= 1, 'At most one side-chat handoff')
+    for (const gap of gaps) {
+      assert.equal(gap.id, chat.sideSessionId, 'Main transcript must stay visible')
+      assert.equal(
+        gap.onlyPreparation,
+        true,
+        'Only the visible preparation notice may replace the side transcript',
+      )
+      assert.ok(
+        gap.nextVisible - gap.previousVisible <= 1000,
+        'Side transcript must recover automatically within one second in the fixture',
+      )
+    }
+  }
 }
 
 async function selectText(body, exact, target = page) {
@@ -537,6 +798,29 @@ async function swipeSideTabs(sidebar, tab) {
   }
 }
 
+/** Check live conversation font sizes without leaving the rendered conversation. */
+async function withConversationFontSizes(check) {
+  const previous = await page.evaluate(() =>
+    Number.parseFloat(document.body.style.getPropertyValue('--dsh-content-font-size')),
+  )
+  assert.ok(Number.isFinite(previous))
+  async function set(fontSize) {
+    await request('set-text-size', { fontSize })
+    await page.waitForFunction(
+      (size) => document.body.style.getPropertyValue('--dsh-content-font-size') === `${size}px`,
+      fontSize,
+    )
+  }
+  try {
+    for (const size of [22, 12]) {
+      await set(size)
+      await check(`${size}px`, size)
+    }
+  } finally {
+    await set(previous)
+  }
+}
+
 /** Check model input and navigation against the same retained Sessions after reload and restore. */
 async function exerciseOwnedSideChats() {
   const parent = scenario.otherSessionId
@@ -593,13 +877,89 @@ async function exerciseOwnedSideChats() {
   const one = await association(parent)
   await composer(mainFlow(one.sideSessionId)).waitFor()
   await verifyOwnTranscript(one.sideSessionId)
+  const ongoing = (id) => page.locator(`[data-row-key="session:${id}"]`).getByText('进行中', { exact: true })
+  await request('hold-next-model')
   assert.deepEqual(await ask(one.sideSessionId, 'side-only'), expected.firstSideRequest)
+  await request('wait-model')
+  try {
+    await ongoing(parent).waitFor({ state: 'attached', timeout: 6000 })
+    await openMain(scenario.mainSessionId, scenario.source)
+    await ongoing(parent).waitFor({ state: 'attached' })
+    assert.equal(await ongoing(scenario.mainSessionId).count(), 0)
+    await page.screenshot({ path: join(artifacts, 'side-chat-background-running.png') })
+  } finally {
+    await request('release-model')
+  }
+  await ongoing(parent).waitFor({ state: 'detached' })
+  await openMain(parent, scenario.otherSource)
   assert.deepEqual(await ask(parent, 'parent-after'), expected.nextParentRequest)
   // Wait for the committed parent answer before taking the second snapshot.
   await mainFlow(parent)
     .getByText(/Side answer: Alpha/)
     .last()
     .waitFor()
+  const main = mainFlow(parent)
+  const embedded = mainFlow(one.sideSessionId)
+  const text = [
+    main.getByText(/Side answer: Alpha/).last(),
+    embedded.getByText(/Side answer: Alpha/).last(),
+    main.getByText(tokens[2][1], { exact: true }),
+    embedded.getByText(tokens[1][1], { exact: true }),
+    composer(main),
+    composer(embedded),
+  ]
+  await withConversationFontSizes(async (expected, size) => {
+    for (const element of text) {
+      await element.waitFor({ state: 'visible' })
+      assert.equal(await element.evaluate((node) => getComputedStyle(node).fontSize), expected)
+    }
+    await page.screenshot({ path: join(artifacts, `side-chat-font-${size}.png`) })
+  })
+  console.log('PASS open main and embedded messages and composers track the Host conversation font size')
+  if (
+    desktop &&
+    (await page.evaluate(
+      () => document.documentElement.style.getPropertyValue('--dsh-conversation-zoom') !== '',
+    ))
+  ) {
+    const draft = '未发送的缩放检查'
+    await composer(embedded).fill(draft)
+    const measure = (el) => ({
+      zoom: el.currentCSSZoom,
+      size: parseFloat(getComputedStyle(el).fontSize) * el.currentCSSZoom,
+    })
+    const button = embedded.locator('[data-composer-card] button:visible:has(svg)').last()
+    const before = await addControlSize(button)
+    for (const [target, key, factor] of [
+      [main, 'Control+Shift+Equal', 1.1],
+      [embedded, 'Control+Minus', 1],
+      [embedded, 'Control+Minus', 0.9],
+      [main, 'Control+Equal', 1],
+    ]) {
+      await composer(target).press(key)
+      await page.waitForFunction(
+        (n) => Number(document.documentElement.style.getPropertyValue('--dsh-conversation-zoom')) === n,
+        factor,
+      )
+      const sizes = await Promise.all(text.map((item) => item.evaluate(measure)))
+      for (const item of sizes)
+        assert.ok(Math.abs(item.zoom - factor) < 0.001, `Effective zoom ${item.zoom} must match ${factor}`)
+      for (const i of [0, 2, 4]) assert.equal(sizes[i].size, sizes[i + 1].size)
+      const box = await addControlSize(button)
+      for (const [i, v] of box.entries()) assert.ok(Math.abs(v - before[i] * factor) <= 1)
+      const gap = await embedded.evaluate(
+        (el) =>
+          el.getBoundingClientRect().top - el.closest('[data-dia-side-chat]').getBoundingClientRect().top,
+      )
+      assert.ok(Math.abs(gap - 8 * factor) < 1, `Expected scaled top inset; got ${gap}`)
+      assert.equal(await composer(embedded).innerText(), draft)
+      if (factor === 1.1) await page.screenshot({ path: join(artifacts, 'side-chat-shortcut-110.png') })
+    }
+    await composer(embedded).fill('')
+    console.log(
+      'PASS desktop keyboard zoom at 90%, 100% and 110%: messages, composer controls, space and draft',
+    )
+  }
   const two = await newTab()
   await verifyOwnTranscript(two.sideSessionId)
   assert.deepEqual(await ask(two.sideSessionId, 'second-side'), expected.secondSideRequest)
@@ -619,26 +979,55 @@ async function exerciseOwnedSideChats() {
   assert.equal(await firstTab.getAttribute('aria-selected'), 'false')
   await verifyNativeTab(firstTab, side)
   await page.screenshot({ path: join(artifacts, 'owned-tab-actions.png'), animations: 'disabled' })
-  await sidebar.locator(`[data-dia-side-chat-open-alone="${one.sideChatId}"]`).click()
+  const promote = sidebar.locator(`[data-dia-side-chat-open-alone="${one.sideChatId}"]`)
+  await request('fail-next-lifecycle', { kind: 'promotion' })
+  await promote.click()
+  await page.getByText('无法完成会话操作，数据已保留，请重试', { exact: true }).first().waitFor()
+  assert.equal(await row(one.sideSessionId).count(), 0)
+  assert.equal(await firstTab.count(), 1)
+  await sidebar.locator(`[data-dia-side-chat-select="${one.sideChatId}"]`).click()
+  await request('hold-next-model')
+  const activeComposer = composer(mainFlow(one.sideSessionId).filter({ visible: true }).first())
+  await activeComposer.fill('回复过程中独立打开')
+  await activeComposer.press('Enter')
+  await request('wait-model')
+  try {
+    await ongoing(parent).waitFor({ state: 'attached' })
+    await firstTab.hover()
+    await promote.click()
+    await ongoing(one.sideSessionId).waitFor({ state: 'attached' })
+    await ongoing(parent).waitFor({ state: 'detached' })
+  } finally {
+    await request('release-model')
+  }
+  await ongoing(one.sideSessionId).waitFor({ state: 'detached' })
+  console.log('PASS busy row follows side chat through background navigation and live promotion')
   await page.waitForFunction(
     (id) => JSON.parse(localStorage.getItem('dsh.sessions.current'))?.sessionId === id,
     one.sideSessionId,
   )
-  assert.equal(await row(one.sideSessionId).count(), 0)
+  await row(one.sideSessionId).waitFor({ state: 'visible' })
   await verifyOwnTranscript(one.sideSessionId, tokens[1][1])
   await page.reload()
   await composer(mainFlow(one.sideSessionId)).waitFor()
   await verifyOwnTranscript(one.sideSessionId, tokens[1][1])
-  assert.equal(await row(one.sideSessionId).count(), 0)
+  await row(one.sideSessionId).waitFor({ state: 'visible' })
+  const { workspaceSessionIds } = await request('inspect')
+  assert.ok(workspaceSessionIds.includes(parent) && workspaceSessionIds.includes(one.sideSessionId))
+  await openMain(parent, scenario.otherSource)
+  await row(one.sideSessionId).click()
   assert.deepEqual(await ask(one.sideSessionId, 'side-after-reopen'), expected.reopenedSideRequest)
   await openMain(parent, scenario.otherSource)
   await openSide(parent)
+  assert.equal(await firstTab.count(), 0)
+  await page.screenshot({ path: join(artifacts, 'promoted-chat-workspace.png'), animations: 'disabled' })
   await sidebar.locator(`[data-dia-side-chat-select="${two.sideChatId}"]`).hover()
   await sidebar.locator(`[data-dia-side-chat-archive="${two.sideChatId}"]`).click()
   await sidebar.locator(`[data-dia-side-chat-select="${two.sideChatId}"]`).waitFor({ state: 'detached' })
   await restoreFromGuide(parent)
   await composer(mainFlow(two.sideSessionId)).waitFor()
   assert.equal(await row(two.sideSessionId).count(), 0)
+  const three = await newTab()
   const originalPage = page
   const clean = await browser.newContext({
     locale: 'zh-CN',
@@ -657,17 +1046,25 @@ async function exerciseOwnedSideChats() {
     await mainBody(parent).waitFor()
     const recovered = await openSide(parent, 'switch')
     const recoveredSidebar = sidebarFor(parent)
-    for (const chat of [one, two])
+    assert.equal(await recoveredSidebar.locator(`[data-dia-side-chat-select="${one.sideChatId}"]`).count(), 0)
+    for (const chat of [two, three])
       await recoveredSidebar.locator(`[data-dia-side-chat-select="${chat.sideChatId}"]`).waitFor()
     assert.equal(await recoveredSidebar.locator('[data-dia-side-chat-select]').count(), 2)
-    const touchTab = recoveredSidebar.locator(
-      `[role="tab"]:has([data-dia-side-chat-select="${one.sideChatId}"])`,
-    )
+    const orderedTabs = recoveredSidebar.locator('[role="tab"]:has([data-dia-side-chat-select])')
+    const touchTab = orderedTabs.first()
+    const nextId = await orderedTabs
+      .nth(1)
+      .locator('[data-dia-side-chat-select]')
+      .getAttribute('data-dia-side-chat-select')
+    const nextChat = [two, three].find((chat) => chat.sideChatId === nextId)
+    assert.ok(nextChat)
+    await touchTab.locator('[data-dia-side-chat-select]').tap()
+    await touchTab.evaluate((el) => el.scrollIntoView({ inline: 'center', behavior: 'instant' }))
     await verifyNativeTab(touchTab, recovered)
     await page.screenshot({ path: join(artifacts, 'owned-tab-actions-touch.png'), animations: 'disabled' })
     await swipeSideTabs(recoveredSidebar, touchTab)
     assert.equal(await touchTab.getAttribute('aria-selected'), 'true')
-    const other = recoveredSidebar.locator('[data-dia-side-chat-select="' + two.sideChatId + '"]')
+    const other = recoveredSidebar.locator('[data-dia-side-chat-select="' + nextChat.sideChatId + '"]')
     const position = await other.evaluate((element) => {
       const rect = element.getBoundingClientRect()
       const x = Math.round(rect.x + rect.width / 2)
@@ -676,15 +1073,17 @@ async function exerciseOwnedSideChats() {
     })
     assert.ok(position.hit, 'A swipe must expose the next tab in the Host strip')
     await page.touchscreen.tap(position.x, position.y)
-    await composer(mainFlow(two.sideSessionId)).waitFor()
-    const touchButton = recoveredSidebar.locator('[data-dia-side-chat-open-alone="' + two.sideChatId + '"]')
+    await composer(mainFlow(nextChat.sideSessionId)).waitFor()
+    const touchButton = recoveredSidebar.locator(
+      '[data-dia-side-chat-open-alone="' + nextChat.sideChatId + '"]',
+    )
     await touchButton.tap()
     await page
       .locator(
-        `[data-conversation-content][data-conversation-session="${two.sideSessionId}"]:not([data-dia-side-chat] *)`,
+        `[data-conversation-content][data-conversation-session="${nextChat.sideSessionId}"]:not([data-dia-side-chat] *)`,
       )
       .waitFor()
-    assert.equal(await page.locator(`[data-row-key="session:${one.sideSessionId}"]`).count(), 0)
+    await row(one.sideSessionId).waitFor({ state: 'attached' })
     console.log('PASS swipe the Host strip, select the next side chat, and open it independently at 390px')
   } finally {
     page = originalPage
@@ -1145,10 +1544,28 @@ async function runRecordedSideChatSnapshot(workspace, annotations = false) {
     await openListedSession(sessionId)
   } else {
     await flow.locator('[data-dia-side-chat-history-toggle]').click()
-    assert.deepEqual(
-      await flow.locator('[data-dia-side-chat-history] .dia-timeline-item q').allTextContents(),
-      scenario.references,
-    )
+    const quotes = flow.locator('[data-dia-side-chat-history] .dia-timeline-item q')
+    assert.deepEqual(await quotes.allTextContents(), scenario.references)
+    const viewport =
+      page.viewportSize() ?? (await page.evaluate(() => ({ width: innerWidth, height: innerHeight })))
+    try {
+      await page.setViewportSize({ width: 720, height: 840 })
+      await withConversationFontSizes(async (expected, size) => {
+        for (const quote of await quotes.all()) {
+          assert.equal(
+            await quote.evaluate((node) => getComputedStyle(node).fontSize),
+            expected,
+            'Side-chat reference text must follow the conversation font size',
+          )
+        }
+        await flow.locator('[data-dia-side-chat-history]').screenshot({
+          path: join(artifacts, `side-chat-reference-font-${size}.png`),
+        })
+      })
+    } finally {
+      await page.setViewportSize(viewport)
+    }
+    console.log('PASS sent side-chat references track the Host conversation font size')
   }
   const replayed = await request('read-session', { sessionId })
   assert.deepEqual(replayed.header, header)
@@ -1170,14 +1587,33 @@ try {
   const workspace = join(root, 'Side-chat smoke')
   await mkdir(join(profile, 'node_modules'), { recursive: true })
   await mkdir(workspace)
-  await symlink(mountedPackage, join(profile, 'node_modules/dsh-annotation'), 'junction')
+  const renderer = process.env.DSH_ANNOTATION_SMOOTH_STREAM_DIR
+  if (renderer) {
+    assert.equal(JSON.parse(await readFile(join(renderer, 'package.json'), 'utf8')).name, 'dsh-smooth-stream')
+    await symlink(await realpath(renderer), join(profile, 'node_modules/dsh-smooth-stream'), 'junction')
+  }
+  const initialPackage = previousPackage ?? mountedPackage
+  if (!previousArchive)
+    await symlink(initialPackage, join(profile, 'node_modules/dsh-annotation'), 'junction')
   await writeFile(
     join(profile, 'package.json'),
     JSON.stringify({
       name: 'dsh-profile-web',
       private: true,
-      dependencies: { 'dsh-annotation': `link:${mountedPackage}` },
-      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-annotation'] } },
+      dependencies: {
+        ...(renderer ? { 'dsh-smooth-stream': `link:${renderer}` } : {}),
+        'dsh-annotation': previousArchive ? `file:${previousArchive}` : `link:${initialPackage}`,
+      },
+      dsh: {
+        profile: {
+          bundles: [
+            '@deepseek-ai/dsh-base',
+            '@deepseek-ai/dsh-web-app',
+            ...(renderer ? ['dsh-smooth-stream'] : []),
+            'dsh-annotation',
+          ],
+        },
+      },
     }),
   )
   const patch = join(root, 'side-chat-observer.patch.yml')
@@ -1209,6 +1645,27 @@ try {
       delete env[key]
   }
   Object.assign(env, { DSH_HOME: home, DSH_AGENTS_HOME: join(root, 'agents'), DSH_TELEMETRY_DISABLED: '1' })
+  if (upgradeArchive) {
+    env.DSH_ANNOTATION_UPGRADE_ARCHIVE = await realpath(upgradeArchive)
+    await writeFile(join(profile, 'pnpm-workspace.yaml'), 'nodeLinker: hoisted\nautoInstallPeers: false\n')
+    execFileSync(
+      'pnpm',
+      ['install', '--prod', '--ignore-scripts', '--store-dir', join(root, 'data/pnpm/store')],
+      {
+        cwd: profile,
+        env: { ...env, XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache') },
+        stdio: 'pipe',
+      },
+    )
+    assert.equal(
+      await realpath(join(profile, 'node_modules/dsh-annotation')),
+      join(profile, 'node_modules/dsh-annotation'),
+    )
+    assert.deepEqual(
+      await readFile(join(profile, 'node_modules/dsh-annotation/lib/client.js')),
+      previousClient,
+    )
+  }
   if (desktop) {
     gui = await launchFixtureDesktop({
       directory: packagedDir,
@@ -1294,7 +1751,15 @@ try {
     }))
   page.setDefaultTimeout(30_000)
   const pageErrors = []
-  page.on('pageerror', (error) => pageErrors.push(error.message))
+  page.on('pageerror', (error) => {
+    pageErrors.push(error.message)
+    console.error('Renderer error:', redact(error.stack ?? error.message))
+  })
+  page.on('console', (message) => {
+    if (message.type() !== 'error') return
+    console.error('Renderer console:', redact(message.text()))
+    if (/slot entry crashed|factory crashed/i.test(message.text())) pageErrors.push(message.text())
+  })
   observeCandidate(page)
   await page.addInitScript((sessionId) => {
     if (localStorage.getItem('dsh.sessions.current') === null)
@@ -1303,13 +1768,14 @@ try {
   if (gui) await page.reload({ waitUntil: 'domcontentloaded' })
   else await page.goto(initial.url, { waitUntil: 'domcontentloaded' })
   await page.locator('style[data-dsh-annotation="true"]').waitFor({ state: 'attached' })
-  await deadline(candidateLoaded.promise, 'Candidate client artifact bytes')
+  await deadline((previousClient ? previousLoaded : candidateLoaded).promise, 'Initial client artifact bytes')
   const continueButton = page.getByRole('button', { name: '继续', exact: true })
   if (await continueButton.isVisible()) await continueButton.click()
   console.log(`PASS built plugin activates in the isolated ${desktop ? 'desktop' : 'Web'} profile`)
   if (gui) await openListedSession(scenario.mainSessionId)
-  await mainBody(scenario.mainSessionId).waitFor({ state: 'visible' })
-  if (process.argv.includes('--launch-only')) {
+  if (process.argv.includes('--drag-only')) {
+    await exerciseDragSelection()
+  } else if (process.argv.includes('--launch-only')) {
     await openMain(scenario.mainSessionId, scenario.source)
     assert.equal(await mainFlow(scenario.mainSessionId).count(), 1)
     assert.equal(await composer(mainFlow(scenario.mainSessionId)).count(), 1)

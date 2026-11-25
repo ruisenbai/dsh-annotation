@@ -118,6 +118,7 @@ describe('configuration', () => {
       'annotation_submit',
       'inline_comments_submit',
       'inline_annotations_submit',
+      'annotation_side_chat_promote',
       'annotation_side_chat_submit',
     ])
     for (const dispose of effects.reverse()) dispose()
@@ -137,6 +138,6 @@ describe('configuration', () => {
       inject: vi.fn(),
     } as unknown as Context
     await apply(ctx, Config({}))
-    expect(register).toHaveBeenCalledTimes(4)
+    expect(register).toHaveBeenCalledTimes(5)
   })
 })

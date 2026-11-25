@@ -2,6 +2,9 @@
 export const styles: string = `
 
 .dia-side-chat-root {
+  box-sizing: border-box;
+  padding-block-start: 8px;
+  zoom: var(--dsh-conversation-zoom, 1);
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -2386,6 +2389,11 @@ button.dia-group__heading:focus-visible {
   font-size: 12px;
   line-height: 18px;
   white-space: pre-wrap;
+}
+
+[data-dia-side-chat-history] .dia-timeline-item__content q {
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: 1.5;
 }
 
 .dia-timeline-item__content p {

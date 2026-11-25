@@ -102,7 +102,7 @@ The record count reads the collection length; source filters traverse annotation
 After [Packaging](#packaging), install the local tarball into a disposable Web profile on the declared DSH release:
 
 ```bash
-dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.3.3.tgz
+dsh plugin --profile annotation-dev add ./artifacts/dsh-annotation-1.3.4.tgz
 dsh --profile annotation-dev
 ```
 
@@ -122,8 +122,8 @@ pnpm --config.ignoreScripts=true pack --pack-destination artifacts
 Inspect the resulting tarball rather than invoking pack again:
 
 ```bash
-tar -tzf artifacts/dsh-annotation-1.3.3.tgz
-tar -xOf artifacts/dsh-annotation-1.3.3.tgz package/package.json
+tar -tzf artifacts/dsh-annotation-1.3.4.tgz
+tar -xOf artifacts/dsh-annotation-1.3.4.tgz package/package.json
 ```
 
 The package must contain `lib/index.js`, `lib/invariant.js`, `lib/client.js`, declarations under `lib/types`, `cordis.patch.yml`, `source-baseline.json`, README files and images under `docs/assets`, the changelog, and the license. Compare its version, Host requirement, dependency declarations and exports with the source manifest; pnpm removes package-manager metadata and development lifecycle hooks when packing.

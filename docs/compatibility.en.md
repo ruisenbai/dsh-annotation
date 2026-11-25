@@ -4,7 +4,7 @@
 
 ## Host requirement
 
-The 1.3.3 source build requires DSH `>=0.2.3-alpha.2` and Node.js `^24.22.3 || >=26.13.1`. See the [Host upgrade guide](upgrade-guide/v1.3.3/host-baseline/guide.md). Keep build 1.3.2 on `0.2.2-rc.5` and 1.3.1 on `0.2.2-rc.4`. Existing annotation history and browser data need no migration.
+Version 1.3.4 requires DSH `>=0.2.3-alpha.2` and Node.js `^24.22.3 || >=26.13.1`. See the [Host upgrade guide](upgrade-guide/v1.3.3/host-baseline/guide.md). Keep build 1.3.2 on `0.2.2-rc.5` and 1.3.1 on `0.2.2-rc.4`. Existing annotation history and browser data need no migration.
 
 The `0.2.2-rc.5` Host family includes the text-interaction API. On the supported Host, selecting completed reply text opens one toolbar with **Quote text** and **Add annotation**; main-page replies also offer **Annotate in sidebar**, including Conversations originally created as side chats. The Host main-view reference count distinguishes their full page from the embedded occurrence. Quote text uses the Host's `inputActions.insertQuote`; annotation opens the existing editor with the selected source identity; the sidebar action opens the receiving chat’s annotation editor without invoking the model. Text outside an annotatable reply keeps Quote text alone. The Host owns placement, scrolling, Escape, outside-click dismissal, and source invalidation. Disabling annotations restores the Host's Quote renderer. Hosts without `uiConversation.interactions` retain the plugin's standalone annotation toolbar.
 

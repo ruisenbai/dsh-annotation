@@ -285,6 +285,32 @@ describe('decorated assistant protocol presentation', () => {
     expect(received.mock.lastCall?.[0].t('example')).toBe('host:example')
   })
 
+  it('leaves already-bound flow Sessions intact while adding and removing reply annotations', () => {
+    const { ctx, unmount } = mount('Existing answer')
+    unmount()
+    decorators.pop()!()
+    const bindHost = vi.fn((sessionId: string) => ({ sessionId }))
+    const HostFlow = () => null
+    const flow = { options: {}, component: HostFlow, inject: bindHost }
+    const active = ['main', 'side'].map((id) => flow.inject(id))
+    const removeFactory = vi.fn()
+    const registerFactory = vi.fn(() => removeFactory)
+    Object.assign(ctx.slots, { entries: () => [flow], registerFactory })
+    const faceFor = vi.fn(() => ({}) as AnnotationInjected)
+    const dispose = decorateAssistantRenderers(ctx, faceFor, true)
+    expect(flow.component).not.toBe(HostFlow)
+    expect(flow.inject).toBe(bindHost)
+    expect(active).toEqual([{ sessionId: 'main' }, { sessionId: 'side' }])
+    expect(registerFactory).toHaveBeenCalledWith(
+      { name: 'dsh-annotation.reply', scope: 'session', inject: faceFor },
+      expect.any(Function),
+    )
+    dispose()
+    expect(flow.component).toBe(HostFlow)
+    expect(flow.inject).toBe(bindHost)
+    expect(removeFactory).toHaveBeenCalledOnce()
+  })
+
   it('restores a coexisting renderer and decorates a later slot replacement', () => {
     const { entry, ctx, Inner, props, notifySlotsChanged } = mount('Initial Host output')
     const firstDispose = decorators.pop()!

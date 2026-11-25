@@ -7,7 +7,7 @@
 
 ## 支持的宿主
 
-源码版 1.3.3 要求原版 DeepSeek Harness `0.2.3-alpha.2` 和 Node.js `^24.22.3 || >=26.13.1`。开发依赖由 `pnpm-lock.yaml` 锁定。[源码基线](../source-baseline.json)指向官方主线；从旧宿主升级请查阅[升级指南](upgrade-guide/v1.3.3/host-baseline/guide.zh.md)。
+1.3.4 要求原版 DeepSeek Harness `0.2.3-alpha.2` 和 Node.js `^24.22.3 || >=26.13.1`。开发依赖由 `pnpm-lock.yaml` 锁定。[源码基线](../source-baseline.json)指向官方主线；从旧宿主升级请查阅[升级指南](upgrade-guide/v1.3.3/host-baseline/guide.zh.md)。
 
 宿主和浏览器同步提交命令名、载荷与数量上限、长选区阈值和历史定位页数。嵌入式侧聊沿用所属主会话的工作区。
 
