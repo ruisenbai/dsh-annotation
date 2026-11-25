@@ -1,8 +1,14 @@
 /** Protect empty owned side chats when stock Workspace chooses a blank for New Session. */
-import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ISessions, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { UiWorkspace } from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { isSideSessionId } from '../shared/side-session-id.ts'
+
+/** The identity records origin; the Host catalog records the current navigation role. */
+export function sideOnly(list: SessionListState, id: SessionId): boolean {
+  return isSideSessionId(id) && list.byId[id]?.projectionValues?.annotationSideChatPromoted !== true
+}
 
 /** Restore the exact original property, including prototype inheritance, on plugin unload. */
 function adaptMethod<T extends object, K extends keyof T>(owner: T, key: K, replacement: T[K]) {
@@ -35,7 +41,12 @@ export function preserveSideChatBlanks(
   }
   const create = sessions.create
   const restoreCreate = adaptMethod(sessions, 'create', function (this: typeof sessions, request) {
-    if (!choosing || !request?.workspaceId || !request.sessionId || !isSideSessionId(request.sessionId))
+    if (
+      !choosing ||
+      !request?.workspaceId ||
+      !request.sessionId ||
+      !sideOnly(sessions.list.getSnapshot(), request.sessionId)
+    )
       return create.call(this, request)
     const catalog = sessions.list.getSnapshot()
     const { items, archivedSessionIds } = workspaces.list.getSnapshot()
@@ -44,7 +55,7 @@ export function preserveSideChatBlanks(
       const row = catalog.byId[id]
       const preset = row?.projectionValues?.agentPreset
       return (
-        !isSideSessionId(id) &&
+        !sideOnly(catalog, id) &&
         row?.blank &&
         target &&
         row.cwd === target.path &&

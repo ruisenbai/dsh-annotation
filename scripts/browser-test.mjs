@@ -69,13 +69,6 @@ const server = await createServer({
   logLevel: 'error',
   appType: 'custom',
   optimizeDeps: { entries: ['tests/browser/fixture.tsx'] },
-  resolve: {
-    alias: {
-      '@deepseek-ai/dsh-client-ui-primitives': fileURLToPath(
-        import.meta.resolve('@deepseek-ai/dsh-client-ui-primitives/src/index.ts'),
-      ),
-    },
-  },
   server: { host: '127.0.0.1', port: 0, strictPort: false },
   plugins: [
     {
@@ -190,7 +183,7 @@ async function inspectVariant(browser, base, variant) {
     })
     assert(
       quickShape.width <= 392 &&
-        quickShape.radius === '999px' &&
+        ['999px', '50%'].includes(quickShape.radius) &&
         (quickShape.checkRadius === '50%' ||
           (quickShape.checkRadius.endsWith('px') &&
             Number.parseFloat(quickShape.checkRadius) >= quickShape.checkWidth / 2)) &&

@@ -17,8 +17,9 @@ import { DEFAULT_CONFIG } from '../src/shared/config.ts'
 import { fixturePayload } from './fixtures.ts'
 import { parseAttachmentIdentities } from '../src/shared/protocol.ts'
 import { ATTACHMENT_PREPARE_INPUT, ATTACHMENT_IDENTITY_MISMATCH } from '../src/shared/types.ts'
-import { apply, inject } from '../src/index.ts'
-import { ownedSideSessionId } from '../src/shared/side-session-id.ts'
+import { apply, inject, Config } from '../src/index.ts'
+import { installSideChatPromotion } from '../src/host/side-chat-promotion.ts'
+import { PROMOTE_SIDE_CHAT_COMMAND, ownedSideSessionId } from '../src/shared/side-session-id.ts'
 import { sideChatTranscriptStart } from '../src/host/side-chat-fork.ts'
 import { SIDE_CHAT_COMMAND_NAME, SIDE_CHAT_RECEIPTS_PROJECTION } from '../src/shared/side-chat-types.ts'
 
@@ -34,7 +35,7 @@ describe('official Host command attachment admission', () => {
       const plugin = await ctx.plugin({
         name: 'annotation-runtime-test',
         inject,
-        apply: (scope: Context) => apply(scope, DEFAULT_CONFIG),
+        apply: (scope: Context) => apply(scope, Config({})),
       })
       expect(ctx.commands.list(agent).map((command) => command.name)).toEqual(
         expect.arrayContaining([
@@ -55,6 +56,45 @@ describe('official Host command attachment admission', () => {
       expect(ctx.sessionProjections.snapshot(session).values).not.toHaveProperty(
         SIDE_CHAT_RECEIPTS_PROJECTION,
       )
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('persists promotion once, without promoting descendants that inherit the record', async () => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionProjectionRegistry)
+      await ctx.plugin(CommandRuntime)
+      await installSideChatPromotion(ctx)
+      const main = ctx.sessions.create(SessionId('promotion-parent'))
+      const side = ctx.sessions.create(ownedSideSessionId(main.id, 'first'))
+      const promote = (session: typeof main) =>
+        ctx.commands.execute(
+          { id: session.id, session } as Agent,
+          `/${PROMOTE_SIDE_CHAT_COMMAND}`,
+          [],
+          new AbortController().signal,
+        )
+      expect((await promote(main))?.result.kind).toBe('error')
+      const before = ctx.sessionProjections.checkpoint(side)
+      const start = side.snapshotEvents().length
+      expect((await promote(side))?.result.kind).toBe('success')
+      expect((await promote(side))?.result.kind).toBe('success')
+      const events = side.snapshotEvents()
+      expect(events.filter((event) => String(event.type) === 'plugin:dsh-annotation/promoted')).toHaveLength(
+        1,
+      )
+      const registry = ctx.sessionProjections
+      for (const checkpoint of [before, {}]) {
+        expect(
+          registry.restore(checkpoint, events, SessionLogOffset(start), side.header, side.inheritedEventCount)
+            .snapshot.values.annotationSideChatPromoted,
+        ).toBe(true)
+      }
+      const nested = ctx.sessions.fork(side, events.at(-1)!.seq, ownedSideSessionId(side.id, 'nested'))
+      expect(registry.snapshot(nested, registry.summaryKeys()).values.annotationSideChatPromoted).toBe(false)
     } finally {
       await ctx.fiber.dispose()
     }

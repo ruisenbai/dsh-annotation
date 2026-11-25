@@ -4,13 +4,15 @@
 
 ## Host requirement
 
-Version 1.3.1 requires DSH `>=0.2.2-rc.4` and Node.js `>=24.9.0`. Verification targets official master commit `ca33fd6843b205e279c7ccb6cb73a472c78f5760`. Keep plugin 1.2.0 on `0.2.2-rc.1` through `0.2.2-rc.3`, 1.1.7 on `0.2.2-alpha.3`, 1.1.6 on `0.2.2-alpha.2` and 1.1.5 on `0.2.1-rc.2`; the [upgrade guide](upgrade-guide/v1.1.8/host-baseline/guide.md) describes the Host checks. Current annotation writes use protocol v6 and browser storage v7, with older formats retained for reading.
+Version 1.3.4 requires DSH `>=0.2.3-alpha.2` and Node.js `^24.22.3 || >=26.13.1`. See the [Host upgrade guide](upgrade-guide/v1.3.3/host-baseline/guide.md). Keep build 1.3.2 on `0.2.2-rc.5` and 1.3.1 on `0.2.2-rc.4`. Existing annotation history and browser data need no migration.
 
-The `0.2.2-rc.4` Host family includes the text-interaction API. On the supported Host, selecting completed reply text opens one toolbar with **Quote text** and **Add annotation**; main-page replies also offer **Annotate in sidebar**, including Conversations originally created as side chats. The Host main-view reference count distinguishes their full page from the embedded occurrence. Quote text uses the Host's `inputActions.insertQuote`; annotation opens the existing editor with the selected source identity; the sidebar action opens the receiving chat’s annotation editor without invoking the model. Text outside an annotatable reply keeps Quote text alone. The Host owns placement, scrolling, Escape, outside-click dismissal, and source invalidation. Disabling annotations restores the Host's Quote renderer. Hosts without `uiConversation.interactions` retain the plugin's standalone annotation toolbar.
+The `0.2.2-rc.5` Host family includes the text-interaction API. On the supported Host, selecting completed reply text opens one toolbar with **Quote text** and **Add annotation**; main-page replies also offer **Annotate in sidebar**, including Conversations originally created as side chats. The Host main-view reference count distinguishes their full page from the embedded occurrence. Quote text uses the Host's `inputActions.insertQuote`; annotation opens the existing editor with the selected source identity; the sidebar action opens the receiving chat’s annotation editor without invoking the model. Text outside an annotatable reply keeps Quote text alone. The Host owns placement, scrolling, Escape, outside-click dismissal, and source invalidation. Disabling annotations restores the Host's Quote renderer. Hosts without `uiConversation.interactions` retain the plugin's standalone annotation toolbar.
 
 ## Dependency source
 
-[source-baseline.json](../source-baseline.json) pins the official master commit and its `0.2.2-rc.4` package family. Cordis is `4.1.0`, the group plugin is `1.1.0`, and Schemastery is `3.19.0`. The registry lockfile supplies the published package family. Verification also builds the pinned master source independently of the registry distribution. Grouped markers pass the actual button ref through `Menu.anchorRef` and the same button through `returnFocus`. The published Menu uses that focus target for placement; master consumes the external CSS anchor. The plugin does not pass the removed `getAnchorRect` callback.
+[source-baseline.json](../source-baseline.json) pins the official DSH master commit and the `0.2.3-alpha.2` package family. This build uses Cordis `4.2.0-alpha.1`, group `1.2.0-alpha.1` and Schemastery `3.20.0-alpha.1`.
+
+The submission command name, payload and batch limits, long-selection warning and history lookup depth are live on both faces. Embedded side chats retain their owning conversation’s workspace.
 
 The source verification helper requires that commit, clean tracked files, matching DSH tarball versions, and the complete official dependency family. It prepares a disposable plugin directory with tarball overrides and a separate generated lockfile. Include the DSH and vendored Cordis families and the native system entry package. Never commit the temporary overrides or package manifest; [Development](development.md#official-source-verification) owns the procedure.
 
@@ -18,13 +20,13 @@ The source verification helper requires that commit, clean tracked files, matchi
 
 Release verification and CI use the pinned Host source separately from the developer's working tree; the registry family provides an additional compatibility check. Focused component checks cover the shared toolbar, stale selections, source disposal, and old Hosts without text interactions. The installed Web profile checks the toolbar actions, annotation submission, and official file/Diff sources. Exact results are recorded after the corresponding commands complete.
 
-Version 1.3.1 was verified in isolated Linux Desktop and Web profiles using the stock rc.4 session and UI components. The fixture model records the context it receives. Checks cover side-chat creation and retry, archive and restore, workspace search, and bubble visibility during reconnects, cancellations and failed sends. See [Development](development.en.md#side-chat-verification) for the commands.
+Version 1.3.2 was verified in isolated Web profiles on the npm release and pinned master, and in a Linux Desktop development build from that commit. The offline model records the context it receives. The checks cover side-chat creation and retry, archive and restore, workspace search, and bubble visibility during reconnects, cancellations and failed sends. Web checks also cover annotations and source navigation in the official file and Diff previews. [Verification commands](development.en.md#side-chat-verification)
 
 Separate pages on the same browser origin merge compatible side-chat edits and retain conflicting edits for recovery. The runner closes its browser and Host process and removes its temporary profile.
 
 ## Side-chat Host build
 
-Plugin 1.3.1 supports owned side chats on stock DSH `0.2.2-rc.4`. New side chats inherit the parent history at creation and open with an empty transcript. The workspace browser and its search omit side chats. Open, archive and restore them from the owning conversation. During a main-chat reconnect the plugin uses the submission ID to keep an accepted message visible until its durable row appears. Plugin 1.3.0 still requires its companion Host patch for owned side chats.
+Plugin 1.3.2 supports owned side chats on stock DSH `0.2.2-rc.5`. New side chats inherit the parent history at creation and open with an empty transcript. The workspace browser and its search omit side chats. Open, archive and restore them from the owning conversation. During a main-chat reconnect the plugin uses the submission ID to keep an accepted message visible until its durable row appears. Plugin 1.3.0 still requires its companion Host patch for owned side chats.
 
 README screenshots use the Host's dark theme. The selection image shows the combined toolbar. Deterministic profile scenarios exercise the installed UI; they do not measure live-provider response quality.
 
@@ -131,7 +133,7 @@ The optional [Codex UI](https://github.com/MichengAI/dsh-codex-ui) plugin is det
 
 The combined profile scenario is verified with Codex UI `1.1.43` on DSH `0.2.1-rc.2`, using the actual installed package and a deterministic model adapter. It checks source selection, automatic compatibility, attachment, preview, editor, settings, and record geometry at 1440px and 390px in both themes, draft recovery after reload, and submission through the official composer with matching Session log and model input. Run it after building with `node scripts/profile-smoke.mjs --codex-ui /absolute/path/to/node_modules/@michengai/dsh-codex-ui`. The package is linked only into a temporary profile; the installed package and user profile are not modified.
 
-Verification on this Host uses the official UI. The combined Codex UI scenario requires a release whose `engines.dsh` admits `0.2.2-rc.4`; it must be verified separately from the official UI.
+Verification on this Host uses the official UI. The combined Codex UI scenario requires a release whose `engines.dsh` admits `0.2.2-rc.5`; it must be verified separately from the official UI.
 
 ### Storage and source markers
 

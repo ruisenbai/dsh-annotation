@@ -8,7 +8,8 @@ import { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ISessions, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import { describe, expect, it, vi } from 'vitest'
 import { preserveSideChatBlanks } from '../src/client/side-chat-blank-reuse.ts'
-import { ownedSideSessionId } from '../src/shared/side-session-id.ts'
+import { workspaceActivity } from '../src/client/side-chat-presentation.tsx'
+import { sideParentKey, ownedSideSessionId } from '../src/shared/side-session-id.ts'
 import { resolveSideChatWorkspace } from '../src/client/side-chat-workspace.ts'
 
 const mainId = SessionId('workspace-main')
@@ -83,6 +84,42 @@ function source(initial: WorkspaceSnapshot, sessionInitial = catalog()) {
   const sessions: Pick<ISessions, 'list'> = { list: sessionCatalog.list }
   return { ...workspace, workspaces, sessions, catalog: sessionCatalog }
 }
+
+describe('workspace side-chat activity', () => {
+  it('stays active until the last child settles and leaves the parent’s own status intact', () => {
+    const [left, right] = [ownedSideSessionId(mainId, 'left'), ownedSideSessionId(mainId, 'right')] as const
+    const list = catalog('ready', [{ id: mainId }, { id: left }, { id: right }])
+    const parents = new Map([[sideParentKey(mainId), mainId]])
+    const idle = {
+      running: false,
+      completionUnread: false,
+      completionFailed: false,
+      pendingInteraction: undefined,
+    }
+    const busy = { ...idle, running: true }
+    for (const [a, b] of [
+      [busy, busy],
+      [busy, idle],
+      [idle, busy],
+      [idle, idle],
+    ] as const) {
+      const input = new Map([
+        [mainId, idle],
+        [left, a],
+        [right, b],
+      ])
+      const visible = workspaceActivity(list, input, parents)
+      expect(visible.get(mainId)?.running).toBe(a.running || b.running)
+      expect(input.get(mainId)).toBe(idle)
+    }
+    const own = new Map([
+      [mainId, busy],
+      [left, idle],
+      [right, idle],
+    ])
+    expect(workspaceActivity(list, own, parents)).toBe(own)
+  })
+})
 
 describe('side-chat Workspace creation environment', () => {
   it('uses exact main membership from a ready list without reading cwd or creating a workspace', async () => {

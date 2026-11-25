@@ -12,8 +12,8 @@ import {
   SIDE_CHAT_TAB_ID,
   SideChatConversation,
   SideChatPanel,
-  SideChatTabContent,
-  type SideChatTabContentProps,
+  SideChatTabTitle,
+  type SideChatTabTitleProps,
   type SideChatConversationProps,
   type SideChatPanelProps,
   type SideChatSidebarOptions,
@@ -111,7 +111,15 @@ function reference(id: string): SideChatReference {
   }
 }
 
-function panelProps(snapshot: SideChatView, overrides: Record<string, unknown> = {}): SideChatPanelProps {
+function address(chatId: SideChatId | null): string {
+  return chatId === null ? 'sidebar://annotationsidechat' : 'dsh-resource://annotationsidechat/' + chatId
+}
+
+function panelProps(
+  snapshot: SideChatView,
+  overrides: Record<string, unknown> = {},
+  chatId = snapshot.activeSideChatId,
+): SideChatPanelProps {
   const injected = {
     useSideChat: <T,>(selector: (value: SideChatView) => T): T => selector(snapshot),
     removeReference: vi.fn(),
@@ -131,11 +139,12 @@ function panelProps(snapshot: SideChatView, overrides: Record<string, unknown> =
     openSideChatAlone: vi.fn(),
     setReferencePanelOpen: vi.fn(),
     retainVisiblePanel: vi.fn(() => () => {}),
+    isActiveTab: () => true,
     t,
   }
-  const props = {
+  return {
     ...injected,
-    useTabInfo: () => ({ tab: { visible: true } }),
+    useTabInfo: () => ({ tab: { visible: true, id: 'native-tab', contentId: address(chatId) } }),
     useSessions: <T,>(selector: (value: unknown) => T): T =>
       selector({
         byId: { [sideId]: { running: true, title: 'Side one', displayTitle: 'Side one', retainedBy: {} } },
@@ -144,17 +153,10 @@ function panelProps(snapshot: SideChatView, overrides: Record<string, unknown> =
     renderSlot: () => <div data-testid="conversation" />,
     ...overrides,
   } as unknown as SideChatPanelProps
-  props.renderSlot = (_name, owner) => {
-    if ('sideChatId' in owner && typeof owner.sideChatId === 'string')
-      return (
-        <SideChatTabContent
-          {...({ ...props, sideChatId: owner.sideChatId as SideChatId } as SideChatTabContentProps)}
-          renderSlot={() => <div data-testid="conversation" />}
-        />
-      )
-    return <div data-testid="conversation" />
-  }
-  return props
+}
+
+function titleProps(props: SideChatPanelProps): SideChatTabTitleProps {
+  return props as SideChatTabTitleProps
 }
 
 function sidebarHost(
@@ -164,6 +166,7 @@ function sidebarHost(
   const definitions: SidebarRightTabDefinition[] = []
   const registrations: { options: Record<string, unknown> }[] = []
   const openTabIn = vi.fn()
+  const openResourceIn = vi.fn()
   const hide = vi.fn()
   const focus = vi.fn()
   const closeIn = vi.fn()
@@ -182,6 +185,8 @@ function sidebarHost(
         mounted: { getSnapshot: () => mainId, subscribe: () => () => {} },
         tabsIn: () => tabs,
         openTabIn,
+        openResourceIn,
+        active: () => undefined,
         hide,
         focus,
         closeIn,
@@ -211,6 +216,7 @@ function sidebarHost(
     definitions,
     registrations,
     openTabIn,
+    openResourceIn,
     hide,
     focus,
     closeIn,
@@ -220,13 +226,11 @@ function sidebarHost(
 }
 
 function options(overrides: Partial<SideChatSidebarOptions> = {}): SideChatSidebarOptions {
-  const openPanel = vi.fn()
   const openStandalone = vi.fn()
   return {
     controllerFor: () => undefined,
     controllerForSide: () => undefined,
     locateReference: async () => true,
-    openPanel,
     retainVisiblePanel: vi.fn(() => () => {}),
     prepareChat: vi.fn(async () => {}),
     openStandalone,
@@ -280,7 +284,7 @@ describe('independent side-chat Host integration', () => {
       SideChatConversation({ useSession, renderFactorySlot: factory } as unknown as SideChatConversationProps)
       expect(factory).toHaveBeenCalledExactlyOnceWith(
         'conversation.content',
-        { variant: 'embedded', phase, hero: false },
+        { variant: 'embedded', phase, hero: false, onWorkspaceSelected: expect.any(Function) },
         { slots: { views: FixedSideChatView } },
       )
     },
@@ -301,15 +305,16 @@ describe('independent side-chat Host integration', () => {
     expect(renderSlot).toHaveBeenCalledExactlyOnceWith('conversation.session', { view: 'chat' })
   })
 
-  it('uses the Session title and selects only the current official Tab', () => {
+  it('uses the exact Session title in each Host tab, including the inactive one', () => {
     const snapshot = view([chat(chatA, { references: [reference('a'), reference('b')] }), chat(chatB)])
-    render(<SideChatPanel {...panelProps(snapshot)} />)
-    const rows = screen.getAllByRole('tab')
-    expect(rows).toHaveLength(2)
-    expect(rows[0]).toHaveAttribute('aria-selected', 'true')
-    expect(rows[0]).toHaveTextContent('Side one')
-    expect(rows[1]).toHaveAttribute('aria-selected', 'false')
-    expect(rows[1]).toHaveTextContent('Side chat 2')
+    render(
+      <>
+        <SideChatTabTitle {...titleProps(panelProps(snapshot, {}, chatA))} />
+        <SideChatTabTitle {...titleProps(panelProps(snapshot, {}, chatB))} />
+      </>,
+    )
+    expect(screen.getByText('Side one')).toHaveAttribute('data-dia-side-chat-select', chatA)
+    expect(screen.getByText('Side chat 2')).toHaveAttribute('data-dia-side-chat-select', chatB)
   })
 
   it('releases visible panel ownership when the retained Host tab is hidden or unmounted', () => {
@@ -318,7 +323,7 @@ describe('independent side-chat Host integration', () => {
     let visible = true
     const props = panelProps(view([chat(chatA)]), {
       retainVisiblePanel,
-      useTabInfo: () => ({ tab: { visible } }),
+      useTabInfo: () => ({ tab: { visible, id: 'native-tab', contentId: address(chatA) } }),
     })
     const mounted = render(<SideChatPanel {...props} />)
     expect(retainVisiblePanel).toHaveBeenCalledOnce()
@@ -344,12 +349,12 @@ describe('independent side-chat Host integration', () => {
         useSessions: (selector: (value: unknown) => unknown) =>
           selector({ byId: { [sideId]: { title, displayTitle: title, retainedBy: {} } } }),
       })
-      const mounted = render(<SideChatPanel {...props} />)
-      expect(screen.getByRole('tab')).toHaveTextContent('Side chat 7')
-      expect(screen.getByRole('tab')).not.toHaveTextContent('Submission ID')
+      const mounted = render(<SideChatTabTitle {...titleProps(props)} />)
+      expect(screen.getByText('Side chat 7')).toBeVisible()
+      expect(screen.queryByText(/Submission ID/iu)).toBeNull()
       title = 'Review the deployment steps'
-      mounted.rerender(<SideChatPanel {...props} />)
-      expect(screen.getByRole('tab')).toHaveTextContent(title)
+      mounted.rerender(<SideChatTabTitle {...titleProps(props)} />)
+      expect(screen.getByText(title)).toBeVisible()
     },
   )
 
@@ -362,43 +367,52 @@ describe('independent side-chat Host integration', () => {
           byId: { [sideId]: { title, displayTitle: 'project', retainedBy: {} } },
         }),
     })
-    const mounted = render(<SideChatPanel {...props} />)
-    expect(screen.getByRole('tab')).toHaveTextContent('Side chat 7')
+    const mounted = render(<SideChatTabTitle {...titleProps(props)} />)
+    expect(screen.getByText('Side chat 7')).toBeVisible()
     title = 'project'
-    mounted.rerender(<SideChatPanel {...props} />)
-    expect(screen.getByRole('tab')).toHaveTextContent('project')
+    mounted.rerender(<SideChatTabTitle {...titleProps(props)} />)
+    expect(screen.getByText('project')).toBeVisible()
     title = 'Updated title'
+    mounted.rerender(<SideChatTabTitle {...titleProps(props)} />)
+    expect(screen.getByText('Updated title')).toBeVisible()
+  })
+
+  it('updates the annotation target only when the Host focuses that chat', () => {
+    const snapshot = view([chat(chatA), chat(chatB, { status: 'idle' })])
+    let active = false
+    const props = panelProps(snapshot, { isActiveTab: () => active }, chatB)
+    const mounted = render(<SideChatPanel {...props} />)
+    expect(props.retryChat).toHaveBeenCalledWith(chatB)
+    expect(props.selectSideChat).not.toHaveBeenCalled()
+    active = true
     mounted.rerender(<SideChatPanel {...props} />)
-    expect(screen.getByRole('tab')).toHaveTextContent('Updated title')
-  })
-
-  it('switches and creates chats without closing the panel', () => {
-    const snapshot = view([chat(chatA), chat(chatB)])
-    const props = panelProps(snapshot)
-    render(<SideChatPanel {...props} />)
-    fireEvent.click(screen.getByRole('tab', { name: /Side chat 2/u }))
     expect(props.selectSideChat).toHaveBeenCalledExactlyOnceWith(chatB)
-    fireEvent.click(screen.getByRole('button', { name: en['sideChat.new'] }))
-    expect(props.createSideChat).toHaveBeenCalledOnce()
-    expect(props.closeSideChat).not.toHaveBeenCalled()
   })
 
-  it('opens or archives the hovered tab without selecting it', () => {
-    const props = panelProps(view([chat(chatA), chat(chatB)], chatB))
-    render(<SideChatPanel {...props} />)
-    const first = screen.getAllByRole('tab')[0]!
+  it('opens or archives the hovered Host tab without selecting it', () => {
+    const props = panelProps(view([chat(chatA), chat(chatB)], chatB), {}, chatA)
+    const activate = vi.fn()
+    render(
+      <div role="tab" onClick={activate}>
+        <SideChatTabTitle {...titleProps(props)} />
+      </div>,
+    )
+    const first = screen.getByRole('tab')
     fireEvent.click(within(first).getByRole('button', { name: en['sideChat.openAlone'] }))
     fireEvent.click(within(first).getByRole('button', { name: en['sideChat.archiveChat'] }))
     expect(props.openSideChatAlone).toHaveBeenCalledExactlyOnceWith(chatA)
     expect(props.archiveChat).toHaveBeenCalledExactlyOnceWith(chatA)
-    expect(props.selectSideChat).not.toHaveBeenCalled()
+    expect(activate).not.toHaveBeenCalled()
   })
 
-  it('opens the selected chat as an ordinary full Conversation page', () => {
-    const props = panelProps(view([chat(chatA)]))
-    render(<SideChatPanel {...props} />)
-    fireEvent.click(screen.getByRole('button', { name: en['sideChat.openAlone'] }))
-    expect(props.openSideChatAlone).toHaveBeenCalledExactlyOnceWith(chatA)
+  it('closes a Host tab already archived when its sidebar is restored', () => {
+    const close = vi.fn()
+    const props = panelProps(view([chat(chatA, { archived: true })], null), {
+      useTabInfo: () => ({ tab: { id: 'native-tab', contentId: address(chatA), actions: { close } } }),
+    })
+    render(<SideChatTabTitle {...titleProps(props)} />)
+    expect(close).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('button', { name: en['sideChat.openAlone'] })).toBeNull()
   })
 
   it('releases only the embedded editor occurrence while its Session has a full page', async () => {
@@ -425,7 +439,7 @@ describe('independent side-chat Host integration', () => {
       />,
     )
     expect(screen.queryByTestId('conversation')).toBeNull()
-    expect(screen.getByRole('tab')).toHaveAttribute('aria-selected', 'true')
+    expect(fixture.owner.getSnapshot().activeSideChatId).toBe(created.sideChatId)
     expect(fixture.owner.getReference(created.sideChatId)).toBe(fixture.reference)
     mounted.rerender(<SideChatPanel {...panelProps(snapshot, { referenceFor })} />)
     expect(screen.getByTestId('conversation')).toBeInTheDocument()
@@ -473,15 +487,41 @@ describe('independent side-chat Host integration', () => {
     expect(host.definitions).toEqual([])
   })
 
-  it('routes the panel-open action through the host navigation owner', () => {
-    const openPanel = vi.fn()
-    const host = sidebarHost()
+  it('moves saved side chats into the main Session native strip and retires the old page', () => {
+    const fixture = parallelSideChatFixture(mainId)
+    onTestFinished(fixture.dispose)
+    const first = fixture.owner.createChat()
+    const second = fixture.owner.createChat()
+    fixture.owner.selectChat(first.sideChatId)
+    const host = sidebarHost([{ id: 'old-side-page', kind: SIDE_CHAT_KIND, contentId: address(null) }])
     onTestFinished(host.dispose)
-    const sidebar = registerSideChatSidebar(host.ctx, t, options({ openPanel }))
+    const sidebar = registerSideChatSidebar(host.ctx, t, options({ controllerFor: () => fixture.owner }))
     onTestFinished(() => sidebar.dispose())
     sidebar.face(mainId).openSideChat()
-    expect(openPanel).toHaveBeenCalledExactlyOnceWith(mainId)
+    const call = (id: SideChatId) => [mainId, address(id), { kind: SIDE_CHAT_KIND }]
+    expect(host.openResourceIn.mock.calls).toEqual([
+      call(first.sideChatId),
+      call(second.sideChatId),
+      call(first.sideChatId),
+    ])
+    expect(host.closeIn).toHaveBeenCalledExactlyOnceWith(mainId, 'old-side-page')
     expect(host.openTabIn).not.toHaveBeenCalled()
+  })
+
+  it('closes all occurrences of only the archived chat', () => {
+    const host = sidebarHost([
+      { id: 'to-archive', kind: SIDE_CHAT_KIND, contentId: address(chatA) },
+      { id: 'second-occurrence', kind: SIDE_CHAT_KIND, contentId: address(chatA) },
+      { id: 'keep', kind: SIDE_CHAT_KIND, contentId: address(chatB) },
+    ])
+    onTestFinished(host.dispose)
+    const sidebar = registerSideChatSidebar(host.ctx, t, options())
+    onTestFinished(() => sidebar.dispose())
+    sidebar.closeChatTab(mainId, chatA)
+    expect(host.closeIn.mock.calls).toEqual([
+      [mainId, 'to-archive'],
+      [mainId, 'second-occurrence'],
+    ])
   })
 
   it('closes only the side-chat tabs of a deleted main Session and keeps other chats available', async () => {
@@ -578,12 +618,7 @@ describe('independent side-chat Host integration', () => {
       references: [],
       referenceRecords: [],
     })
-    expect(prepareChat.mock.calls.map((call) => call[1])).toEqual([
-      first.sideChatId,
-      first.sideChatId,
-      second.sideChatId,
-      second.sideChatId,
-    ])
+    expect(prepareChat.mock.calls.map((call) => call[1])).toEqual([first.sideChatId, second.sideChatId])
   })
 
   it('loads an unselected restored chat when selected and opens the explicit chat alone', async () => {

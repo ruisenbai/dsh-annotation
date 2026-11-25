@@ -1,5 +1,7 @@
-# README.en.md（英文）与 README.zh.md（简体中文）的章节摘要；README.md 同步展示中文。
-# 使用 DeepSeek Harness 的 scripts/translation-pairing-record.ts 按上述路径记录。
+# Bilingual-pair consistency record for README.en.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write README.en.md
 /:
   en: cb2185c3144d2a94
   zh: c7fb3b26c8de954c
@@ -7,8 +9,8 @@
   en: 0e1e2b3de05b287b
   zh: b935c82380f74499
 /dsh-annotation/summary:
-  en: e212a9e5463d7bb6
-  zh: d19c71b697da7e61
+  en: c689cda0786c5b40
+  zh: bb52ecfa87953b9c
 /dsh-annotation/contents:
   en: fb5047d96b412d51
   zh: ff47a1d878c34d3b
@@ -22,8 +24,8 @@
   en: 21bb8ed5dc37727e
   zh: 7247c66c407d0570
 /dsh-annotation/install-and-upgrade/upgrading-from-an-older-host:
-  en: 5039fadf4c777cd0
-  zh: 1ba6caba92d2ad79
+  en: e78bb1ce28fd7aa5
+  zh: 826d1a43629975cb
 /dsh-annotation/supported-sources:
   en: dc9c7e2d3ae08ffa
   zh: 9939c646f862aba8
@@ -34,8 +36,8 @@
   en: 9c4e96da23d2c693
   zh: 6733e31267f8f31f
 /dsh-annotation/side-chats:
-  en: 6b36e5823f4f96a4
-  zh: a2188ec5f2a68a10
+  en: 03d4284a134e27e9
+  zh: 12324b9cdd0d7a52
 /dsh-annotation/send-resend-and-retry:
   en: 963a748d6a5182c6
   zh: 0e64e0dd9aaa41bf

@@ -17,6 +17,8 @@ export async function exerciseSideAnnotations(context) {
     mainFlow,
     openMain,
     openSide,
+    createFromSideTab,
+    restoreFromGuide,
     selectText,
     composer,
     association,
@@ -28,7 +30,10 @@ export async function exerciseSideAnnotations(context) {
   const flow = (id) => page.locator(`[data-conversation-content][data-conversation-session="${id}"]:visible`)
   const editor = () => page.locator('.dia-record-editor:visible[role="dialog"]')
   const side = page.locator('[data-dia-side-chat]:visible')
-  const tab = (id) => page.locator(`[data-dockkit-tab="annotation-side-tab:${id}"]`)
+  const sidebar = page.locator(
+    '[data-sidebar-right-panel][data-sidebar-right-session="' + scenario.mainSessionId + '"]',
+  )
+  const tab = (id) => sidebar.locator(`[data-dia-side-chat-select="${id}"]`)
   const assertBlankTranscript = async (content) => {
     const body = content.locator('[data-chat-flow]')
     await body.waitFor({ state: 'attached' })
@@ -253,7 +258,7 @@ export async function exerciseSideAnnotations(context) {
     await mainFlow(scenario.mainSessionId).getByText('main-attachment.txt', { exact: true }).isVisible(),
   )
 
-  await side.getByRole('button', { name: '新建侧边聊天', exact: true }).click()
+  await createFromSideTab(scenario.mainSessionId)
   await side.locator('[data-conversation-content]:visible [contenteditable="true"]').waitFor()
   const blank = await association(scenario.mainSessionId)
   await assertCleanConversation(flow(blank.sideSessionId))
@@ -264,11 +269,11 @@ export async function exerciseSideAnnotations(context) {
       .count(),
     0,
   )
-  assert.equal(await side.getByRole('tab').count(), 2)
+  assert.equal(await sidebar.locator('[data-dia-side-chat-select]').count(), 2)
   await assertComposerAtBottom(flow(blank.sideSessionId), 'clean-new-side-chat')
   await page.screenshot({ path: join(artifacts, 'clean-new-side-chat.png'), fullPage: true })
-  await side.locator(`[data-dia-side-chat-select="${blank.sideChatId}"]`).hover()
-  await side.locator(`[data-dia-side-chat-open-alone="${blank.sideChatId}"]`).click()
+  await tab(blank.sideChatId).hover()
+  await sidebar.locator(`[data-dia-side-chat-open-alone="${blank.sideChatId}"]`).click()
   await composer(flow(blank.sideSessionId)).waitFor({ state: 'visible' })
   for (const [width, theme] of [
     [1440, 'dark'],
@@ -300,9 +305,11 @@ export async function exerciseSideAnnotations(context) {
   await page.emulateMedia({ colorScheme: 'dark' })
   await openMain(scenario.mainSessionId, scenario.source)
   await openSide(scenario.mainSessionId)
-  await tab(blank.sideChatId).click()
+  assert.equal(await tab(blank.sideChatId).count(), 0)
+  await createFromSideTab(scenario.mainSessionId)
+  await side.locator('[data-conversation-content]:visible [contenteditable="true"]').waitFor()
   const second = await annotate(scenario.references[1])
-  assert.equal(second.sideChatId, blank.sideChatId)
+  assert.notEqual(second.sideChatId, blank.sideChatId)
   assert.notEqual(first.sideSessionId, second.sideSessionId)
   await editor().getByRole('textbox', { name: '你的注解', exact: true }).fill(sourceOpinions[1])
   await tab(first.sideChatId).click()
@@ -502,91 +509,16 @@ export async function exerciseSideAnnotations(context) {
   )
   assert.ok(localNote)
   await annotate(scenario.references[2], '核对同一侧边聊天的两种来源')
+  await waitForNotes(first.sideSessionId, 3)
   const foreignDraft = (await readNotes(first.sideSessionId)).annotations.find(
     (note) => note.quote.exact === scenario.references[2],
   )
   assert.ok(foreignDraft)
-  assert.equal(await page.locator(`[data-row-key="session:${first.sideSessionId}"]`).count(), 0)
-  await side.locator(`[data-dia-side-chat-select="${first.sideChatId}"]`).hover()
-  await side.locator(`[data-dia-side-chat-open-alone="${first.sideChatId}"]`).click()
-  await composer(flow(first.sideSessionId)).waitFor({ state: 'visible' })
-  await assertCleanConversation(flow(first.sideSessionId))
-  const standalone = page.locator(
-    `[data-conversation-content][data-conversation-session="${first.sideSessionId}"]:not([data-dia-side-chat] *)`,
-  )
-  await standalone.waitFor()
-  const standaloneSource = standalone.locator('.dia-assistant__body').last()
-  await standaloneSource.evaluate(async (el) => {
-    await Promise.allSettled(
-      document
-        .getAnimations()
-        .filter((a) => a.effect?.getTiming().iterations === 1)
-        .map((a) => a.finished),
-    )
-    el.scrollIntoView({ block: 'center', behavior: 'instant' })
-    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))
-  })
-  const standaloneToolbar = await selectText(standaloneSource, 'Side note addressed.')
-  const standaloneSideAction = standaloneToolbar.getByRole('button', { name: '在侧边添加注解', exact: true })
-  assert.equal(
-    await standaloneSideAction.count(),
-    1,
-    'A former side chat opened as a main page keeps the sidebar annotation entry',
-  )
-  await page.screenshot({ path: join(artifacts, 'standalone-main-selection-entry.png'), fullPage: true })
-  const originalAssociation = await association(scenario.mainSessionId)
-  const ownNotesBefore = (await readNotes(first.sideSessionId)).annotations.length
-  await standaloneSideAction.click()
-  await editor().waitFor({ state: 'visible' })
-  const receiving = await association(first.sideSessionId)
-  assert.notEqual(receiving.sideSessionId, first.sideSessionId)
-  assert.notEqual(receiving.sideSessionId, second.sideSessionId)
-  assert.equal(await editor().getAttribute('data-dia-annotation-target'), receiving.sideSessionId)
-  await editor()
-    .getByRole('textbox', { name: '你的注解', exact: true })
-    .fill('独立打开后继续在自己的侧栏添加注解')
-  await save()
-  await waitForNotes(receiving.sideSessionId, 1)
-  const received = (await readNotes(receiving.sideSessionId)).annotations[0]
-  assert.equal(received.source.sessionId, first.sideSessionId)
-  assert.equal(received.quote.exact, 'Side note addressed.')
-  assert.equal((await readNotes(first.sideSessionId)).annotations.length, ownNotesBefore)
-  assert.deepEqual(await association(scenario.mainSessionId), originalAssociation)
-  await page.screenshot({ path: join(artifacts, 'standalone-main-sidebar-annotation.png'), fullPage: true })
-  await page
-    .locator(
-      `[data-sidebar-right-panel][data-sidebar-right-session="${first.sideSessionId}"] [data-sidebar-right-toggle]`,
-    )
-    .click()
-  await flow(first.sideSessionId).waitFor({ state: 'visible' })
-  await flow(first.sideSessionId)
-    .locator(`.dia-marker[data-annotation-id="${localNote.annotationId}"]`)
-    .click()
-  const ownGeometry = await editorGeometry('standalone-local-annotation')
-  await editor().getByRole('button', { name: '取消', exact: true }).click()
-  const showRecords = flow(first.sideSessionId).getByRole('button', { name: '显示注解记录', exact: true })
-  if (await showRecords.isVisible()) await showRecords.click()
-  await flow(first.sideSessionId)
-    .locator(`.dia-record-row[data-annotation-id="${foreignDraft.annotationId}"]`)
-    .getByRole('button', { name: '编辑', exact: true })
-    .click()
-  const foreignGeometry = await editorGeometry('standalone-foreign-annotation')
-  assert.equal(ownGeometry.width, foreignGeometry.width)
-  for (const theme of ['light', 'dark']) {
-    await page.emulateMedia({ colorScheme: theme })
-    await page.setViewportSize({ width: 390, height: 960 })
-    await editorGeometry(`standalone-annotation-390-${theme}`)
-    for (const button of await editor().getByRole('button').all()) {
-      const bounds = await button.boundingBox()
-      assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= 390 && bounds.y + bounds.height <= 960)
-    }
-  }
-  await editor().getByRole('button', { name: '取消', exact: true }).click()
-  await page.setViewportSize({ width: 1440, height: 960 })
   await openMain(scenario.mainSessionId, scenario.source)
   await openSide(scenario.mainSessionId)
   await tab(first.sideChatId).click()
   await annotate(scenario.nextReference, '')
+  await waitForNotes(first.sideSessionId, 4)
   const highlight = (await readNotes(first.sideSessionId)).annotations.find(
     (note) => note.quote.exact === scenario.nextReference,
   )
@@ -672,18 +604,94 @@ export async function exerciseSideAnnotations(context) {
       .locator('..')
       .locator(`.dia-marker[data-annotation-id="${note.annotationId}"]`)
   await sourceMarker(secondNote).waitFor()
-  await side.locator(`[data-dia-side-chat-select="${second.sideChatId}"]`).hover()
-  await side.locator(`[data-dia-side-chat-archive="${second.sideChatId}"]`).click()
+  await tab(second.sideChatId).hover()
+  await sidebar.locator(`[data-dia-side-chat-archive="${second.sideChatId}"]`).click()
   await sourceMarker(secondNote).waitFor({ state: 'detached' })
   await sourceMarker(firstNote).waitFor()
   await page.reload()
   await openSide(scenario.mainSessionId)
   await sourceMarker(firstNote).waitFor()
   assert.equal(await sourceMarker(secondNote).count(), 0)
-  await side.getByRole('button', { name: '已归档', exact: true }).click()
-  await page.getByRole('menuitem', { name: /恢复/ }).click()
+  await restoreFromGuide(scenario.mainSessionId)
   await sourceMarker(secondNote).waitFor()
   await tab(first.sideChatId).click()
+  assert.equal(await page.locator(`[data-row-key="session:${first.sideSessionId}"]`).count(), 0)
+  await tab(first.sideChatId).hover()
+  await sidebar.locator(`[data-dia-side-chat-open-alone="${first.sideChatId}"]`).click()
+  await composer(flow(first.sideSessionId)).waitFor({ state: 'visible' })
+  await assertCleanConversation(flow(first.sideSessionId))
+  const standalone = page.locator(
+    `[data-conversation-content][data-conversation-session="${first.sideSessionId}"]:not([data-dia-side-chat] *)`,
+  )
+  await standalone.waitFor()
+  const standaloneSource = standalone.locator('.dia-assistant__body').last()
+  await standaloneSource.evaluate(async (el) => {
+    await Promise.allSettled(
+      document
+        .getAnimations()
+        .filter((a) => a.effect?.getTiming().iterations === 1)
+        .map((a) => a.finished),
+    )
+    el.scrollIntoView({ block: 'center', behavior: 'instant' })
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))
+  })
+  const standaloneToolbar = await selectText(standaloneSource, 'Side note addressed.')
+  const standaloneSideAction = standaloneToolbar.getByRole('button', { name: '在侧边添加注解', exact: true })
+  assert.equal(
+    await standaloneSideAction.count(),
+    1,
+    'A former side chat opened as a main page keeps the sidebar annotation entry',
+  )
+  await page.screenshot({ path: join(artifacts, 'standalone-main-selection-entry.png'), fullPage: true })
+  const originalAssociation = await association(scenario.mainSessionId)
+  const ownNotesBefore = (await readNotes(first.sideSessionId)).annotations.length
+  await standaloneSideAction.click()
+  await editor().waitFor({ state: 'visible' })
+  const receiving = await association(first.sideSessionId)
+  assert.notEqual(receiving.sideSessionId, first.sideSessionId)
+  assert.notEqual(receiving.sideSessionId, second.sideSessionId)
+  assert.equal(await editor().getAttribute('data-dia-annotation-target'), receiving.sideSessionId)
+  await editor()
+    .getByRole('textbox', { name: '你的注解', exact: true })
+    .fill('独立打开后继续在自己的侧栏添加注解')
+  await save()
+  await waitForNotes(receiving.sideSessionId, 1)
+  const received = (await readNotes(receiving.sideSessionId)).annotations[0]
+  assert.equal(received.source.sessionId, first.sideSessionId)
+  assert.equal(received.quote.exact, 'Side note addressed.')
+  assert.equal((await readNotes(first.sideSessionId)).annotations.length, ownNotesBefore)
+  assert.deepEqual(await association(scenario.mainSessionId), originalAssociation)
+  await page.screenshot({ path: join(artifacts, 'standalone-main-sidebar-annotation.png'), fullPage: true })
+  await page
+    .locator(
+      `[data-sidebar-right-panel][data-sidebar-right-session="${first.sideSessionId}"] [data-sidebar-right-toggle]`,
+    )
+    .click()
+  await flow(first.sideSessionId).waitFor({ state: 'visible' })
+  await flow(first.sideSessionId)
+    .locator(`.dia-marker[data-annotation-id="${localNote.annotationId}"]`)
+    .click()
+  const ownGeometry = await editorGeometry('standalone-local-annotation')
+  await editor().getByRole('button', { name: '取消', exact: true }).click()
+  const showRecords = flow(first.sideSessionId).getByRole('button', { name: '显示注解记录', exact: true })
+  if (await showRecords.isVisible()) await showRecords.click()
+  await flow(first.sideSessionId)
+    .locator(`.dia-record-row[data-annotation-id="${foreignDraft.annotationId}"]`)
+    .getByRole('button', { name: '编辑', exact: true })
+    .click()
+  const foreignGeometry = await editorGeometry('standalone-foreign-annotation')
+  assert.equal(ownGeometry.width, foreignGeometry.width)
+  for (const theme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.setViewportSize({ width: 390, height: 960 })
+    await editorGeometry(`standalone-annotation-390-${theme}`)
+    for (const button of await editor().getByRole('button').all()) {
+      const bounds = await button.boundingBox()
+      assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= 390 && bounds.y + bounds.height <= 960)
+    }
+  }
+  await editor().getByRole('button', { name: '取消', exact: true }).click()
+  await page.setViewportSize({ width: 1440, height: 960 })
   evidence.checks.push({
     name: 'side annotations: captured target, synchronized source bubbles, sent-card toggle, readable titles, isolated drafts, recovery, matching compact editors, readable highlight-only summaries, model output and constrained themes',
     status: 'passed',

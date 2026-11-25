@@ -22,14 +22,19 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-deliverables/client'
-import { resolveConfig, LEGACY_COMMAND_NAMES } from '../shared/config.ts'
+import type { SyncedConfig } from '@deepseek-ai/dsh-client-config/types'
+import {
+  deploymentConfig,
+  bindCommandName,
+  LEGACY_COMMAND_NAMES,
+  type DeploymentFields,
+} from '../shared/config.ts'
 import { encodeSubmissionCommand } from '../shared/codec.ts'
 import { parseAttachmentIdentities, sameAttachmentIdentities } from '../shared/protocol.ts'
 import { isOutboxPayloadEntry, outboxSubmissionId } from '../shared/outbox-redaction.ts'
 import { ATTACHMENT_PREPARE_INPUT, ATTACHMENT_IDENTITY_MISMATCH } from '../shared/types.ts'
 import { ANNOTATION_SETTINGS_NAMESPACE, type AnnotationSettings } from '../shared/settings.ts'
 import type {
-  AnnotationConfig,
   MessageIdentity,
   OutboxAttachments,
   OutboxPayloadEntry,
@@ -104,13 +109,14 @@ import {
   SIDE_CHAT_RECEIPTS_PROJECTION,
   type SideChatId,
 } from '../shared/side-chat-types.ts'
-import { registerSideChatSidebar, SIDE_CHAT_KIND, type SideChatSidebar } from './side-chat-sidebar.tsx'
+import { registerSideChatSidebar, type SideChatSidebar } from './side-chat-sidebar.tsx'
+import { sideOnly } from './side-chat-blank-reuse.ts'
 import { installSideChatPresentation } from './side-chat-presentation.tsx'
 import { submitSideChat } from './side-chat-submit.ts'
 import {
   FORK_SIDE_CHAT_COMMAND,
   isOwnedSideSession,
-  isSideSessionId,
+  PROMOTE_SIDE_CHAT_COMMAND,
   ownedSideSessionId,
   sideParentKey,
   sideSessionAddress,
@@ -249,9 +255,8 @@ function attachmentMetadata(attachments: readonly SubmitAttachment[]): OutboxAtt
 }
 
 /** Mount every UI contribution and bind one controller to each encountered Session. */
-export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): void {
-  // The synced Config can return a reference even when the requested field is absent.
-  const config = resolveConfig({ ...input })
+export function apply(ctx: ClientContext, input?: SyncedConfig<DeploymentFields>): void {
+  const config = deploymentConfig(input)
   const sessions: ISessions & { isDeleted?(id: SessionId): Promise<boolean> } =
     ctx.sessions as unknown as ISessions
   const conversation = ctx.conversation as unknown as IConversation
@@ -736,14 +741,15 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   ctx.effect(() => presentation.dispose, 'dsh-annotation: workspace and chat views')
   if (registerRows)
     ctx.effect(
-      () => registerRows.call(workspaceRows, (id) => !isSideSessionId(id)),
+      () => registerRows.call(workspaceRows, (id) => !sideOnly(sessions.list.getSnapshot(), id)),
       'dsh-annotation: side-only navigation',
     )
 
   let catalogIds: readonly SessionId[] | undefined
   const sideCatalog = new Map<string, NonNullable<ReturnType<typeof sideSessionAddress>>[]>()
   const discoverSideChats = (owner: SideChatController): void => {
-    const { ids, phase } = sessions.list.getSnapshot()
+    const list = sessions.list.getSnapshot()
+    const { ids, phase } = list
     const workspaces = ctx.workspaces.list.getSnapshot()
     if (phase !== 'ready' || workspaces.phase !== 'ready') return
     if (ids !== catalogIds) {
@@ -758,7 +764,15 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       }
     }
     const entries = sideCatalog.get(sideParentKey(owner.mainSessionId))
-    if (entries) owner.discover(entries, new Set(workspaces.archivedSessionIds))
+    for (const chat of owner.getSnapshot().chats) {
+      if (chat.sideSessionId && list.byId[chat.sideSessionId]?.projectionValues?.annotationSideChatPromoted)
+        owner.removeChat(chat.sideChatId)
+    }
+    if (entries)
+      owner.discover(
+        entries.filter(({ sessionId }) => sideOnly(list, sessionId)),
+        new Set(workspaces.archivedSessionIds),
+      )
   }
   // The gateway releases the mounted namespace with this client plugin's fiber.
   let forkRemoteReady: ReturnType<typeof ctx.remote.$mount> | undefined
@@ -853,9 +867,22 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     for (const chat of owner.getSnapshot().chats) {
       if (chat.sideSessionId !== null) registerSideSession(chat.sideSessionId, chat.sideChatId)
     }
+    const openableIds = () =>
+      new Set(
+        owner
+          .getSnapshot()
+          .chats.filter((chat) => !chat.archived)
+          .map((chat) => chat.sideChatId),
+      )
+    let knownChatIds = openableIds()
     sideChatObservers.set(
       mainSessionId,
       owner.subscribe(() => {
+        const currentChatIds = openableIds()
+        for (const chatId of knownChatIds) {
+          if (!currentChatIds.has(chatId)) sideChatSidebar?.closeChatTab(mainSessionId, chatId)
+        }
+        knownChatIds = currentChatIds
         refreshSourceReferences(mainSessionId, owner)
         const known = new Set(
           owner
@@ -864,19 +891,9 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         )
         for (const [sideId, candidate] of sideOwners) {
           if (candidate !== owner || known.has(sideId)) continue
-          try {
-            AnnotationStorage.retireSession(
-              browserStorage,
-              String(sideId) as SessionIdentity,
-              storageCoordination,
-            )
-          } catch (cause: unknown) {
-            controllerFor(mainSessionId).setNotice('error', 'sideChat.actionFailed')
-            ctx.logger.warn('Deleted side-chat annotation cleanup failed', cause)
-          }
-          dropController(sideId)
           sideOwners.delete(sideId)
           sideChatIds.delete(sideId)
+          if (sessions.binding(sideId)) repairComposerAttachment(sideId)
         }
         for (const chat of owner.getSnapshot().chats) {
           if (chat.sideSessionId === null) continue
@@ -1093,10 +1110,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         if (!(await awaitSourceSession(sourceId, navigation.signal))) return false
       }
       // A fullscreen panel would cover the restored quote; a docked one stays while the body shows.
-      if (narrow()) {
-        const tab = ctx.sidebarRight.tabsIn(sourceId).find((item) => item.kind === SIDE_CHAT_KIND)
-        if (tab !== undefined) ctx.sidebarRight.hide(tab.id)
-      }
+      if (narrow()) sideChatSidebar?.hide(sourceId)
       const result = await controllerFor(sourceId).locateMessageQuote(reference, navigation.signal)
       const found =
         !navigation.signal.aborted &&
@@ -1911,27 +1925,35 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
       locateReference: locateSideChatReference,
       archiveChat: (mainSessionId, chatId) => manageSideChat(mainSessionId, chatId, 'archive'),
       restoreChat: (mainSessionId, chatId) => manageSideChat(mainSessionId, chatId, 'restore'),
-      openPanel: (mainSessionId) => {
-        if (disposed || unavailableMains.has(mainSessionId)) return
-        const owner = sideChatFor(mainSessionId)
-        owner.show()
-        // A page kind is one tab per pane, so opening it again reveals the same panel
-        // instead of stacking duplicates; a first open creates the page.
-        const target = owner.getSnapshot().activeSideChatId
-        ctx.sidebarRight.openTabIn(mainSessionId, SIDE_CHAT_KIND)
-        if (target !== null) void prepareSideChat(mainSessionId, target)
-      },
       prepareChat: prepareSideChat,
-      openStandalone: (sideSessionId) => {
+      openStandalone: async (sideSessionId) => {
         const workspace = ctx.get('uiWorkspace')
-        if (workspace === undefined) return
         const owner = sideOwners.get(sideSessionId)
-        if (owner !== undefined) {
-          owner.show()
-          const chat = owner.chatForSideSession(sideSessionId)
-          if (chat !== null) void prepareSideChat(owner.mainSessionId, chat.sideChatId)
+        const chat = owner?.chatForSideSession(sideSessionId)
+        if (!owner || !chat) return
+        const signal = integrationLifetime.signal
+        try {
+          if (
+            !workspace ||
+            !ctx.get('remote.commands') ||
+            !owner.lastSaveSucceeded ||
+            chat.outbox ||
+            chat.references.length
+          )
+            throw new SideChatFailure('unavailable')
+          const result = await executeCommand(sideSessionId, `/${PROMOTE_SIDE_CHAT_COMMAND}`, [], signal)
+          if (!result.ok || result.text !== sideSessionId)
+            throw new SideChatFailure('unavailable', result.errorText)
+          if (signal.aborted) return
+          workspace.openSession(sideSessionId)
+          await sessions
+            .refresh()
+            .catch((cause: unknown) => ctx.logger.warn('Could not refresh the promoted workspace row', cause))
+        } catch (cause: unknown) {
+          if (signal.aborted) return
+          controllerFor(owner.mainSessionId).setNotice('error', 'sideChat.actionFailed')
+          ctx.logger.warn('Side-chat promotion failed', cause)
         }
-        workspace.openSession(sideSessionId)
       },
     })
     sideChatSidebar = sidebar
@@ -2142,28 +2164,27 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
           AssistantAnnotationAction,
         ),
       ),
-      ctx.slots.inject('conversation.chat.commandview', () => [
-        ctx.slots.register(
-          {
-            name: 'conversation.chat.commandview',
-            key: config.commandName,
-            inject: faceFor,
-          },
-          HiddenCommandRow,
-        ),
-        ...[FORK_SIDE_CHAT_COMMAND, SIDE_CHAT_COMMAND_NAME, ...LEGACY_COMMAND_NAMES]
-          .filter((name) => name !== config.commandName)
-          .map((name) =>
-            ctx.slots.register(
-              {
-                name: 'conversation.chat.commandview',
-                key: name,
-                inject: faceFor,
-              },
-              HiddenCommandRow,
-            ),
+      ctx.slots.inject('conversation.chat.commandview', () => {
+        const fixed: readonly string[] = [
+          FORK_SIDE_CHAT_COMMAND,
+          PROMOTE_SIDE_CHAT_COMMAND,
+          SIDE_CHAT_COMMAND_NAME,
+          ...LEGACY_COMMAND_NAMES,
+        ]
+        const register = (name: string) =>
+          ctx.slots.register(
+            { name: 'conversation.chat.commandview', key: name, inject: faceFor },
+            HiddenCommandRow,
+          )
+        return [
+          bindCommandName(
+            () => config.commandName,
+            (changed) => input?.commandName.subscribe(changed) ?? (() => {}),
+            (name) => (fixed.includes(name) ? () => {} : register(name)),
           ),
-      ]),
+          ...fixed.map(register),
+        ]
+      }),
     ]
     return async () => {
       if (sideChatSidebar === sidebar) sideChatSidebar = undefined
@@ -2262,6 +2283,17 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
     )
   }
 
+  const removeDeletedChat = (owner: SideChatController, id: SessionId, tab: SideChatId) => {
+    try {
+      AnnotationStorage.retireSession(browserStorage, String(id) as SessionIdentity, storageCoordination)
+    } catch (cause: unknown) {
+      controllerFor(owner.mainSessionId).setNotice('error', 'sideChat.actionFailed')
+      ctx.logger.warn('Deleted side-chat annotation cleanup failed', cause)
+    }
+    owner.removeChat(tab)
+    dropController(id)
+  }
+
   ctx.effect(() => {
     const prune = (): void => {
       if (disposed) return
@@ -2278,7 +2310,8 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         void sessions
           .isDeleted(sideId)
           .then((deleted) => {
-            if (deleted && !disposed && sideOwners.get(sideId) === owner) owner.removeChat(chat.sideChatId)
+            if (deleted && !disposed && sideOwners.get(sideId) === owner)
+              removeDeletedChat(owner, sideId, chat.sideChatId)
           })
           .catch((cause: unknown) => {
             ctx.logger.warn('Could not verify side-chat deletion', cause)
@@ -2336,7 +2369,7 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
         deletionEvents.$on('api-session/deleted', (sideSessionId) => {
           const owner = sideOwners.get(sideSessionId)
           const chat = owner?.chatForSideSession(sideSessionId)
-          if (chat !== undefined && chat !== null) owner?.removeChat(chat.sideChatId)
+          if (owner && chat) removeDeletedChat(owner, sideSessionId, chat.sideChatId)
         }),
       'dsh-annotation: official side-chat deletion',
     )
@@ -2461,4 +2494,5 @@ export function apply(ctx: ClientContext, input?: Partial<AnnotationConfig>): vo
   }, 'dsh-annotation: dynamic conversation integrations')
 }
 
-export type { AnnotationConfig, MessageIdentity }
+export type { AnnotationConfig } from '../shared/types.ts'
+export type { MessageIdentity }

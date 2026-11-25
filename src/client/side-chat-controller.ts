@@ -437,7 +437,7 @@ export class SideChatController {
     return active[index + 1]?.sideChatId ?? active[index - 1]?.sideChatId ?? null
   }
 
-  /** @param sideChatId - Exact association after successful official deletion. @returns Nothing; permanent markers reject stale-page resurrection. */
+  /** @param sideChatId - Association to retire after confirmed deletion or promotion. @returns Nothing; permanent markers reject stale-page resurrection. */
   removeChat(sideChatId: SideChatId): void {
     if (this.closed) return
     const chat = this.chat(sideChatId)

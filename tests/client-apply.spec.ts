@@ -58,6 +58,7 @@ import type {
   SubmitAttachment,
   SubmitOutcome,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import { syncedDeployment } from './deployment-fixture.ts'
 import { apply, inject } from '../src/client/index.tsx'
 import { COMPOSER_ATTACHMENT_TOKEN, COMPOSER_TEXT_SEAT } from '../src/client/composer-attachment.ts'
 import {
@@ -1396,7 +1397,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     const fixture = fixtureContext(vi.fn())
     onTestFinished(fixture.dispose)
     // The synced Config creates a reference even for a field absent from the graph.
-    const input = new Proxy({}, { get: () => ({ get: () => undefined }) })
+    const { fields: input } = syncedDeployment()
 
     apply(fixture.ctx, input)
 
@@ -2630,10 +2631,15 @@ describe('Client plugin composer attachment lifecycle', () => {
   it('rejects an oversized item count from the official composer before transport', async () => {
     const command = vi.fn()
     const fixture = fixtureContext(command)
-    apply(fixture.ctx, { maxAnnotationsPerSubmission: 1 })
+    const live = syncedDeployment({ maxAnnotationsPerSubmission: 100, commandName: 'review_initial' })
+    apply(fixture.ctx, live.fields)
     const face = fixture.face()
     saveAnnotation(face, 0, 'first', 'First note.')
     saveAnnotation(face, 8, 'second', 'Second note.')
+    saveAnnotation(face, 16, 'third', 'Third note.')
+    live.update({ maxAnnotationsPerSubmission: 2, commandName: 'review_renamed' })
+    expect(fixture.hasRegistrationKey('conversation.chat.commandview', 'review_renamed')).toBe(true)
+    expect(fixture.hasRegistrationKey('conversation.chat.commandview', 'review_initial')).toBe(false)
     face.ensureComposerAttachment()
 
     const outcome = await fixture.submitComposer()
@@ -2646,6 +2652,7 @@ describe('Client plugin composer attachment lifecycle', () => {
     expect(face.hooks.annotations.getSnapshot().annotations.map((item) => item.status)).toEqual([
       'draft',
       'draft',
+      'draft',
     ])
     await fixture.dispose()
   })
@@ -2653,7 +2660,10 @@ describe('Client plugin composer attachment lifecycle', () => {
   it('sends the selected first and third annotations with ordered attachments', async () => {
     const command = vi.fn().mockResolvedValue(remoteSuccess())
     const fixture = fixtureContext(command)
-    apply(fixture.ctx, { maxAnnotationsPerSubmission: 2 })
+    apply(
+      fixture.ctx,
+      syncedDeployment({ maxAnnotationsPerSubmission: 2, commandName: 'review_submit' }).fields,
+    )
     try {
       const face = fixture.face()
       saveAnnotation(face, 0, 'first', 'First opinion')
@@ -2670,6 +2680,7 @@ describe('Client plugin composer attachment lifecycle', () => {
       const attachments = [imageAttachment(), fileAttachment()]
       expect(await fixture.submitComposer(attachments)).toEqual({ kind: 'success' })
       const [, line, transported] = command.mock.calls[0]!
+      expect(line).toMatch(/^\/review_submit /u)
       const payload = JSON.parse(
         Buffer.from((line as string).split(' ')[1]!, 'base64url').toString('utf8'),
       ) as { processingMode: string; annotations: Array<{ annotationId: string; ordinal: number }> }

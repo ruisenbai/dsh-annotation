@@ -7,8 +7,15 @@ import type {} from '@deepseek-ai/dsh-settings'
 import { installSettingsMigration } from './host/settings-migration.ts'
 import { createAnnotationCommand, createLegacyAnnotationAliases } from './host/command.ts'
 import { AnnotationSideChats, sideChatTranscriptStart } from './host/side-chat-fork.ts'
+import { installSideChatPromotion } from './host/side-chat-promotion.ts'
 import { installSideChatCommand } from './host/side-chat-command.ts'
-import { DEFAULT_CONFIG, resolveConfig } from './shared/config.ts'
+import {
+  DEFAULT_CONFIG,
+  deploymentConfig,
+  bindCommandName,
+  LEGACY_COMMAND_NAMES,
+  type DeploymentFields,
+} from './shared/config.ts'
 import {
   ARCHIVED_PREFERENCES_IMPORTED_FIELD,
   DEFAULT_ANNOTATION_AUTO_ATTACH,
@@ -20,22 +27,21 @@ import {
   DEFAULT_TRANSCRIPT_VISIBILITY,
   type AnnotationSettings,
 } from './shared/settings.ts'
-import type { AnnotationConfig } from './shared/types.ts'
 
 export const name = 'dsh-annotation'
 export const inject = ['commands', 'sessionProjections']
 
 /** Command limits and live preferences exposed by the Host configuration form. */
-export type Config = AnnotationConfig & {
+export type Config = DeploymentFields & {
   [Key in keyof AnnotationSettings]: Volatile<AnnotationSettings[Key]>
 } & { archivedPreferencesImported: Volatile<boolean> }
 
 export const Config = Schema.object({
-  commandName: Schema.string().default(DEFAULT_CONFIG.commandName),
-  maxPayloadBytes: Schema.number().default(DEFAULT_CONFIG.maxPayloadBytes),
-  maxAnnotationsPerSubmission: Schema.number().default(DEFAULT_CONFIG.maxAnnotationsPerSubmission),
-  warnSelectionChars: Schema.number().default(DEFAULT_CONFIG.warnSelectionChars),
-  locateHistoryPages: Schema.number().default(DEFAULT_CONFIG.locateHistoryPages),
+  commandName: Schema.string().default(DEFAULT_CONFIG.commandName).volatile(),
+  maxPayloadBytes: Schema.number().default(DEFAULT_CONFIG.maxPayloadBytes).volatile(),
+  maxAnnotationsPerSubmission: Schema.number().default(DEFAULT_CONFIG.maxAnnotationsPerSubmission).volatile(),
+  warnSelectionChars: Schema.number().default(DEFAULT_CONFIG.warnSelectionChars).volatile(),
+  locateHistoryPages: Schema.number().default(DEFAULT_CONFIG.locateHistoryPages).volatile(),
   [ARCHIVED_PREFERENCES_IMPORTED_FIELD]: Schema.boolean().default(false).volatile(),
   enabled: Schema.boolean().default(DEFAULT_ANNOTATION_ENABLED).volatile(),
   officialFileAnnotations: Schema.boolean().default(DEFAULT_OFFICIAL_FILE_ANNOTATIONS).volatile(),
@@ -66,17 +72,29 @@ export const Config = Schema.object({
 })
 
 /** Register the Host command bridge and optional user-settings section. */
-export async function apply(ctx: Context, input: AnnotationConfig): Promise<void> {
-  const config = resolveConfig(input)
+export async function apply(ctx: Context, input: Config): Promise<void> {
+  const config = deploymentConfig(input)
   installSettingsMigration(ctx)
   ctx.effect(
-    () => ctx.commands.register(createAnnotationCommand(config)),
+    () =>
+      bindCommandName(
+        () => config.commandName,
+        (changed) =>
+          ctx.on('loader/volatile-update', (paths) => {
+            if (paths.some(([key]) => key === 'commandName')) changed()
+          }),
+        (name) =>
+          LEGACY_COMMAND_NAMES.some((alias) => alias === name)
+            ? () => {}
+            : ctx.commands.register(createAnnotationCommand(config)),
+      ),
     'dsh-annotation: internal submission command',
   )
   for (const alias of createLegacyAnnotationAliases(config)) {
     ctx.effect(() => ctx.commands.register(alias), `dsh-annotation: legacy alias /${alias.name}`)
   }
   await ctx.sessionProjections.register(sideChatTranscriptStart)
+  await installSideChatPromotion(ctx)
   await installSideChatCommand(ctx, config)
   ctx.plugin(AnnotationSideChats)
   ctx.inject(['settings'], (child) => {

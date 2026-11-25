@@ -135,11 +135,13 @@ export function apply(ctx) {
     const commands = ctx.commands
     const execute = commands.execute
     commands.execute = (agent, line, attachments, signal) =>
-      lifecycle.has('admission')
-        ? intercept('admission', agent.session.id, () =>
-            execute.call(commands, agent, line, attachments, signal),
-          )
-        : execute.call(commands, agent, line, attachments, signal)
+      line === '/annotation_side_chat_promote' && failures.delete('promotion')
+        ? Promise.resolve({ result: { kind: 'error', text: 'Fixture promotion rejected' } })
+        : lifecycle.has('admission')
+          ? intercept('admission', agent.session.id, () =>
+              execute.call(commands, agent, line, attachments, signal),
+            )
+          : execute.call(commands, agent, line, attachments, signal)
     const persistence = ctx.sessionPersistence
     const creation = persistence.create
     persistence.create = (header, options) =>
@@ -252,6 +254,8 @@ export function apply(ctx) {
       await delegated.dispose()
       return true
     }
+    if (action === 'install-upgrade' && process.env.DSH_ANNOTATION_UPGRADE_ARCHIVE)
+      return ctx.pluginManager.installBundle(process.env.DSH_ANNOTATION_UPGRADE_ARCHIVE)
     if (action === 'inspect') {
       const origin = `http://127.0.0.1:${ctx.webServer.port}/`
       const entries = []
@@ -272,6 +276,10 @@ export function apply(ctx) {
     if (action === 'prepare') {
       await ctx.settings.update('ui-settings-general', { welcomeNoticeVersion: '2026-09-28.1' })
       workspace = await ctx.workspaceRegistry.create(payload.workspace, 'Side-chat smoke')
+      return true
+    }
+    if (action === 'set-text-size') {
+      await ctx.settings.update('ui-theme', { fontSize: payload.fontSize })
       return true
     }
     if (action === 'seed-session') {

@@ -7,7 +7,7 @@
 
 ## 从干净目录开始
 
-需要 Node.js 24.9.0 或更新版本、pnpm 11.28.5，以及运行 Chromium 的环境。公开版宿主和插件依赖由 `pnpm-lock.yaml` 锁定。master 基线使用 Zod 4.6.6，插件与接收凭据的校验也要保持相同版本。
+需要 Node.js `^24.22.3 || >=26.13.1`、pnpm 11.28.5，以及运行 Chromium 的环境。公开版宿主和插件依赖由 `pnpm-lock.yaml` 锁定。master 基线使用 Zod 4.6.6，插件与接收凭据的校验也要保持相同版本。
 
 ```bash
 pnpm install --frozen-lockfile --strict-peer-dependencies
@@ -57,11 +57,11 @@ pnpm test:coverage
 在锁文件对应的验证目录完成以上检查后，用 `pnpm --config.ignoreScripts=true pack --pack-destination artifacts` 打包。此选项只用于避免重复执行已经完成的检查。若在临时源码验证目录打包，先还原发布仓库的 `package.json`，不发布本机依赖覆盖。
 
 ```bash
-tar -tzf artifacts/dsh-annotation-1.3.1.tgz
-tar -xOf artifacts/dsh-annotation-1.3.1.tgz package/package.json
+tar -tzf artifacts/dsh-annotation-1.3.4.tgz
+tar -xOf artifacts/dsh-annotation-1.3.4.tgz package/package.json
 ```
 
-安装包应含 `lib/index.js`、`lib/client.js`、`lib/invariant.js`、类型、配置补丁、中文文档、截图及许可。用隔离的 `DSH_HOME` 将它安装到 `web` 配置；`dsh plugin --profile web why dsh-annotation` 应显示 1.3.1。再通过公开版宿主实际加载并核对安装包内的客户端内容。
+安装包应含 `lib/index.js`、`lib/client.js`、`lib/invariant.js`、类型、配置补丁、中文文档、截图及许可。用隔离的 `DSH_HOME` 将它安装到 `web` 配置；`dsh plugin --profile web why dsh-annotation` 应显示 1.3.4。再通过公开版宿主实际加载并核对安装包内的客户端内容。
 
 <a id="release-checklist"></a>
 

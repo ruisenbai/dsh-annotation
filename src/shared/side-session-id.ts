@@ -35,3 +35,11 @@ export function isOwnedSideSession(parent: SessionId, id: string): boolean {
 
 /** Internal parent-addressed command returning the durable child identity. */
 export const FORK_SIDE_CHAT_COMMAND = 'annotation_side_chat_fork'
+export const PROMOTE_SIDE_CHAT_COMMAND = 'annotation_side_chat_promote'
+
+declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionMap {
+    /** True only for a side conversation explicitly promoted to a workspace row. */
+    annotationSideChatPromoted: boolean
+  }
+}

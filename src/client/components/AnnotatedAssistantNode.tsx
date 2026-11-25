@@ -295,7 +295,30 @@ function sameReplyChips(left: readonly ReplyChipState[], right: readonly ReplyCh
   )
 }
 
-type AnnotatedAssistantNodeProps = AssistantAnnotationProps & {
+type AnnotatedAssistantNodeProps = Pick<
+  AssistantAnnotationProps,
+  | 'node'
+  | 'sessionId'
+  | 'turnProcess'
+  | 'useAnnotations'
+  | 'useSession'
+  | 'useSessions'
+  | 'useInput'
+  | 'inputActions'
+  | 'beginSelection'
+  | 'beginSideAnnotation'
+  | 'sideChatMainSessionId'
+  | 'removeSourceReference'
+  | 'locateSideChatReference'
+  | 'openAnnotation'
+  | 'openSourceAnnotation'
+  | 'navigate'
+  | 'registerEndpoint'
+  | 'updateHighlightRanges'
+  | 'activateHighlight'
+  | 'removeHighlights'
+  | 't'
+> & {
   /** Rendered output from the selected Host assistant renderer. */
   readonly children: ReactElement
   /** The Host owns selections except file-link labels omitted by its button filter. */
@@ -401,6 +424,20 @@ export const AnnotatedAssistantNode = memo(function AnnotatedAssistantNode({
   const data = node.data
   const messageId = data.finalNode?.messageId as unknown as MessageIdentity | undefined
   const messageSeq = data.finalNode?.seq
+
+  // Smooth Stream identifies each Markdown answer block separately from reasoning and tools.
+  useLayoutEffect(() => {
+    const body = bodyRef.current
+    if (!sharedSelection || body === null || messageId === undefined) return
+    const attribute = 'data-text-interaction-source'
+    const added = Array.from(body.querySelectorAll('[data-follow-text]')).filter(
+      (block) => !block.closest(`[${attribute}]`) && !block.querySelector(`[${attribute}]`),
+    )
+    for (const block of added) block.setAttribute(attribute, '')
+    return () => {
+      for (const block of added) block.removeAttribute(attribute)
+    }
+  }, [sharedSelection, messageId, domRevision])
 
   useLayoutEffect(() => {
     textIndexRef.current?.invalidate()
